@@ -1,0 +1,7 @@
+.env
+*.log
+notify-push-sent.json
+notify-debug.log
+*.bak-notify-wrapper
+ Thumbs.db
+Desktop.ini
