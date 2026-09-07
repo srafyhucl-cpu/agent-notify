@@ -12,7 +12,9 @@
   再打开方式：双击托盘图标 / 桌面“linkWeixin 悬浮窗” / 上面那条手动命令。
   内容只有状态显示 + 翻 marker，不做 token/时段输入框。
   进程名已在本机实测：opencode 侧 'OpenCode*'（桌面）/'opencode*'（cli/service），
-  codex 侧 'codex*'（codex-plus-plus* 是无关软件 Codex++，已排除）。
+  codex 侧 'codex*'（codex-plus-plus* 是无关软件 Codex++，已排除）。轮询 5 秒一次，
+  开关点击即时刷新；插件版本启动查一次、之后 10 分钟复查，心跳约 30 秒写一次，
+  常驻开销只有内存（一个 hidden powershell），不阻止系统睡眠。
   上次推送时间读 notify-push.log 尾行（与插件同路径约定）。
 #>
 param(
@@ -48,7 +50,8 @@ function Log-Err {
 
 $script:allowExit = $false
 $script:lastOn = $null
-$script:trayTipped = $false
+$script:tickN = 0
+$script:plugVer = $null
 
 function Test-AppRunning {
   param([string[]]$Patterns, [string[]]$Exclude = @())
@@ -318,6 +321,7 @@ foreach ($c in @($bar, $title)) {
 
 function Refresh-UI {
   $on = Get-NotifyOn
+  $script:tickN++
   $btn.Text = if ($on) { '●  推送开启' } else { '○  推送关闭' }
   $btn.BackColor = if ($on) { $GREEN } else { $RED }
   $btn.ForeColor = [System.Drawing.Color]::White
@@ -335,7 +339,9 @@ function Refresh-UI {
   $rowCx.Txt.Text = if ($cx) { 'codex  运行中' } else { 'codex  未运行' }
   $rowCx.Dot.ForeColor = if ($cx) { $DOT_ON } else { [System.Drawing.Color]::FromArgb(100, 100, 105) }
   $rowLast.Txt.Text = '上次推送 ' + (Get-LastPushText)
-  $pv = Test-PluginGate
+  # 插件版本几乎不变：启动查一次，之后每 10 分钟复查，不再每轮读文件。
+  if ($null -eq $script:plugVer -or ($script:tickN % 120) -eq 1) { $script:plugVer = Test-PluginGate }
+  $pv = $script:plugVer
   if ($pv -eq '新版') {
     $hint.Text = '只管 opencode 侧推送，codex 侧不受影响。'
     $hint.ForeColor = $DIM
@@ -346,12 +352,14 @@ function Refresh-UI {
 }
 
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 3000
+$timer.Interval = 5000
 $timer.Add_Tick({
   try {
     Refresh-UI
-    # 心跳：下次再“找不到了”，看这个文件就知道是崩了、被杀了还是点的退出。
-    (Get-Date -Format o) | Out-File -FilePath $aliveFile -Encoding utf8 -Force
+    # 心跳 ~30 秒写一次：够定位“崩/杀/退”，不值得每轮写盘。
+    if (($script:tickN % 6) -eq 0) {
+      (Get-Date -Format o) | Out-File -FilePath $aliveFile -Encoding utf8 -Force
+    }
   } catch { Log-Err 'tick' $_ }
 })
 $timer.Start()

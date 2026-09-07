@@ -134,7 +134,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 **悬浮窗**（`linkweixin-widget.ps1`，无边框深色小窗，右下角常驻置顶）：
 
 - 大开关：翻 marker，绿底 ON / 红底 OFF，一眼看清状态。
-- 运行灯：`opencode` / `codex` 进程在即绿灯（`Get-Process` 每 3 秒轮询，
+- 运行灯：`opencode` / `codex` 进程在即绿灯（每 5 秒轮询，
   本机实测进程名 `OpenCode*` / `opencode*` / `codex*`，`codex-plus-plus*` 是无关软件已排除），
   仅状态显示。
 - 上次推送：读 `%TEMP%\opencode\notify-push.log` 尾行时间，无记录显示暂无推送。
