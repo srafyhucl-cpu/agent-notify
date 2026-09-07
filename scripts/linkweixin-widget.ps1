@@ -39,6 +39,11 @@ try {
 
 $pushLog = if ($env:OPENCODE_NOTIFY_LOG_FILE) { $env:OPENCODE_NOTIFY_LOG_FILE } else { Join-Path $env:TEMP 'opencode\notify-push.log' }
 $pluginPath = Join-Path $env:USERPROFILE '.config\opencode\plugin\notify-pushplus.ts'
+$errLog = Join-Path $env:TEMP 'opencode\widget-error.log'
+function Log-Err {
+  param([string]$Where, [object]$Ex)
+  try { "$(Get-Date -Format o) [$Where] $($Ex | Out-String)" | Out-File -FilePath $errLog -Append -Encoding utf8 } catch { }
+}
 
 $script:allowExit = $false
 $script:lastOn = $null
@@ -242,6 +247,7 @@ $iconOn = New-DotIcon $DOT_ON
 $iconOff = New-DotIcon $RED
 $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Text = 'linkWeixin 推送'
+$notify.Icon = $iconOn
 $notify.Visible = $true
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miShow = $menu.Items.Add('隐藏悬浮窗')
@@ -339,12 +345,16 @@ function Refresh-UI {
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 3000
-$timer.Add_Tick({ Refresh-UI })
+$timer.Add_Tick({ try { Refresh-UI } catch { Log-Err 'tick' $_ } })
 $timer.Start()
 
 $form.Add_Shown({
-  Refresh-UI
-  $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 最小化到托盘（任务栏 ^ 里找绿/红点，可拖出来），双击托盘图标恢复。', [System.Windows.Forms.ToolTipIcon]::Info)
+  try { Refresh-UI } catch { Log-Err 'shown' $_ }
+  try { $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 最小化到托盘（任务栏 ^ 里找绿/红点，可拖出来），双击托盘图标恢复。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Log-Err 'tip' $_ }
 })
-[void]$form.ShowDialog()
+try {
+  [void]$form.ShowDialog()
+} catch {
+  Log-Err 'show' $_
+}
 exit 0
