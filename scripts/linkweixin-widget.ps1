@@ -40,6 +40,7 @@ try {
 $pushLog = if ($env:OPENCODE_NOTIFY_LOG_FILE) { $env:OPENCODE_NOTIFY_LOG_FILE } else { Join-Path $env:TEMP 'opencode\notify-push.log' }
 $pluginPath = Join-Path $env:USERPROFILE '.config\opencode\plugin\notify-pushplus.ts'
 $errLog = Join-Path $env:TEMP 'opencode\widget-error.log'
+$aliveFile = Join-Path $env:TEMP 'opencode\widget-alive.txt'
 function Log-Err {
   param([string]$Where, [object]$Ex)
   try { "$(Get-Date -Format o) [$Where] $($Ex | Out-String)" | Out-File -FilePath $errLog -Append -Encoding utf8 } catch { }
@@ -132,7 +133,9 @@ $form.Text = 'linkWeixin'
 $form.Size = New-Object System.Drawing.Size(288, 352)
 $form.FormBorderStyle = 'None'
 $form.TopMost = $true
-$form.ShowInTaskbar = $false
+# 任务栏常驻按钮：最小化后一定找得回来（托盘图标 Win11 默认收进 ^ 容易丢，
+# 所以主路径是任务栏，托盘只做辅助）。
+$form.ShowInTaskbar = $true
 $form.StartPosition = 'Manual'
 $form.BackColor = $BG
 $form.ForeColor = $FG
@@ -239,7 +242,7 @@ $foot.Location = New-Object System.Drawing.Point(16, 304)
 $foot.Size = New-Object System.Drawing.Size(256, 20)
 $foot.Font = New-Object System.Drawing.Font('Microsoft YaHei', 8)
 $foot.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 115)
-$foot.Text = '× 最小化到托盘 · 双击托盘图标恢复'
+$foot.Text = '× 最小化到任务栏 · 右键托盘可彻底退出'
 $form.Controls.Add($foot)
 
 # 托盘
@@ -257,23 +260,22 @@ $miExit = $menu.Items.Add('退出')
 $notify.ContextMenuStrip = $menu
 
 function Show-Window {
+  $form.WindowState = 'Normal'
   $form.Show()
   $form.Activate()
   $miShow.Text = '隐藏悬浮窗'
 }
 function Hide-Window {
-  $form.Hide()
+  # 主路径：最小化到任务栏（一定找得回来）；托盘保留做辅助。
+  $form.WindowState = 'Minimized'
   $miShow.Text = '显示悬浮窗'
-  if (-not $script:trayTipped) {
-    $script:trayTipped = $true
-    $notify.ShowBalloonTip(3000, 'linkWeixin', '已最小化到托盘，双击图标可恢复。右键托盘有退出。', [System.Windows.Forms.ToolTipIcon]::Info)
-  }
 }
 function Toggle-Window {
-  if ($form.Visible) { Hide-Window } else { Show-Window }
+  if ($form.WindowState -eq 'Minimized' -or -not $form.Visible) { Show-Window } else { Hide-Window }
 }
 function Real-Exit {
   $script:allowExit = $true
+  try { 'user-exit ' + (Get-Date -Format o) | Out-File -FilePath $aliveFile -Encoding utf8 -Force } catch { }
   $notify.Visible = $false
   $notify.Dispose()
   $form.Close()
@@ -345,12 +347,18 @@ function Refresh-UI {
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 3000
-$timer.Add_Tick({ try { Refresh-UI } catch { Log-Err 'tick' $_ } })
+$timer.Add_Tick({
+  try {
+    Refresh-UI
+    # 心跳：下次再“找不到了”，看这个文件就知道是崩了、被杀了还是点的退出。
+    (Get-Date -Format o) | Out-File -FilePath $aliveFile -Encoding utf8 -Force
+  } catch { Log-Err 'tick' $_ }
+})
 $timer.Start()
 
 $form.Add_Shown({
   try { Refresh-UI } catch { Log-Err 'shown' $_ }
-  try { $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 最小化到托盘（任务栏 ^ 里找绿/红点，可拖出来），双击托盘图标恢复。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Log-Err 'tip' $_ }
+  try { $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 缩到任务栏（按钮一直在），点任务栏按钮恢复；右键托盘可彻底退出。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Log-Err 'tip' $_ }
 })
 try {
   [void]$form.ShowDialog()
