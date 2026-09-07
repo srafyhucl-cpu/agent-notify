@@ -23,6 +23,20 @@ $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# 单实例：桌面快捷方式双击 = 可靠重开。先接管（杀掉）旧实例再起新窗体；
+# 开关状态在 marker 文件里，新实例自动继承。排除自己和父进程，
+# 父进程的命令行里也可能带本脚本名（比如从终端手动启动时），不能误杀。
+try {
+  $myParent = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
+    Where-Object {
+      ($_.CommandLine -like '*linkweixin-widget.ps1*') -and
+      ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $myParent)
+    } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Milliseconds 500
+} catch { }
+
 $pushLog = if ($env:OPENCODE_NOTIFY_LOG_FILE) { $env:OPENCODE_NOTIFY_LOG_FILE } else { Join-Path $env:TEMP 'opencode\notify-push.log' }
 $pluginPath = Join-Path $env:USERPROFILE '.config\opencode\plugin\notify-pushplus.ts'
 
@@ -328,6 +342,9 @@ $timer.Interval = 3000
 $timer.Add_Tick({ Refresh-UI })
 $timer.Start()
 
-$form.Add_Shown({ Refresh-UI })
+$form.Add_Shown({
+  Refresh-UI
+  $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 最小化到托盘（任务栏 ^ 里找绿/红点，可拖出来），双击托盘图标恢复。', [System.Windows.Forms.ToolTipIcon]::Info)
+})
 [void]$form.ShowDialog()
 exit 0
