@@ -106,21 +106,23 @@ try {
   Write-Output '  3. 真推一条验证：powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-ai.ps1" -Title "安装验证" -Summary "linkWeixin 安装成功"'
   Write-Output '  4. 随用随开：powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1"（翻转；-On/-Off 显式指定）'
 
-  # 5. 悬浮窗开机自启（shell:startup 快捷方式，无需管理员）。
+  # 5. 悬浮窗开机自启（shell:startup 快捷方式，无需管理员）
+  #    + 桌面快捷方式（关掉窗体后从桌面双击即可再打开）。
   try {
-    $startupDir = [Environment]::GetFolderPath('Startup')
-    $lnkPath = Join-Path $startupDir 'linkWeixin Widget.lnk'
     $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     if (-not (Test-Path $psExe)) { $psExe = 'powershell.exe' }
     $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
     $ws = New-Object -ComObject WScript.Shell
-    $sc = $ws.CreateShortcut($lnkPath)
-    $sc.TargetPath = $psExe
-    $sc.Arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $widget + '"'
-    $sc.WorkingDirectory = $InstallDir
-    $sc.Description = 'linkWeixin 推送悬浮窗'
-    $sc.Save()
-    Write-Output "[install] 悬浮窗开机快捷方式已建：$lnkPath"
+    foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
+      $lnkPath = Join-Path $dir 'linkWeixin 悬浮窗.lnk'
+      $sc = $ws.CreateShortcut($lnkPath)
+      $sc.TargetPath = $psExe
+      $sc.Arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $widget + '"'
+      $sc.WorkingDirectory = $InstallDir
+      $sc.Description = 'linkWeixin 推送悬浮窗'
+      $sc.Save()
+      Write-Output "[install] 悬浮窗快捷方式已建：$lnkPath"
+    }
     try {
       Start-Process $psExe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $widget)
       Write-Output '[install] 悬浮窗已启动（右下角无边框小窗，拖标题区移动）。'

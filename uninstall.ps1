@@ -27,14 +27,18 @@ else { Write-Output "[uninstall] 不存在，跳过：$plug" }
 # 悬浮窗：杀窗体进程 + 删开机快捷方式。
 try {
   Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
-    Where-Object { $_.CommandLine -match 'linkweixin-widget' } |
+    Where-Object { ($_.CommandLine -match 'linkweixin-widget') -and ($_.ProcessId -ne $PID) } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Output "[uninstall] 已杀悬浮窗进程 $($_.ProcessId)" }
 } catch {
   Write-Output "[uninstall] 悬浮窗进程清理跳过：$($_.Exception.Message)"
 }
-$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'linkWeixin Widget.lnk'
-if (Test-Path $lnk) { Remove-Item $lnk -Force; Write-Output "[uninstall] 已删开机快捷方式 $lnk" }
-else { Write-Output "[uninstall] 无开机快捷方式，跳过：$lnk" }
+$lnkNames = @('linkWeixin 悬浮窗.lnk', 'linkWeixin Widget.lnk')
+foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
+  foreach ($n in $lnkNames) {
+    $lnk = Join-Path $dir $n
+    if (Test-Path $lnk) { Remove-Item $lnk -Force; Write-Output "[uninstall] 已删快捷方式 $lnk" }
+  }
+}
 
 try {
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop

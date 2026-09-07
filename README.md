@@ -74,7 +74,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 | 安装 opencode 插件 | `%USERPROFILE%\.config\opencode\plugin\notify-pushplus.ts` |
 | 接管 codex `notify` | `%USERPROFILE%\.codex\config.toml`（先备份 `.bak-notify-wrapper`；已是 wrapper 或自定义程序则不动） |
 | 注册计划任务 `CodexNotifyWatch` | 登录触发 + 每 5 分钟跑 watcher |
-| 建悬浮窗开机快捷方式 | `shell:startup\linkWeixin Widget.lnk`（无需管理员，本次同时启动窗体） |
+| 建悬浮窗快捷方式 | `shell:startup` + 桌面 `linkWeixin 悬浮窗.lnk`（无需管理员，本次同时启动窗体） |
 
 非管理员：加 `-SkipScheduledTask` 跳过任务注册（watcher 不装；日后 codex 配置若被改回，
 手动重跑一遍 `install.ps1` 或 watcher 脚本即可恢复）。
@@ -131,14 +131,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
   左闭右开，跨天如 `23-8` 表示到次日 8:00 前静默；格式写错 fail-open，
   不断推送）。改完需重启 opencode 桌面端（含后台 service）。
 
-**悬浮窗**（`linkweixin-widget.ps1`，无边框小窗，右下角常驻置顶）：
+**悬浮窗**（`linkweixin-widget.ps1`，无边框深色小窗，右下角常驻置顶）：
 
-- 大开关：翻 marker，回显 ON/OFF（绿/红底）。
+- 大开关：翻 marker，绿底 ON / 红底 OFF，一眼看清状态。
 - 运行灯：`opencode` / `codex` 进程在即绿灯（`Get-Process` 每 3 秒轮询，
-  本机实测进程名 `OpenCode*` / `opencode*` / `codex*`），仅状态显示。
+  本机实测进程名 `OpenCode*` / `opencode*` / `codex*`，`codex-plus-plus*` 是无关软件已排除），
+  仅状态显示。
 - 上次推送：读 `%TEMP%\opencode\notify-push.log` 尾行时间，无记录显示暂无推送。
-- 拖标题区移动，右上角 × 退出；开机自启靠 `shell:startup` 快捷方式
-  （`install.ps1` 已建，重启后自启；手动启动见窗体脚本头注释）。
+- 底栏异常提示：装上去的插件是旧版（开关不生效）会直接橙字报警。
+- 拖标题区移动；右上角 × / — 都是最小化到托盘（首次有气泡提示），
+  **再打开**：双击托盘图标（图标颜色=开关状态）/ 桌面双击 `linkWeixin 悬浮窗` /
+  手动跑窗体脚本头注释里的命令；右键托盘菜单可开关推送或彻底退出。
+- 开机自启靠 `shell:startup` 快捷方式（`install.ps1` 已建，重启后自启）。
 - 不做 token/时段输入框，密钥和时段只走环境变量。
 
 ## 工作原理
