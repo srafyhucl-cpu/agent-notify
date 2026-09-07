@@ -162,8 +162,12 @@ function isRecord(v) {
 
 function spawnNotify(title, summary) {
   const dry = process.env.OPENCODE_NOTIFY_DRYRUN === "1"
+  // -WindowStyle Hidden：子 powershell 启动就不建可见控制台，
+  // 根治任务完成时命令行窗口闪一下（光靠 execFile windowsHide 某些环境下仍会闪）。
   const args = [
     "-NoProfile",
+    "-WindowStyle",
+    "Hidden",
     "-ExecutionPolicy",
     "Bypass",
     "-File",

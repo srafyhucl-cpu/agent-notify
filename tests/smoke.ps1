@@ -87,6 +87,15 @@ try {
   Remove-Item $tmp2 -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# 防闪屏回归：两处拉起子 powershell 必须带 -WindowStyle Hidden（读原文跨行匹配）
+foreach ($f in @('opencode-plugin\notify-pushplus.ts', 'scripts\codex-notify.ps1')) {
+  $raw = [IO.File]::ReadAllText((Join-Path $RepoRoot $f))
+  if ($raw -notmatch '(?s)-WindowStyle.\s*,?\s*.Hidden') {
+    throw "$f 缺 -WindowStyle Hidden，任务完成时会闪命令行窗口"
+  }
+  Write-Output "[ok] no-flash $f"
+}
+
 # notify-toggle：临时 -MarkerPath 隔离，断言 off->on->off + 回显。不碰真实 marker。
 $tmp3 = Join-Path $env:TEMP 'linkweixin-smoke-toggle'
 New-Item -ItemType Directory -Force -Path $tmp3 | Out-Null

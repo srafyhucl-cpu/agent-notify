@@ -72,7 +72,7 @@ try {
     $NotifyScript = Join-Path $PSScriptRoot 'notify-ai.ps1'
   }
   $ppArgs = @(
-    "-NoProfile", "-ExecutionPolicy", "Bypass",
+    "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
     "-File", $NotifyScript,
     "-Title", $title,
     "-NoStdin"
