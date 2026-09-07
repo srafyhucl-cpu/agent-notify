@@ -176,6 +176,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 8. **环境变量只在进程启动时读一次**：setx 后必须重启对应桌面端/service，
    重启 UI 不一定重启后台 service（用 `opencode-cli.exe service restart`）。
 9. **全局插件对本机所有会话生效**（含 agent/API 会话），靠冷却压频率。
+10. **开关关了还推**：先看悬浮窗底栏，报 `插件旧版/未安装` 就是装上去的插件没更新——
+    重跑 `install.ps1` 再重启桌面端（含后台 service，插件只在启动时加载）；
+    底栏正常但 codex 还在推是预期行为（开关只管 opencode 侧）。
+11. **悬浮窗 codex 灯灭不了**：`codex-plus-plus*`（Codex++，另一个软件）已被排除；
+    仍绿先确认 Codex 桌面进程真的退了（看守/后台 service 常驻也会亮灯）。
 
 ## 卸载
 

@@ -22,13 +22,28 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $pushLog = if ($env:OPENCODE_NOTIFY_LOG_FILE) { $env:OPENCODE_NOTIFY_LOG_FILE } else { Join-Path $env:TEMP 'opencode\notify-push.log' }
+$pluginPath = Join-Path $env:USERPROFILE '.config\opencode\plugin\notify-pushplus.ts'
+
+# 装上去的插件是不是带三道闸的新版：旧版不认 marker，关了也照推，
+# 悬浮窗直接提示，避免静默失效。
+function Test-PluginGate {
+  try {
+    if (-not (Test-Path $pluginPath)) { return '未安装' }
+    if (Select-String -Path $pluginPath -Pattern 'markerOff' -SimpleMatch -Quiet) { return '新版' }
+    return '旧版'
+  } catch { return '未知' }
+}
 
 function Test-AppRunning {
-  param([string[]]$Patterns)
+  param([string[]]$Patterns, [string[]]$Exclude = @())
   try {
-    foreach ($p in $Patterns) {
-      if (Get-Process -Name $p -ErrorAction SilentlyContinue) { return $true }
+    $hits = Get-Process -Name $Patterns -ErrorAction SilentlyContinue | Where-Object {
+      $p = $_
+      $skip = $false
+      foreach ($x in $Exclude) { if ($p.ProcessName -like $x) { $skip = $true } }
+      -not $skip
     }
+    return [bool]$hits
   } catch { }
   return $false
 }
@@ -139,12 +154,17 @@ function Refresh-UI {
   $btn.BackColor = if ($on) { [Drawing.Color]::FromArgb(56, 142, 60) } else { [Drawing.Color]::FromArgb(198, 40, 40) }
   $btn.ForeColor = [Drawing.Color]::White
   $oc = Test-AppRunning @('OpenCode*', 'opencode*')
-  $cx = Test-AppRunning @('codex*')
+  # codex-plus-plus* 是无关常驻进程（Codex++，另一个软件），必须排除，
+  # 否则关掉 Codex 桌面灯也不会灭。
+  $cx = Test-AppRunning @('codex*') @('codex-plus-plus*')
   $lblOc.Text = if ($oc) { '● opencode 运行中' } else { '○ opencode 未运行' }
   $lblOc.ForeColor = if ($oc) { [Drawing.Color]::LightGreen } else { [Drawing.Color]::Gray }
   $lblCx.Text = if ($cx) { '● codex 运行中' } else { '○ codex 未运行' }
   $lblCx.ForeColor = if ($cx) { [Drawing.Color]::LightGreen } else { [Drawing.Color]::Gray }
   $lblLast.Text = '上次推送：' + (Get-LastPushText)
+  $pv = Test-PluginGate
+  $hint.Text = if ($pv -eq '新版') { '拖标题区移动 · 只管 opencode 侧' } else { "⚠插件$pv：重跑 install+重启桌面" }
+  $hint.ForeColor = if ($pv -eq '新版') { [Drawing.Color]::Gray } else { [Drawing.Color]::Orange }
 }
 
 # 拖动：按住标题区移动无边框窗体
