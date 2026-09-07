@@ -53,4 +53,36 @@ try {
   Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# codex-notify：用 Start-Job 隔离跑，桩脚本捕获调参。不联网、不碰真实配置。
+# 注意：不能用 powershell.exe -File 直接调——PS5.1 调原生命令会剥掉/拆散 JSON
+# 内嵌双引号（上已实测），真机上 codex 用 argv 数组 spawn 则无此问题；
+# 且 wrapper 尾部 exit 0 不能跑在本进程。Job 传参走对象序列化，字符串一字不差。
+$tmp2 = Join-Path $env:TEMP 'linkweixin-smoke2'
+New-Item -ItemType Directory -Force -Path $tmp2 | Out-Null
+try {
+  $stub = Join-Path $tmp2 'stub.ps1'
+  Set-Content -Path $stub -Value '"$args" | Out-File -FilePath "$env:SMOKE_GOT" -Encoding utf8' -Encoding utf8
+  $gotPath = Join-Path $tmp2 'got.txt'
+  $nolocal = Join-Path $tmp2 'nolocal'
+  $sample = '{"last-assistant-message":"hello **world** smoke","input-messages":["帮我写个脚本测试一下"]}'
+  $job = Start-Job -ScriptBlock {
+    param($repo, $stubPath, $gotFile, $fakeLocal, $json)
+    $env:SMOKE_GOT = $gotFile
+    $env:NOTIFY_AI_SCRIPT = $stubPath
+    $env:LOCALAPPDATA = $fakeLocal
+    & (Join-Path $repo 'scripts\codex-notify.ps1') 'turn-ended' $json
+  } -ArgumentList $RepoRoot, $stub, $gotPath, $nolocal, $sample
+  $job | Wait-Job | Out-Null
+  $jout = Receive-Job $job
+  Remove-Job $job -Force -ErrorAction SilentlyContinue
+  if ($job.State -ne 'Completed') { throw "codex-notify job 未正常结束：$($job.State) $jout" }
+  if (-not (Test-Path $gotPath)) { throw 'codex-notify 未调到桩脚本' }
+  $got = Get-Content $gotPath -Raw
+  if ($got -notmatch '【codex】帮我写个脚本测试一下') { throw "codex-notify 标题不对：$got" }
+  if ($got -notmatch 'hello \*\*world\*\* smoke') { throw "codex-notify 摘要未原文透传：$got" }
+  Write-Output '[ok] codex-notify passthru + args'
+} finally {
+  Remove-Item $tmp2 -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Output 'SMOKE ALL GREEN'

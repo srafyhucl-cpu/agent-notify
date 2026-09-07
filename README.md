@@ -36,9 +36,13 @@ linkWeixin/
 
 ## 前置要求
 
-- Windows + PowerShell 5.1 及以上
-- opencode 桌面端 和/或 codex 桌面端
-- 一个 PushPlus token（去 [pushplus.plus](https://www.pushplus.plus) 免费拿一个）
+- Windows + PowerShell 5.1 及以上（暂不支持 macOS / Linux）
+- opencode 桌面端 和/或 codex 桌面端（二者装一个即可；codex CLI 理论上同 key，未实测）
+- 一个 PushPlus token，按下面四步拿：
+  1. 去 [pushplus.plus](https://www.pushplus.plus) 注册登录，后台复制 token；
+  2. 微信关注「PushPlus 推送加」服务号；
+  3. 在 PushPlus 后台把微信绑定上（不绑定 token 有效但收不到消息）；
+  4. `setx PUSHPLUS_TOKEN "你的token"` 写进用户环境变量。
 
 ## 快速开始
 
@@ -67,6 +71,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 | 安装 opencode 插件 | `%USERPROFILE%\.config\opencode\plugin\notify-pushplus.ts` |
 | 接管 codex `notify` | `%USERPROFILE%\.codex\config.toml`（先备份 `.bak-notify-wrapper`；已是 wrapper 或自定义程序则不动） |
 | 注册计划任务 `CodexNotifyWatch` | 登录触发 + 每 5 分钟跑 watcher |
+
+非管理员：加 `-SkipScheduledTask` 跳过任务注册（watcher 不装；日后 codex 配置若被改回，
+手动重跑一遍 `install.ps1` 或 watcher 脚本即可恢复）。
+
+## 装完验证（新机器重点看这三处）
+
+1. DryRun 不经过网络：`tests\smoke.ps1` 全绿即渲染链路 OK。
+2. 真推一条（第 5 步），微信 10 秒内收到即 token + 通道 OK。
+   收不到：先确认服务号已关注且后台已绑定，再看 `%TEMP%\opencode\notify-push.log` 有没有记录。
+3. 跑一个真任务：opencode 里跑完一个任务看推送；codex 里跑完一个 turn 看推送。
+   opencode 没推：`setx OPENCODE_NOTIFY_DEBUG 1` 后重启桌面端，
+   看 `%TEMP%\opencode\notify-debug.log` 里有没有 `session.execution.succeeded` 事件——
+   大版本事件名可能变，拿着日志提 issue。
 
 ## 环境变量
 

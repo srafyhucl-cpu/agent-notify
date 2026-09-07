@@ -82,9 +82,13 @@ try {
   & powershell @ppArgs
   $code = $LASTEXITCODE
   $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 2)
-  "push exit=$code secs=$secs summarylen=$($summary.Length)" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8
+  if ($env:CODEX_NOTIFY_DEBUG -eq '1') {
+    "push exit=$code secs=$secs summarylen=$($summary.Length)" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8
+  }
 } catch {
-  "push throw=$($_.Exception.Message)" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8
+  if ($env:CODEX_NOTIFY_DEBUG -eq '1') {
+    "push throw=$($_.Exception.Message)" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8
+  }
 }
 
 exit 0
