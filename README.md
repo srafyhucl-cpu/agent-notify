@@ -22,13 +22,15 @@ linkWeixin/
 ├── scripts/
 │   ├── notify-ai.ps1           # 通用推送脚本：唯一发 PushPlus 的地方
 │   ├── codex-notify.ps1        # codex notify 中转：透传原电脑操控集成 + 推送
-│   └── codex-notify-watch.ps1  # 看守：codex 改写配置后恢复 wrapper
+│   ├── codex-notify-watch.ps1  # 看守：codex 改写配置后恢复 wrapper
+│   ├── notify-toggle.ps1       # 随用随开：翻转 marker 总开关（只管 opencode 侧）
+│   └── linkweixin-widget.ps1   # 悬浮窗：大开关 + 运行灯 + 上次推送（开机自启）
 ├── opencode-plugin/
 │   └── notify-pushplus.ts      # opencode 全局插件，订阅任务完成事件
 ├── tests/
-│   └── smoke.ps1               # 冒烟测试：语法 + DryRun + watcher 幂等
-├── install.ps1                 # 一键安装（需管理员权限，见下）
-├── uninstall.ps1               # 卸载还原
+│   └── smoke.ps1               # 冒烟测试：语法 + DryRun + watcher 幂等 + toggle 翻转
+├── install.ps1                 # 一键安装（计划任务需管理员；悬浮窗开机快捷方式无需）
+├── uninstall.ps1               # 卸载还原（含悬浮窗进程 + 开机快捷方式）
 ├── .env.example                # 环境变量模板
 ├── LICENSE                     # MIT
 └── README.md
@@ -43,6 +45,7 @@ linkWeixin/
   2. 微信关注「PushPlus 推送加」服务号；
   3. 在 PushPlus 后台把微信绑定上（不绑定 token 有效但收不到消息）；
   4. `setx PUSHPLUS_TOKEN "你的token"` 写进用户环境变量。
+- 安装和日常使用用同一个 Windows 账户（安装路径、`PUSHPLUS_TOKEN` 均按当前用户解析，换账户用会找不到）。
 
 ## 快速开始
 
@@ -67,10 +70,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 
 | 动作 | 默认目标 |
 |---|---|
-| 复制 3 个 `.ps1` | `%USERPROFILE%\bin` |
+| 复制 5 个 `.ps1` | `%USERPROFILE%\bin` |
 | 安装 opencode 插件 | `%USERPROFILE%\.config\opencode\plugin\notify-pushplus.ts` |
 | 接管 codex `notify` | `%USERPROFILE%\.codex\config.toml`（先备份 `.bak-notify-wrapper`；已是 wrapper 或自定义程序则不动） |
 | 注册计划任务 `CodexNotifyWatch` | 登录触发 + 每 5 分钟跑 watcher |
+| 建悬浮窗开机快捷方式 | `shell:startup\linkWeixin Widget.lnk`（无需管理员，本次同时启动窗体） |
 
 非管理员：加 `-SkipScheduledTask` 跳过任务注册（watcher 不装；日后 codex 配置若被改回，
 手动重跑一遍 `install.ps1` 或 watcher 脚本即可恢复）。
@@ -94,11 +98,48 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 | `OPENCODE_NOTIFY_COOLDOWN_MIN` | 同会话冷却分钟数，默认 10 |
 | `OPENCODE_NOTIFY_STATE_FILE` / `OPENCODE_NOTIFY_LOG_FILE` | 去重状态 / 推送记录路径，默认 `%TEMP%\opencode\` 下 |
 | `OPENCODE_NOTIFY_OFF=1` | opencode 推送总开关 |
+| `OPENCODE_NOTIFY_MARKER_FILE` | 随用随开 marker 路径，文件存在即关，默认 `%USERPROFILE%\.config\opencode\notify-pushplus.off` |
+| `OPENCODE_NOTIFY_QUIET` | 勿扰时段，格式 `23-8`（23:00 起到次日 8:00 前静默），解析失败 fail-open（不断推送） |
 | `OPENCODE_NOTIFY_DEBUG=1` | opencode 插件调试日志（联调完记得关） |
 | `CODEX_NOTIFY_DEBUG=1` | codex wrapper 参数日志（联调完记得关） |
 | `CODEX_CONFIG` / `CODEX_NOTIFY_WRAPPER` | 看守脚本的目标配置 / wrapper 路径（默认自动推导，一般不用设） |
 
 `.env.example` 有一份可复制的模板（`.env` 本身已进 `.gitignore`，不会提交）。
+
+## 随用随开（toggle + 悬浮窗）
+
+开会/专注时一键静默 opencode 推送，用完再打开。开关只管 opencode 侧，
+codex 侧不受影响是预期行为。
+
+```powershell
+# 翻转（有关变开，有开变关，回显 ON/OFF，永远 exit 0）
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1"
+
+# 显式指定
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1" -On
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1" -Off
+```
+
+原理：marker 文件 `%USERPROFILE%\.config\opencode\notify-pushplus.off`
+存在即关。桌面右下角悬浮窗的大按钮翻的也是它。
+
+另外两道免打扰（与 marker 是或关系，任一命中即跳过，原因进 debug 日志）：
+
+- **标题免打扰**：会话标题含 🔕 或 `[勿扰]`，该会话不推。
+  会话改名即生效，无需重启。
+- **时段免打扰**：`setx OPENCODE_NOTIFY_QUIET "23-8"`（格式 `起-止` 小时，
+  左闭右开，跨天如 `23-8` 表示到次日 8:00 前静默；格式写错 fail-open，
+  不断推送）。改完需重启 opencode 桌面端（含后台 service）。
+
+**悬浮窗**（`linkweixin-widget.ps1`，无边框小窗，右下角常驻置顶）：
+
+- 大开关：翻 marker，回显 ON/OFF（绿/红底）。
+- 运行灯：`opencode` / `codex` 进程在即绿灯（`Get-Process` 每 3 秒轮询，
+  本机实测进程名 `OpenCode*` / `opencode*` / `codex*`），仅状态显示。
+- 上次推送：读 `%TEMP%\opencode\notify-push.log` 尾行时间，无记录显示暂无推送。
+- 拖标题区移动，右上角 × 退出；开机自启靠 `shell:startup` 快捷方式
+  （`install.ps1` 已建，重启后自启；手动启动见窗体脚本头注释）。
+- 不做 token/时段输入框，密钥和时段只走环境变量。
 
 ## 工作原理
 
@@ -143,7 +184,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1
 ```
 
-删掉装上去的 3 个脚本 + 插件 + 计划任务，codex 配置从 `.bak-notify-wrapper` 还原。
+删掉装上去的 5 个脚本 + 插件 + 计划任务 + 悬浮窗开机快捷方式（同时杀窗体进程），
+codex 配置从 `.bak-notify-wrapper` 还原。
 `PUSHPLUS_TOKEN` 环境变量请手动清理。删完重启两个桌面端。
 
 ## 安全

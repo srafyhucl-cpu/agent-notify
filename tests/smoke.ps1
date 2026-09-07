@@ -11,6 +11,8 @@ $files = @(
   'scripts\notify-ai.ps1',
   'scripts\codex-notify.ps1',
   'scripts\codex-notify-watch.ps1',
+  'scripts\notify-toggle.ps1',
+  'scripts\linkweixin-widget.ps1',
   'install.ps1',
   'uninstall.ps1'
 )
@@ -83,6 +85,30 @@ try {
   Write-Output '[ok] codex-notify passthru + args'
 } finally {
   Remove-Item $tmp2 -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# notify-toggle：临时 -MarkerPath 隔离，断言 off->on->off + 回显。不碰真实 marker。
+$tmp3 = Join-Path $env:TEMP 'linkweixin-smoke-toggle'
+New-Item -ItemType Directory -Force -Path $tmp3 | Out-Null
+try {
+  $marker = Join-Path $tmp3 'notify-pushplus.off'
+  Remove-Item $marker -Force -ErrorAction SilentlyContinue
+  $t1 = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\notify-toggle.ps1 -MarkerPath $marker 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "toggle 翻转 exit 非 0：$LASTEXITCODE" }
+  if ("$t1" -notmatch 'OFF') { throw "toggle 翻转回显不对（期望 OFF）：$t1" }
+  if (-not (Test-Path $marker)) { throw 'toggle 翻转未建 marker' }
+  Write-Output '[ok] toggle flip -> OFF'
+  $t2 = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\notify-toggle.ps1 -MarkerPath $marker 2>&1
+  if ("$t2" -notmatch 'ON') { throw "toggle 翻转回显不对（期望 ON）：$t2" }
+  if (Test-Path $marker) { throw 'toggle 翻转未删 marker' }
+  Write-Output '[ok] toggle flip -> ON'
+  $t3 = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\notify-toggle.ps1 -MarkerPath $marker -Off 2>&1
+  if ("$t3" -notmatch 'OFF' -or -not (Test-Path $marker)) { throw "toggle -Off 不对：$t3" }
+  $t4 = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\notify-toggle.ps1 -MarkerPath $marker -On 2>&1
+  if ("$t4" -notmatch 'ON' -or (Test-Path $marker)) { throw "toggle -On 不对：$t4" }
+  Write-Output '[ok] toggle -On/-Off'
+} finally {
+  Remove-Item $tmp3 -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Output 'SMOKE ALL GREEN'

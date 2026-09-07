@@ -34,6 +34,8 @@ try {
     'scripts\notify-ai.ps1',
     'scripts\codex-notify.ps1',
     'scripts\codex-notify-watch.ps1',
+    'scripts\notify-toggle.ps1',
+    'scripts\linkweixin-widget.ps1',
     'opencode-plugin\notify-pushplus.ts'
   )
   foreach ($w in $wants) {
@@ -46,6 +48,8 @@ try {
   Copy-Item (Join-Path $RepoRoot 'scripts\notify-ai.ps1') (Join-Path $InstallDir 'notify-ai.ps1') -Force
   Copy-Item (Join-Path $RepoRoot 'scripts\codex-notify.ps1') (Join-Path $InstallDir 'codex-notify.ps1') -Force
   Copy-Item (Join-Path $RepoRoot 'scripts\codex-notify-watch.ps1') (Join-Path $InstallDir 'codex-notify-watch.ps1') -Force
+  Copy-Item (Join-Path $RepoRoot 'scripts\notify-toggle.ps1') (Join-Path $InstallDir 'notify-toggle.ps1') -Force
+  Copy-Item (Join-Path $RepoRoot 'scripts\linkweixin-widget.ps1') (Join-Path $InstallDir 'linkweixin-widget.ps1') -Force
   Copy-Item (Join-Path $RepoRoot 'opencode-plugin\notify-pushplus.ts') (Join-Path $PluginDir 'notify-pushplus.ts') -Force
   Write-Output "[install] 脚本已装到 $InstallDir，插件已装到 $PluginDir"
 
@@ -100,6 +104,32 @@ try {
   Write-Output '  1. 重启 opencode / codex 桌面端（含后台 service）。'
   Write-Output '  2. 跑冒烟测试：powershell -NoProfile -ExecutionPolicy Bypass -File tests\smoke.ps1'
   Write-Output '  3. 真推一条验证：powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-ai.ps1" -Title "安装验证" -Summary "linkWeixin 安装成功"'
+  Write-Output '  4. 随用随开：powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1"（翻转；-On/-Off 显式指定）'
+
+  # 5. 悬浮窗开机自启（shell:startup 快捷方式，无需管理员）。
+  try {
+    $startupDir = [Environment]::GetFolderPath('Startup')
+    $lnkPath = Join-Path $startupDir 'linkWeixin Widget.lnk'
+    $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (-not (Test-Path $psExe)) { $psExe = 'powershell.exe' }
+    $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
+    $ws = New-Object -ComObject WScript.Shell
+    $sc = $ws.CreateShortcut($lnkPath)
+    $sc.TargetPath = $psExe
+    $sc.Arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $widget + '"'
+    $sc.WorkingDirectory = $InstallDir
+    $sc.Description = 'linkWeixin 推送悬浮窗'
+    $sc.Save()
+    Write-Output "[install] 悬浮窗开机快捷方式已建：$lnkPath"
+    try {
+      Start-Process $psExe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $widget)
+      Write-Output '[install] 悬浮窗已启动（右下角无边框小窗，拖标题区移动）。'
+    } catch {
+      Write-Output '[install] 悬浮窗本次未自动启动，手动跑一次上面的命令即可。'
+    }
+  } catch {
+    Write-Output "[install] 警告：开机快捷方式没建成（不影响推送）：$($_.Exception.Message)"
+  }
 } catch {
   [Console]::Error.WriteLine('[install] 失败：' + $_.Exception.Message)
   exit 1

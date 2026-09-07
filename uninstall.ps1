@@ -15,7 +15,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 
-foreach ($n in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1')) {
+foreach ($n in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1')) {
   $p = Join-Path $InstallDir $n
   if (Test-Path $p) { Remove-Item $p -Force; Write-Output "[uninstall] 已删 $p" }
   else { Write-Output "[uninstall] 不存在，跳过：$p" }
@@ -23,6 +23,18 @@ foreach ($n in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1'))
 $plug = Join-Path $PluginDir 'notify-pushplus.ts'
 if (Test-Path $plug) { Remove-Item $plug -Force; Write-Output "[uninstall] 已删 $plug" }
 else { Write-Output "[uninstall] 不存在，跳过：$plug" }
+
+# 悬浮窗：杀窗体进程 + 删开机快捷方式。
+try {
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
+    Where-Object { $_.CommandLine -match 'linkweixin-widget' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Output "[uninstall] 已杀悬浮窗进程 $($_.ProcessId)" }
+} catch {
+  Write-Output "[uninstall] 悬浮窗进程清理跳过：$($_.Exception.Message)"
+}
+$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'linkWeixin Widget.lnk'
+if (Test-Path $lnk) { Remove-Item $lnk -Force; Write-Output "[uninstall] 已删开机快捷方式 $lnk" }
+else { Write-Output "[uninstall] 无开机快捷方式，跳过：$lnk" }
 
 try {
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop

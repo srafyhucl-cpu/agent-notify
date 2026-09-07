@@ -16,6 +16,13 @@
  * - OPENCODE_NOTIFY_COOLDOWN_MIN：同会话冷却分钟数，默认 10。
  * - OPENCODE_NOTIFY_DRYRUN=1：只调脚本加 -DryRun，不真推（联调用）。
  * - OPENCODE_NOTIFY_OFF=1：总开关，关闭推送。
+ * - OPENCODE_NOTIFY_MARKER_FILE：marker 文件路径，存在即关（随用随开），
+ *   默认 %USERPROFILE%\.config\opencode\notify-pushplus.off（与 notify-toggle.ps1 同约定）。
+ * - OPENCODE_NOTIFY_QUIET：勿扰时段，格式 `23-8`（23:00 起到次日 8:00 前静默），
+ *   解析失败 fail-open（不断推送）。
+ * - 标题含 🔕 或 [勿扰] 的会话：单条跳过（标题只有取到才知道，在取到后拦截，仍早于推送）。
+ * 以上三道闸是或关系，任一命中即跳过，原因进 dbg 日志。
+ * 注意：开关只管 opencode 侧，codex 侧不受影响是预期行为。
  */
 
 function defaultBinScript() {
@@ -34,6 +41,46 @@ const COOLDOWN_MS =
       "10",
   ) || 10) * 60_000
 const RAW_CHARS = 2000
+
+// 随用随开 marker：文件存在 = 推送关。与 scripts/notify-toggle.ps1 同路径约定，
+// 可用 OPENCODE_NOTIFY_MARKER_FILE 覆盖（测试隔离也靠它）。
+const HOME_DIR =
+  (typeof process !== "undefined" &&
+    (process.env.USERPROFILE || process.env.HOME)) ||
+  ""
+const MARKER_FILE =
+  (typeof process !== "undefined" &&
+    process.env.OPENCODE_NOTIFY_MARKER_FILE) ||
+  (HOME_DIR ? `${HOME_DIR}/.config/opencode/notify-pushplus.off` : "")
+
+function markerOff() {
+  try {
+    if (!MARKER_FILE || !fsMod) return false
+    return fsMod.existsSync(MARKER_FILE)
+  } catch {
+    return false
+  }
+}
+
+// 勿扰时段 OPENCODE_NOTIFY_QUIET，格式 `23-8`（起-止小时，区间左闭右开）。
+// 跨天（起 > 止，如 23-8）表示到次日；解析失败 fail-open（返回 false，不断推送）。
+function inQuietHours(now = new Date()) {
+  try {
+    const raw =
+      (typeof process !== "undefined" &&
+        process.env.OPENCODE_NOTIFY_QUIET) ||
+      ""
+    const m = /^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$/.exec(raw)
+    if (!m) return false
+    const s = Number(m[1])
+    const e = Number(m[2])
+    if (s < 0 || s > 23 || e < 0 || e > 23 || s === e) return false
+    const h = now.getHours()
+    return s < e ? h >= s && h < e : h >= s || h < e
+  } catch {
+    return false
+  }
+}
 
 const lastSent = new Map()
 const pending = new Set()
@@ -257,6 +304,18 @@ async function sessionTitle(session, sessionID) {
 }
 
 async function handleIdle(ctx, sessionID) {
+  await fsAsync()
+  // 随用随开三道闸（或关系，任一命中即跳过；都在冷却记账之前，不烧冷却）。
+  if (markerOff()) {
+    dbg(`skip: marker-off file=${MARKER_FILE}`)
+    return
+  }
+  if (inQuietHours()) {
+    dbg(
+      `skip: quiet-hours quiet=${process.env.OPENCODE_NOTIFY_QUIET} h=${new Date().getHours()}`,
+    )
+    return
+  }
   if (process.env.OPENCODE_NOTIFY_OFF === "1") {
     dbg("skip: OFF=1")
     return
@@ -300,6 +359,11 @@ async function handleIdle(ctx, sessionID) {
     dbg(`title ok sid=${sessionID} len=${title.length}`)
   } catch (e) {
     dbg(`title fail sid=${sessionID} err=${String((e && e.message) || e)}`)
+  }
+  // 标题免打扰：标题只有取到才知道，按或关系在此处拦截（仍早于 spawn）。
+  if (title.includes("🔕") || title.includes("[勿扰]")) {
+    dbg(`skip: dnd-title sid=${sessionID} title=${title.slice(0, 40)}`)
+    return
   }
   try {
     summary = await lastAssistantText(ctx.session, sessionID)
