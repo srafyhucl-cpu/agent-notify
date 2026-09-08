@@ -95,6 +95,7 @@ $script:lastOn = $null
 $script:tickN = 0
 $script:plugVer = $null
 $script:taskVer = $null
+$script:iconBmps = @()
 
 function Test-AppRunning {
   param([string[]]$Patterns, [string[]]$Exclude = @())
@@ -189,7 +190,11 @@ function New-DotIcon {
     $g.DrawEllipse($pen, 1, 1, 14, 14)
     $b.Dispose(); $pen.Dispose(); $g.Dispose()
     $ico = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
-    $bmp.Dispose()
+    # 注意：$bmp 绝不能 Dispose/被回收——HICON 底片依赖它活着。
+    # 之前 Dispose 后托盘因 Explorer 建时缓存了像素所以显示正常，
+    # 但任务栏每次重绘都读 live 句柄，位图一死就回退成 powershell 默认图标。
+    # 3 张 16x16 常驻，内存忽略不计。
+    $script:iconBmps += $bmp
     return $ico
   } catch {
     Log-Err 'icon' $_
