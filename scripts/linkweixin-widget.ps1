@@ -455,6 +455,11 @@ $timer.Add_Tick({
     if (($script:tickN % 6) -eq 0) {
       (Get-Date -Format o) | Out-File -FilePath $aliveFile -Encoding utf8 -Force
     }
+    # 托盘图标自愈：Explorer 重启/托盘区抽风会丢图标（进程活着但图标没了），
+    # 每 ~5 分钟重新 Visible 一次把它顶回去，无闪烁感，有问题进日志。
+    if (($script:tickN % 60) -eq 0) {
+      try { $notify.Visible = $false; $notify.Visible = $true } catch { Log-Err 'repulse' $_ }
+    }
   } catch { Log-Err 'tick' $_ }
 })
 $timer.Start()
