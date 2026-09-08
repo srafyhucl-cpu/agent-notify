@@ -219,9 +219,8 @@ $form.Text = 'linkWeixin'
 $form.Size = New-Object System.Drawing.Size(288, 352)
 $form.FormBorderStyle = 'None'
 $form.TopMost = $true
-# 任务栏留按钮，但用我们自己的绿/红/橙圆点图标（不再是 powershell 图标）：
-# 最小化走原生任务栏，点按钮恢复，不依赖托盘，托盘只做开关/退出的辅助入口。
-$form.ShowInTaskbar = $true
+# 任务栏不留按钮：只活在托盘 + 桌面快捷方式（单实例接管）。
+$form.ShowInTaskbar = $false
 $form.StartPosition = 'Manual'
 $form.BackColor = $BG
 $form.ForeColor = $FG
@@ -337,7 +336,7 @@ $foot.Location = New-Object System.Drawing.Point(16, 304)
 $foot.Size = New-Object System.Drawing.Size(208, 20)
 $foot.Font = New-Object System.Drawing.Font('Microsoft YaHei', 8)
 $foot.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 115)
-$foot.Text = '× 缩到任务栏 · 点绿点按钮恢复'
+$foot.Text = '× 藏到托盘 · 双击托盘图标恢复'
 $form.Controls.Add($foot)
 
 $btnQuit = New-Object System.Windows.Forms.Label
@@ -385,12 +384,12 @@ function Show-Window {
   $miShow.Text = '隐藏悬浮窗'
 }
 function Hide-Window {
-  # 标准最小化到任务栏（按钮是我们的状态圆点）：原生行为，不玩隐藏。
-  $form.WindowState = 'Minimized'
+  # 藏到托盘：任务栏无按钮，靠托盘图标 / 桌面快捷方式（单实例接管）回来。
+  $form.Hide()
   $miShow.Text = '显示悬浮窗'
 }
 function Toggle-Window {
-  if ($form.WindowState -eq 'Minimized' -or -not $form.Visible) { Show-Window } else { Hide-Window }
+  if ($form.Visible) { Hide-Window } else { Show-Window }
 }
 function Real-Exit {
   $script:allowExit = $true
@@ -511,7 +510,7 @@ $timer.Start()
 
 $form.Add_Shown({
   try { Refresh-UI } catch { Log-Err 'shown' $_ }
-  try { $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 缩到任务栏（绿点按钮一直在），点它恢复；右下角红字可彻底退出。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Log-Err 'tip' $_ }
+  try { $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 藏到托盘（^ 里找绿/红点，可拖出来），双击恢复；右下角红字可彻底退出。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Log-Err 'tip' $_ }
 })
 try {
   [void]$form.ShowDialog()
