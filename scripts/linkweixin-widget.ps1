@@ -173,7 +173,7 @@ $bar.BackColor = $BG
 $form.Controls.Add($bar)
 
 $title = New-Object System.Windows.Forms.Label
-$title.Text = '  🔔 linkWeixin'
+$title.Text = '  linkWeixin 推送'
 $title.Font = $YAFONT_B
 $title.ForeColor = $FG
 $title.BackColor = $BG
@@ -241,7 +241,7 @@ function Add-Row {
 $rowOc = Add-Row 8 'opencode'
 $rowCx = Add-Row 46 'codex'
 $rowLast = Add-Row 84 'last'
-$rowLast.Dot.Text = '🕒'
+$rowLast.Dot.Text = '•'
 $rowLast.Dot.ForeColor = $DIM
 
 # 底栏提示
