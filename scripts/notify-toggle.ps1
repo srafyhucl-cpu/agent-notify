@@ -8,7 +8,8 @@
   与 opencode 插件同路径约定，默认 marker：
   %USERPROFILE%\.config\opencode\notify-pushplus.off
   可用 -MarkerPath 覆盖（冒烟测试即用临时路径隔离）。
-  注意：开关只管 opencode 侧，codex 侧不受影响是预期行为。
+  注意：开关两边都管（opencode 插件与 codex wrapper 看同一 marker，
+  codex 只跳推送，透传原电脑操控不受影响）。
   任何情况都 exit 0，不卡住调用方。
 
 .EXAMPLE

@@ -23,7 +23,7 @@ linkWeixin/
 │   ├── notify-ai.ps1           # 通用推送脚本：唯一发 PushPlus 的地方
 │   ├── codex-notify.ps1        # codex notify 中转：透传原电脑操控集成 + 推送
 │   ├── codex-notify-watch.ps1  # 看守：codex 改写配置后恢复 wrapper
-│   ├── notify-toggle.ps1       # 随用随开：翻转 marker 总开关（只管 opencode 侧）
+│   ├── notify-toggle.ps1       # 随用随开：翻转 marker 总开关（两边都管）
 │   └── linkweixin-widget.ps1   # 悬浮窗：大开关 + 运行灯 + 上次推送（开机自启）
 ├── opencode-plugin/
 │   └── notify-pushplus.ts      # opencode 全局插件，订阅任务完成事件
@@ -108,8 +108,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 
 ## 随用随开（toggle + 悬浮窗）
 
-开会/专注时一键静默 opencode 推送，用完再打开。开关只管 opencode 侧，
-codex 侧不受影响是预期行为。
+开会/专注时一键静默推送（opencode + codex 两边都看 marker），用完再打开。
+标题/时段两道免打扰仍只管 opencode（见下），marker 是唯一两边都认的开关。
 
 ```powershell
 # 翻转（有关变开，有开变关，回显 ON/OFF，永远 exit 0）
@@ -185,8 +185,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
    重启 UI 不一定重启后台 service（用 `opencode-cli.exe service restart`）。
 9. **全局插件对本机所有会话生效**（含 agent/API 会话），靠冷却压频率。
 10. **开关关了还推**：先看悬浮窗底栏，报 `插件旧版/未安装` 就是装上去的插件没更新——
-    重跑 `install.ps1` 再重启桌面端（含后台 service，插件只在启动时加载）；
-    底栏正常但 codex 还在推是预期行为（开关只管 opencode 侧）。
+    重跑 `install.ps1` 再重启桌面端（含后台 service，插件只在启动时加载）。
+    codex 侧也看 marker（只跳推送，透传原电脑操控不受影响）；仍推就开
+    `CODEX_NOTIFY_DEBUG=1` 看 `%TEMP%\opencode\codex-notify-debug.log` 有没有 `marker-off`。
 11. **悬浮窗 codex 灯灭不了**：`codex-plus-plus*`（Codex++，另一个软件）已被排除；
     仍绿先确认 Codex 桌面进程真的退了（看守/后台 service 常驻也会亮灯）。
 

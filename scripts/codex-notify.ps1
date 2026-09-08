@@ -15,6 +15,11 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Passthru)
 
 $ErrorActionPreference = 'SilentlyContinue'
 
+# 随用随开 marker（与 opencode 插件、notify-toggle 同路径约定，
+# 测试用 OPENCODE_NOTIFY_MARKER_FILE 覆盖）：存在只跳过推送，
+# 原电脑操控透传不受影响（透传在下面先执行）。
+$MarkerFile = if ($env:OPENCODE_NOTIFY_MARKER_FILE) { $env:OPENCODE_NOTIFY_MARKER_FILE } else { Join-Path $env:USERPROFILE '.config\opencode\notify-pushplus.off' }
+
 try { New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP 'opencode') | Out-Null } catch { }
 
 # 原集成路径里的 cua_node 哈希目录会随更新变化，每次动态找最新的。
@@ -45,6 +50,13 @@ try {
 } catch { }
 
 try {
+  # marker 存在 = 只跳过推送（透传已在上面执行完，不受影响）。
+  if (Test-Path $MarkerFile) {
+    if ($env:CODEX_NOTIFY_DEBUG -eq '1') {
+      "marker-off skip push" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8
+    }
+    exit 0
+  }
   $t0 = Get-Date
   $summary = ""
   $taskName = ""

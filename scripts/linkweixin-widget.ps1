@@ -356,7 +356,7 @@ function Refresh-UI {
   if ($null -eq $script:taskVer -or ($script:tickN % 120) -eq 1) { $script:taskVer = Test-WatchTask }
   $pv = $script:plugVer
   if ($pv -eq '新版') {
-    $hint.Text = '只管 opencode 侧推送，codex 侧不受影响。'
+    $hint.Text = '开关管两边：opencode + codex。'
     $hint.ForeColor = $DIM
   } else {
     $hint.Text = "⚠ 插件$pv：开关不生效，重跑 install 后重启桌面。"

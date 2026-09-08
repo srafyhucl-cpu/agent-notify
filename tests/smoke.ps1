@@ -124,4 +124,41 @@ try {
   Remove-Item $tmp3 -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# codex-notify + marker：marker 存在只跳过推送（桩不被调），拿掉恢复。不碰真实 marker。
+$tmp4 = Join-Path $env:TEMP 'linkweixin-smoke4'
+New-Item -ItemType Directory -Force -Path $tmp4 | Out-Null
+try {
+  $stub4 = Join-Path $tmp4 'stub.ps1'
+  Set-Content -Path $stub4 -Value '"$args" | Out-File -FilePath "$env:SMOKE_GOT4" -Encoding utf8' -Encoding utf8
+  $got4 = Join-Path $tmp4 'got.txt'
+  $marker4 = Join-Path $tmp4 'notify-pushplus.off'
+  $nolocal4 = Join-Path $tmp4 'nolocal'
+  "off smoke" | Out-File -FilePath $marker4 -Encoding utf8
+  $sample4 = '{"last-assistant-message":"marker test","input-messages":["marker"]}'
+  $runWrapper = {
+    param($repo, $stubPath, $gotFile, $fakeLocal, $json, $markerPath)
+    $env:SMOKE_GOT4 = $gotFile
+    $env:NOTIFY_AI_SCRIPT = $stubPath
+    $env:LOCALAPPDATA = $fakeLocal
+    $env:OPENCODE_NOTIFY_MARKER_FILE = $markerPath
+    & (Join-Path $repo 'scripts\codex-notify.ps1') 'turn-ended' $json
+  }
+  $job = Start-Job -ScriptBlock $runWrapper -ArgumentList $RepoRoot, $stub4, $got4, $nolocal4, $sample4, $marker4
+  $job | Wait-Job | Out-Null
+  Receive-Job $job | Out-Null
+  Remove-Job $job -Force -ErrorAction SilentlyContinue
+  if ($job.State -ne 'Completed') { throw "codex-notify marker job 未正常结束：$($job.State)" }
+  if (Test-Path $got4) { throw 'codex-notify marker 存在时仍调了推送' }
+  Write-Output '[ok] codex-notify marker-off skips push'
+  Remove-Item $marker4 -Force
+  $job = Start-Job -ScriptBlock $runWrapper -ArgumentList $RepoRoot, $stub4, $got4, $nolocal4, $sample4, (Join-Path $tmp4 'absent.off')
+  $job | Wait-Job | Out-Null
+  Receive-Job $job | Out-Null
+  Remove-Job $job -Force -ErrorAction SilentlyContinue
+  if (-not (Test-Path $got4)) { throw 'codex-notify marker 拿掉后未恢复推送' }
+  Write-Output '[ok] codex-notify marker removed resumes push'
+} finally {
+  Remove-Item $tmp4 -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Output 'SMOKE ALL GREEN'

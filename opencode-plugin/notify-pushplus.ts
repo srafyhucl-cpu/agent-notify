@@ -22,7 +22,8 @@
  *   解析失败 fail-open（不断推送）。
  * - 标题含 🔕 或 [勿扰] 的会话：单条跳过（标题只有取到才知道，在取到后拦截，仍早于推送）。
  * 以上三道闸是或关系，任一命中即跳过，原因进 dbg 日志。
- * 注意：开关只管 opencode 侧，codex 侧不受影响是预期行为。
+ * 注意：marker 开关两边都管（opencode 插件 + codex wrapper 看同一 marker，
+ * 只跳推送，不影响 codex 原电脑操控透传）；标题/时段两道闸只管 opencode。
  */
 
 function defaultBinScript() {
