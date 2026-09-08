@@ -175,18 +175,26 @@ function Get-LastPushText {
 
 function New-DotIcon {
   param([System.Drawing.Color]$Color)
-  $bmp = New-Object System.Drawing.Bitmap(16, 16)
-  $g = [System.Drawing.Graphics]::FromImage($bmp)
-  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-  $g.Clear([System.Drawing.Color]::Transparent)
-  $b = New-Object System.Drawing.SolidBrush($Color)
-  $g.FillEllipse($b, 1, 1, 14, 14)
-  $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 1)
-  $g.DrawEllipse($pen, 1, 1, 14, 14)
-  $b.Dispose(); $pen.Dispose(); $g.Dispose()
-  $ico = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
-  $bmp.Dispose()
-  return $ico
+  # 图标创建失败必须留痕：曾经出现过静默 $null（任务栏变回 powershell 图标、
+  # 托盘无图标、零报错），原因是构造期语句级错误被 SilentlyContinue 吞掉。
+  try {
+    $ErrorActionPreference = 'Stop'
+    $bmp = New-Object System.Drawing.Bitmap(16, 16)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.Clear([System.Drawing.Color]::Transparent)
+    $b = New-Object System.Drawing.SolidBrush($Color)
+    $g.FillEllipse($b, 1, 1, 14, 14)
+    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 1)
+    $g.DrawEllipse($pen, 1, 1, 14, 14)
+    $b.Dispose(); $pen.Dispose(); $g.Dispose()
+    $ico = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    $bmp.Dispose()
+    return $ico
+  } catch {
+    Log-Err 'icon' $_
+    return $null
+  }
 }
 
 $BG = [System.Drawing.Color]::FromArgb(31, 31, 35)
@@ -342,6 +350,15 @@ $form.Controls.Add($btnQuit)
 $iconOn = New-DotIcon $DOT_ON
 $iconMid = New-DotIcon ([System.Drawing.Color]::FromArgb(255, 170, 60))
 $iconOff = New-DotIcon $RED
+# 兜底：自绘图标任一失败就用系统默认图标，保证任务栏/托盘一定有东西（丑但可见）。
+if ($null -eq $iconOn -or $null -eq $iconMid -or $null -eq $iconOff) {
+  try {
+    $fb = [System.Drawing.SystemIcons]::Application
+    if ($null -eq $iconOn) { $iconOn = $fb }
+    if ($null -eq $iconMid) { $iconMid = $fb }
+    if ($null -eq $iconOff) { $iconOff = $fb }
+  } catch { Log-Err 'icon-fb' $_ }
+}
 $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Text = 'linkWeixin 推送'
 $notify.Icon = $iconOn
