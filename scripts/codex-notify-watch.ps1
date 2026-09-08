@@ -15,6 +15,18 @@ param(
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
+
+# 防闪屏：本脚本被计划任务每 5 分钟拉起，旧注册动作不带 -WindowStyle Hidden
+#（改任务要管理员权限），所以启动第一时间自己藏窗口。只在父进程是任务引擎
+#（svchost/taskeng）时藏，手动跑不影响自己的终端。新注册见 install.ps1（已带 Hidden）。
+try {
+  $ppid = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop).ParentProcessId
+  $pname = (Get-CimInstance Win32_Process -Filter "ProcessId=$ppid" -ErrorAction Stop).Name
+  if ($pname -match '^(svchost|taskeng)(\.exe)?$') {
+    Add-Type -Name WinHide -Namespace LinkWeixin -MemberDefinition '[DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);' -ErrorAction Stop
+    [LinkWeixin.WinHide]::ShowWindow([LinkWeixin.WinHide]::GetConsoleWindow(), 0) | Out-Null
+  }
+} catch { }
 try { New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP 'opencode') | Out-Null } catch { }
 $cfg = $ConfigPath
 $wrapperSlash = ($WrapperPath -replace '\\', '/')

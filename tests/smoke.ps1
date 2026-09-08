@@ -95,6 +95,10 @@ foreach ($f in @('opencode-plugin\notify-pushplus.ts', 'scripts\codex-notify.ps1
   }
   Write-Output "[ok] no-flash $f"
 }
+# watcher 自隐藏：已注册的旧任务动作改不动（要管理员），靠脚本启动自藏窗口
+$watchRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts\codex-notify-watch.ps1'))
+if ($watchRaw -notmatch 'GetConsoleWindow') { throw 'watcher 缺自隐藏，计划任务每 5 分钟闪窗口' }
+Write-Output '[ok] no-flash scripts\codex-notify-watch.ps1'
 
 # notify-toggle：临时 -MarkerPath 隔离，断言 off->on->off + 回显。不碰真实 marker。
 $tmp3 = Join-Path $env:TEMP 'linkweixin-smoke-toggle'

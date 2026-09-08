@@ -90,7 +90,7 @@ try {
   if (-not $SkipScheduledTask) {
     try {
       $watch = Join-Path $InstallDir 'codex-notify-watch.ps1'
-      $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -File "' + $watch + '"')
+      $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $watch + '"')
       $taskT1 = New-ScheduledTaskTrigger -AtLogOn
       $taskT2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
       Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger @($taskT1, $taskT2) -Force | Out-Null
