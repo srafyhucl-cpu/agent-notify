@@ -115,6 +115,12 @@ if ($vbsRaw -notmatch 'Run.*, 0, False') { throw 'run-hidden.vbs 必须以后台
 $instRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'install.ps1'))
 if ($instRaw -notmatch 'run-hidden\.vbs') { throw 'install.ps1 快捷方式/任务必须经 run-hidden.vbs 中转' }
 Write-Output '[ok] no-flash run-hidden.vbs + install wiring'
+# pythonw 脱离启动器：无控制台、无 WT 页签，关不掉宿主才杀不死窗体
+$py = Join-Path $RepoRoot 'scripts\widget-detached.py'
+if (-not (Test-Path $py)) { throw '缺 scripts\widget-detached.py' }
+$pyRaw = [IO.File]::ReadAllText($py)
+if ($pyRaw -notmatch '0x08000000' -or $pyRaw -notmatch 'DEVNULL') { throw 'widget-detached.py 必须 CREATE_NO_WINDOW + 重定向标准句柄' }
+Write-Output '[ok] widget-detached.py present'
 
 # notify-toggle：临时 -MarkerPath 隔离，断言 off->on->off + 回显。不碰真实 marker。
 $tmp3 = Join-Path $env:TEMP 'linkweixin-smoke-toggle'
