@@ -151,9 +151,9 @@ $form.Text = 'linkWeixin'
 $form.Size = New-Object System.Drawing.Size(288, 352)
 $form.FormBorderStyle = 'None'
 $form.TopMost = $true
-# 任务栏常驻按钮：最小化后一定找得回来（托盘图标 Win11 默认收进 ^ 容易丢，
-# 所以主路径是任务栏，托盘只做辅助）。
-$form.ShowInTaskbar = $true
+# 任务栏不留按钮：只活在托盘 + 桌面快捷方式（单实例接管）。
+# 之前为“找得回来”开过任务栏按钮，用户确认托盘找得到，撤了更干净。
+$form.ShowInTaskbar = $false
 $form.StartPosition = 'Manual'
 $form.BackColor = $BG
 $form.ForeColor = $FG
@@ -260,7 +260,7 @@ $foot.Location = New-Object System.Drawing.Point(16, 304)
 $foot.Size = New-Object System.Drawing.Size(256, 20)
 $foot.Font = New-Object System.Drawing.Font('Microsoft YaHei', 8)
 $foot.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 115)
-$foot.Text = '× 最小化到任务栏 · 右键托盘可彻底退出'
+$foot.Text = '× 藏到托盘 · 双击托盘图标恢复'
 $form.Controls.Add($foot)
 
 # 托盘
@@ -278,18 +278,17 @@ $miExit = $menu.Items.Add('退出')
 $notify.ContextMenuStrip = $menu
 
 function Show-Window {
-  $form.WindowState = 'Normal'
   $form.Show()
   $form.Activate()
   $miShow.Text = '隐藏悬浮窗'
 }
 function Hide-Window {
-  # 主路径：最小化到任务栏（一定找得回来）；托盘保留做辅助。
-  $form.WindowState = 'Minimized'
+  # 藏到托盘：任务栏无按钮，靠托盘图标 / 桌面快捷方式（单实例接管）回来。
+  $form.Hide()
   $miShow.Text = '显示悬浮窗'
 }
 function Toggle-Window {
-  if ($form.WindowState -eq 'Minimized' -or -not $form.Visible) { Show-Window } else { Hide-Window }
+  if ($form.Visible) { Hide-Window } else { Show-Window }
 }
 function Real-Exit {
   $script:allowExit = $true
@@ -387,7 +386,7 @@ $timer.Start()
 
 $form.Add_Shown({
   try { Refresh-UI } catch { Log-Err 'shown' $_ }
-  try { $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 缩到任务栏（按钮一直在），点任务栏按钮恢复；右键托盘可彻底退出。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Log-Err 'tip' $_ }
+  try { $notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 藏到托盘（^ 里找绿/红点，可拖出来），双击恢复；右键托盘可彻底退出。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Log-Err 'tip' $_ }
 })
 try {
   [void]$form.ShowDialog()
