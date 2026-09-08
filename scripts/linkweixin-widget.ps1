@@ -321,11 +321,22 @@ $form.Controls.Add($hint)
 
 $foot = New-Object System.Windows.Forms.Label
 $foot.Location = New-Object System.Drawing.Point(16, 304)
-$foot.Size = New-Object System.Drawing.Size(256, 20)
+$foot.Size = New-Object System.Drawing.Size(208, 20)
 $foot.Font = New-Object System.Drawing.Font('Microsoft YaHei', 8)
 $foot.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 115)
 $foot.Text = '× 藏到托盘 · 双击托盘图标恢复'
 $form.Controls.Add($foot)
+
+$btnQuit = New-Object System.Windows.Forms.Label
+$btnQuit.Text = '退出'
+$btnQuit.Font = New-Object System.Drawing.Font('Microsoft YaHei', 8)
+$btnQuit.ForeColor = [System.Drawing.Color]::FromArgb(200, 100, 100)
+$btnQuit.BackColor = $BG
+$btnQuit.Size = New-Object System.Drawing.Size(40, 20)
+$btnQuit.Location = New-Object System.Drawing.Point(232, 304)
+$btnQuit.TextAlign = 'MiddleCenter'
+$btnQuit.Cursor = 'Hand'
+$form.Controls.Add($btnQuit)
 
 # 托盘
 $iconOn = New-DotIcon $DOT_ON
@@ -366,6 +377,7 @@ function Real-Exit {
 
 $btnMin.Add_Click({ try { Hide-Window } catch { Log-Err 'min' $_ } })
 $btnX.Add_Click({ try { Hide-Window } catch { Log-Err 'x' $_ } })
+$btnQuit.Add_Click({ try { Real-Exit } catch { Log-Err 'quit' $_ } })
 $btnOc.Add_Click({ try { Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI } catch { Log-Err 'btnOc' $_ } })
 $btnCx.Add_Click({ try { Set-CodexNotifyOn (-not (Get-CodexNotifyOn)); Refresh-UI } catch { Log-Err 'btnCx' $_ } })
 $miShow.Add_Click({ try { Toggle-Window } catch { Log-Err 'miShow' $_ } })
