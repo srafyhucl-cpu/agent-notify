@@ -26,6 +26,24 @@ $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# 全局兜底：UI 线程/未处理异常全部落盘。WinForms 事件里的漏网异常走这里，
+# 否则就是“静默死亡、无日志”，上次丢进程就是这么查不出来的。
+try {
+  [System.Windows.Forms.Application]::SetUnhandledExceptionMode([System.Windows.Forms.UnhandledExceptionMode]::CatchException)
+  [System.Windows.Forms.Application]::Add_ThreadException({
+    param($s, $e)
+    try {
+      "$(Get-Date -Format o) [ui-thread] $($e.Exception | Out-String)" | Out-File -FilePath (Join-Path $env:TEMP 'opencode\widget-error.log') -Append -Encoding utf8
+    } catch { }
+  })
+  [System.AppDomain]::CurrentDomain.add_UnhandledException({
+    param($s, $e)
+    try {
+      "$(Get-Date -Format o) [fatal] $($e.ExceptionObject | Out-String)" | Out-File -FilePath (Join-Path $env:TEMP 'opencode\widget-error.log') -Append -Encoding utf8
+    } catch { }
+  })
+} catch { }
+
 # 单实例：互斥锁 + 两次清扫，关掉“连击/双击开出两个”的竞态，任何时刻最多一个。
 # 桌面双击 = 新实例接管（旧的清掉；开关状态全在 marker 文件里，不丢）。
 # 锁必须持有到进程退出（不释放），抢不到锁的实例安静退出，绝不双跑。
