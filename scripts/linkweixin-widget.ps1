@@ -44,33 +44,39 @@ try {
   })
 } catch { }
 
-# 单实例：互斥锁 + 两次清扫，关掉“连击/双击开出两个”的竞态，任何时刻最多一个。
-# 桌面双击 = 新实例接管（旧的清掉；开关状态全在 marker 文件里，不丢）。
-# 锁必须持有到进程退出（不释放），抢不到锁的实例安静退出，绝不双跑。
+# 单实例：互斥锁 + 带等待的清扫，任何时刻最多一个，且绝不出现“旧的被杀、
+# 新的又退出、最后谁都不剩”的真空（之前就是这么把自己玩没的）。
+# 桌面双击 = 新实例接管（开关状态全在 marker 文件里，不丢）。
+# 锁必须持有到进程退出（不释放），实在抢不到且谁都没杀才安静退出。
 $mtx = $null
+$killedAny = $false
+function Test-OldWidget {
+  param([int]$MyPid, [int]$MyParent)
+  try {
+    return @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
+      Where-Object {
+        # 只认 -File 直跑本脚本的宿主：纯子串会误伤命令行里带脚本名的调用方。
+        ($_.CommandLine -match '\-File\s+"[^"]*linkweixin-widget\.ps1"') -and
+        ($_.ProcessId -ne $MyPid) -and ($_.ProcessId -ne $MyParent)
+      })
+  } catch { return @() }
+}
 try {
+  $myPid = $PID
+  $myParent = (Get-CimInstance Win32_Process -Filter "ProcessId=$myPid" -ErrorAction SilentlyContinue).ParentProcessId
   $mtx = New-Object System.Threading.Mutex($false, 'Global\LinkWeixinWidgetSingleInstance')
   $owns = $false
   try { $owns = $mtx.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owns = $true }
   if (-not $owns) { Start-Sleep -Seconds 2 }  # 等对方稳定（或确认它是 hung 的尸体）
-  foreach ($round in 1..2) {
-    try {
-      $pp = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop).ParentProcessId
-      Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
-        Where-Object {
-          # 只认 -File 直跑本脚本的宿主：纯子串会误伤命令行里带脚本名的调用方
-          #（比如正好在终端里操作它），父进程也一并排除。
-          ($_.CommandLine -match '\-File\s+"[^"]*linkweixin-widget\.ps1"') -and
-          ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $pp)
-        } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    } catch { }
-    Start-Sleep -Milliseconds 800
-  }
-  if (-not $owns) {
+  for ($i = 0; $i -lt 6; $i++) {
+    foreach ($p in (Test-OldWidget $myPid $myParent)) {
+      try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; $killedAny = $true } catch { }
+    }
+    Start-Sleep -Seconds 2  # 等被杀的进程彻底退出、锁释放（杀锁主不等于锁立即可用）
     try { $owns = $mtx.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owns = $true }
-    if (-not $owns) { exit 0 }
+    if ($owns -and @(Test-OldWidget $myPid $myParent).Count -eq 0) { break }
   }
+  if (-not $owns -and -not $killedAny) { exit 0 }  # 对方健康活着，我安静退出
 } catch { }
 
 $pushLog = if ($env:OPENCODE_NOTIFY_LOG_FILE) { $env:OPENCODE_NOTIFY_LOG_FILE } else { Join-Path $env:TEMP 'opencode\notify-push.log' }
