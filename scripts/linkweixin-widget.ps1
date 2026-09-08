@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  linkWeixin 悬浮窗：大开关 + opencode/codex 运行灯 + 上次推送时间 + 托盘常驻。
+  linkWeixin 悬浮窗：opencode/codex 独立开关 + 运行灯 + 上次推送时间 + 托盘常驻。
 
 .DESCRIPTION
   常驻启动（控制台从不存在，Windows Terminal 也拦截不到）：
@@ -44,6 +44,8 @@ try {
 
 $pushLog = if ($env:OPENCODE_NOTIFY_LOG_FILE) { $env:OPENCODE_NOTIFY_LOG_FILE } else { Join-Path $env:TEMP 'opencode\notify-push.log' }
 $pluginPath = Join-Path $env:USERPROFILE '.config\opencode\plugin\notify-pushplus.ts'
+# codex 侧独立 marker（与 notify-toggle -Agent Codex、codex wrapper 同路径约定）。
+$codexMarker = if ($env:CODEX_NOTIFY_MARKER_FILE) { $env:CODEX_NOTIFY_MARKER_FILE } else { Join-Path $env:USERPROFILE '.config\opencode\codex-notify.off' }
 $errLog = Join-Path $env:TEMP 'opencode\widget-error.log'
 $aliveFile = Join-Path $env:TEMP 'opencode\widget-alive.txt'
 function Log-Err {
@@ -72,6 +74,7 @@ function Test-AppRunning {
 }
 
 function Get-NotifyOn {
+  # opencode 侧开关（codex 侧另有独立开关，见下）。
   return -not (Test-Path $MarkerPath)
 }
 
@@ -82,6 +85,20 @@ function Set-NotifyOn {
   } else {
     New-Item -ItemType Directory -Force -Path (Split-Path $MarkerPath -Parent) | Out-Null
     "off $((Get-Date).ToString('o'))" | Out-File -FilePath $MarkerPath -Encoding utf8 -Force
+  }
+}
+
+function Get-CodexNotifyOn {
+  return -not (Test-Path $codexMarker)
+}
+
+function Set-CodexNotifyOn {
+  param([bool]$TurnOn)
+  if ($TurnOn) {
+    Remove-Item $codexMarker -Force -ErrorAction SilentlyContinue
+  } else {
+    New-Item -ItemType Directory -Force -Path (Split-Path $codexMarker -Parent) | Out-Null
+    "off $((Get-Date).ToString('o'))" | Out-File -FilePath $codexMarker -Encoding utf8 -Force
   }
 }
 
@@ -145,6 +162,7 @@ $DOT_ON = [System.Drawing.Color]::FromArgb(63, 216, 96)
 $YAFONT = New-Object System.Drawing.Font('Microsoft YaHei', 10)
 $YAFONT_B = New-Object System.Drawing.Font('Microsoft YaHei', 10, [System.Drawing.FontStyle]::Bold)
 $BIGFONT = New-Object System.Drawing.Font('Microsoft YaHei', 15, [System.Drawing.FontStyle]::Bold)
+$MIDFONT = New-Object System.Drawing.Font('Microsoft YaHei', 11, [System.Drawing.FontStyle]::Bold)
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'linkWeixin'
@@ -205,15 +223,24 @@ $btnX.TextAlign = 'MiddleCenter'
 $btnX.Cursor = 'Hand'
 $bar.Controls.Add($btnX)
 
-# 大开关
-$btn = New-Object System.Windows.Forms.Button
-$btn.Location = New-Object System.Drawing.Point(16, 50)
-$btn.Size = New-Object System.Drawing.Size(256, 64)
-$btn.Font = $BIGFONT
-$btn.FlatStyle = 'Flat'
-$btn.FlatAppearance.BorderSize = 0
-$btn.Cursor = 'Hand'
-$form.Controls.Add($btn)
+# 两个独立大开关：opencode / codex 各管一边，各翻各的 marker
+$btnOc = New-Object System.Windows.Forms.Button
+$btnOc.Location = New-Object System.Drawing.Point(16, 50)
+$btnOc.Size = New-Object System.Drawing.Size(124, 62)
+$btnOc.Font = $MIDFONT
+$btnOc.FlatStyle = 'Flat'
+$btnOc.FlatAppearance.BorderSize = 0
+$btnOc.Cursor = 'Hand'
+$form.Controls.Add($btnOc)
+
+$btnCx = New-Object System.Windows.Forms.Button
+$btnCx.Location = New-Object System.Drawing.Point(148, 50)
+$btnCx.Size = New-Object System.Drawing.Size(124, 62)
+$btnCx.Font = $MIDFONT
+$btnCx.FlatStyle = 'Flat'
+$btnCx.FlatAppearance.BorderSize = 0
+$btnCx.Cursor = 'Hand'
+$form.Controls.Add($btnCx)
 
 # 状态卡片
 $card = New-Object System.Windows.Forms.Panel
@@ -265,6 +292,7 @@ $form.Controls.Add($foot)
 
 # 托盘
 $iconOn = New-DotIcon $DOT_ON
+$iconMid = New-DotIcon ([System.Drawing.Color]::FromArgb(255, 170, 60))
 $iconOff = New-DotIcon $RED
 $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Text = 'linkWeixin 推送'
@@ -272,7 +300,8 @@ $notify.Icon = $iconOn
 $notify.Visible = $true
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miShow = $menu.Items.Add('隐藏悬浮窗')
-$miToggle = $menu.Items.Add('关闭推送')
+$miOc = $menu.Items.Add('关闭 opencode 推送')
+$miCx = $menu.Items.Add('关闭 codex 推送')
 [void]$menu.Items.Add('-')
 $miExit = $menu.Items.Add('退出')
 $notify.ContextMenuStrip = $menu
@@ -300,14 +329,17 @@ function Real-Exit {
 
 $btnMin.Add_Click({ Hide-Window })
 $btnX.Add_Click({ Hide-Window })
-$btn.Add_Click({ Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI })
+$btnOc.Add_Click({ Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI })
+$btnCx.Add_Click({ Set-CodexNotifyOn (-not (Get-CodexNotifyOn)); Refresh-UI })
 $miShow.Add_Click({ Toggle-Window })
-$miToggle.Add_Click({ Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI })
+$miOc.Add_Click({ Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI })
+$miCx.Add_Click({ Set-CodexNotifyOn (-not (Get-CodexNotifyOn)); Refresh-UI })
 $miExit.Add_Click({ Real-Exit })
 $notify.Add_DoubleClick({ Toggle-Window })
 $menu.Add_Opening({
   $miShow.Text = if ($form.Visible) { '隐藏悬浮窗' } else { '显示悬浮窗' }
-  $miToggle.Text = if (Get-NotifyOn) { '关闭推送' } else { '开启推送' }
+  $miOc.Text = if (Get-NotifyOn) { '关闭 opencode 推送' } else { '开启 opencode 推送' }
+  $miCx.Text = if (Get-CodexNotifyOn) { '关闭 codex 推送' } else { '开启 codex 推送' }
 })
 $form.Add_FormClosing({
   param($s, $e)
@@ -334,15 +366,21 @@ foreach ($c in @($bar, $title)) {
 }
 
 function Refresh-UI {
-  $on = Get-NotifyOn
+  $onOc = Get-NotifyOn
+  $onCx = Get-CodexNotifyOn
   $script:tickN++
-  $btn.Text = if ($on) { '●  推送开启' } else { '○  推送关闭' }
-  $btn.BackColor = if ($on) { $GREEN } else { $RED }
-  $btn.ForeColor = [System.Drawing.Color]::White
-  $strip.BackColor = if ($on) { $GREEN } else { $RED }
-  if ($script:lastOn -ne $on) {
-    $script:lastOn = $on
-    $notify.Icon = if ($on) { $iconOn } else { $iconOff }
+  $btnOc.Text = if ($onOc) { "opencode`n● ON" } else { "opencode`n○ OFF" }
+  $btnOc.BackColor = if ($onOc) { $GREEN } else { $RED }
+  $btnOc.ForeColor = [System.Drawing.Color]::White
+  $btnCx.Text = if ($onCx) { "codex`n● ON" } else { "codex`n○ OFF" }
+  $btnCx.BackColor = if ($onCx) { $GREEN } else { $RED }
+  $btnCx.ForeColor = [System.Drawing.Color]::White
+  # 色条/托盘：两边都开绿，都关红，一开一关橙
+  $state = if ($onOc -and $onCx) { 2 } elseif (-not $onOc -and -not $onCx) { 0 } else { 1 }
+  $strip.BackColor = if ($state -eq 2) { $GREEN } elseif ($state -eq 0) { $RED } else { [System.Drawing.Color]::FromArgb(200, 130, 30) }
+  if ($script:lastOn -ne $state) {
+    $script:lastOn = $state
+    $notify.Icon = if ($state -eq 2) { $iconOn } elseif ($state -eq 0) { $iconOff } else { $iconMid }
   }
   $oc = Test-AppRunning @('OpenCode*', 'opencode*')
   # codex-plus-plus* 是无关常驻进程（Codex++，另一个软件），必须排除，
@@ -358,7 +396,7 @@ function Refresh-UI {
   if ($null -eq $script:taskVer -or ($script:tickN % 120) -eq 1) { $script:taskVer = Test-WatchTask }
   $pv = $script:plugVer
   if ($pv -eq '新版') {
-    $hint.Text = '开关管两边：opencode + codex。'
+    $hint.Text = '两个开关独立，各管一边。'
     $hint.ForeColor = $DIM
   } else {
     $hint.Text = "⚠ 插件$pv：开关不生效，重跑 install 后重启桌面。"

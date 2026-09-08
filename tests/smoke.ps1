@@ -129,6 +129,21 @@ try {
   $t4 = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\notify-toggle.ps1 -MarkerPath $marker -On 2>&1
   if ("$t4" -notmatch 'ON' -or (Test-Path $marker)) { throw "toggle -On 不对：$t4" }
   Write-Output '[ok] toggle -On/-Off'
+  # -Agent Codex：独立 marker，翻转 + 回显（-CodexMarker 隔离，不碰真实文件）
+  $cxMarker = Join-Path $tmp3 'codex-notify.off'
+  Remove-Item $cxMarker -Force -ErrorAction SilentlyContinue
+  $c1 = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\notify-toggle.ps1 -Agent Codex -CodexMarker $cxMarker 2>&1
+  if ("$c1" -notmatch 'OFF' -or -not (Test-Path $cxMarker)) { throw "toggle codex 翻转不对：$c1" }
+  $c2 = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\notify-toggle.ps1 -Agent Codex -CodexMarker $cxMarker 2>&1
+  if ("$c2" -notmatch 'ON' -or (Test-Path $cxMarker)) { throw "toggle codex 翻转不对：$c2" }
+  Write-Output '[ok] toggle -Agent Codex'
+  # -Agent All：两边各翻各的，各回显一行
+  Remove-Item $marker -Force -ErrorAction SilentlyContinue
+  Remove-Item $cxMarker -Force -ErrorAction SilentlyContinue
+  $al = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\notify-toggle.ps1 -MarkerPath $marker -CodexMarker $cxMarker -Off 2>&1
+  if (("$al" -notmatch 'opencode: OFF') -or ("$al" -notmatch 'codex: OFF')) { throw "toggle All 回显不对：$al" }
+  if (-not (Test-Path $marker) -or -not (Test-Path $cxMarker)) { throw 'toggle All 未建齐 marker' }
+  Write-Output '[ok] toggle -Agent All'
 } finally {
   Remove-Item $tmp3 -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -149,7 +164,7 @@ try {
     $env:SMOKE_GOT4 = $gotFile
     $env:NOTIFY_AI_SCRIPT = $stubPath
     $env:LOCALAPPDATA = $fakeLocal
-    $env:OPENCODE_NOTIFY_MARKER_FILE = $markerPath
+    $env:CODEX_NOTIFY_MARKER_FILE = $markerPath
     & (Join-Path $repo 'scripts\codex-notify.ps1') 'turn-ended' $json
   }
   $job = Start-Job -ScriptBlock $runWrapper -ArgumentList $RepoRoot, $stub4, $got4, $nolocal4, $sample4, $marker4

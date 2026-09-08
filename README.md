@@ -98,7 +98,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 | `OPENCODE_NOTIFY_COOLDOWN_MIN` | 同会话冷却分钟数，默认 10 |
 | `OPENCODE_NOTIFY_STATE_FILE` / `OPENCODE_NOTIFY_LOG_FILE` | 去重状态 / 推送记录路径，默认 `%TEMP%\opencode\` 下 |
 | `OPENCODE_NOTIFY_OFF=1` | opencode 推送总开关 |
-| `OPENCODE_NOTIFY_MARKER_FILE` | 随用随开 marker 路径，文件存在即关，默认 `%USERPROFILE%\.config\opencode\notify-pushplus.off` |
+| `OPENCODE_NOTIFY_MARKER_FILE` | opencode 开关 marker 路径，文件存在即关，默认 `%USERPROFILE%\.config\opencode\notify-pushplus.off` |
+| `CODEX_NOTIFY_MARKER_FILE` | codex 开关 marker 路径，文件存在即关，默认 `%USERPROFILE%\.config\opencode\codex-notify.off` |
 | `OPENCODE_NOTIFY_QUIET` | 勿扰时段，格式 `23-8`（23:00 起到次日 8:00 前静默），解析失败 fail-open（不断推送） |
 | `OPENCODE_NOTIFY_DEBUG=1` | opencode 插件调试日志（联调完记得关） |
 | `CODEX_NOTIFY_DEBUG=1` | codex wrapper 参数日志（联调完记得关） |
@@ -108,20 +109,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 
 ## 随用随开（toggle + 悬浮窗）
 
-开会/专注时一键静默推送（opencode + codex 两边都看 marker），用完再打开。
-标题/时段两道免打扰仍只管 opencode（见下），marker 是唯一两边都认的开关。
+开会/专注时一键静默推送（opencode / codex 各看各的 marker，独立开关），用完再打开。
+标题/时段两道免打扰仍只管 opencode（见下）。
 
 ```powershell
-# 翻转（有关变开，有开变关，回显 ON/OFF，永远 exit 0）
+# 两边各翻转（各回显一行），永远 exit 0
 powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1"
 
-# 显式指定
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1" -On
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1" -Off
+# 只动一边
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1" -Agent Opencode -Off
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify-toggle.ps1" -Agent Codex -On
 ```
 
-原理：marker 文件 `%USERPROFILE%\.config\opencode\notify-pushplus.off`
-存在即关。桌面右下角悬浮窗的大按钮翻的也是它。
+原理：marker 文件存在即关（opencode 看 `notify-pushplus.off`，
+codex 看 `codex-notify.off`，都在 `%USERPROFILE%\.config\opencode\` 下）。
+桌面悬浮窗有两个独立大按钮，翻的分别是它俩。
 
 另外两道免打扰（与 marker 是或关系，任一命中即跳过，原因进 debug 日志）：
 
@@ -133,7 +135,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 
 **悬浮窗**（`linkweixin-widget.ps1`，无边框深色小窗，右下角常驻置顶）：
 
-- 大开关：翻 marker，绿底 ON / 红底 OFF，一眼看清状态。
+- 大开关：两个独立按钮，opencode / codex 各管一边（绿底 ON / 红底 OFF），
+  顶条两边都开绿、都关红、一开一关橙，托盘图标颜色同步。
 - 运行灯：`opencode` / `codex` 进程在即绿灯（每 5 秒轮询，
   本机实测进程名 `OpenCode*` / `opencode*` / `codex*`，`codex-plus-plus*` 是无关软件已排除），
   仅状态显示。
@@ -187,7 +190,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 9. **全局插件对本机所有会话生效**（含 agent/API 会话），靠冷却压频率。
 10. **开关关了还推**：先看悬浮窗底栏，报 `插件旧版/未安装` 就是装上去的插件没更新——
     重跑 `install.ps1` 再重启桌面端（含后台 service，插件只在启动时加载）。
-    codex 侧也看 marker（只跳推送，透传原电脑操控不受影响）；仍推就开
+    codex 侧也看自己的 marker（只跳推送，透传原电脑操控不受影响）；仍推就开
     `CODEX_NOTIFY_DEBUG=1` 看 `%TEMP%\opencode\codex-notify-debug.log` 有没有 `marker-off`。
 11. **悬浮窗 codex 灯灭不了**：`codex-plus-plus*`（Codex++，另一个软件）已被排除；
     仍绿先确认 Codex 桌面进程真的退了（看守/后台 service 常驻也会亮灯）。

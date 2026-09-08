@@ -15,10 +15,10 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Passthru)
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-# 随用随开 marker（与 opencode 插件、notify-toggle 同路径约定，
-# 测试用 OPENCODE_NOTIFY_MARKER_FILE 覆盖）：存在只跳过推送，
+# 随用随开 marker（与 notify-toggle -Agent Codex、悬浮窗 codex 开关同路径约定，
+# 测试用 CODEX_NOTIFY_MARKER_FILE 覆盖）：存在只跳过推送，
 # 原电脑操控透传不受影响（透传在下面先执行）。
-$MarkerFile = if ($env:OPENCODE_NOTIFY_MARKER_FILE) { $env:OPENCODE_NOTIFY_MARKER_FILE } else { Join-Path $env:USERPROFILE '.config\opencode\notify-pushplus.off' }
+$MarkerFile = if ($env:CODEX_NOTIFY_MARKER_FILE) { $env:CODEX_NOTIFY_MARKER_FILE } else { Join-Path $env:USERPROFILE '.config\opencode\codex-notify.off' }
 
 try { New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP 'opencode') | Out-Null } catch { }
 
