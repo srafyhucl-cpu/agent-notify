@@ -52,6 +52,7 @@ $script:allowExit = $false
 $script:lastOn = $null
 $script:tickN = 0
 $script:plugVer = $null
+$script:taskVer = $null
 
 function Test-AppRunning {
   param([string[]]$Patterns, [string[]]$Exclude = @())
@@ -87,6 +88,17 @@ function Test-PluginGate {
   try {
     if (-not (Test-Path $pluginPath)) { return '未安装' }
     if (Select-String -Path $pluginPath -Pattern 'markerOff' -SimpleMatch -Quiet) { return '新版' }
+    return '旧版'
+  } catch { return '未知' }
+}
+
+# 看守任务是不是隐藏版：旧版 install 注册的动作不带 -WindowStyle Hidden，
+# 每 5 分钟闪一次窗口。读任务定义不需要管理员权限，查出来就提示用户管理员重跑。
+function Test-WatchTask {
+  try {
+    $xml = schtasks /query /tn CodexNotifyWatch /xml 2>$null | Out-String
+    if ([string]::IsNullOrWhiteSpace($xml)) { return '新版' } # 没装看守就不报警
+    if ($xml -match 'WindowStyle\s+Hidden') { return '新版' }
     return '旧版'
   } catch { return '未知' }
 }
@@ -339,14 +351,20 @@ function Refresh-UI {
   $rowCx.Txt.Text = if ($cx) { 'codex  运行中' } else { 'codex  未运行' }
   $rowCx.Dot.ForeColor = if ($cx) { $DOT_ON } else { [System.Drawing.Color]::FromArgb(100, 100, 105) }
   $rowLast.Txt.Text = '上次推送 ' + (Get-LastPushText)
-  # 插件版本几乎不变：启动查一次，之后每 10 分钟复查，不再每轮读文件。
+  # 插件/任务版本几乎不变：启动查一次，之后每 10 分钟复查，不再每轮读文件。
   if ($null -eq $script:plugVer -or ($script:tickN % 120) -eq 1) { $script:plugVer = Test-PluginGate }
+  if ($null -eq $script:taskVer -or ($script:tickN % 120) -eq 1) { $script:taskVer = Test-WatchTask }
   $pv = $script:plugVer
   if ($pv -eq '新版') {
     $hint.Text = '只管 opencode 侧推送，codex 侧不受影响。'
     $hint.ForeColor = $DIM
   } else {
     $hint.Text = "⚠ 插件$pv：开关不生效，重跑 install 后重启桌面。"
+    $hint.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
+  }
+  # 任务旧版另起提示（别覆盖插件报警，插件问题更严重）。
+  if ($pv -eq '新版' -and $script:taskVer -eq '旧版') {
+    $hint.Text = '⚠ 看守任务旧版：每5分钟闪窗口，管理员重跑 install.ps1。'
     $hint.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
   }
 }

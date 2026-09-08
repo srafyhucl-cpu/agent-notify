@@ -162,6 +162,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
   - codex：turn 结束即推，无冷却（codex 自己的事件粒度已够粗）。
 - **看守**：codex 桌面启动/更新会把 `config.toml` 的 `notify` 改回直调 exe，
   计划任务每 5 分钟 + 登录时跑 watcher 恢复（改写前备份，只动指向 exe 的行）。
+  任务动作带 `-WindowStyle Hidden`，运行时无窗口；旧版装上来的任务每 5 分钟闪一次，
+  悬浮窗底栏会橙字提示，管理员重跑一遍 `install.ps1` 即可（重注册）。
 
 ## 踩过的坑（复现时注意）
 
