@@ -87,6 +87,13 @@ try {
   Remove-Item $tmp2 -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# 防大小写撞车回归：PS 变量不分大小写，$CARD/$card 这类同名不同写
+# 会静默覆盖（曾导致悬浮窗卡片颜色失效 + 启动 try 连带跳过 ShowDialog 秒退）
+$wraw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts\linkweixin-widget.ps1'))
+$vars = [regex]::Matches($wraw, '\$[A-Za-z][A-Za-z0-9_]*') | ForEach-Object { $_.Value } | Sort-Object -Unique
+$dupes = $vars | Group-Object { $_.ToLower() } | Where-Object { ($_.Group | Sort-Object -Unique).Count -gt 1 }
+if ($dupes) { throw ("widget 变量大小写撞车：" + (($dupes | ForEach-Object { $_.Group -join '/' }) -join '; ')) }
+Write-Output '[ok] widget no case-collision vars'
 # 防闪屏回归：两处拉起子 powershell 必须带 -WindowStyle Hidden（读原文跨行匹配）
 foreach ($f in @('opencode-plugin\notify-pushplus.ts', 'scripts\codex-notify.ps1')) {
   $raw = [IO.File]::ReadAllText((Join-Path $RepoRoot $f))

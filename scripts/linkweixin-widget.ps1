@@ -184,7 +184,7 @@ function New-DotIcon {
 }
 
 $BG = [System.Drawing.Color]::FromArgb(31, 31, 35)
-$CARD = [System.Drawing.Color]::FromArgb(42, 42, 47)
+$CardBG = [System.Drawing.Color]::FromArgb(42, 42, 47)
 $FG = [System.Drawing.Color]::FromArgb(240, 240, 240)
 $DIM = [System.Drawing.Color]::FromArgb(150, 150, 155)
 $GREEN = [System.Drawing.Color]::FromArgb(46, 160, 67)
@@ -277,7 +277,7 @@ $form.Controls.Add($btnCx)
 $card = New-Object System.Windows.Forms.Panel
 $card.Location = New-Object System.Drawing.Point(16, 124)
 $card.Size = New-Object System.Drawing.Size(256, 128)
-$card.BackColor = $CARD
+$card.BackColor = $CardBG
 $form.Controls.Add($card)
 
 function Add-Row {
@@ -292,7 +292,7 @@ function Add-Row {
   $txt = New-Object System.Windows.Forms.Label
   $txt.Font = $YAFONT
   $txt.ForeColor = $FG
-  $txt.BackColor = $CARD
+  $txt.BackColor = $CardBG
   $txt.Location = New-Object System.Drawing.Point(34, $Y)
   $txt.Size = New-Object System.Drawing.Size(210, 28)
   $txt.TextAlign = 'MiddleLeft'
@@ -458,6 +458,7 @@ $timer.Add_Tick({
   } catch { Log-Err 'tick' $_ }
 })
 $timer.Start()
+'boot ok ' + $PID + ' ' + (Get-Date -Format o) | Out-File -FilePath (Join-Path $env:TEMP 'opencode\widget-boot.log') -Encoding utf8 -Force
 
 $form.Add_Shown({
   try { Refresh-UI } catch { Log-Err 'shown' $_ }
