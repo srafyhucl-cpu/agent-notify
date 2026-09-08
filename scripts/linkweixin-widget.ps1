@@ -26,20 +26,33 @@ $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# 单实例：桌面快捷方式双击 = 可靠重开。先接管（杀掉）旧实例再起新窗体；
-# 开关状态在 marker 文件里，新实例自动继承。排除自己和父进程，
-# 父进程的命令行里也可能带本脚本名（比如从终端手动启动时），不能误杀。
+# 单实例：互斥锁 + 两次清扫，关掉“连击/双击开出两个”的竞态，任何时刻最多一个。
+# 桌面双击 = 新实例接管（旧的清掉；开关状态全在 marker 文件里，不丢）。
+# 锁必须持有到进程退出（不释放），抢不到锁的实例安静退出，绝不双跑。
+$mtx = $null
 try {
-  $myParent = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
-  Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
-    Where-Object {
-      # 只认 -File 直跑本脚本的宿主：纯子串会误伤命令行里带脚本名的调用方
-      #（比如正好在终端里操作它），父进程也一并排除。
-      ($_.CommandLine -match '\-File\s+"[^"]*linkweixin-widget\.ps1"') -and
-      ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $myParent)
-    } |
-    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-  Start-Sleep -Milliseconds 500
+  $mtx = New-Object System.Threading.Mutex($false, 'Global\LinkWeixinWidgetSingleInstance')
+  $owns = $false
+  try { $owns = $mtx.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owns = $true }
+  if (-not $owns) { Start-Sleep -Seconds 2 }  # 等对方稳定（或确认它是 hung 的尸体）
+  foreach ($round in 1..2) {
+    try {
+      $pp = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop).ParentProcessId
+      Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
+        Where-Object {
+          # 只认 -File 直跑本脚本的宿主：纯子串会误伤命令行里带脚本名的调用方
+          #（比如正好在终端里操作它），父进程也一并排除。
+          ($_.CommandLine -match '\-File\s+"[^"]*linkweixin-widget\.ps1"') -and
+          ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $pp)
+        } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    } catch { }
+    Start-Sleep -Milliseconds 800
+  }
+  if (-not $owns) {
+    try { $owns = $mtx.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owns = $true }
+    if (-not $owns) { exit 0 }
+  }
 } catch { }
 
 $pushLog = if ($env:OPENCODE_NOTIFY_LOG_FILE) { $env:OPENCODE_NOTIFY_LOG_FILE } else { Join-Path $env:TEMP 'opencode\notify-push.log' }
@@ -327,40 +340,46 @@ function Real-Exit {
   $form.Close()
 }
 
-$btnMin.Add_Click({ Hide-Window })
-$btnX.Add_Click({ Hide-Window })
-$btnOc.Add_Click({ Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI })
-$btnCx.Add_Click({ Set-CodexNotifyOn (-not (Get-CodexNotifyOn)); Refresh-UI })
-$miShow.Add_Click({ Toggle-Window })
-$miOc.Add_Click({ Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI })
-$miCx.Add_Click({ Set-CodexNotifyOn (-not (Get-CodexNotifyOn)); Refresh-UI })
-$miExit.Add_Click({ Real-Exit })
-$notify.Add_DoubleClick({ Toggle-Window })
-$menu.Add_Opening({
+$btnMin.Add_Click({ try { Hide-Window } catch { Log-Err 'min' $_ } })
+$btnX.Add_Click({ try { Hide-Window } catch { Log-Err 'x' $_ } })
+$btnOc.Add_Click({ try { Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI } catch { Log-Err 'btnOc' $_ } })
+$btnCx.Add_Click({ try { Set-CodexNotifyOn (-not (Get-CodexNotifyOn)); Refresh-UI } catch { Log-Err 'btnCx' $_ } })
+$miShow.Add_Click({ try { Toggle-Window } catch { Log-Err 'miShow' $_ } })
+$miOc.Add_Click({ try { Set-NotifyOn (-not (Get-NotifyOn)); Refresh-UI } catch { Log-Err 'miOc' $_ } })
+$miCx.Add_Click({ try { Set-CodexNotifyOn (-not (Get-CodexNotifyOn)); Refresh-UI } catch { Log-Err 'miCx' $_ } })
+$miExit.Add_Click({ try { Real-Exit } catch { Log-Err 'miExit' $_ } })
+$notify.Add_DoubleClick({ try { Toggle-Window } catch { Log-Err 'dblclick' $_ } })
+$menu.Add_Opening({ try {
   $miShow.Text = if ($form.Visible) { '隐藏悬浮窗' } else { '显示悬浮窗' }
   $miOc.Text = if (Get-NotifyOn) { '关闭 opencode 推送' } else { '开启 opencode 推送' }
   $miCx.Text = if (Get-CodexNotifyOn) { '关闭 codex 推送' } else { '开启 codex 推送' }
-})
+} catch { Log-Err 'opening' $_ } })
 $form.Add_FormClosing({
   param($s, $e)
-  if (-not $script:allowExit) { $e.Cancel = $true; Hide-Window }
+  try {
+    if (-not $script:allowExit) { $e.Cancel = $true; Hide-Window }
+  } catch { Log-Err 'closing' $_ }
 })
 
 # 拖动：按住标题栏移动无边框窗体
 $drag = @{ On = $false; X = 0; Y = 0 }
 $moveH = {
-  if ($drag.On) {
-    $form.Location = New-Object System.Drawing.Point(
-      ([System.Windows.Forms.Cursor]::Position.X - $drag.X),
-      ([System.Windows.Forms.Cursor]::Position.Y - $drag.Y))
-  }
+  try {
+    if ($drag.On) {
+      $form.Location = New-Object System.Drawing.Point(
+        ([System.Windows.Forms.Cursor]::Position.X - $drag.X),
+        ([System.Windows.Forms.Cursor]::Position.Y - $drag.Y))
+    }
+  } catch { Log-Err 'drag' $_ }
 }
 $downH = {
-  $drag.On = $true
-  $drag.X = [System.Windows.Forms.Cursor]::Position.X - $form.Location.X
-  $drag.Y = [System.Windows.Forms.Cursor]::Position.Y - $form.Location.Y
+  try {
+    $drag.On = $true
+    $drag.X = [System.Windows.Forms.Cursor]::Position.X - $form.Location.X
+    $drag.Y = [System.Windows.Forms.Cursor]::Position.Y - $form.Location.Y
+  } catch { Log-Err 'dragdown' $_ }
 }
-$upH = { $drag.On = $false }
+$upH = { try { $drag.On = $false } catch { Log-Err 'dragup' $_ } }
 foreach ($c in @($bar, $title)) {
   $c.Add_MouseDown($downH); $c.Add_MouseMove($moveH); $c.Add_MouseUp($upH)
 }
