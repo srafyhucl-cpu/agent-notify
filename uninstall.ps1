@@ -28,7 +28,7 @@ else { Write-Output "[uninstall] 不存在，跳过：$plug" }
 try {
   $myParent = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
   Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
-    Where-Object { ($_.CommandLine -match 'linkweixin-widget') -and ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $myParent) } |
+    Where-Object { ($_.CommandLine -match '\-File\s+"[^"]*linkweixin-widget\.ps1"') -and ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $myParent) } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Output "[uninstall] 已杀悬浮窗进程 $($_.ProcessId)" }
 } catch {
   Write-Output "[uninstall] 悬浮窗进程清理跳过：$($_.Exception.Message)"

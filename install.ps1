@@ -36,6 +36,7 @@ try {
     'scripts\codex-notify-watch.ps1',
     'scripts\notify-toggle.ps1',
     'scripts\linkweixin-widget.ps1',
+    'scripts\run-hidden.vbs',
     'opencode-plugin\notify-pushplus.ts'
   )
   foreach ($w in $wants) {
@@ -50,6 +51,7 @@ try {
   Copy-Item (Join-Path $RepoRoot 'scripts\codex-notify-watch.ps1') (Join-Path $InstallDir 'codex-notify-watch.ps1') -Force
   Copy-Item (Join-Path $RepoRoot 'scripts\notify-toggle.ps1') (Join-Path $InstallDir 'notify-toggle.ps1') -Force
   Copy-Item (Join-Path $RepoRoot 'scripts\linkweixin-widget.ps1') (Join-Path $InstallDir 'linkweixin-widget.ps1') -Force
+  Copy-Item (Join-Path $RepoRoot 'scripts\run-hidden.vbs') (Join-Path $InstallDir 'run-hidden.vbs') -Force
   Copy-Item (Join-Path $RepoRoot 'opencode-plugin\notify-pushplus.ts') (Join-Path $PluginDir 'notify-pushplus.ts') -Force
   Write-Output "[install] 脚本已装到 $InstallDir，插件已装到 $PluginDir"
 
@@ -87,10 +89,16 @@ try {
 
   # 4. 注册看守计划任务（codex 桌面会把 notify 改回去，看守负责恢复）。
   #    需要管理员权限：请在管理员 PowerShell 里跑本脚本，或手动执行下面这段。
+  #    动作经 run-hidden.vbs 中转：Win11 默认终端是 Windows Terminal 时，
+  #    任务直接拉 powershell.exe 会先建可见窗口/页签再藏，闪一下；
+  #    wscript 本身无控制台，子进程全程隐藏，WT 拦截不到任何东西。
   if (-not $SkipScheduledTask) {
     try {
       $watch = Join-Path $InstallDir 'codex-notify-watch.ps1'
-      $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $watch + '"')
+      $launcher = Join-Path $InstallDir 'run-hidden.vbs'
+      $wshExe = Join-Path $env:SystemRoot 'System32\wscript.exe'
+      if (-not (Test-Path $wshExe)) { $wshExe = 'wscript.exe' }
+      $taskAction = New-ScheduledTaskAction -Execute $wshExe -Argument ('"' + $launcher + '" "' + $watch + '"')
       $taskT1 = New-ScheduledTaskTrigger -AtLogOn
       $taskT2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
       Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger @($taskT1, $taskT2) -Force | Out-Null
@@ -108,23 +116,25 @@ try {
 
   # 5. 悬浮窗开机自启（shell:startup 快捷方式，无需管理员）
   #    + 桌面快捷方式（关掉窗体后从桌面双击即可再打开）。
+  #    快捷方式目标是 wscript+run-hidden.vbs（同上，.lnk 拉 powershell 在 WT 下必闪）。
   try {
-    $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    if (-not (Test-Path $psExe)) { $psExe = 'powershell.exe' }
+    $wshExe = Join-Path $env:SystemRoot 'System32\wscript.exe'
+    if (-not (Test-Path $wshExe)) { $wshExe = 'wscript.exe' }
     $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
+    $launcher = Join-Path $InstallDir 'run-hidden.vbs'
     $ws = New-Object -ComObject WScript.Shell
     foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
       $lnkPath = Join-Path $dir 'linkWeixin 悬浮窗.lnk'
       $sc = $ws.CreateShortcut($lnkPath)
-      $sc.TargetPath = $psExe
-      $sc.Arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $widget + '"'
+      $sc.TargetPath = $wshExe
+      $sc.Arguments = '"' + $launcher + '" "' + $widget + '"'
       $sc.WorkingDirectory = $InstallDir
       $sc.Description = 'linkWeixin 推送悬浮窗'
       $sc.Save()
       Write-Output "[install] 悬浮窗快捷方式已建：$lnkPath"
     }
     try {
-      Start-Process $psExe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $widget)
+      Start-Process $wshExe -ArgumentList @('"' + $launcher + '"', '"' + $widget + '"') -WindowStyle Hidden
       Write-Output '[install] 悬浮窗已启动（右下角无边框小窗，拖标题区移动）。'
     } catch {
       Write-Output '[install] 悬浮窗本次未自动启动，手动跑一次上面的命令即可。'

@@ -4,8 +4,9 @@
   linkWeixin 悬浮窗：大开关 + opencode/codex 运行灯 + 上次推送时间 + 托盘常驻。
 
 .DESCRIPTION
-  常驻启动（控制台藏掉，只留窗体）：
-    powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File linkweixin-widget.ps1
+  常驻启动（控制台从不存在，Windows Terminal 也拦截不到）：
+    wscript.exe "C:\Users\你\bin\run-hidden.vbs" "C:\Users\你\bin\linkweixin-widget.ps1"
+  （不要直接双击 ps1 / 用 powershell 拉：Win11 默认终端下会留黑窗口/页签。）
   install.ps1 会建 shell:startup 开机快捷方式 + 桌面快捷方式（都无需管理员）。
   无边框窗体，拖标题区移动。右上角 × / — 是最小化到托盘（首次有气泡提示），
   双击托盘图标恢复，右键托盘菜单可开关推送或彻底退出。
@@ -32,7 +33,9 @@ try {
   $myParent = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
   Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
     Where-Object {
-      ($_.CommandLine -like '*linkweixin-widget.ps1*') -and
+      # 只认 -File 直跑本脚本的宿主：纯子串会误伤命令行里带脚本名的调用方
+      #（比如正好在终端里操作它），父进程也一并排除。
+      ($_.CommandLine -match '\-File\s+"[^"]*linkweixin-widget\.ps1"') -and
       ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $myParent)
     } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }

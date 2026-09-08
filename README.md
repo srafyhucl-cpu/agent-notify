@@ -190,6 +190,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
     `CODEX_NOTIFY_DEBUG=1` 看 `%TEMP%\opencode\codex-notify-debug.log` 有没有 `marker-off`。
 11. **悬浮窗 codex 灯灭不了**：`codex-plus-plus*`（Codex++，另一个软件）已被排除；
     仍绿先确认 Codex 桌面进程真的退了（看守/后台 service 常驻也会亮灯）。
+12. **Win11 默认终端是 Windows Terminal 时黑窗口/页签闪**：WT 会在 powershell
+    应用 `-WindowStyle Hidden` 之前先把窗口建出来，所以 `.lnk` 快捷方式和
+    计划任务**必须**经 `scripts\run-hidden.vbs` 中转（wscript 本身无控制台）。
+    直接双击 ps1 / 直接拉 powershell 必闪；插件和 wrapper 的子进程拉起不受影响
+    （父进程无窗口 + 出生即隐藏，实测无窗口）。
 
 ## 卸载
 

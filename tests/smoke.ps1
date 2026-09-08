@@ -99,6 +99,15 @@ foreach ($f in @('opencode-plugin\notify-pushplus.ts', 'scripts\codex-notify.ps1
 $watchRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'scripts\codex-notify-watch.ps1'))
 if ($watchRaw -notmatch 'GetConsoleWindow') { throw 'watcher 缺自隐藏，计划任务每 5 分钟闪窗口' }
 Write-Output '[ok] no-flash scripts\codex-notify-watch.ps1'
+# 无窗口中转：.lnk/计划任务必须经 run-hidden.vbs 拉（Win11 默认终端 WT 下
+# 直接拉 powershell 必闪，-WindowStyle Hidden 都盖不住第一帧）
+$vbs = Join-Path $RepoRoot 'scripts\run-hidden.vbs'
+if (-not (Test-Path $vbs)) { throw '缺 scripts\run-hidden.vbs' }
+$vbsRaw = [IO.File]::ReadAllText($vbs)
+if ($vbsRaw -notmatch 'Run.*, 0, False') { throw 'run-hidden.vbs 必须以后台方式(0, False)拉起' }
+$instRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'install.ps1'))
+if ($instRaw -notmatch 'run-hidden\.vbs') { throw 'install.ps1 快捷方式/任务必须经 run-hidden.vbs 中转' }
+Write-Output '[ok] no-flash run-hidden.vbs + install wiring'
 
 # notify-toggle：临时 -MarkerPath 隔离，断言 off->on->off + 回显。不碰真实 marker。
 $tmp3 = Join-Path $env:TEMP 'linkweixin-smoke-toggle'
