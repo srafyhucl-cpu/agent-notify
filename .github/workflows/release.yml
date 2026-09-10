@@ -12,7 +12,7 @@ jobs:
     name: 构建并发布
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: 校验 tag 与模块版本一致
         shell: powershell
