@@ -28,6 +28,38 @@ try {
   }
 } catch { }
 try { New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP 'opencode') | Out-Null } catch { }
+
+# —— 悬浮窗看护：进程不在且非用户主动退出时拉起（复用本任务 5 分钟节奏）——
+# 仅在正规安装（所在目录有安装记录）时生效；在仓库/沙箱里跑本脚本会自动跳过。
+try {
+  $record = Join-Path $PSScriptRoot 'linkweixin-install.json'
+  if (Test-Path $record) {
+    $running = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
+      Where-Object { $_.CommandLine -match '\-File\s+"?[^"]*linkweixin-widget\.ps1' }).Count -gt 0
+    $exitMarker = Join-Path $env:TEMP 'opencode\widget-exit.txt'
+    if (-not $running -and -not (Test-Path $exitMarker)) {
+      $launcher = 'vbs'
+      try { $launcher = (Get-Content $record -Raw -Encoding utf8 | ConvertFrom-Json).launcher } catch { }
+      $started = $false
+      if ($launcher -eq 'python') {
+        $pyw = Get-Command pythonw.exe -ErrorAction SilentlyContinue
+        $detached = Join-Path $PSScriptRoot 'widget-detached.py'
+        if ($pyw -and (Test-Path $detached)) {
+          Start-Process $pyw.Source -ArgumentList ('"' + $detached + '"') -WindowStyle Hidden
+          $started = $true
+        }
+      }
+      if (-not $started) {
+        $vbs = Join-Path $PSScriptRoot 'run-hidden.vbs'
+        $widget = Join-Path $PSScriptRoot 'linkweixin-widget.ps1'
+        if (Test-Path $vbs) {
+          Start-Process (Join-Path $env:SystemRoot 'System32\wscript.exe') -ArgumentList ('"' + $vbs + '"', '"' + $widget + '"') -WindowStyle Hidden
+        }
+      }
+      "[watch] widget relaunched ($launcher) $(Get-Date -Format o)" | Out-File -FilePath "$env:TEMP\opencode\codex-watch.log" -Append -Encoding utf8
+    }
+  }
+} catch { }
 $cfg = $ConfigPath
 $wrapperSlash = ($WrapperPath -replace '\\', '/')
 $want = "notify = [ `"powershell.exe`", `"-NoProfile`", `"-ExecutionPolicy`", `"Bypass`", `"-File`", `"$wrapperSlash`", `"turn-ended`" ]"

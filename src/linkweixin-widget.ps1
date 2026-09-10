@@ -9,9 +9,10 @@
     wscript.exe "C:\Users\你\bin\run-hidden.vbs" "C:\Users\你\bin\linkweixin-widget.ps1"
   （不要直接双击 ps1 / 用 powershell 拉：Win11 默认终端下会留黑窗口/页签。）
   install.ps1 会建 shell:startup 开机快捷方式 + 桌面快捷方式（都无需管理员）。
-  无边框窗体，拖标题区移动。右上角 × / — 是最小化到托盘（首次有气泡提示），
-  双击托盘图标恢复，右键托盘菜单可开关推送或彻底退出。
-  再打开方式：双击托盘图标 / 桌面“linkWeixin 悬浮窗” / 上面那条手动命令。
+  无边框窗体，拖标题区移动。— 最小化到任务栏；× 藏到托盘并弹气泡提示。
+  找回来的方式：任务栏按钮 / 双击托盘图标 / 桌面「linkWeixin 悬浮窗」快捷方式。
+  看守任务每 5 分钟检查一次：进程不在且非用户主动退出（exit marker）时会自动拉起，
+  静默死亡也能 ≤5 分钟自愈。
   内容只有状态显示 + 翻 marker，不做 token/时段输入框。
   进程名已在本机实测：opencode 侧 'OpenCode*'（桌面）/'opencode*'（cli/service），
   codex 侧 'codex*'（codex-plus-plus* 是无关软件 Codex++，已排除）。轮询 5 秒一次，
@@ -29,6 +30,13 @@ param(
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
+
+# DPI 感知（Per-Monitor V2）：必须在创建任何窗口/句柄之前设置，防高缩放 / 远程桌面下模糊。
+try {
+  Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(System.IntPtr value);' -Name DpiAwareness -Namespace LinkWeixin -ErrorAction Stop
+  [void][LinkWeixin.DpiAwareness]::SetProcessDpiAwarenessContext([IntPtr](-4))  # -4 = PER_MONITOR_AWARE_V2
+} catch { }
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -51,6 +59,11 @@ $paths = Get-LinkWeixinPaths
 if (-not $MarkerPath) { $MarkerPath = $paths.OpenCodeMarker }
 $errLog = $paths.WidgetErrorLog
 $aliveFile = $paths.WidgetAliveFile
+$exitMarker = $paths.WidgetExitMarker
+$posFile = $paths.WidgetPosFile
+
+# 主动退出标记：启动时清除；Close-Widget 会写。看守任务据此区分“崩了”与“用户主动退出”。
+if (Test-Path $exitMarker) { Remove-Item $exitMarker -Force -ErrorAction SilentlyContinue }
 
 # 版本号：模块清单 ModuleVersion 单一来源，底栏显示。
 $appVersion = ''
@@ -60,6 +73,11 @@ function Write-WidgetError {
   param([string]$Where, [object]$Ex)
   try { "$(Get-Date -Format o) [$Where] $($Ex | Out-String)" | Out-File -FilePath $errLog -Append -Encoding utf8 } catch { }
 }
+
+# 进程退出留痕：clean 退出会记录；配合 30 秒心跳可定位“静默死亡”的时间窗。
+[System.AppDomain]::CurrentDomain.add_ProcessExit({
+  try { "exit pid=$PID at=$(Get-Date -Format o)" | Out-File -FilePath (Join-Path $env:TEMP 'opencode\widget-exit.log') -Append -Encoding utf8 } catch { }
+})
 
 # 全局兜底：UI 线程/未处理异常全部落盘。WinForms 事件里的漏网异常走这里，
 # 否则就是“静默死亡、无日志”，上次丢进程就是这么查不出来的。
@@ -121,15 +139,21 @@ try {
 # 共享上下文（部件间只经 $ctx 读写）。
 $ctx = @{
   Paths       = $paths
+  ScriptDir   = $PSScriptRoot
   MarkerPath  = $MarkerPath
   CodexMarker = $paths.CodexMarker
   AliveFile   = $aliveFile
+  PosFile     = $posFile
+  ExitMarker  = $exitMarker
   AppVersion  = $appVersion
   AllowExit   = $false
   LastOnState = $null
-  Tick        = 0
   PlugVer     = $null
   TaskVer     = $null
+  TodayCount  = $null
+  HoverOc     = $false
+  HoverCx     = $false
+  Tick        = 0
   IconBmps    = New-Object System.Collections.ArrayList
   Drag        = @{ On = $false; X = 0; Y = 0 }
   Colors      = @{
@@ -174,7 +198,20 @@ $timer.Start()
 
 $ctx.Form.Add_Shown({
     try { Update-WidgetState -Ctx $ctx } catch { Write-WidgetError 'shown' $_ }
-    try { $ctx.Notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。× 藏到托盘（^ 里找绿/红点，可拖出来），双击恢复；右下角红字可彻底退出。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Write-WidgetError 'tip' $_ }
+    try { $ctx.Notify.ShowBalloonTip(3000, 'linkWeixin', '悬浮窗已启动。— 最小化到任务栏；× 藏到托盘（双击托盘图标或桌面快捷方式可恢复）。', [System.Windows.Forms.ToolTipIcon]::Info) } catch { Write-WidgetError 'tip' $_ }
+    # 启动淡入（~150ms，消除生硬感）
+    try {
+      $ctx.Form.Opacity = 0
+      $fade = New-Object System.Windows.Forms.Timer
+      $fade.Interval = 30
+      $fade.Add_Tick({
+          try {
+            if ($ctx.Form.Opacity -ge 0.94) { $ctx.Form.Opacity = 1; $fade.Stop(); $fade.Dispose() }
+            else { $ctx.Form.Opacity = [Math]::Round($ctx.Form.Opacity + 0.17, 2) }
+          } catch { }
+        })
+      $fade.Start()
+    } catch { }
   })
 try {
   [void]$ctx.Form.ShowDialog()

@@ -155,5 +155,7 @@ if (-not $SkipCodexConfig) {
 }
 
 Write-Output '[uninstall] 环境变量 PUSHPLUS_TOKEN 请手动清理（如 setx PUSHPLUS_TOKEN "" 后删注册表，或直接不管）。'
+# 悬浮窗主动退出标记（留着会挡住看守任务的自动拉起；位置文件保留，重装后位置记忆还在）
+Remove-Item (Join-Path $env:TEMP 'opencode\widget-exit.txt') -Force -ErrorAction SilentlyContinue
 Write-Output '[uninstall] 完成，记得重启 opencode / codex 桌面端。'
 exit 0

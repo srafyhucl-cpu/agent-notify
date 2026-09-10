@@ -1,6 +1,6 @@
 ﻿@{
   RootModule        = 'LinkWeixin.psm1'
-  ModuleVersion     = '0.1.0'
+  ModuleVersion     = '0.2.0'
   GUID              = '56a32fa0-7bf9-40a8-aa4d-05704807c513'
   Author            = 'linkWeixin contributors'
   Copyright         = '(c) linkWeixin contributors. MIT License.'

@@ -147,6 +147,8 @@ Describe 'Get-LinkWeixinPaths' {
     $p.CodexMarker | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\codex-notify.off')
     $p.PushLog | Should -Be (Join-Path $env:TEMP 'opencode\notify-push.log')
     $p.PluginFile | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\plugins\notify-pushplus.ts')
+    $p.WidgetPosFile | Should -Be (Join-Path $env:TEMP 'opencode\widget-pos.txt')
+    $p.WidgetExitMarker | Should -Be (Join-Path $env:TEMP 'opencode\widget-exit.txt')
   }
   It '环境变量覆盖生效' {
     $oldO = $env:OPENCODE_NOTIFY_MARKER_FILE
@@ -193,7 +195,7 @@ Describe 'Send-PushPlusNotification DryRun' {
 Describe '模块清单' {
   It '版本与最低 PowerShell 版本正确' {
     $m = Get-Module LinkWeixin
-    $m.Version.ToString() | Should -Be '0.1.0'
+    $m.Version.ToString() | Should -Be '0.2.0'
     $m.PowerShellVersion.ToString() | Should -Be '5.1'
   }
   It 'FunctionsToExport 里每个函数都存在' {

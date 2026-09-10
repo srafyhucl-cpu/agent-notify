@@ -31,7 +31,7 @@ notify-ai.ps1 → LinkWeixin 模块（渲染 + 发送） → PushPlus API → �
 | `plugin/notify-pushplus.ts` | 订阅 `session.execution.succeeded`，取会话标题与末条 assistant 文本，spawn 推送脚本 | 零 import、失败全吞、同会话冷却（内存 + 状态文件） |
 | `src/notify-ai.ps1` | 推送入口：参数/stdin 兜底，调模块 | 唯一发 PushPlus 的地方；除 DryRun 外永远 `exit 0` |
 | `src/codex-notify.ps1` | codex notify 中转：先透传上游 exe，再推送 | 任何一步失败都不得影响透传；exe 路径动态找最新 |
-| `src/codex-notify-watch.ps1` | 计划任务看守：codex 改写配置后恢复 wrapper | 只动指向上游 exe 的行；改写前备份 |
+| `src/codex-notify-watch.ps1` | 计划任务看守：恢复 codex 配置 + 悬浮窗看护（缺失且非主动退出时拉起） | 只动指向上游 exe 的行；改前备份；看护需安装记录守卫 |
 | `src/notify-toggle.ps1` | 翻转/设置两边 marker | 永远回显一行并 `exit 0` |
 | `src/linkweixin-widget.ps1` + `src/widget/` | 悬浮窗：双开关、运行灯、推送时间、版本号、托盘 | 单实例接管；无控制台；异常落盘不静默死 |
 | `src/lib/LinkWeixin/` | 共享模块：路径/渲染/发送/codex 解析/exe 定位/marker | 版本号唯一来源；调用时才读环境变量（可测） |
@@ -121,6 +121,15 @@ WT 会在 powershell 应用 `-WindowStyle Hidden` **之前**先创建窗口/页�
 - 版本号唯一来源：`src/lib/LinkWeixin/LinkWeixin.psd1` `ModuleVersion`
 - tag `v<版本>` 触发 Release：校验 tag == psd1 → 打包 zip + `SHA256SUMS.txt` → 发布
 - CHANGELOG 按 Keep a Changelog；悬浮窗底栏与安装记录都读同一版本来源
+
+### 8. 悬浮窗找回与看护
+
+- `—` 最小化到任务栏（任务栏按钮带状态圆点，最可靠的找回路径）；`×` 藏托盘并弹气泡
+- 看守任务每 5 分钟检查悬浮窗进程：不在且无主动退出标记时，按安装记录的 `launcher`
+  拉起（pythonw 或 run-hidden.vbs）
+- 主动退出（红字 / 托盘菜单）写 `%TEMP%\opencode\widget-exit.txt`，启动时清除——
+  区分"崩了要自救"与"用户不想再看到它"
+- 30 秒心跳 + ProcessExit 退出日志用于定位静默死亡时间窗
 
 ## 外部契约清单（改动红线）
 

@@ -101,6 +101,12 @@ $vars = [regex]::Matches($wraw, '\$[A-Za-z][A-Za-z0-9_]*') | ForEach-Object { $_
 $dupes = $vars | Group-Object { $_.ToLower() } | Where-Object { ($_.Group | Sort-Object -Unique).Count -gt 1 }
 if ($dupes) { throw ("widget 变量大小写撞车：" + (($dupes | ForEach-Object { $_.Group -join '/' }) -join '; ')) }
 Write-Output '[ok] widget no case-collision vars'
+# 找回与稳定性：最小化到任务栏、退出标记、DPI 感知、位置记忆
+if ($wraw -notmatch 'Minimize-WidgetWindow') { throw 'widget 缺“最小化到任务栏”' }
+if ($wraw -notmatch 'WidgetExitMarker') { throw 'widget 缺主动退出标记' }
+if ($wraw -notmatch 'SetProcessDpiAwarenessContext') { throw 'widget 缺 DPI 感知' }
+if ($wraw -notmatch 'Save-WidgetPosition') { throw 'widget 缺位置记忆' }
+Write-Output '[ok] widget recovery/dpi/position wiring'
 # 防闪屏回归：两处拉起子 powershell 必须带 -WindowStyle Hidden（读原文跨行匹配）
 foreach ($f in @('plugin\notify-pushplus.ts', 'src\codex-notify.ps1')) {
   $raw = [IO.File]::ReadAllText((Join-Path $RepoRoot $f))
@@ -113,6 +119,10 @@ foreach ($f in @('plugin\notify-pushplus.ts', 'src\codex-notify.ps1')) {
 $watchRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'src\codex-notify-watch.ps1'))
 if ($watchRaw -notmatch 'GetConsoleWindow') { throw 'watcher 缺自隐藏，计划任务每 5 分钟闪窗口' }
 Write-Output '[ok] no-flash src\codex-notify-watch.ps1'
+# 看守兼看护：必须有安装记录守卫（仓库/CI 不误启动）与 pythonw 拉起路径
+if ($watchRaw -notmatch 'linkweixin-install\.json') { throw 'watcher 缺悬浮窗看护的安装记录守卫' }
+if ($watchRaw -notmatch 'widget-detached\.py') { throw 'watcher 看护缺 pythonw 拉起路径' }
+Write-Output '[ok] watcher widget watchdog wiring'
 # 无窗口中转：.lnk/计划任务必须经 run-hidden.vbs 拉（Win11 默认终端 WT 下
 # 直接拉 powershell 必闪，-WindowStyle Hidden 都盖不住第一帧）
 $vbs = Join-Path $RepoRoot 'src\run-hidden.vbs'
