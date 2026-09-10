@@ -15,7 +15,8 @@ $files = @(
   'src\linkweixin-widget.ps1',
   'install.ps1',
   'uninstall.ps1'
-)
+) + @(Get-ChildItem -Path (Join-Path $RepoRoot 'src\lib') -Recurse -File -Include *.ps1, *.psm1, *.psd1 |
+    ForEach-Object { $_.FullName.Substring($RepoRoot.Length + 1) })
 foreach ($f in $files) {
   $tokens = $null
   $errs = $null
@@ -209,7 +210,7 @@ try {
   & powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -InstallDir $instDir -PluginDir $plugDir `
     -SkipScheduledTask -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "沙箱安装 exit=$LASTEXITCODE" }
-  foreach ($f in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py')) {
+  foreach ($f in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py', 'lib\LinkWeixin\LinkWeixin.psd1', 'lib\LinkWeixin\Private\Send-PushPlusNotification.ps1')) {
     if (-not (Test-Path (Join-Path $instDir $f))) { throw "沙箱安装缺文件：$f" }
   }
   if (-not (Test-Path (Join-Path $plugDir 'notify-pushplus.ts'))) { throw '沙箱安装缺插件' }
@@ -217,7 +218,7 @@ try {
   if ([string]::IsNullOrWhiteSpace($rec.version)) { throw '沙箱安装记录缺 version' }
   if (@('vbs', 'python') -notcontains $rec.launcher) { throw "沙箱安装记录 launcher 非法：$($rec.launcher)" }
   if ([string]::IsNullOrWhiteSpace($rec.installedAt)) { throw '沙箱安装记录缺 installedAt' }
-  if (@($rec.files) -notcontains 'notify-ai.ps1' -or @($rec.files) -notcontains 'widget-detached.py') { throw "沙箱安装记录 files 不完整：$(@($rec.files) -join ',')" }
+  if (@($rec.files) -notcontains 'notify-ai.ps1' -or @($rec.files) -notcontains 'widget-detached.py' -or @($rec.files) -notcontains 'lib/LinkWeixin/LinkWeixin.psd1') { throw "沙箱安装记录 files 不完整：$(@($rec.files) -join ',')" }
   Write-Output '[ok] install sandbox files + record'
 
   & powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1 -InstallDir $instDir -PluginDir $plugDir `
