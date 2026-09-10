@@ -1,0 +1,49 @@
+name: Bug 报告
+description: 推送、开关、悬浮窗、安装/卸载等出现问题时使用
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先看 `docs/TROUBLESHOOTING.md`（含日志位置与常见症状排查）。
+        日志里不会记录 token，可放心粘贴。
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出问题的部分
+      options:
+        - 推送（收不到 / 重复 / 内容不对）
+        - opencode 插件（任务跑完没推）
+        - codex 中转 / 看守任务
+        - 悬浮窗（窗口 / 托盘 / 开关 / 运行灯）
+        - 安装 / 卸载
+        - 文档 / 其它
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      description: Windows 版本 / PowerShell 版本 / opencode 或 codex 版本 / 是否装了 Python
+      placeholder: "例：Win11 23H2 / PS 5.1.26100 / opencode 1.x / 有 Python 3.13"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: 现象与复现步骤
+      description: 发生了什么、期望是什么、怎么复现
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: "推送记录：%TEMP%\\opencode\\notify-push.log；调试日志：notify-debug.log / codex-notify-debug.log；悬浮窗：widget-error.log（详见排障文档）"
+      render: text
+  - type: textarea
+    id: tried
+    attributes:
+      label: 已尝试的排查
+      description: 例如重跑 install.ps1、重启桌面端、开关 marker 状态等
