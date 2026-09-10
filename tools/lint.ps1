@@ -23,7 +23,7 @@ Import-Module PSScriptAnalyzer
 
 $settings = Join-Path $RepoRoot 'PSScriptAnalyzerSettings.psd1'
 $results = @(Invoke-ScriptAnalyzer -Path $RepoRoot -Recurse -Settings $settings -Severity Error, Warning |
-    Where-Object { $_.ScriptPath -notmatch '\\\.git\\|\\node_modules\\|\\dist\\' })
+    Where-Object { $_.ScriptPath -notmatch '[\\/]\.git[\\/]|[\\/]node_modules[\\/]|[\\/]dist[\\/]' })
 
 if ($results.Count -gt 0) {
   foreach ($r in $results) {
