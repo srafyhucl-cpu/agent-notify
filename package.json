@@ -1,0 +1,12 @@
+{
+  "name": "linkweixin",
+  "private": true,
+  "description": "linkWeixin opencode 插件的类型检查工程（仅 devDependencies，不参与运行时）",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

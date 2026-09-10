@@ -6,3 +6,5 @@ notify-debug.log
 Thumbs.db
 Desktop.ini
 .freebuff/
+node_modules/
+dist/

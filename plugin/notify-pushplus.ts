@@ -180,7 +180,7 @@ function spawnNotify(title, summary) {
     "-NoStdin",
   ]
   if (dry) args.push("-DryRun")
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve) => {
     let settled = false
     const done = () => {
       if (!settled) {
@@ -197,9 +197,6 @@ function spawnNotify(title, summary) {
           {
             timeout: 25000,
             windowsHide: true,
-            // 必须关闭 stdin：notify-ai.ps1 无 -Summary 时会读 stdin，
-            // 管道不关它就一直等到超时。
-            input: "",
           },
           (error, stdout, stderr) => {
             try {
@@ -213,6 +210,13 @@ function spawnNotify(title, summary) {
             done()
           },
         )
+        // 必须关闭 stdin：notify-ai.ps1 无 -Summary 时会读 stdin，
+        // 管道不关它就一直等到超时（脚本侧 -NoStdin 是双保险）。
+        try {
+          child.stdin?.end()
+        } catch {
+          /* 忽略 */
+        }
         child.on("error", () => {
           clearTimeout(timer)
           done()

@@ -1,0 +1,22 @@
+# linkWeixin 编辑器约定（CI 硬门禁见 tests/unit/Repo.Tests.ps1）
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# PowerShell 5.1 读 UTF-8 无 BOM 按 GBK 解析（踩坑 #3）：ps1/psm1/psd1 必须带 BOM。
+[*.{ps1,psm1,psd1}]
+charset = utf-8-bom
+end_of_line = crlf
+
+# wscript 按系统 ANSI 读文件，注释要求 ASCII、行尾 CRLF。
+[*.vbs]
+end_of_line = crlf
+
+[*.md]
+trim_trailing_whitespace = false

@@ -63,10 +63,12 @@ try {
   [System.Windows.Forms.Application]::SetUnhandledExceptionMode([System.Windows.Forms.UnhandledExceptionMode]::CatchException)
   [System.Windows.Forms.Application]::Add_ThreadException({
     param($s, $e)
+    $null = $s  # sender：事件签名要求，实际不用
     Write-WidgetError 'ui-thread' $e.Exception
   })
   [System.AppDomain]::CurrentDomain.add_UnhandledException({
     param($s, $e)
+    $null = $s  # sender：事件签名要求，实际不用
     Write-WidgetError 'fatal' $e.ExceptionObject
   })
 } catch { }

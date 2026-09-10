@@ -85,6 +85,7 @@ function Register-WidgetEvents {
     })
   $Ctx.Form.Add_FormClosing({
       param($s, $e)
+      $null = $s  # sender：事件签名要求，实际不用
       try {
         if (-not $Ctx.AllowExit) { $e.Cancel = $true; Hide-WidgetWindow -Ctx $Ctx }
       } catch { Write-WidgetError 'closing' $_ }
