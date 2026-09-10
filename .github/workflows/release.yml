@@ -34,7 +34,8 @@ jobs:
         shell: powershell
         run: |
           $ver = '${{ github.ref_name }}'.TrimStart('v')
-          $lines = Get-Content CHANGELOG.md
+          # 必须显式 -Encoding UTF8：CHANGELOG.md 无 BOM，PS 5.1 默认按 ANSI 读会乱码
+          $lines = Get-Content CHANGELOG.md -Encoding UTF8
           $start = -1
           $end = $lines.Count
           for ($i = 0; $i -lt $lines.Count; $i++) {

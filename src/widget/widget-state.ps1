@@ -43,7 +43,8 @@ function Get-LastPushText {
   try {
     $pushLog = $Ctx.Paths.PushLog
     if (-not (Test-Path $pushLog)) { return '暂无推送' }
-    $tail = Get-Content $pushLog -Tail 1 -ErrorAction Stop
+    # 日志是无 BOM UTF-8（插件写入）：PS 5.1 必须显式 -Encoding UTF8，否则中文乱码
+    $tail = Get-Content $pushLog -Tail 1 -Encoding UTF8 -ErrorAction Stop
     if ([string]::IsNullOrWhiteSpace($tail)) { return '暂无推送' }
     $m = [regex]::Match($tail, '(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})')
     if ($m.Success) { return "$($m.Groups[1].Value) $($m.Groups[2].Value)" }
