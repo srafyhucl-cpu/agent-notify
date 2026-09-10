@@ -1,15 +1,16 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  linkWeixin 安装脚本：把脚本装到 ~/bin，把 opencode 插件装到插件目录，
-  接管 codex notify，并注册看守计划任务。
+  linkWeixin 安装脚本：整树安装运行文件到 ~/bin，安装 opencode 插件，
+  接管 codex notify，注册看守计划任务，并写安装记录（供卸载精确清理）。
 
 .DESCRIPTION
   默认安装位置（可用参数覆盖）：
-  - 脚本目录：%USERPROFILE%\bin
+  - 运行文件：%USERPROFILE%\bin（src\ 整树拷贝，结构原样保留；含依赖模块 lib\）
   - opencode 插件：%USERPROFILE%\.config\opencode\plugin
   - codex 配置：%USERPROFILE%\.codex\config.toml（改写前备份 .bak-notify-wrapper）
   密钥只从环境变量 PUSHPLUS_TOKEN 读，本脚本不写任何密钥。
+  安装记录 linkweixin-install.json 列出本次装上去的文件与版本，卸载按它精准清理。
 
 .EXAMPLE
   # 请在管理员 PowerShell 里跑（注册计划任务要提权）：
@@ -22,38 +23,94 @@ param(
   [string]$CodexConfig = (Join-Path $env:USERPROFILE '.codex\config.toml'),
   [string]$TaskName = 'CodexNotifyWatch',
   [switch]$SkipScheduledTask,
-  [switch]$SkipCodexConfig
+  [switch]$SkipCodexConfig,
+  [switch]$SkipShortcuts,
+  [switch]$SkipWidgetLaunch
 )
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = $PSScriptRoot
 
+# 路径必须落在根目录内（防安装记录/参数拼接越界删除）。
+function Test-InsideDir {
+  param([string]$Path, [string]$Root)
+  try {
+    $full = [IO.Path]::GetFullPath($Path)
+    $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+    return $full.StartsWith($rootFull + '\', [StringComparison]::OrdinalIgnoreCase)
+  } catch { return $false }
+}
+
+# 版本号单一来源：模块清单 psd1 的 ModuleVersion；模块尚未落地时用 dev。
+function Get-RepoVersion {
+  try {
+    $psd1 = Join-Path $RepoRoot 'src\lib\LinkWeixin\LinkWeixin.psd1'
+    if (-not (Test-Path $psd1)) { return 'dev' }
+    $m = Select-String -Path $psd1 -Pattern "ModuleVersion\s*=\s*'([^']+)'" | Select-Object -First 1
+    if ($m) { return $m.Matches[0].Groups[1].Value }
+  } catch { }
+  return 'dev'
+}
+
+# src 树里的相对路径清单（正斜杠，跨机器一致）。
+function Get-SrcFileList {
+  $srcRoot = Join-Path $RepoRoot 'src'
+  return @(Get-ChildItem -Path $srcRoot -Recurse -File -Force | ForEach-Object {
+      $_.FullName.Substring($srcRoot.Length + 1).Replace('\', '/')
+    })
+}
+
 try {
   # 0. 自检：仓库文件齐全
   $wants = @(
-    'scripts\notify-ai.ps1',
-    'scripts\codex-notify.ps1',
-    'scripts\codex-notify-watch.ps1',
-    'scripts\notify-toggle.ps1',
-    'scripts\linkweixin-widget.ps1',
-    'scripts\run-hidden.vbs',
-    'opencode-plugin\notify-pushplus.ts'
+    'src\notify-ai.ps1',
+    'src\codex-notify.ps1',
+    'src\codex-notify-watch.ps1',
+    'src\notify-toggle.ps1',
+    'src\linkweixin-widget.ps1',
+    'src\run-hidden.vbs',
+    'src\widget-detached.py',
+    'plugin\notify-pushplus.ts'
   )
   foreach ($w in $wants) {
     if (-not (Test-Path (Join-Path $RepoRoot $w))) { throw "仓库缺文件：$w" }
   }
 
-  # 1. 复制脚本与插件
+  # 1. 安装运行文件（src 整树拷贝，结构原样保留）+ 记录升级前的旧文件清单
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
   New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
-  Copy-Item (Join-Path $RepoRoot 'scripts\notify-ai.ps1') (Join-Path $InstallDir 'notify-ai.ps1') -Force
-  Copy-Item (Join-Path $RepoRoot 'scripts\codex-notify.ps1') (Join-Path $InstallDir 'codex-notify.ps1') -Force
-  Copy-Item (Join-Path $RepoRoot 'scripts\codex-notify-watch.ps1') (Join-Path $InstallDir 'codex-notify-watch.ps1') -Force
-  Copy-Item (Join-Path $RepoRoot 'scripts\notify-toggle.ps1') (Join-Path $InstallDir 'notify-toggle.ps1') -Force
-  Copy-Item (Join-Path $RepoRoot 'scripts\linkweixin-widget.ps1') (Join-Path $InstallDir 'linkweixin-widget.ps1') -Force
-  Copy-Item (Join-Path $RepoRoot 'scripts\run-hidden.vbs') (Join-Path $InstallDir 'run-hidden.vbs') -Force
-  Copy-Item (Join-Path $RepoRoot 'opencode-plugin\notify-pushplus.ts') (Join-Path $PluginDir 'notify-pushplus.ts') -Force
-  Write-Output "[install] 脚本已装到 $InstallDir，插件已装到 $PluginDir"
+  $recordPath = Join-Path $InstallDir 'linkweixin-install.json'
+  $oldFiles = @()
+  if (Test-Path $recordPath) {
+    try {
+      $old = Get-Content $recordPath -Raw -Encoding utf8 | ConvertFrom-Json
+      $oldFiles = @($old.files)
+    } catch { $oldFiles = @() }
+  }
+  Copy-Item -Path (Join-Path $RepoRoot 'src\*') -Destination $InstallDir -Recurse -Force
+  Copy-Item (Join-Path $RepoRoot 'plugin\notify-pushplus.ts') (Join-Path $PluginDir 'notify-pushplus.ts') -Force
+  Write-Output "[install] 运行文件已整树装到 $InstallDir，插件已装到 $PluginDir"
+
+  # 1.1 清理上一版记录里、这一版已不存在的陈旧文件（防止旧 lib/widget 残留）
+  $newFiles = Get-SrcFileList
+  $stale = @($oldFiles | Where-Object { $_ -and ($newFiles -notcontains $_) })
+  foreach ($rel in $stale) {
+    $full = Join-Path $InstallDir $rel
+    if (-not (Test-InsideDir $full $InstallDir)) { Write-Output "[install] 跳过越界路径：$rel"; continue }
+    if (Test-Path $full) { Remove-Item $full -Force; Write-Output "[install] 清理旧版本文件：$rel" }
+  }
+
+  # 1.2 写安装记录（卸载按它精准清理；files 为相对 InstallDir 的正斜杠路径）
+  $record = [ordered]@{
+    name        = 'linkWeixin'
+    version     = (Get-RepoVersion)
+    installedAt = (Get-Date -Format o)
+    launcher    = 'vbs'
+    files       = $newFiles
+  }
+  $json = $record | ConvertTo-Json -Depth 4
+  [IO.File]::WriteAllText($recordPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+  Write-Output "[install] 安装记录已写：$recordPath（版本 $($record.version)，$($newFiles.Count) 个文件）"
 
   # 2. Token 检查（只读环境变量，不写入）
   if ([string]::IsNullOrWhiteSpace($env:PUSHPLUS_TOKEN)) {
@@ -117,30 +174,39 @@ try {
   # 5. 悬浮窗开机自启（shell:startup 快捷方式，无需管理员）
   #    + 桌面快捷方式（关掉窗体后从桌面双击即可再打开）。
   #    快捷方式目标是 wscript+run-hidden.vbs（同上，.lnk 拉 powershell 在 WT 下必闪）。
-  try {
-    $wshExe = Join-Path $env:SystemRoot 'System32\wscript.exe'
-    if (-not (Test-Path $wshExe)) { $wshExe = 'wscript.exe' }
-    $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
-    $launcher = Join-Path $InstallDir 'run-hidden.vbs'
-    $ws = New-Object -ComObject WScript.Shell
-    foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
-      $lnkPath = Join-Path $dir 'linkWeixin 悬浮窗.lnk'
-      $sc = $ws.CreateShortcut($lnkPath)
-      $sc.TargetPath = $wshExe
-      $sc.Arguments = '"' + $launcher + '" "' + $widget + '"'
-      $sc.WorkingDirectory = $InstallDir
-      $sc.Description = 'linkWeixin 推送悬浮窗'
-      $sc.Save()
-      Write-Output "[install] 悬浮窗快捷方式已建：$lnkPath"
-    }
+  if (-not $SkipShortcuts) {
     try {
+      $wshExe = Join-Path $env:SystemRoot 'System32\wscript.exe'
+      if (-not (Test-Path $wshExe)) { $wshExe = 'wscript.exe' }
+      $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
+      $launcher = Join-Path $InstallDir 'run-hidden.vbs'
+      $ws = New-Object -ComObject WScript.Shell
+      foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
+        $lnkPath = Join-Path $dir 'linkWeixin 悬浮窗.lnk'
+        $sc = $ws.CreateShortcut($lnkPath)
+        $sc.TargetPath = $wshExe
+        $sc.Arguments = '"' + $launcher + '" "' + $widget + '"'
+        $sc.WorkingDirectory = $InstallDir
+        $sc.Description = 'linkWeixin 推送悬浮窗'
+        $sc.Save()
+        Write-Output "[install] 悬浮窗快捷方式已建：$lnkPath"
+      }
+    } catch {
+      Write-Output "[install] 警告：开机快捷方式没建成（不影响推送）：$($_.Exception.Message)"
+    }
+  }
+
+  if (-not $SkipWidgetLaunch) {
+    try {
+      $wshExe = Join-Path $env:SystemRoot 'System32\wscript.exe'
+      if (-not (Test-Path $wshExe)) { $wshExe = 'wscript.exe' }
+      $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
+      $launcher = Join-Path $InstallDir 'run-hidden.vbs'
       Start-Process $wshExe -ArgumentList @('"' + $launcher + '"', '"' + $widget + '"') -WindowStyle Hidden
       Write-Output '[install] 悬浮窗已启动（右下角无边框小窗，拖标题区移动）。'
     } catch {
-      Write-Output '[install] 悬浮窗本次未自动启动，手动跑一次上面的命令即可。'
+      Write-Output '[install] 悬浮窗本次未自动启动，手动跑一次桌面快捷方式即可。'
     }
-  } catch {
-    Write-Output "[install] 警告：开机快捷方式没建成（不影响推送）：$($_.Exception.Message)"
   }
 } catch {
   [Console]::Error.WriteLine('[install] 失败：' + $_.Exception.Message)

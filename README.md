@@ -19,18 +19,20 @@ codex 桌面端 ──notify wrapper──▶ notify-ai.ps1 ──┘
 
 ```text
 linkWeixin/
-├── scripts/
+├── src/                        # 安装到 ~/bin 的运行文件（整树拷贝，结构原样保留）
 │   ├── notify-ai.ps1           # 通用推送脚本：唯一发 PushPlus 的地方
 │   ├── codex-notify.ps1        # codex notify 中转：透传原电脑操控集成 + 推送
 │   ├── codex-notify-watch.ps1  # 看守：codex 改写配置后恢复 wrapper
 │   ├── notify-toggle.ps1       # 随用随开：翻转 marker 总开关（两边都管）
-│   └── linkweixin-widget.ps1   # 悬浮窗：大开关 + 运行灯 + 上次推送（开机自启）
-├── opencode-plugin/
+│   ├── linkweixin-widget.ps1   # 悬浮窗：大开关 + 运行灯 + 上次推送（开机自启）
+│   ├── run-hidden.vbs          # 无窗口中转启动器（WT 下不闪窗）
+│   └── widget-detached.py      # pythonw 无控制台启动器（可选，检测到 Python 才用）
+├── plugin/
 │   └── notify-pushplus.ts      # opencode 全局插件，订阅任务完成事件
 ├── tests/
-│   └── smoke.ps1               # 冒烟测试：语法 + DryRun + watcher 幂等 + toggle 翻转
-├── install.ps1                 # 一键安装（计划任务需管理员；悬浮窗开机快捷方式无需）
-├── uninstall.ps1               # 卸载还原（含悬浮窗进程 + 开机快捷方式）
+│   └── smoke.ps1               # 冒烟测试：语法 + DryRun + watcher 幂等 + toggle 翻转 + 沙箱安装/卸载
+├── install.ps1                 # 一键安装（整树拷贝 + 安装记录；计划任务需管理员）
+├── uninstall.ps1               # 卸载还原（按安装记录清理 + 悬浮窗进程 + 开机快捷方式）
 ├── .env.example                # 环境变量模板
 ├── LICENSE                     # MIT
 └── README.md
@@ -197,7 +199,7 @@ codex 看 `codex-notify.off`，都在 `%USERPROFILE%\.config\opencode\` 下）�
     仍绿先确认 Codex 桌面进程真的退了（看守/后台 service 常驻也会亮灯）。
 12. **Win11 默认终端是 Windows Terminal 时黑窗口/页签闪**：WT 会在 powershell
     应用 `-WindowStyle Hidden` 之前先把窗口建出来，所以 `.lnk` 快捷方式和
-    计划任务**必须**经 `scripts\run-hidden.vbs` 中转（wscript 本身无控制台）。
+    计划任务**必须**经 `src\run-hidden.vbs` 中转（wscript 本身无控制台）。
     直接双击 ps1 / 直接拉 powershell 必闪；插件和 wrapper 的子进程拉起不受影响
     （父进程无窗口 + 出生即隐藏，实测无窗口）。
 
