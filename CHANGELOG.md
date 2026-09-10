@@ -4,6 +4,14 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是
 `src/lib/LinkWeixin/LinkWeixin.psd1` 的 `ModuleVersion`。
 
+## [Unreleased]
+
+### Fixed
+
+- opencode 插件目录修正为 V2 约定 `~/.config/opencode/plugins/`（复数）。
+  安装器 / 卸载器 / 悬浮窗插件检查此前误用 V1 单数 `plugin\`，导致悬浮窗误报
+  "插件未安装"、并可能向错误目录反复写入；现改为复数路径，装/卸时自动清理旧目录残留
+
 ## [0.1.0] - 2026-09-10
 
 第一个正式版本。工程化改造完成；对外契约（安装位置、入口文件名、参数、环境变量、

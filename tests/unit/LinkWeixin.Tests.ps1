@@ -146,7 +146,7 @@ Describe 'Get-LinkWeixinPaths' {
     $p.OpenCodeMarker | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\notify-pushplus.off')
     $p.CodexMarker | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\codex-notify.off')
     $p.PushLog | Should -Be (Join-Path $env:TEMP 'opencode\notify-push.log')
-    $p.PluginFile | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\plugin\notify-pushplus.ts')
+    $p.PluginFile | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\plugins\notify-pushplus.ts')
   }
   It '环境变量覆盖生效' {
     $oldO = $env:OPENCODE_NOTIFY_MARKER_FILE
