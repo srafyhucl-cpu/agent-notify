@@ -103,8 +103,10 @@ if ([string]::IsNullOrWhiteSpace($token)) {
 try {
   $body = $payload | ConvertTo-Json -Compress
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+  # 超时 20 秒：本机实测慢代理链路到 PushPlus 要 9~12 秒，10 秒会偶发失败；
+  # 插件侧 execFile 硬超时 25 秒，20 秒仍有余量（失败静默，不卡 agent）。
   $res = Invoke-RestMethod -Uri 'https://www.pushplus.plus/send' -Method Post `
-    -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 10
+    -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 20
   if ($res.code -ne 200) {
     [Console]::Error.WriteLine("[notify-ai] PushPlus 返回 code=$($res.code) msg=$($res.msg)")
   }
