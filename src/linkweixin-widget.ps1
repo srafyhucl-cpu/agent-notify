@@ -52,6 +52,10 @@ if (-not $MarkerPath) { $MarkerPath = $paths.OpenCodeMarker }
 $errLog = $paths.WidgetErrorLog
 $aliveFile = $paths.WidgetAliveFile
 
+# 版本号：模块清单 ModuleVersion 单一来源，底栏显示。
+$appVersion = ''
+try { $appVersion = (Get-Module LinkWeixin).Version.ToString() } catch { }
+
 function Write-WidgetError {
   param([string]$Where, [object]$Ex)
   try { "$(Get-Date -Format o) [$Where] $($Ex | Out-String)" | Out-File -FilePath $errLog -Append -Encoding utf8 } catch { }
@@ -120,6 +124,7 @@ $ctx = @{
   MarkerPath  = $MarkerPath
   CodexMarker = $paths.CodexMarker
   AliveFile   = $aliveFile
+  AppVersion  = $appVersion
   AllowExit   = $false
   LastOnState = $null
   Tick        = 0

@@ -158,7 +158,7 @@ function New-WidgetForm {
   $foot.Size = New-Object System.Drawing.Size(208, 20)
   $foot.Font = $fonts.Foot
   $foot.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 115)
-  $foot.Text = '× 藏到托盘 · 双击托盘图标恢复'
+  $foot.Text = if ($Ctx.AppVersion) { "v$($Ctx.AppVersion) · × 藏到托盘 · 双击恢复" } else { '× 藏到托盘 · 双击托盘图标恢复' }
   $form.Controls.Add($foot)
 
   $btnQuit = New-Object System.Windows.Forms.Label
