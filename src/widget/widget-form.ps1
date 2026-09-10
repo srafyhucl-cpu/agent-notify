@@ -1,6 +1,28 @@
 ﻿# 悬浮窗 · 界面构建（由入口脚本 dot-source，函数通过 $Ctx 共享状态）。
-# 拆分自原单文件实现，行为保持不变：无边框窗体、状态色条、双开关按钮、
-# 状态卡片、底栏提示、托盘图标与菜单、图标失败兜底。
+# 无边框窗体（Win11 DWM 圆角）、状态色条、双开关按钮、状态卡片、底栏提示、
+# 托盘图标与菜单、工具提示、位置记忆、图标失败兜底。
+
+function New-RoundedRegion {
+  param([int]$Width, [int]$Height, [int]$Radius)
+  $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+  $d = $Radius * 2
+  $path.AddArc(0, 0, $d, $d, 180, 90)
+  $path.AddArc($Width - $d, 0, $d, $d, 270, 90)
+  $path.AddArc($Width - $d, $Height - $d, $d, $d, 0, 90)
+  $path.AddArc(0, $Height - $d, $d, $d, 90, 90)
+  $path.CloseFigure()
+  $region = New-Object System.Drawing.Region($path)
+  $path.Dispose()
+  return $region
+}
+
+function Get-LighterColor {
+  param([System.Drawing.Color]$Color)
+  return [System.Drawing.Color]::FromArgb(
+    [Math]::Min(255, $Color.R + 30),
+    [Math]::Min(255, $Color.G + 30),
+    [Math]::Min(255, $Color.B + 30))
+}
 
 function New-DotIcon {
   param([hashtable]$Ctx, [System.Drawing.Color]$Color)
@@ -60,15 +82,40 @@ function New-WidgetForm {
   $form.Size = New-Object System.Drawing.Size(288, 352)
   $form.FormBorderStyle = 'None'
   $form.TopMost = $true
-  # 任务栏不留按钮：只活在托盘 + 桌面快捷方式（单实例接管）。
-  $form.ShowInTaskbar = $false
+  # 任务栏保留按钮（带状态圆点图标）：窗口最小化后必定找得回。
+  $form.ShowInTaskbar = $true
   $form.StartPosition = 'Manual'
   $form.BackColor = $colors.BG
   $form.ForeColor = $colors.FG
+
+  # Win11 圆角（Win10 上调用失败无副作用）：DWMWA_WINDOW_CORNER_PREFERENCE = 33，ROUND = 2。
   try {
-    $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-    $form.Location = New-Object System.Drawing.Point(($wa.Right - 308), ($wa.Bottom - 372))
+    Add-Type -MemberDefinition '[DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(System.IntPtr hwnd, int attr, ref int value, int size);' -Name DwmCorner -Namespace LinkWeixin -ErrorAction Stop
+    $pref = 2
+    [void][LinkWeixin.DwmCorner]::DwmSetWindowAttribute($form.Handle, 33, [ref]$pref, 4)
   } catch { }
+
+  # 位置记忆：优先恢复上次位置（需仍在虚拟屏幕内），否则右下角默认位。
+  $restored = $false
+  try {
+    if ($Ctx.PosFile -and (Test-Path $Ctx.PosFile)) {
+      $xy = (Get-Content $Ctx.PosFile -Raw -Encoding UTF8).Trim() -split ','
+      if ($xy.Count -eq 2) {
+        $x = [int]$xy[0]; $y = [int]$xy[1]
+        $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        if ($x -ge $vs.Left -and $x -le ($vs.Right - 100) -and $y -ge $vs.Top -and $y -le ($vs.Bottom - 100)) {
+          $form.Location = New-Object System.Drawing.Point($x, $y)
+          $restored = $true
+        }
+      }
+    }
+  } catch { }
+  if (-not $restored) {
+    try {
+      $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+      $form.Location = New-Object System.Drawing.Point(($wa.Right - 308), ($wa.Bottom - 372))
+    } catch { }
+  }
 
   # 顶部状态色条
   $strip = New-Object System.Windows.Forms.Panel
@@ -82,6 +129,13 @@ function New-WidgetForm {
   $bar.Height = 34
   $bar.BackColor = $colors.BG
   $form.Controls.Add($bar)
+
+  # 标题栏下细分隔线（层次感）
+  $sep = New-Object System.Windows.Forms.Panel
+  $sep.Location = New-Object System.Drawing.Point(0, 39)
+  $sep.Size = New-Object System.Drawing.Size(288, 1)
+  $sep.BackColor = [System.Drawing.Color]::FromArgb(48, 48, 54)
+  $form.Controls.Add($sep)
 
   $title = New-Object System.Windows.Forms.Label
   $title.Text = '  linkWeixin 推送'
@@ -115,28 +169,31 @@ function New-WidgetForm {
 
   # 两个独立大开关：opencode / codex 各管一边，各翻各的 marker
   $btnOc = New-Object System.Windows.Forms.Button
-  $btnOc.Location = New-Object System.Drawing.Point(16, 50)
+  $btnOc.Location = New-Object System.Drawing.Point(16, 54)
   $btnOc.Size = New-Object System.Drawing.Size(124, 62)
   $btnOc.Font = $fonts.Mid
   $btnOc.FlatStyle = 'Flat'
   $btnOc.FlatAppearance.BorderSize = 0
   $btnOc.Cursor = 'Hand'
+  $btnOc.Region = New-RoundedRegion -Width 124 -Height 62 -Radius 9
   $form.Controls.Add($btnOc)
 
   $btnCx = New-Object System.Windows.Forms.Button
-  $btnCx.Location = New-Object System.Drawing.Point(148, 50)
+  $btnCx.Location = New-Object System.Drawing.Point(148, 54)
   $btnCx.Size = New-Object System.Drawing.Size(124, 62)
   $btnCx.Font = $fonts.Mid
   $btnCx.FlatStyle = 'Flat'
   $btnCx.FlatAppearance.BorderSize = 0
   $btnCx.Cursor = 'Hand'
+  $btnCx.Region = New-RoundedRegion -Width 124 -Height 62 -Radius 9
   $form.Controls.Add($btnCx)
 
-  # 状态卡片
+  # 状态卡片（圆角）
   $card = New-Object System.Windows.Forms.Panel
-  $card.Location = New-Object System.Drawing.Point(16, 124)
+  $card.Location = New-Object System.Drawing.Point(16, 128)
   $card.Size = New-Object System.Drawing.Size(256, 128)
   $card.BackColor = $colors.CardBG
+  $card.Region = New-RoundedRegion -Width 256 -Height 128 -Radius 9
   $form.Controls.Add($card)
 
   $rowOc = Add-WidgetRow -Ctx $Ctx -Card $card -Y 8 -Name 'opencode'
@@ -147,7 +204,7 @@ function New-WidgetForm {
 
   # 底栏提示
   $hint = New-Object System.Windows.Forms.Label
-  $hint.Location = New-Object System.Drawing.Point(16, 258)
+  $hint.Location = New-Object System.Drawing.Point(16, 262)
   $hint.Size = New-Object System.Drawing.Size(256, 44)
   $hint.Font = $fonts.Hint
   $hint.ForeColor = $colors.DIM
@@ -193,15 +250,25 @@ function New-WidgetForm {
   $miShow = $menu.Items.Add('隐藏悬浮窗')
   $miOc = $menu.Items.Add('关闭 opencode 推送')
   $miCx = $menu.Items.Add('关闭 codex 推送')
+  $miTest = $menu.Items.Add('测试推送')
   [void]$menu.Items.Add('-')
   $miExit = $menu.Items.Add('退出')
   $notify.ContextMenuStrip = $menu
   # 窗体图标也用状态圆点：任务栏按钮显示它，不再是 powershell 默认图标。
   $form.Icon = $iconOn
 
+  # 工具提示
+  $tip = New-Object System.Windows.Forms.ToolTip
+  $tip.SetToolTip($btnMin, '最小化到任务栏')
+  $tip.SetToolTip($btnX, '藏到托盘（双击托盘图标或桌面快捷方式恢复）')
+  $tip.SetToolTip($btnOc, 'opencode 推送开关（点击切换）')
+  $tip.SetToolTip($btnCx, 'codex 推送开关（点击切换）')
+  $tip.SetToolTip($btnQuit, '彻底退出（桌面快捷方式可重开）')
+
   $Ctx.Form = $form
   $Ctx.Strip = $strip
   $Ctx.Bar = $bar
+  $Ctx.Sep = $sep
   $Ctx.Title = $title
   $Ctx.BtnMin = $btnMin
   $Ctx.BtnX = $btnX
@@ -219,7 +286,9 @@ function New-WidgetForm {
   $Ctx.MiShow = $miShow
   $Ctx.MiOc = $miOc
   $Ctx.MiCx = $miCx
+  $Ctx.MiTest = $miTest
   $Ctx.MiExit = $miExit
+  $Ctx.Tip = $tip
   $Ctx.IconOn = $iconOn
   $Ctx.IconMid = $iconMid
   $Ctx.IconOff = $iconOff

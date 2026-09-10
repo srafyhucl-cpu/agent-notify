@@ -22,5 +22,7 @@
     PluginFile      = Join-Path $configDir 'plugins\notify-pushplus.ts'
     WidgetErrorLog  = Join-Path $tempDir 'widget-error.log'
     WidgetAliveFile = Join-Path $tempDir 'widget-alive.txt'
+    WidgetPosFile   = Join-Path $tempDir 'widget-pos.txt'
+    WidgetExitMarker = Join-Path $tempDir 'widget-exit.txt'
   }
 }

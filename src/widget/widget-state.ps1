@@ -1,5 +1,6 @@
 ﻿# 悬浮窗 · 状态轮询与刷新（由入口脚本 dot-source）。
-# 运行灯（5 秒轮询）、上次推送时间、插件/看守任务版本检查、色条与托盘图标同步。
+# 运行灯（5 秒轮询）、上次推送（相对时间）、插件/看守任务版本检查、
+# 免打扰与今日推送数、色条与托盘图标同步。
 
 function Test-AppRunning {
   param([string[]]$Patterns, [string[]]$Exclude = @())
@@ -38,6 +39,40 @@ function Test-WatchTask {
   } catch { return '未知' }
 }
 
+function Test-QuietNow {
+  # 与插件同规则解析 OPENCODE_NOTIFY_QUIET（起-止小时，左闭右开；解析失败不算静默）。
+  try {
+    $m = [regex]::Match($env:OPENCODE_NOTIFY_QUIET, '^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$')
+    if (-not $m.Success) { return $false }
+    $s = [int]$m.Groups[1].Value
+    $e = [int]$m.Groups[2].Value
+    if ($s -lt 0 -or $s -gt 23 -or $e -lt 0 -or $e -gt 23 -or $s -eq $e) { return $false }
+    $h = (Get-Date).Hour
+    if ($s -lt $e) { return ($h -ge $s -and $h -lt $e) }
+    return ($h -ge $s -or $h -lt $e)
+  } catch { return $false }
+}
+
+function Get-TodayPushCount {
+  # 统计推送日志里本地日期为今天的条数（日志是 UTC 无 BOM UTF-8）。
+  param([hashtable]$Ctx)
+  try {
+    $log = $Ctx.Paths.PushLog
+    if (-not (Test-Path $log)) { return 0 }
+    $today = (Get-Date).Date
+    $count = 0
+    foreach ($line in Get-Content $log -Encoding UTF8 -ErrorAction Stop) {
+      $m = [regex]::Match($line, '^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)')
+      if (-not $m.Success) { continue }
+      try {
+        $dt = [datetime]::Parse($m.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToLocalTime()
+        if ($dt.Date -eq $today) { $count++ }
+      } catch { }
+    }
+    return $count
+  } catch { return 0 }
+}
+
 function Get-LastPushText {
   param([hashtable]$Ctx)
   try {
@@ -46,8 +81,20 @@ function Get-LastPushText {
     # 日志是无 BOM UTF-8（插件写入）：PS 5.1 必须显式 -Encoding UTF8，否则中文乱码
     $tail = Get-Content $pushLog -Tail 1 -Encoding UTF8 -ErrorAction Stop
     if ([string]::IsNullOrWhiteSpace($tail)) { return '暂无推送' }
-    $m = [regex]::Match($tail, '(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})')
-    if ($m.Success) { return "$($m.Groups[1].Value) $($m.Groups[2].Value)" }
+    $m = [regex]::Match($tail, '(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)')
+    if ($m.Success) {
+      try {
+        $dt = [datetime]::Parse($m.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToLocalTime()
+        $now = Get-Date
+        $delta = $now - $dt
+        if ($delta.TotalSeconds -lt 60) { return '刚刚' }
+        if ($delta.TotalMinutes -lt 60) { return "$([int]$delta.TotalMinutes) 分钟前" }
+        if ($dt.Date -eq $now.Date) { return $dt.ToString('HH:mm') }
+        if ($dt.Date -eq $now.Date.AddDays(-1)) { return '昨天 ' + $dt.ToString('HH:mm') }
+        return $dt.ToString('MM-dd HH:mm')
+      } catch { }
+    }
+    # 正则拿不到时间戳时保底：显示前 24 字
     $t = $tail.Trim()
     if ($t.Length -gt 24) { return $t.Substring(0, 24) + '…' }
     return $t
@@ -59,11 +106,12 @@ function Update-WidgetState {
   $onOc = -not (Test-NotifyMarker -Path $Ctx.MarkerPath)
   $onCx = -not (Test-NotifyMarker -Path $Ctx.CodexMarker)
   $Ctx.Tick = [int]$Ctx.Tick + 1
+  # 悬停中的按钮不覆盖颜色（否则鼠标下会闪回底色），由 MouseLeave 恢复。
   $Ctx.BtnOc.Text = if ($onOc) { "opencode`n● ON" } else { "opencode`n○ OFF" }
-  $Ctx.BtnOc.BackColor = if ($onOc) { $Ctx.Colors.GREEN } else { $Ctx.Colors.RED }
+  if (-not $Ctx.HoverOc) { $Ctx.BtnOc.BackColor = if ($onOc) { $Ctx.Colors.GREEN } else { $Ctx.Colors.RED } }
   $Ctx.BtnOc.ForeColor = [System.Drawing.Color]::White
   $Ctx.BtnCx.Text = if ($onCx) { "codex`n● ON" } else { "codex`n○ OFF" }
-  $Ctx.BtnCx.BackColor = if ($onCx) { $Ctx.Colors.GREEN } else { $Ctx.Colors.RED }
+  if (-not $Ctx.HoverCx) { $Ctx.BtnCx.BackColor = if ($onCx) { $Ctx.Colors.GREEN } else { $Ctx.Colors.RED } }
   $Ctx.BtnCx.ForeColor = [System.Drawing.Color]::White
   # 色条/托盘：两边都开绿，都关红，一开一关橙
   $state = if ($onOc -and $onCx) { 2 } elseif (-not $onOc -and -not $onCx) { 0 } else { 1 }
@@ -82,13 +130,20 @@ function Update-WidgetState {
   $Ctx.RowCx.Txt.Text = if ($cx) { 'codex  运行中' } else { 'codex  未运行' }
   $Ctx.RowCx.Dot.ForeColor = if ($cx) { $Ctx.Colors.DotOn } else { [System.Drawing.Color]::FromArgb(100, 100, 105) }
   $Ctx.RowLast.Txt.Text = '上次推送 ' + (Get-LastPushText -Ctx $Ctx)
-  # 插件/任务版本几乎不变：启动查一次，之后每 10 分钟复查，不再每轮读文件。
-  if ($null -eq $Ctx.PlugVer -or ($Ctx.Tick % 120) -eq 1) { $Ctx.PlugVer = Test-PluginGate -Ctx $Ctx }
+  # 插件/任务版本、今日推送数：启动查一次，之后每 10 分钟复查，不每轮读文件。
+  if ($null -eq $Ctx.PlugVer -or ($Ctx.Tick % 120) -eq 1) {
+    $Ctx.PlugVer = Test-PluginGate -Ctx $Ctx
+    $Ctx.TodayCount = Get-TodayPushCount -Ctx $Ctx
+  }
   if ($null -eq $Ctx.TaskVer -or ($Ctx.Tick % 120) -eq 1) { $Ctx.TaskVer = Test-WatchTask }
   $pv = $Ctx.PlugVer
   if ($pv -eq '新版') {
-    $Ctx.Hint.Text = '两个开关独立，各管一边。'
-    $Ctx.Hint.ForeColor = $Ctx.Colors.DIM
+    $quiet = Test-QuietNow
+    $bits = @()
+    if ($quiet) { $bits += '时段静默中' }
+    if ($null -ne $Ctx.TodayCount) { $bits += "今日已推 $($Ctx.TodayCount) 条" }
+    $Ctx.Hint.Text = if ($bits.Count -gt 0) { '两个开关独立，各管一边。' + ($bits -join ' · ') } else { '两个开关独立，各管一边。' }
+    $Ctx.Hint.ForeColor = if ($quiet) { [System.Drawing.Color]::FromArgb(200, 170, 90) } else { $Ctx.Colors.DIM }
   } else {
     $Ctx.Hint.Text = "⚠ 插件$pv：开关不生效，重跑 install 后重启桌面。"
     $Ctx.Hint.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
