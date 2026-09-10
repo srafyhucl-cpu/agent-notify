@@ -35,9 +35,16 @@ linkWeixin 是一个 Windows 工具：监听 opencode / codex 任务完成事件
 
 **不做（YAGNI / 公开后再说）：**
 
-- CODE_OF_CONDUCT、英文 README、winget / scoop、在线一键安装（`irm | iex`，私有仓库 raw 不可用）
+- CODE_OF_CONDUCT（公开时以中文版补齐）、winget / scoop、在线一键安装（`irm | iex`，私有仓库 raw 不可用）
 - eslint / prettier、测试覆盖率门槛、签名发布
 - 其余与本目标无关的重构
+
+**语言与受众原则（本次固化）：**
+
+- 目标：中文优先，服务中文区 Windows 用户；界面、通知、错误提示等一切用户可见文案均为中文
+- 项目文档（README / CONTRIBUTING / SECURITY / CHANGELOG / Issue 与 PR 模板 / docs）全部中文
+- 代码注释用中文，标识符保持英文；commit 信息遵循 `type(scope): 中文描述`
+- 不提供英文文档，也不预留双语结构；如未来有国际化需求，另立专项
 
 ## 3. 目标仓库结构
 
@@ -188,7 +195,7 @@ linkWeixin/
 
 ## 9. 治理与文档（私有阶段）
 
-- `CONTRIBUTING.md`：环境要求、提交前三件套（lint + 单测 + 冒烟）、Conventional Commits、分支模型（`main` + `feat/` `fix/` 短分支）、BOM/CRLF 硬规则、发布流程
+- `CONTRIBUTING.md`：环境要求、提交前三件套（lint + 单测 + 冒烟）、Conventional Commits（`type(scope): 中文描述`）、分支模型（`main` + `feat/` `fix/` 短分支）、BOM/CRLF 硬规则、发布流程
 - `SECURITY.md`：报告渠道（GitHub 私密漏洞报告；备选邮箱）、支持策略（仅最新版本）、安全设计说明（token 只走环境变量、不落盘、失败静默）
 - `.github/ISSUE_TEMPLATE/*.yml`（bug / feature，中文表单）+ `pull_request_template.md`（检查清单）
 - `.github/dependabot.yml`：github-actions + npm 两个生态，月度
@@ -198,10 +205,10 @@ linkWeixin/
 
 **公开时待办（防遗忘清单）：**
 
-1. 仓库转 public；补 CODE_OF_CONDUCT（Contributor Covenant）与英文 README
+1. 仓库转 public；补中文版 CODE_OF_CONDUCT（Contributor Covenant 官方简体中文翻译）
 2. winget / scoop 上架；在线一键安装（`irm | iex`）
 3. GitHub topics / 主页信息完善；分支保护规则复核（私有 Free 计划可能不可用）
-4. 全量重读 README/docs，去除内部口气描述
+4. 全量重读 README/docs，去除内部口气描述；确认全部文案符合中文优先原则
 
 ## 10. 实施阶段
 
