@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建并发布
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 tag 与模块版本一致
+        shell: powershell
+        run: |
+          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          $psd1 = 'src/lib/LinkWeixin/LinkWeixin.psd1'
+          $m = Select-String -Path $psd1 -Pattern "ModuleVersion\s*=\s*'([^']+)'" | Select-Object -First 1
+          if (-not $m) { throw "读不到 psd1 ModuleVersion" }
+          $ver = $m.Matches[0].Groups[1].Value
+          if ($tag -ne $ver) { throw "tag v$tag 与 psd1 版本 $ver 不一致" }
+          Write-Output "版本一致：$ver"
+
+      - name: 构建发布包
+        shell: powershell
+        run: ./tools/build-release.ps1
+
+      - name: 从 CHANGELOG 提取本版 notes
+        id: notes
+        shell: powershell
+        run: |
+          $ver = '${{ github.ref_name }}'.TrimStart('v')
+          $lines = Get-Content CHANGELOG.md
+          $start = -1
+          $end = $lines.Count
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($start -lt 0 -and $lines[$i] -match "^## \[$([regex]::Escape($ver))\]") { $start = $i; continue }
+            if ($start -ge 0 -and $i -gt $start -and $lines[$i] -match '^## \[') { $end = $i; break }
+          }
+          $body = ''
+          if ($start -ge 0) { $body = ($lines[($start + 1)..($end - 1)] -join "`n").Trim() }
+          [IO.File]::WriteAllText('release-notes.md', $body, (New-Object System.Text.UTF8Encoding($false)))
+          if ($body.Length -gt 0) { 'has_notes=true' | Out-File $env:GITHUB_OUTPUT -Append -Encoding ascii }
+          else { 'has_notes=false' | Out-File $env:GITHUB_OUTPUT -Append -Encoding ascii }
+          Write-Output "notes length: $($body.Length)"
+
+      - name: 创建 Release（zip + SHA256SUMS）
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $zip = (Get-ChildItem dist\*.zip | Select-Object -First 1).FullName
+          $notesArgs = if ('${{ steps.notes.outputs.has_notes }}' -eq 'true') { @('--notes-file', 'release-notes.md') } else { @('--generate-notes') }
+          gh release create $tag "$zip" dist\SHA256SUMS.txt --title "linkWeixin $tag" @notesArgs
