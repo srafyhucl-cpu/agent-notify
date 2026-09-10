@@ -3,5 +3,6 @@
 notify-push-sent.json
 notify-debug.log
 *.bak-notify-wrapper
- Thumbs.db
+Thumbs.db
 Desktop.ini
+.freebuff/
