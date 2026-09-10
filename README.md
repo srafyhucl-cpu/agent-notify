@@ -61,7 +61,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\bin\notify
 | 动作 | 默认目标 |
 |---|---|
 | 安装运行文件（`src\` 整树） | `%USERPROFILE%\bin` |
-| 安装 opencode 插件 | `%USERPROFILE%\.config\opencode\plugin\notify-pushplus.ts` |
+| 安装 opencode 插件 | `%USERPROFILE%\.config\opencode\plugins\notify-pushplus.ts`（V2 约定） |
 | 接管 codex `notify` | `%USERPROFILE%\.codex\config.toml`（先备份；自定义配置不动） |
 | 注册计划任务 `CodexNotifyWatch` | 登录触发 + 每 5 分钟跑 watcher |
 | 建悬浮窗快捷方式 | `shell:startup` + 桌面（自动选 pythonw 或 vbs） |

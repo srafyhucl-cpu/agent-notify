@@ -58,7 +58,7 @@ notify-ai.ps1 → LinkWeixin 模块（渲染 + 发送） → PushPlus API → �
 ## 部署模型
 
 - **安装 = 整树拷贝**：`src/` 原样拷贝到 `~/bin`（保留 `lib/`、`widget/` 子结构），
-  插件拷到 `~/.config/opencode/plugin/`
+  插件拷到 `~/.config/opencode/plugins/`（OpenCode V2 约定；旧版单数 `plugin\` 里如有残留会被清理）
 - **安装记录** `~/bin/linkweixin-install.json`：`version / installedAt / launcher / files[]`
   - 重装时按记录清理上一版已不存在的文件（防止旧 `lib/`、`widget/` 残留）
   - 卸载按记录逐文件删除（路径逃逸校验）、剪空目录；无记录时按 `src/` 树兜底

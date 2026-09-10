@@ -11,7 +11,7 @@
 #>
 param(
   [string]$InstallDir = (Join-Path $env:USERPROFILE 'bin'),
-  [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugin'),
+  [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugins'),
   [string]$CodexConfig = (Join-Path $env:USERPROFILE '.codex\config.toml'),
   [string]$TaskName = 'CodexNotifyWatch',
   [switch]$SkipShortcuts,
@@ -96,6 +96,17 @@ foreach ($d in @($dirCandidates | Sort-Object -Unique | Sort-Object Length -Desc
 $plug = Join-Path $PluginDir 'notify-pushplus.ts'
 if (Test-Path $plug) { Remove-Item $plug -Force; Write-Output "[uninstall] 已删 $plug" }
 else { Write-Output "[uninstall] 不存在，跳过：$plug" }
+
+# 旧版单数目录残留也清理（V1 约定；沙箱路径相同时自动跳过）。
+$legacyPlugDir = Join-Path (Split-Path $PluginDir -Parent) 'plugin'
+if ($legacyPlugDir -ne $PluginDir) {
+  $legacyPlug = Join-Path $legacyPlugDir 'notify-pushplus.ts'
+  if (Test-Path $legacyPlug) {
+    Remove-Item $legacyPlug -Force
+    Write-Output "[uninstall] 已清理旧版单数目录残留：$legacyPlug"
+    if (-not (Get-ChildItem $legacyPlugDir -Force -ErrorAction SilentlyContinue)) { Remove-Item $legacyPlugDir -Force -ErrorAction SilentlyContinue }
+  }
+}
 
 # 3. 悬浮窗：杀窗体进程（限本安装目录的 powershell / python 宿主）+ 删开机/桌面快捷方式。
 try {

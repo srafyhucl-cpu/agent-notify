@@ -7,7 +7,7 @@
 .DESCRIPTION
   默认安装位置（可用参数覆盖）：
   - 运行文件：%USERPROFILE%\bin（src\ 整树拷贝，结构原样保留；含依赖模块 lib\）
-  - opencode 插件：%USERPROFILE%\.config\opencode\plugin
+  - opencode 插件：%USERPROFILE%\.config\opencode\plugins（opencode V2 约定）
   - codex 配置：%USERPROFILE%\.codex\config.toml（改写前备份 .bak-notify-wrapper）
   密钥只从环境变量 PUSHPLUS_TOKEN 读，本脚本不写任何密钥。
   安装记录 linkweixin-install.json 列出本次装上去的文件与版本，卸载按它精准清理。
@@ -19,7 +19,7 @@
 #>
 param(
   [string]$InstallDir = (Join-Path $env:USERPROFILE 'bin'),
-  [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugin'),
+  [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugins'),
   [string]$CodexConfig = (Join-Path $env:USERPROFILE '.codex\config.toml'),
   [string]$TaskName = 'CodexNotifyWatch',
   [ValidateSet('Auto', 'Python', 'Vbs')][string]$WidgetLauncher = 'Auto',
@@ -91,6 +91,18 @@ try {
   Copy-Item -Path (Join-Path $RepoRoot 'src\*') -Destination $InstallDir -Recurse -Force
   Copy-Item (Join-Path $RepoRoot 'plugin\notify-pushplus.ts') (Join-Path $PluginDir 'notify-pushplus.ts') -Force
   Write-Output "[install] 运行文件已整树装到 $InstallDir，插件已装到 $PluginDir"
+
+  # 兼容清理：OpenCode V1 的单数目录 plugin\ 里如有本插件残留，清掉避免双加载/误导检查。
+  # 用 PluginDir 推导（沙箱临时目录下两个路径相同，自动跳过，不会误删）。
+  $legacyPlugDir = Join-Path (Split-Path $PluginDir -Parent) 'plugin'
+  if ($legacyPlugDir -ne $PluginDir) {
+    $legacyPlug = Join-Path $legacyPlugDir 'notify-pushplus.ts'
+    if (Test-Path $legacyPlug) {
+      Remove-Item $legacyPlug -Force
+      if (-not (Get-ChildItem $legacyPlugDir -Force -ErrorAction SilentlyContinue)) { Remove-Item $legacyPlugDir -Force -ErrorAction SilentlyContinue }
+      Write-Output '[install] 已清理旧版单数目录中的插件残留。'
+    }
+  }
 
   # 1.1 悬浮窗启动方式：Auto = 有 pythonw 且 widget-detached.py 已装就优先 Python
   #（GUI 子系统，无控制台、无 WT 页签，防误杀），否则回退 run-hidden.vbs（现状）。
