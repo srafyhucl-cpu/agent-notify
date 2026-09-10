@@ -1,14 +1,14 @@
-﻿<#
+﻿#Requires -Version 5.1
+<#
 .SYNOPSIS
-  AI 任务完成推送（PushPlus -> 微信），dsh / opencode / codex 共用。
+  AI 任务完成推送（PushPlus -> 微信），opencode / codex 共用入口。
 
 .DESCRIPTION
-  各 agent 的 Stop/finish hook 都调这一个脚本。摘要优先级：
-  1. -Summary 参数；2. 管道 stdin；3. 都没有则推一句默认文案。
+  渲染、发送与默认文案都在 LinkWeixin 模块（lib\LinkWeixin）里实现；
+  本入口只做参数绑定、stdin 兜底与调用。摘要优先级：
+  1. -Summary 参数；2. 管道 stdin；3. 模块内默认文案（带时间戳）。
   密钥只从环境变量 PUSHPLUS_TOKEN 读，不落盘。任何失败都静默，
   永远 exit 0，不卡住 agent。
-  摘要渲染（结构化）：去代码块、标题加粗、列表分行、按句截断，
-  输出 PushPlus html。
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File notify-ai.ps1 -Title "【AI任务】重构完成" -Summary "改了 3 个文件，测试通过"
@@ -26,91 +26,18 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-function Cut-SentenceAware {
-  param([string]$Text, [int]$Max)
-  if ($Text.Length -le $Max) { return $Text }
-  $window = $Text.Substring(0, $Max)
-  $idx = $window.LastIndexOfAny(@('。', '！', '？', '!', '?', "`n"))
-  if ($idx -ge 100) { return $window.Substring(0, $idx + 1) + "…" }
-  return $window + "…"
+try {
+  Import-Module (Join-Path $PSScriptRoot 'lib\LinkWeixin\LinkWeixin.psd1') -ErrorAction Stop
+} catch {
+  [Console]::Error.WriteLine('[notify-ai] LinkWeixin 模块加载失败：' + $_.Exception.Message)
+  exit 0
 }
 
-function Format-Summary {
-  param([string]$Text, [int]$Max)
-  # 1. 去代码块（整段删），行内代码只留内容。
-  $t = [regex]::Replace($Text, '(?s)```.*?```', '')
-  # 2. 按句截断（在 HTML 转义之前，保证不断半个标签）。
-  $t = Cut-SentenceAware $t.Trim() $Max
-  # 3. 转义后再做行内排版（此时插入的 <b>/<br> 不会被转义）。
-  $t = [System.Net.WebUtility]::HtmlEncode($t)
-  $lines = $t -split "`n" | ForEach-Object { $_.TrimEnd() } | Where-Object { $_ -ne '---' }
-  $out = foreach ($line in $lines) {
-    # 先定块级类型并取出内文，再做行内排版，这样同一行可同时加粗+列表。
-    $l = $line
-    $wrap = ''
-    if ($l -match '^(#{1,4})\s+(.*)$') { $wrap = 'b'; $l = $Matches[2] }
-    elseif ($l -match '^>\s?(.*)$') { $l = $Matches[1] }
-    elseif ($l -match '^(\d+[.)]|[-*])\s+(.*)$') { $wrap = 'li'; $l = $Matches[2] }
-    $l = $l -replace '`([^`]+)`', '$1'
-    $l = [regex]::Replace($l, '\*\*(.+?)\*\*', '<b>$1</b>')
-    if ($wrap -eq 'b') { '<b>' + $l + '</b>' }
-    elseif ($wrap -eq 'li') { '• ' + $l }
-    else { $l }
-  }
-  $html = ($out -join '<br>')
-  $html = [regex]::Replace($html, '(<br>\s*){3,}', '<br><br>')
-  # 只去掉首尾成串的 <br>，不要用 Trim(char[])（会吃掉合法的 <b> 等字符）。
-  $html = [regex]::Replace($html, '^(<br>\s*)+|(<br>\s*)+$', '')
-  $html.Trim()
-}
-
+# 摘要为空且允许读管道时，从 stdin 读原文（插件侧还会传 -NoStdin 双保险）。
 if ([string]::IsNullOrWhiteSpace($Summary) -and -not $NoStdin -and [Console]::IsInputRedirected) {
   $Summary = [Console]::In.ReadToEnd()
 }
-if ([string]::IsNullOrWhiteSpace($Summary)) {
-  # 默认文案必须每次唯一：PushPlus 会拒收重复内容（code=999），
-  # 固定文案第二次起就发不出去了，所以带上时间戳。
-  $Summary = "任务完成，上线查看详情。[" + (Get-Date -Format "MM-dd HH:mm:ss") + "]"
-}
-$rendered = Format-Summary $Summary $MaxChars
-if ($Title -notmatch '^【') {
-  $Title = "【AI任务】$Title"
-}
 
-$token = $env:PUSHPLUS_TOKEN
-
-$payload = @{
-  title    = $Title
-  content  = $rendered
-  template = 'html'
-}
-if (-not [string]::IsNullOrWhiteSpace($token)) {
-  $payload['token'] = $token
-}
-
-if ($DryRun) {
-  $shown = $payload.Clone()
-  if ($shown.ContainsKey('token')) { $shown['token'] = '****' }
-  $shown | ConvertTo-Json -Compress
-  exit 0
-}
-
-if ([string]::IsNullOrWhiteSpace($token)) {
-  [Console]::Error.WriteLine('[notify-ai] PUSHPLUS_TOKEN 为空，跳过推送。')
-  exit 0
-}
-
-try {
-  $body = $payload | ConvertTo-Json -Compress
-  $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-  # 超时 20 秒：本机实测慢代理链路到 PushPlus 要 9~12 秒，10 秒会偶发失败；
-  # 插件侧 execFile 硬超时 25 秒，20 秒仍有余量（失败静默，不卡 agent）。
-  $res = Invoke-RestMethod -Uri 'https://www.pushplus.plus/send' -Method Post `
-    -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 20
-  if ($res.code -ne 200) {
-    [Console]::Error.WriteLine("[notify-ai] PushPlus 返回 code=$($res.code) msg=$($res.msg)")
-  }
-} catch {
-  [Console]::Error.WriteLine('[notify-ai] 推送失败（已忽略）: ' + $_.Exception.Message)
-}
+$json = Send-PushPlusNotification -Title $Title -Summary $Summary -MaxChars $MaxChars -DryRun:$DryRun
+if ($DryRun -and $json) { $json }
 exit 0

@@ -15,31 +15,36 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Passthru)
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-# 随用随开 marker（与 notify-toggle -Agent Codex、悬浮窗 codex 开关同路径约定，
-# 测试用 CODEX_NOTIFY_MARKER_FILE 覆盖）：存在只跳过推送，
-# 原电脑操控透传不受影响（透传在下面先执行）。
-$MarkerFile = if ($env:CODEX_NOTIFY_MARKER_FILE) { $env:CODEX_NOTIFY_MARKER_FILE } else { Join-Path $env:USERPROFILE '.config\opencode\codex-notify.off' }
+$moduleOk = $true
+try {
+  Import-Module (Join-Path $PSScriptRoot 'lib\LinkWeixin\LinkWeixin.psd1') -ErrorAction Stop
+} catch {
+  $moduleOk = $false
+}
 
 try { New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP 'opencode') | Out-Null } catch { }
 
-# 原集成路径里的 cua_node 哈希目录会随更新变化，每次动态找最新的。
-function Get-OriginalNotify {
-  try {
-    Get-ChildItem "$env:LOCALAPPDATA\OpenAI\Codex\runtimes\cua_node\*\bin\node_modules\@oai\sky\bin\windows\codex-computer-use.exe" -ErrorAction Stop |
-      Sort-Object LastWriteTime -Descending |
-      Select-Object -First 1 -ExpandProperty FullName
-  } catch { $null }
+function Write-CodexNotifyDebug {
+  param([string]$Line)
+  if ($env:CODEX_NOTIFY_DEBUG -ne '1') { return }
+  try { "$(Get-Date -Format o) $Line" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8 } catch { }
 }
 
-if ($env:CODEX_NOTIFY_DEBUG -eq '1') {
-  try {
-    $log = "$env:TEMP\opencode\codex-notify-debug.log"
-    "[$(Get-Date -Format o)] args=$($Passthru -join ' | ')" | Out-File -FilePath $log -Append -Encoding utf8
-  } catch { }
-}
+Write-CodexNotifyDebug "args=$($Passthru -join ' | ')"
+if (-not $moduleOk) { Write-CodexNotifyDebug 'module-import-failed; push disabled' }
 
+# 先透传原电脑操控集成（即便模块挂了也要保住原行为；找不到 exe 就跳过）。
 try {
-  $ORIGINAL = Get-OriginalNotify
+  $ORIGINAL = $null
+  if ($moduleOk) {
+    $ORIGINAL = Get-CodexComputerUseExe
+  } else {
+    try {
+      $ORIGINAL = Get-ChildItem "$env:LOCALAPPDATA\OpenAI\Codex\runtimes\cua_node\*\bin\node_modules\@oai\sky\bin\windows\codex-computer-use.exe" -ErrorAction Stop |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1 -ExpandProperty FullName
+    } catch { $ORIGINAL = $null }
+  }
   if ($ORIGINAL) {
     if ([Console]::IsInputRedirected) {
       [Console]::In.ReadToEnd() | & $ORIGINAL @Passthru
@@ -50,35 +55,19 @@ try {
 } catch { }
 
 try {
+  if (-not $moduleOk) { exit 0 }
   # marker 存在 = 只跳过推送（透传已在上面执行完，不受影响）。
-  if (Test-Path $MarkerFile) {
-    if ($env:CODEX_NOTIFY_DEBUG -eq '1') {
-      "marker-off skip push" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8
-    }
+  $paths = Get-LinkWeixinPaths
+  if (Test-NotifyMarker -Path $paths.CodexMarker) {
+    Write-CodexNotifyDebug 'marker-off skip push'
     exit 0
   }
+
   $t0 = Get-Date
-  $summary = ""
-  $taskName = ""
-  foreach ($a in $Passthru) {
-    if ($a -isnot [string] -or -not $a.TrimStart().StartsWith("{")) { continue }
-    try {
-      $evt = $a | ConvertFrom-Json -ErrorAction Stop
-      $msg = $evt.'last-assistant-message'
-      # 传原文（只去首尾空）：排版和截断由 notify-ai.ps1 统一做。
-      if ($msg -is [string] -and $msg.Trim().Length -gt 0) {
-        $summary = $msg.Trim()
-        if ($summary.Length -gt 2000) { $summary = $summary.Substring(0, 2000) }
-      }
-      $first = $evt.'input-messages'
-      if ($first -is [array] -and $first.Count -gt 0 -and $first[0] -is [string] -and $first[0].Trim().Length -gt 0) {
-        $taskName = ($first[0] -replace '\s+', ' ').Trim()
-        if ($taskName.Length -gt 30) { $taskName = $taskName.Substring(0, 30) + "…" }
-      }
-      if ($summary -ne "") { break }
-    } catch { }
-  }
-  if ($taskName -ne "") { $title = "【codex】$taskName" } else { $title = "【codex】跑完了" }
+  $parsed = ConvertFrom-CodexNotifyEventArgs -Arguments $Passthru
+  $title = $parsed.Title
+  $summary = $parsed.Summary
+
   $NotifyScript = $env:NOTIFY_AI_SCRIPT
   if ([string]::IsNullOrWhiteSpace($NotifyScript)) {
     $NotifyScript = Join-Path $PSScriptRoot 'notify-ai.ps1'
@@ -90,17 +79,13 @@ try {
     "-NoStdin"
   )
   # 注意：-Summary 为空时必须整个省略，传空字符串会导致子进程参数绑定失败。
-  if ($summary -ne "") { $ppArgs += @("-Summary", $summary) }
+  if ($summary -ne '') { $ppArgs += @("-Summary", $summary) }
   & powershell @ppArgs
   $code = $LASTEXITCODE
   $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 2)
-  if ($env:CODEX_NOTIFY_DEBUG -eq '1') {
-    "push exit=$code secs=$secs summarylen=$($summary.Length)" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8
-  }
+  Write-CodexNotifyDebug "push exit=$code secs=$secs summarylen=$($summary.Length)"
 } catch {
-  if ($env:CODEX_NOTIFY_DEBUG -eq '1') {
-    "push throw=$($_.Exception.Message)" | Out-File -FilePath "$env:TEMP\opencode\codex-notify-debug.log" -Append -Encoding utf8
-  }
+  Write-CodexNotifyDebug "push throw=$($_.Exception.Message)"
 }
 
 exit 0

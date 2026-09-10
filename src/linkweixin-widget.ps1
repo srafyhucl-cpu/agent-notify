@@ -26,6 +26,20 @@ $ErrorActionPreference = 'SilentlyContinue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# 共享逻辑模块（marker 读写/路径/版本等都在里面）。加载失败直接可见地退出，
+# 并落盘日志，不允许“静默死亡”。
+try {
+  Import-Module (Join-Path $PSScriptRoot 'lib\LinkWeixin\LinkWeixin.psd1') -ErrorAction Stop
+} catch {
+  $err = $_.Exception
+  try {
+    New-Item -ItemType Directory -Force -Path (Join-Path $env:TEMP 'opencode') | Out-Null
+    "$(Get-Date -Format o) [module] $($err | Out-String)" | Out-File -FilePath (Join-Path $env:TEMP 'opencode\widget-error.log') -Append -Encoding utf8
+  } catch { }
+  try { [System.Windows.Forms.MessageBox]::Show("linkWeixin 模块加载失败：$($err.Message)", 'linkWeixin') | Out-Null } catch { }
+  exit 1
+}
+
 # 全局兜底：UI 线程/未处理异常全部落盘。WinForms 事件里的漏网异常走这里，
 # 否则就是“静默死亡、无日志”，上次丢进程就是这么查不出来的。
 try {
@@ -112,32 +126,24 @@ function Test-AppRunning {
 }
 
 function Get-NotifyOn {
-  # opencode 侧开关（codex 侧另有独立开关，见下）。
-  return -not (Test-Path $MarkerPath)
+  # opencode 侧开关（codex 侧另有独立开关，见下）。marker 存在 = 关。
+  return -not (Test-NotifyMarker -Path $MarkerPath)
 }
 
 function Set-NotifyOn {
   param([bool]$TurnOn)
-  if ($TurnOn) {
-    Remove-Item $MarkerPath -Force -ErrorAction SilentlyContinue
-  } else {
-    New-Item -ItemType Directory -Force -Path (Split-Path $MarkerPath -Parent) | Out-Null
-    "off $((Get-Date).ToString('o'))" | Out-File -FilePath $MarkerPath -Encoding utf8 -Force
-  }
+  $mode = if ($TurnOn) { 'On' } else { 'Off' }
+  [void](Set-NotifyMarker -Path $MarkerPath -Mode $mode)
 }
 
 function Get-CodexNotifyOn {
-  return -not (Test-Path $codexMarker)
+  return -not (Test-NotifyMarker -Path $codexMarker)
 }
 
 function Set-CodexNotifyOn {
   param([bool]$TurnOn)
-  if ($TurnOn) {
-    Remove-Item $codexMarker -Force -ErrorAction SilentlyContinue
-  } else {
-    New-Item -ItemType Directory -Force -Path (Split-Path $codexMarker -Parent) | Out-Null
-    "off $((Get-Date).ToString('o'))" | Out-File -FilePath $codexMarker -Encoding utf8 -Force
-  }
+  $mode = if ($TurnOn) { 'On' } else { 'Off' }
+  [void](Set-NotifyMarker -Path $codexMarker -Mode $mode)
 }
 
 # 装上去的插件是不是带三道闸的新版：旧版不认 marker，关了也照推，
