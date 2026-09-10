@@ -16,6 +16,8 @@ $files = @(
   'install.ps1',
   'uninstall.ps1'
 ) + @(Get-ChildItem -Path (Join-Path $RepoRoot 'src\lib') -Recurse -File -Include *.ps1, *.psm1, *.psd1 |
+    ForEach-Object { $_.FullName.Substring($RepoRoot.Length + 1) }) `
+  + @(Get-ChildItem -Path (Join-Path $RepoRoot 'src\widget') -Recurse -File -Include *.ps1 |
     ForEach-Object { $_.FullName.Substring($RepoRoot.Length + 1) })
 foreach ($f in $files) {
   $tokens = $null
@@ -91,6 +93,10 @@ try {
 # 防大小写撞车回归：PS 变量不分大小写，$CARD/$card 这类同名不同写
 # 会静默覆盖（曾导致悬浮窗卡片颜色失效 + 启动 try 连带跳过 ShowDialog 秒退）
 $wraw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'src\linkweixin-widget.ps1'))
+# 拆分后部件与入口共享作用域，大小写撞车检查必须覆盖 widget\ 下全部文件。
+foreach ($wf in @(Get-ChildItem -Path (Join-Path $RepoRoot 'src\widget') -File -Filter *.ps1)) {
+  $wraw += "`n" + [IO.File]::ReadAllText($wf.FullName)
+}
 $vars = [regex]::Matches($wraw, '\$[A-Za-z][A-Za-z0-9_]*') | ForEach-Object { $_.Value } | Sort-Object -Unique
 $dupes = $vars | Group-Object { $_.ToLower() } | Where-Object { ($_.Group | Sort-Object -Unique).Count -gt 1 }
 if ($dupes) { throw ("widget 变量大小写撞车：" + (($dupes | ForEach-Object { $_.Group -join '/' }) -join '; ')) }
@@ -116,6 +122,9 @@ if ($vbsRaw -notmatch 'Run.*, 0, False') { throw 'run-hidden.vbs 必须以后台
 $instRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'install.ps1'))
 if ($instRaw -notmatch 'run-hidden\.vbs') { throw 'install.ps1 快捷方式/任务必须经 run-hidden.vbs 中转' }
 Write-Output '[ok] no-flash run-hidden.vbs + install wiring'
+# pythonw 双启动链：install 必须带 WidgetLauncher 检测（有 pythonw 用 Python，否则回退 Vbs）。
+if ($instRaw -notmatch 'WidgetLauncher' -or $instRaw -notmatch 'pythonw') { throw 'install.ps1 缺 WidgetLauncher/pythonw 启动器检测' }
+Write-Output '[ok] widget launcher auto-detect wiring'
 # pythonw 脱离启动器：无控制台、无 WT 页签，关不掉宿主才杀不死窗体
 $py = Join-Path $RepoRoot 'src\widget-detached.py'
 if (-not (Test-Path $py)) { throw '缺 src\widget-detached.py' }
@@ -210,7 +219,7 @@ try {
   & powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -InstallDir $instDir -PluginDir $plugDir `
     -SkipScheduledTask -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "沙箱安装 exit=$LASTEXITCODE" }
-  foreach ($f in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py', 'lib\LinkWeixin\LinkWeixin.psd1', 'lib\LinkWeixin\Private\Send-PushPlusNotification.ps1')) {
+  foreach ($f in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py', 'widget\widget-form.ps1', 'widget\widget-state.ps1', 'widget\widget-actions.ps1', 'lib\LinkWeixin\LinkWeixin.psd1', 'lib\LinkWeixin\Private\Send-PushPlusNotification.ps1')) {
     if (-not (Test-Path (Join-Path $instDir $f))) { throw "沙箱安装缺文件：$f" }
   }
   if (-not (Test-Path (Join-Path $plugDir 'notify-pushplus.ts'))) { throw '沙箱安装缺插件' }
@@ -218,7 +227,7 @@ try {
   if ([string]::IsNullOrWhiteSpace($rec.version)) { throw '沙箱安装记录缺 version' }
   if (@('vbs', 'python') -notcontains $rec.launcher) { throw "沙箱安装记录 launcher 非法：$($rec.launcher)" }
   if ([string]::IsNullOrWhiteSpace($rec.installedAt)) { throw '沙箱安装记录缺 installedAt' }
-  if (@($rec.files) -notcontains 'notify-ai.ps1' -or @($rec.files) -notcontains 'widget-detached.py' -or @($rec.files) -notcontains 'lib/LinkWeixin/LinkWeixin.psd1') { throw "沙箱安装记录 files 不完整：$(@($rec.files) -join ',')" }
+  if (@($rec.files) -notcontains 'notify-ai.ps1' -or @($rec.files) -notcontains 'widget-detached.py' -or @($rec.files) -notcontains 'lib/LinkWeixin/LinkWeixin.psd1' -or @($rec.files) -notcontains 'widget/widget-form.ps1') { throw "沙箱安装记录 files 不完整：$(@($rec.files) -join ',')" }
   Write-Output '[ok] install sandbox files + record'
 
   & powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1 -InstallDir $instDir -PluginDir $plugDir `

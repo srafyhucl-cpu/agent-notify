@@ -22,6 +22,7 @@ param(
   [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugin'),
   [string]$CodexConfig = (Join-Path $env:USERPROFILE '.codex\config.toml'),
   [string]$TaskName = 'CodexNotifyWatch',
+  [ValidateSet('Auto', 'Python', 'Vbs')][string]$WidgetLauncher = 'Auto',
   [switch]$SkipScheduledTask,
   [switch]$SkipCodexConfig,
   [switch]$SkipShortcuts,
@@ -91,6 +92,23 @@ try {
   Copy-Item (Join-Path $RepoRoot 'plugin\notify-pushplus.ts') (Join-Path $PluginDir 'notify-pushplus.ts') -Force
   Write-Output "[install] 运行文件已整树装到 $InstallDir，插件已装到 $PluginDir"
 
+  # 1.1 悬浮窗启动方式：Auto = 有 pythonw 且 widget-detached.py 已装就优先 Python
+  #（GUI 子系统，无控制台、无 WT 页签，防误杀），否则回退 run-hidden.vbs（现状）。
+  $pyLauncher = Join-Path $InstallDir 'widget-detached.py'
+  $hasPythonw = [bool](Get-Command pythonw.exe -ErrorAction SilentlyContinue)
+  $launcherMode = $WidgetLauncher
+  if ($launcherMode -eq 'Auto') {
+    $launcherMode = if ($hasPythonw -and (Test-Path $pyLauncher)) { 'Python' } else { 'Vbs' }
+  }
+  if ($launcherMode -eq 'Python' -and -not $hasPythonw) {
+    throw '指定 -WidgetLauncher Python 但找不到 pythonw.exe（装 Python，或改用 Auto/Vbs）'
+  }
+  if ($launcherMode -eq 'Python' -and -not (Test-Path $pyLauncher)) {
+    throw "指定 -WidgetLauncher Python 但缺少 $pyLauncher"
+  }
+  $launcherRecord = if ($launcherMode -eq 'Python') { 'python' } else { 'vbs' }
+  Write-Output "[install] 悬浮窗启动方式：$launcherRecord（Auto 检测 = 有 pythonw 用 Python，否则 Vbs）"
+
   # 1.1 清理上一版记录里、这一版已不存在的陈旧文件（防止旧 lib/widget 残留）
   $newFiles = Get-SrcFileList
   $stale = @($oldFiles | Where-Object { $_ -and ($newFiles -notcontains $_) })
@@ -105,7 +123,7 @@ try {
     name        = 'linkWeixin'
     version     = (Get-RepoVersion)
     installedAt = (Get-Date -Format o)
-    launcher    = 'vbs'
+    launcher    = $launcherRecord
     files       = $newFiles
   }
   $json = $record | ConvertTo-Json -Depth 4
@@ -179,17 +197,22 @@ try {
       $wshExe = Join-Path $env:SystemRoot 'System32\wscript.exe'
       if (-not (Test-Path $wshExe)) { $wshExe = 'wscript.exe' }
       $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
-      $launcher = Join-Path $InstallDir 'run-hidden.vbs'
+      $vbsLauncher = Join-Path $InstallDir 'run-hidden.vbs'
       $ws = New-Object -ComObject WScript.Shell
       foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
         $lnkPath = Join-Path $dir 'linkWeixin 悬浮窗.lnk'
         $sc = $ws.CreateShortcut($lnkPath)
-        $sc.TargetPath = $wshExe
-        $sc.Arguments = '"' + $launcher + '" "' + $widget + '"'
+        if ($launcherMode -eq 'Python') {
+          $sc.TargetPath = (Get-Command pythonw.exe -ErrorAction Stop).Source
+          $sc.Arguments = '"' + $pyLauncher + '"'
+        } else {
+          $sc.TargetPath = $wshExe
+          $sc.Arguments = '"' + $vbsLauncher + '" "' + $widget + '"'
+        }
         $sc.WorkingDirectory = $InstallDir
         $sc.Description = 'linkWeixin 推送悬浮窗'
         $sc.Save()
-        Write-Output "[install] 悬浮窗快捷方式已建：$lnkPath"
+        Write-Output "[install] 悬浮窗快捷方式已建（$launcherRecord）：$lnkPath"
       }
     } catch {
       Write-Output "[install] 警告：开机快捷方式没建成（不影响推送）：$($_.Exception.Message)"
@@ -198,11 +221,15 @@ try {
 
   if (-not $SkipWidgetLaunch) {
     try {
-      $wshExe = Join-Path $env:SystemRoot 'System32\wscript.exe'
-      if (-not (Test-Path $wshExe)) { $wshExe = 'wscript.exe' }
-      $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
-      $launcher = Join-Path $InstallDir 'run-hidden.vbs'
-      Start-Process $wshExe -ArgumentList @('"' + $launcher + '"', '"' + $widget + '"') -WindowStyle Hidden
+      if ($launcherMode -eq 'Python') {
+        Start-Process (Get-Command pythonw.exe -ErrorAction Stop).Source -ArgumentList @('"' + $pyLauncher + '"') -WindowStyle Hidden
+      } else {
+        $wshExe = Join-Path $env:SystemRoot 'System32\wscript.exe'
+        if (-not (Test-Path $wshExe)) { $wshExe = 'wscript.exe' }
+        $widget = Join-Path $InstallDir 'linkweixin-widget.ps1'
+        $vbsLauncher = Join-Path $InstallDir 'run-hidden.vbs'
+        Start-Process $wshExe -ArgumentList @('"' + $vbsLauncher + '"', '"' + $widget + '"') -WindowStyle Hidden
+      }
       Write-Output '[install] 悬浮窗已启动（右下角无边框小窗，拖标题区移动）。'
     } catch {
       Write-Output '[install] 悬浮窗本次未自动启动，手动跑一次桌面快捷方式即可。'
