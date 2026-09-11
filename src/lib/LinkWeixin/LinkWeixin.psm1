@@ -14,6 +14,9 @@ foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'Private') 
 
 Export-ModuleMember -Function @(
   'Get-LinkWeixinPaths',
+  'Get-LinkWeixinConfig',
+  'Set-LinkWeixinConfig',
+  'Get-LinkWeixinHistory',
   'Format-NotifySummary',
   'Send-PushPlusNotification',
   'ConvertFrom-CodexNotifyEventArgs',
