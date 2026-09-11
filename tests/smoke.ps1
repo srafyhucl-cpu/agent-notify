@@ -10,6 +10,7 @@ Set-Location $RepoRoot
 $files = @(
   'src\notify-ai.ps1',
   'src\codex-notify.ps1',
+  'src\antigravity-notify.ps1',
   'src\codex-notify-watch.ps1',
   'src\notify-toggle.ps1',
   'src\linkweixin-widget.ps1',
@@ -170,15 +171,78 @@ try {
   $c2 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -Agent Codex -CodexMarker $cxMarker 2>&1
   if ("$c2" -notmatch 'ON' -or (Test-Path $cxMarker)) { throw "toggle codex 翻转不对：$c2" }
   Write-Output '[ok] toggle -Agent Codex'
-  # -Agent All：两边各翻各的，各回显一行
+  # -Agent Antigravity：独立 marker，翻转 + 回显（-AntigravityMarker 隔离，不碰真实文件）
+  $agMarker = Join-Path $tmp3 'antigravity-notify.off'
+  Remove-Item $agMarker -Force -ErrorAction SilentlyContinue
+  $a1 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -Agent Antigravity -AntigravityMarker $agMarker 2>&1
+  if ("$a1" -notmatch 'OFF' -or -not (Test-Path $agMarker)) { throw "toggle antigravity 翻转不对：$a1" }
+  $a2 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -Agent Antigravity -AntigravityMarker $agMarker 2>&1
+  if ("$a2" -notmatch 'ON' -or (Test-Path $agMarker)) { throw "toggle antigravity 翻转不对：$a2" }
+  Write-Output '[ok] toggle -Agent Antigravity'
+  # -Agent All：三边各翻各的，各回显一行
   Remove-Item $marker -Force -ErrorAction SilentlyContinue
   Remove-Item $cxMarker -Force -ErrorAction SilentlyContinue
-  $al = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -MarkerPath $marker -CodexMarker $cxMarker -Off 2>&1
-  if (("$al" -notmatch 'opencode: OFF') -or ("$al" -notmatch 'codex: OFF')) { throw "toggle All 回显不对：$al" }
-  if (-not (Test-Path $marker) -or -not (Test-Path $cxMarker)) { throw 'toggle All 未建齐 marker' }
+  Remove-Item $agMarker -Force -ErrorAction SilentlyContinue
+  $al = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -MarkerPath $marker -CodexMarker $cxMarker -AntigravityMarker $agMarker -Off 2>&1
+  if (("$al" -notmatch 'opencode: OFF') -or ("$al" -notmatch 'codex: OFF') -or ("$al" -notmatch 'antigravity: OFF')) { throw "toggle All 回显不对：$al" }
+  if (-not (Test-Path $marker) -or -not (Test-Path $cxMarker) -or -not (Test-Path $agMarker)) { throw 'toggle All 未建齐 marker' }
   Write-Output '[ok] toggle -Agent All'
 } finally {
   Remove-Item $tmp3 -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# antigravity-notify：验证 stdin hook 上下文解析、首行标题提取、尾部摘要逆序提取、fullyIdle守卫、marker跳过与 DryRun 渲染
+$tmpAg = Join-Path $env:TEMP 'linkweixin-smoke-ag'
+New-Item -ItemType Directory -Force -Path $tmpAg | Out-Null
+try {
+  $transcriptFile = Join-Path $tmpAg 'transcript.jsonl'
+  $line1 = '{"role":"user","content":"<USER_REQUEST>**Task**: 测试 Antigravity 任务完成</USER_REQUEST>"}'
+  $line2 = '{"role":"assistant","content":"已完成 Antigravity 阶段 1 核心功能开发与 **深度验证**。"}'
+  Set-Content -Path $transcriptFile -Value @($line1, $line2) -Encoding utf8
+  $escapedTranscript = ($transcriptFile -replace '\\', '\\')
+
+  # 隔离 stateFile 避免与生产/旧测试产生冲突
+  $env:ANTIGRAVITY_NOTIFY_STATE_FILE = Join-Path $tmpAg 'sent.json'
+
+  # 1. fullyIdle == false 应该跳过并不调用推送，输出 {}
+  $payloadIdleFalse = "{`"fullyIdle`":false,`"transcriptPath`":`"$escapedTranscript`",`"conversationId`":`"conv-1`"}"
+  $out1 = $payloadIdleFalse | & powershell -NoProfile -ExecutionPolicy Bypass -File src\antigravity-notify.ps1 2>&1
+  if ($out1.Trim() -ne '{}') { throw "antigravity-notify fullyIdle=false 未返回 {}：$out1" }
+  Write-Output '[ok] antigravity-notify fullyIdle false guard'
+
+  # 1.1 fullyIdle == "false" (字符串格式) 也应安全跳过
+  $payloadIdleStr = "{`"fullyIdle`":`"false`",`"transcriptPath`":`"$escapedTranscript`",`"conversationId`":`"conv-1`"}"
+  $out1s = $payloadIdleStr | & powershell -NoProfile -ExecutionPolicy Bypass -File src\antigravity-notify.ps1 2>&1
+  if ($out1s.Trim() -ne '{}') { throw "antigravity-notify fullyIdle='false' 未返回 {}：$out1s" }
+  Write-Output '[ok] antigravity-notify fullyIdle string false guard'
+
+  # 2. marker 存在时跳过
+  $agMarkerSmoke = Join-Path $tmpAg 'antigravity-notify.off'
+  "off" | Out-File -FilePath $agMarkerSmoke -Encoding utf8
+  $env:ANTIGRAVITY_NOTIFY_MARKER_FILE = $agMarkerSmoke
+  $payloadOk = "{`"fullyIdle`":true,`"transcriptPath`":`"$escapedTranscript`",`"conversationId`":`"conv-1`"}"
+  $out2 = $payloadOk | & powershell -NoProfile -ExecutionPolicy Bypass -File src\antigravity-notify.ps1 2>&1
+  if ($out2.Trim() -ne '{}') { throw "antigravity-notify marker 存在时未返回 {}：$out2" }
+  Write-Output '[ok] antigravity-notify marker guard'
+
+  # 3. DryRun 正常渲染
+  Remove-Item $agMarkerSmoke -Force -ErrorAction SilentlyContinue
+  $env:ANTIGRAVITY_NOTIFY_MARKER_FILE = $null
+  $out3 = $payloadOk | & powershell -NoProfile -ExecutionPolicy Bypass -File src\antigravity-notify.ps1 -DryRun 2>&1
+  if ($out3 -notmatch '【Antigravity】' -or $out3 -notmatch '测试 Antigravity 任务完成') {
+    throw "antigravity-notify DryRun 标题未正确提取：$out3"
+  }
+  if ($out3 -match '\*\*Task\*\*') {
+    throw "antigravity-notify 标题未剔除 **Task**: 前缀：$out3"
+  }
+  if ($out3 -notmatch '深度验证') {
+    throw "antigravity-notify DryRun 摘要未正确提取：$out3"
+  }
+  Write-Output '[ok] antigravity-notify DryRun title & summary'
+} finally {
+  $env:ANTIGRAVITY_NOTIFY_MARKER_FILE = $null
+  $env:ANTIGRAVITY_NOTIFY_STATE_FILE = $null
+  Remove-Item $tmpAg -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # codex-notify + marker：marker 存在只跳过推送（桩不被调），拿掉恢复。不碰真实 marker。
@@ -226,10 +290,14 @@ $instDir = Join-Path $tmp5 'bin'
 $plugDir = Join-Path $tmp5 'plugin'
 try {
   New-Item -ItemType Directory -Force -Path $instDir | Out-Null
+  $sandboxHooks = Join-Path $tmp5 'hooks.json'
   & powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -InstallDir $instDir -PluginDir $plugDir `
-    -SkipScheduledTask -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
+    -AntigravityHooks $sandboxHooks -SkipScheduledTask -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "沙箱安装 exit=$LASTEXITCODE" }
-  foreach ($f in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py', 'widget\widget-form.ps1', 'widget\widget-state.ps1', 'widget\widget-actions.ps1', 'lib\LinkWeixin\LinkWeixin.psd1', 'lib\LinkWeixin\Private\Send-PushPlusNotification.ps1')) {
+  if (-not (Test-Path $sandboxHooks)) { throw '沙箱安装未生成 Antigravity hooks.json' }
+  $hooksContent = Get-Content $sandboxHooks -Raw
+  if ($hooksContent -notmatch 'antigravity-notify\.ps1') { throw "沙箱安装 hooks 未注入：$hooksContent" }
+  foreach ($f in @('notify-ai.ps1', 'codex-notify.ps1', 'antigravity-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py', 'widget\widget-form.ps1', 'widget\widget-state.ps1', 'widget\widget-actions.ps1', 'lib\LinkWeixin\LinkWeixin.psd1', 'lib\LinkWeixin\Private\Send-PushPlusNotification.ps1')) {
     if (-not (Test-Path (Join-Path $instDir $f))) { throw "沙箱安装缺文件：$f" }
   }
   if (-not (Test-Path (Join-Path $plugDir 'notify-pushplus.ts'))) { throw '沙箱安装缺插件' }
@@ -237,14 +305,18 @@ try {
   if ([string]::IsNullOrWhiteSpace($rec.version)) { throw '沙箱安装记录缺 version' }
   if (@('vbs', 'python') -notcontains $rec.launcher) { throw "沙箱安装记录 launcher 非法：$($rec.launcher)" }
   if ([string]::IsNullOrWhiteSpace($rec.installedAt)) { throw '沙箱安装记录缺 installedAt' }
-  if (@($rec.files) -notcontains 'notify-ai.ps1' -or @($rec.files) -notcontains 'widget-detached.py' -or @($rec.files) -notcontains 'lib/LinkWeixin/LinkWeixin.psd1' -or @($rec.files) -notcontains 'widget/widget-form.ps1') { throw "沙箱安装记录 files 不完整：$(@($rec.files) -join ',')" }
+  if (@($rec.files) -notcontains 'notify-ai.ps1' -or @($rec.files) -notcontains 'antigravity-notify.ps1' -or @($rec.files) -notcontains 'widget-detached.py' -or @($rec.files) -notcontains 'lib/LinkWeixin/LinkWeixin.psd1' -or @($rec.files) -notcontains 'widget/widget-form.ps1') { throw "沙箱安装记录 files 不完整：$(@($rec.files) -join ',')" }
   Write-Output '[ok] install sandbox files + record'
 
   & powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1 -InstallDir $instDir -PluginDir $plugDir `
-    -SkipCodexConfig -SkipShortcuts -SkipScheduledTask | Out-Null
+    -AntigravityHooks $sandboxHooks -SkipCodexConfig -SkipShortcuts -SkipScheduledTask | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "沙箱卸载 exit=$LASTEXITCODE" }
+  if (Test-Path $sandboxHooks) {
+    $hooksAfter = Get-Content $sandboxHooks -Raw
+    if ($hooksAfter -match 'antigravity-notify\.ps1') { throw '沙箱卸载 hooks 未清理' }
+  }
   if (Test-Path (Join-Path $instDir 'linkweixin-install.json')) { throw '沙箱卸载残留：安装记录' }
-  foreach ($f in @('notify-ai.ps1', 'linkweixin-widget.ps1', 'widget-detached.py')) {
+  foreach ($f in @('notify-ai.ps1', 'antigravity-notify.ps1', 'linkweixin-widget.ps1', 'widget-detached.py')) {
     if (Test-Path (Join-Path $instDir $f)) { throw "沙箱卸载残留：$f" }
   }
   if (Test-Path (Join-Path $plugDir 'notify-pushplus.ts')) { throw '沙箱卸载残留：插件' }
