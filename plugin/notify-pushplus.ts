@@ -31,9 +31,42 @@ function defaultBinScript() {
     (typeof process !== "undefined" && process.env.USERPROFILE) || ""
   return up ? `${up}\\bin\\notify-ai.ps1` : "notify-ai.ps1"
 }
+function resolveTarget() {
+  const envTarget =
+    (typeof process !== "undefined" &&
+      (process.env.OPENCODE_NOTIFY_BIN ||
+        process.env.OPENCODE_NOTIFY_EXE ||
+        process.env.OPENCODE_NOTIFY_SCRIPT ||
+        process.env.NOTIFY_AI_SCRIPT)) ||
+    ""
+  if (envTarget) return envTarget
+
+  const dAppExe = "D:\\app\\linkWeixin\\linkweixin.exe"
+  try {
+    if (fsMod && fsMod.existsSync(dAppExe)) return dAppExe
+  } catch {}
+
+  const up =
+    (typeof process !== "undefined" && process.env.USERPROFILE) || ""
+  if (up) {
+    const userExe = `${up}\\bin\\linkweixin.exe`
+    try {
+      if (fsMod && fsMod.existsSync(userExe)) return userExe
+    } catch {}
+    const psScript = `${up}\\bin\\notify-ai.ps1`
+    try {
+      if (fsMod && fsMod.existsSync(psScript)) return psScript
+    } catch {}
+    return psScript
+  }
+  return SCRIPT || "notify-ai.ps1"
+}
 const SCRIPT =
   (typeof process !== "undefined" &&
-    (process.env.OPENCODE_NOTIFY_SCRIPT || process.env.NOTIFY_AI_SCRIPT)) ||
+    (process.env.OPENCODE_NOTIFY_BIN ||
+      process.env.OPENCODE_NOTIFY_EXE ||
+      process.env.OPENCODE_NOTIFY_SCRIPT ||
+      process.env.NOTIFY_AI_SCRIPT)) ||
   defaultBinScript()
 const COOLDOWN_MS =
   (Number(
@@ -163,23 +196,40 @@ function isRecord(v) {
 
 function spawnNotify(title, summary) {
   const dry = process.env.OPENCODE_NOTIFY_DRYRUN === "1"
-  // -WindowStyle Hidden：子 powershell 启动就不建可见控制台，
-  // 根治任务完成时命令行窗口闪一下（光靠 execFile windowsHide 某些环境下仍会闪）。
-  const args = [
-    "-NoProfile",
-    "-WindowStyle",
-    "Hidden",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    SCRIPT,
+  const target = resolveTarget()
+  const isExe = target.toLowerCase().endsWith(".exe")
+
+  let cmd = target
+  let args = [
+    "notify",
     "-Title",
     `【opencode】${title}`,
     "-Summary",
     summary,
     "-NoStdin",
   ]
+
+  if (!isExe) {
+    cmd = "powershell.exe"
+    // -WindowStyle Hidden：子 powershell 启动就不建可见控制台，
+    // 根治任务完成时命令行窗口闪一下（光靠 execFile windowsHide 某些环境下仍会闪）。
+    args = [
+      "-NoProfile",
+      "-WindowStyle",
+      "Hidden",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      target,
+      "-Title",
+      `【opencode】${title}`,
+      "-Summary",
+      summary,
+      "-NoStdin",
+    ]
+  }
   if (dry) args.push("-DryRun")
+
   return new Promise<void>((resolve) => {
     let settled = false
     const done = () => {
@@ -192,7 +242,7 @@ function spawnNotify(title, summary) {
     import("node:child_process")
       .then(({ execFile }) => {
         const child = execFile(
-          "powershell.exe",
+          cmd,
           args,
           {
             timeout: 25000,
@@ -201,7 +251,7 @@ function spawnNotify(title, summary) {
           (error, stdout, stderr) => {
             try {
               dbg(
-                `cb sid=${title} err=${(error && String(error.message || error)) || "none"} stderr=${String(stderr || "").slice(0, 200)} out=${String(stdout || "").slice(0, 200)}`,
+                `cb sid=${title} cmd=${cmd} err=${(error && String(error.message || error)) || "none"} stderr=${String(stderr || "").slice(0, 200)} out=${String(stdout || "").slice(0, 200)}`,
               )
             } catch {
               /* 忽略日志失败 */
@@ -210,8 +260,8 @@ function spawnNotify(title, summary) {
             done()
           },
         )
-        // 必须关闭 stdin：notify-ai.ps1 无 -Summary 时会读 stdin，
-        // 管道不关它就一直等到超时（脚本侧 -NoStdin 是双保险）。
+        // 必须关闭 stdin：notify 无 -Summary 时会读 stdin，
+        // 管道不关它就一直等到超时（-NoStdin 是双保险）。
         try {
           child.stdin?.end()
         } catch {
