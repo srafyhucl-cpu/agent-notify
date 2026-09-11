@@ -145,6 +145,7 @@ Describe 'Get-LinkWeixinPaths' {
     $p = Get-LinkWeixinPaths
     $p.OpenCodeMarker | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\notify-pushplus.off')
     $p.CodexMarker | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\codex-notify.off')
+    $p.AntigravityMarker | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\antigravity-notify.off')
     $p.PushLog | Should -Be (Join-Path $env:TEMP 'opencode\notify-push.log')
     $p.PluginFile | Should -Be (Join-Path $env:USERPROFILE '.config\opencode\plugins\notify-pushplus.ts')
     $p.WidgetPosFile | Should -Be (Join-Path $env:TEMP 'opencode\widget-pos.txt')
@@ -153,18 +154,22 @@ Describe 'Get-LinkWeixinPaths' {
   It '环境变量覆盖生效' {
     $oldO = $env:OPENCODE_NOTIFY_MARKER_FILE
     $oldC = $env:CODEX_NOTIFY_MARKER_FILE
+    $oldA = $env:ANTIGRAVITY_NOTIFY_MARKER_FILE
     $oldL = $env:OPENCODE_NOTIFY_LOG_FILE
     try {
       $env:OPENCODE_NOTIFY_MARKER_FILE = 'X:\oc.off'
       $env:CODEX_NOTIFY_MARKER_FILE = 'X:\cx.off'
+      $env:ANTIGRAVITY_NOTIFY_MARKER_FILE = 'X:\ag.off'
       $env:OPENCODE_NOTIFY_LOG_FILE = 'X:\push.log'
       $p = Get-LinkWeixinPaths
       $p.OpenCodeMarker | Should -Be 'X:\oc.off'
       $p.CodexMarker | Should -Be 'X:\cx.off'
+      $p.AntigravityMarker | Should -Be 'X:\ag.off'
       $p.PushLog | Should -Be 'X:\push.log'
     } finally {
       $env:OPENCODE_NOTIFY_MARKER_FILE = $oldO
       $env:CODEX_NOTIFY_MARKER_FILE = $oldC
+      $env:ANTIGRAVITY_NOTIFY_MARKER_FILE = $oldA
       $env:OPENCODE_NOTIFY_LOG_FILE = $oldL
     }
   }
@@ -195,12 +200,15 @@ Describe 'Send-PushPlusNotification DryRun' {
 Describe '模块清单' {
   It '版本与最低 PowerShell 版本正确' {
     $m = Get-Module LinkWeixin
-    $m.Version.ToString() | Should -Be '0.2.0'
+    $m.Version.ToString() | Should -Be '0.3.0'
     $m.PowerShellVersion.ToString() | Should -Be '5.1'
   }
   It 'FunctionsToExport 里每个函数都存在' {
     $expected = @(
       'Get-LinkWeixinPaths',
+      'Get-LinkWeixinConfig',
+      'Set-LinkWeixinConfig',
+      'Get-LinkWeixinHistory',
       'Format-NotifySummary',
       'Send-PushPlusNotification',
       'ConvertFrom-CodexNotifyEventArgs',
@@ -210,6 +218,117 @@ Describe '模块清单' {
     )
     foreach ($n in $expected) {
       Get-Command -Module LinkWeixin -Name $n -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    }
+  }
+}
+
+Describe 'Get-LinkWeixinConfig & Set-LinkWeixinConfig' {
+  BeforeEach {
+    $script:cfgDir = Join-Path $env:TEMP ('linkweixin-cfg-' + [guid]::NewGuid().ToString('N'))
+    $script:cfgFile = Join-Path $script:cfgDir 'config.json'
+  }
+  AfterEach {
+    Remove-Item $script:cfgDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  It '默认配置结构完整' {
+    $cfg = Get-LinkWeixinConfig -ConfigPath $script:cfgFile
+    $cfg.channels.pushplus.enabled | Should -BeTrue
+    $cfg.cooldownMin | Should -Be 10
+  }
+  It '写入配置并正确读取' {
+    $c = @{
+      channels = @{
+        pushplus = @{ enabled = $false; token = 'test-token' }
+        wecom    = @{ enabled = $true; webhook = 'https://qyapi.weixin.qq.com/...' }
+      }
+      quietHours = '22-7'
+      cooldownMin = 15
+    }
+    Set-LinkWeixinConfig -Config $c -ConfigPath $script:cfgFile | Out-Null
+    Test-Path $script:cfgFile | Should -BeTrue
+    $read = Get-LinkWeixinConfig -ConfigPath $script:cfgFile
+    $read.channels.pushplus.enabled | Should -BeFalse
+    $read.channels.pushplus.token | Should -Be 'test-token'
+    $read.channels.wecom.enabled | Should -BeTrue
+    $read.quietHours | Should -Be '22-7'
+    $read.cooldownMin | Should -Be 15
+  }
+}
+
+Describe 'Get-LinkWeixinHistory' {
+  BeforeEach {
+    $script:histDir = Join-Path $env:TEMP ('linkweixin-hist-' + [guid]::NewGuid().ToString('N'))
+    $script:logFile = Join-Path $script:histDir 'notify-push.log'
+    New-Item -ItemType Directory -Force -Path $script:histDir | Out-Null
+  }
+  AfterEach {
+    Remove-Item $script:histDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  It '空日志或无日志文件安全返回空数组' {
+    $h = Get-LinkWeixinHistory -LogPath $script:logFile
+    $h.Count | Should -Be 0
+  }
+  It '正确解析结构化日志行' {
+    $line1 = "2026-09-10T12:00:00.000Z push title=任务1 | channels=PushPlus | status=成功 | summary=摘要1`r`n"
+    $line2 = "2026-09-10T12:05:00.000Z push title=任务2 | channels=企业微信 | status=成功 | summary=摘要2`r`n"
+    [IO.File]::WriteAllText($script:logFile, $line1 + $line2, [System.Text.Encoding]::UTF8)
+    $h = Get-LinkWeixinHistory -LogPath $script:logFile
+    $h.Count | Should -Be 2
+    # 倒序：第一条是任务2
+    $h[0].Title | Should -Be '任务2'
+    $h[0].Channels | Should -Be '企业微信'
+    $h[1].Title | Should -Be '任务1'
+  }
+}
+
+Describe 'Antigravity notify 逻辑' {
+  BeforeEach {
+    $script:agDir = Join-Path $env:TEMP ('linkweixin-ag-test-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force -Path $script:agDir | Out-Null
+  }
+  AfterEach {
+    Remove-Item $script:agDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  It '正确提取加粗 **Task**: 标题与末尾 Markdown 摘要' {
+    $transcriptFile = Join-Path $script:agDir 'transcript.jsonl'
+    $line1 = '{"role":"user","content":"<USER_REQUEST>\n**Task**: 升级三开关 UI 并适配 Antigravity\n</USER_REQUEST>"}'
+    $line2 = '{"role":"model","parts":[{"text":"已完成阶段 1 核心功能开发，悬浮窗已升级三开关。"}]}'
+    Set-Content -Path $transcriptFile -Value @($line1, $line2) -Encoding UTF8
+    $escaped = ($transcriptFile -replace '\\', '\\')
+
+    $scriptPath = Join-Path $PSScriptRoot '..\..\src\antigravity-notify.ps1'
+    $payload = "{`"fullyIdle`":true,`"transcriptPath`":`"$escaped`",`"conversationId`":`"unit-conv-1`"}"
+    $out = $payload | & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath -DryRun
+    $out | Should -Match '【Antigravity】升级三开关 UI 并适配 Antigravity'
+    $out | Should -Not -Match '\*\*Task\*\*'
+    $out | Should -Match '已完成阶段 1 核心功能开发'
+  }
+
+  It 'fullyIdle 为字符串 false 时必须安全跳过并返回空 JSON' {
+    $scriptPath = Join-Path $PSScriptRoot '..\..\src\antigravity-notify.ps1'
+    $payload = '{"fullyIdle":"false","transcriptPath":"non-existent","conversationId":"unit-conv-2"}'
+    $out = $payload | & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath
+    $out.Trim() | Should -Be '{}'
+  }
+
+  It '日志文件处于并发写入（FileShare.ReadWrite）状态时安全读取首行与尾部' {
+    $transcriptFile = Join-Path $script:agDir 'transcript.jsonl'
+    $line1 = '{"role":"user","content":"Task: 并发读取验证"}'
+    $line2 = '{"role":"assistant","content":"写入测试成功"}'
+    Set-Content -Path $transcriptFile -Value @($line1, $line2) -Encoding UTF8
+    $escaped = ($transcriptFile -replace '\\', '\\')
+
+    # 保持写句柄处于打开状态模拟并发
+    $writer = [System.IO.File]::Open($transcriptFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+    try {
+      $scriptPath = Join-Path $PSScriptRoot '..\..\src\antigravity-notify.ps1'
+      $payload = "{`"fullyIdle`":true,`"transcriptPath`":`"$escaped`",`"conversationId`":`"unit-conv-3`"}"
+      $out = $payload | & powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath -DryRun
+      $out | Should -Match '【Antigravity】并发读取验证'
+      $out | Should -Match '写入测试成功'
+    } finally {
+      $writer.Dispose()
     }
   }
 }

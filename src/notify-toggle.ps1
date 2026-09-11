@@ -9,8 +9,10 @@
     （可用 OPENCODE_NOTIFY_MARKER_FILE 覆盖）
   - codex：%USERPROFILE%\.config\opencode\codex-notify.off
     （可用 CODEX_NOTIFY_MARKER_FILE 覆盖）
+  - antigravity：%USERPROFILE%\.config\opencode\antigravity-notify.off
+    （可用 ANTIGRAVITY_NOTIFY_MARKER_FILE 覆盖）
   文件存在 = 该边关（OFF），不存在 = 开（ON）。
-  -Agent Opencode/Codex 只动一边；默认 All，两边各翻各的并各回显一行。
+  -Agent Opencode/Codex/Antigravity 只动指定 agent；默认 All，三边各翻各的并各回显一行。
   -On/-Off 显式指定（同时给按 -Off 算）。-MarkerPath 是 -OpencodeMarker
   的别名（兼容老用法/测试）。codex 只跳推送，透传原电脑操控不受影响。
   任何情况都 exit 0，不卡住调用方。
@@ -19,13 +21,15 @@
   powershell -NoProfile -ExecutionPolicy Bypass -File notify-toggle.ps1
   powershell -NoProfile -ExecutionPolicy Bypass -File notify-toggle.ps1 -Agent Opencode -Off
   powershell -NoProfile -ExecutionPolicy Bypass -File notify-toggle.ps1 -Agent Codex -On
+  powershell -NoProfile -ExecutionPolicy Bypass -File notify-toggle.ps1 -Agent Antigravity -On
 #>
 param(
   [switch]$On,
   [switch]$Off,
-  [ValidateSet('All', 'Opencode', 'Codex')][string]$Agent = 'All',
+  [ValidateSet('All', 'Opencode', 'Codex', 'Antigravity')][string]$Agent = 'All',
   [Alias('MarkerPath')][string]$OpencodeMarker,
-  [string]$CodexMarker
+  [string]$CodexMarker,
+  [string]$AntigravityMarker
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -40,18 +44,23 @@ try {
 $paths = Get-LinkWeixinPaths
 if (-not $PSBoundParameters.ContainsKey('OpencodeMarker')) { $OpencodeMarker = $paths.OpenCodeMarker }
 if (-not $PSBoundParameters.ContainsKey('CodexMarker')) { $CodexMarker = $paths.CodexMarker }
+if (-not $PSBoundParameters.ContainsKey('AntigravityMarker')) { $AntigravityMarker = $paths.AntigravityMarker }
 
 try {
   $mode = if ($Off) { 'Off' } elseif ($On) { 'On' } else { 'Flip' }
   if ($Agent -eq 'All') {
     try { $a = Set-NotifyMarker -Path $OpencodeMarker -Mode $mode } catch { $a = if (Test-Path $OpencodeMarker) { 'OFF' } else { 'ON' } }
     try { $b = Set-NotifyMarker -Path $CodexMarker -Mode $mode } catch { $b = if (Test-Path $CodexMarker) { 'OFF' } else { 'ON' } }
+    try { $c = Set-NotifyMarker -Path $AntigravityMarker -Mode $mode } catch { $c = if (Test-Path $AntigravityMarker) { 'OFF' } else { 'ON' } }
     Write-Output "opencode: $a"
     Write-Output "codex: $b"
+    Write-Output "antigravity: $c"
   } elseif ($Agent -eq 'Opencode') {
     Write-Output (Set-NotifyMarker -Path $OpencodeMarker -Mode $mode)
-  } else {
+  } elseif ($Agent -eq 'Codex') {
     Write-Output (Set-NotifyMarker -Path $CodexMarker -Mode $mode)
+  } else {
+    Write-Output (Set-NotifyMarker -Path $AntigravityMarker -Mode $mode)
   }
 } catch {
   # 失败也按 marker 有无回显，保证调用方总有回显。

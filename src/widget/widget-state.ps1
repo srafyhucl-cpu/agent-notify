@@ -1,14 +1,15 @@
-﻿# 悬浮窗 · 状态轮询与刷新（由入口脚本 dot-source）。
-# 运行灯（5 秒轮询）、上次推送（相对时间）、插件/看守任务版本检查、
-# 免打扰与今日推送数、色条与托盘图标同步。
+﻿#Requires -Version 5.1
+<#
+  悬浮窗 · 状态轮询与刷新（由入口脚本 dot-source）。
+#>
 
 function Test-AppRunning {
-  param([string[]]$Patterns, [string[]]$Exclude = @())
+  param([string[]]$patterns, [string[]]$exclude = @())
   try {
-    $hits = Get-Process -Name $Patterns -ErrorAction SilentlyContinue | Where-Object {
+    $hits = Get-Process -Name $patterns -ErrorAction SilentlyContinue | Where-Object {
       $p = $_
       $skip = $false
-      foreach ($x in $Exclude) { if ($p.ProcessName -like $x) { $skip = $true } }
+      foreach ($x in $exclude) { if ($p.ProcessName -like $x) { $skip = $true } }
       -not $skip
     }
     return [bool]$hits
@@ -17,11 +18,9 @@ function Test-AppRunning {
 }
 
 function Test-PluginGate {
-  # 装上去的插件是不是带三道闸的新版：旧版不认 marker，关了也照推，
-  # 悬浮窗直接提示，避免静默失效。
-  param([hashtable]$Ctx)
+  param([hashtable]$ctx)
   try {
-    $pluginPath = $Ctx.Paths.PluginFile
+    $pluginPath = $ctx.Paths.PluginFile
     if (-not (Test-Path $pluginPath)) { return '未安装' }
     if (Select-String -Path $pluginPath -Pattern 'markerOff' -SimpleMatch -Quiet) { return '新版' }
     return '旧版'
@@ -29,20 +28,19 @@ function Test-PluginGate {
 }
 
 function Test-WatchTask {
-  # 看守任务是不是隐藏版：旧版 install 注册的动作不带 -WindowStyle Hidden，
-  # 每 5 分钟闪一次窗口。读任务定义不需要管理员权限，查出来就提示管理员重跑。
   try {
     $xml = schtasks /query /tn CodexNotifyWatch /xml 2>$null | Out-String
-    if ([string]::IsNullOrWhiteSpace($xml)) { return '新版' } # 没装看守就不报警
-    if ($xml -match 'WindowStyle\s+Hidden') { return '新版' }
+    if ([string]::IsNullOrWhiteSpace($xml)) { return '新版' }
+    if ($xml -match 'run-hidden\.vbs' -or $xml -match 'wscript' -or $xml -match 'WindowStyle\s+Hidden') { return '新版' }
     return '旧版'
   } catch { return '未知' }
 }
 
 function Test-QuietNow {
-  # 与插件同规则解析 OPENCODE_NOTIFY_QUIET（起-止小时，左闭右开；解析失败不算静默）。
   try {
-    $m = [regex]::Match($env:OPENCODE_NOTIFY_QUIET, '^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$')
+    $cfg = Get-LinkWeixinConfig
+    $raw = if ($cfg.quietHours) { $cfg.quietHours } else { $env:OPENCODE_NOTIFY_QUIET }
+    $m = [regex]::Match($raw, '^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$')
     if (-not $m.Success) { return $false }
     $s = [int]$m.Groups[1].Value
     $e = [int]$m.Groups[2].Value
@@ -54,10 +52,9 @@ function Test-QuietNow {
 }
 
 function Get-TodayPushCount {
-  # 统计推送日志里本地日期为今天的条数（日志是 UTC 无 BOM UTF-8）。
-  param([hashtable]$Ctx)
+  param([hashtable]$ctx)
   try {
-    $log = $Ctx.Paths.PushLog
+    $log = $ctx.Paths.PushLog
     if (-not (Test-Path $log)) { return 0 }
     $today = (Get-Date).Date
     $count = 0
@@ -74,11 +71,10 @@ function Get-TodayPushCount {
 }
 
 function Get-LastPushText {
-  param([hashtable]$Ctx)
+  param([hashtable]$ctx)
   try {
-    $pushLog = $Ctx.Paths.PushLog
+    $pushLog = $ctx.Paths.PushLog
     if (-not (Test-Path $pushLog)) { return '暂无推送' }
-    # 日志是无 BOM UTF-8（插件写入）：PS 5.1 必须显式 -Encoding UTF8，否则中文乱码
     $tail = Get-Content $pushLog -Tail 1 -Encoding UTF8 -ErrorAction Stop
     if ([string]::IsNullOrWhiteSpace($tail)) { return '暂无推送' }
     $m = [regex]::Match($tail, '(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)')
@@ -94,63 +90,86 @@ function Get-LastPushText {
         return $dt.ToString('MM-dd HH:mm')
       } catch { }
     }
-    # 正则拿不到时间戳时保底：显示前 24 字
     $t = $tail.Trim()
-    if ($t.Length -gt 24) { return $t.Substring(0, 24) + '…' }
+    if ($t.Length -gt 16) { return $t.Substring(0, 16) + '…' }
     return $t
   } catch { return '暂无推送' }
 }
 
 function Update-WidgetState {
-  param([hashtable]$Ctx)
-  $onOc = -not (Test-NotifyMarker -Path $Ctx.MarkerPath)
-  $onCx = -not (Test-NotifyMarker -Path $Ctx.CodexMarker)
-  $Ctx.Tick = [int]$Ctx.Tick + 1
-  # 悬停中的按钮不覆盖颜色（否则鼠标下会闪回底色），由 MouseLeave 恢复。
-  $Ctx.BtnOc.Text = if ($onOc) { "opencode`n● ON" } else { "opencode`n○ OFF" }
-  if (-not $Ctx.HoverOc) { $Ctx.BtnOc.BackColor = if ($onOc) { $Ctx.Colors.GREEN } else { $Ctx.Colors.RED } }
-  $Ctx.BtnOc.ForeColor = [System.Drawing.Color]::White
-  $Ctx.BtnCx.Text = if ($onCx) { "codex`n● ON" } else { "codex`n○ OFF" }
-  if (-not $Ctx.HoverCx) { $Ctx.BtnCx.BackColor = if ($onCx) { $Ctx.Colors.GREEN } else { $Ctx.Colors.RED } }
-  $Ctx.BtnCx.ForeColor = [System.Drawing.Color]::White
-  # 色条/托盘：两边都开绿，都关红，一开一关橙
-  $state = if ($onOc -and $onCx) { 2 } elseif (-not $onOc -and -not $onCx) { 0 } else { 1 }
-  $Ctx.Strip.BackColor = if ($state -eq 2) { $Ctx.Colors.GREEN } elseif ($state -eq 0) { $Ctx.Colors.RED } else { [System.Drawing.Color]::FromArgb(200, 130, 30) }
-  if ($Ctx.LastOnState -ne $state) {
-    $Ctx.LastOnState = $state
-    $Ctx.Notify.Icon = if ($state -eq 2) { $Ctx.IconOn } elseif ($state -eq 0) { $Ctx.IconOff } else { $Ctx.IconMid }
-    $Ctx.Form.Icon = $Ctx.Notify.Icon
+  param([hashtable]$ctx, [switch]$Light)
+  $onOc = -not (Test-NotifyMarker -Path $ctx.MarkerPath)
+  $onCx = -not (Test-NotifyMarker -Path $ctx.CodexMarker)
+  $onAg = -not (Test-NotifyMarker -Path $ctx.AntigravityMarker)
+  $ctx.Tick = [int]$ctx.Tick + 1
+
+  $ctx.BtnOc.Text = if ($onOc) { "OpenCode`n● 监听中" } else { "OpenCode`n○ 已暂停" }
+  if (-not $ctx.HoverOc) { $ctx.BtnOc.BackColor = if ($onOc) { $ctx.Colors.GREEN } else { $ctx.Colors.RED } }
+  $ctx.BtnOc.ForeColor = [System.Drawing.Color]::White
+
+  $ctx.BtnCx.Text = if ($onCx) { "Codex`n● 监听中" } else { "Codex`n○ 已暂停" }
+  if (-not $ctx.HoverCx) { $ctx.BtnCx.BackColor = if ($onCx) { $ctx.Colors.GREEN } else { $ctx.Colors.RED } }
+  $ctx.BtnCx.ForeColor = [System.Drawing.Color]::White
+
+  $ctx.BtnAg.Text = if ($onAg) { "Antigravity`n● 监听中" } else { "Antigravity`n○ 已暂停" }
+  if (-not $ctx.HoverAg) { $ctx.BtnAg.BackColor = if ($onAg) { $ctx.Colors.GREEN } else { $ctx.Colors.RED } }
+  $ctx.BtnAg.ForeColor = [System.Drawing.Color]::White
+
+  $onCount = [int]$onOc + [int]$onCx + [int]$onAg
+  $state = if ($onCount -eq 3) { 2 } elseif ($onCount -eq 0) { 0 } else { 1 }
+  $ctx.Strip.BackColor = if ($state -eq 2) { $ctx.Colors.GREEN } elseif ($state -eq 0) { $ctx.Colors.RED } else { [System.Drawing.Color]::FromArgb(200, 130, 30) }
+  if ($ctx.LastOnState -ne $state) {
+    $ctx.LastOnState = $state
+    $ctx.Notify.Icon = if ($state -eq 2) { $ctx.IconOn } elseif ($state -eq 0) { $ctx.IconOff } else { $ctx.IconMid }
+    $ctx.Form.Icon = $ctx.Notify.Icon
   }
+
   $oc = Test-AppRunning @('OpenCode*', 'opencode*')
-  # codex-plus-plus* 是无关常驻进程（Codex++，另一个软件），必须排除，
-  # 否则关掉 Codex 桌面灯也不会灭。
   $cx = Test-AppRunning @('codex*') @('codex-plus-plus*')
-  $Ctx.RowOc.Txt.Text = if ($oc) { 'opencode  运行中' } else { 'opencode  未运行' }
-  $Ctx.RowOc.Dot.ForeColor = if ($oc) { $Ctx.Colors.DotOn } else { [System.Drawing.Color]::FromArgb(100, 100, 105) }
-  $Ctx.RowCx.Txt.Text = if ($cx) { 'codex  运行中' } else { 'codex  未运行' }
-  $Ctx.RowCx.Dot.ForeColor = if ($cx) { $Ctx.Colors.DotOn } else { [System.Drawing.Color]::FromArgb(100, 100, 105) }
-  $Ctx.RowLast.Txt.Text = '上次推送 ' + (Get-LastPushText -Ctx $Ctx)
-  # 插件/任务版本、今日推送数：启动查一次，之后每 10 分钟复查，不每轮读文件。
-  if ($null -eq $Ctx.PlugVer -or ($Ctx.Tick % 120) -eq 1) {
-    $Ctx.PlugVer = Test-PluginGate -Ctx $Ctx
-    $Ctx.TodayCount = Get-TodayPushCount -Ctx $Ctx
+  $ag = Test-AppRunning @('Antigravity*', 'language_server*')
+
+  $ctx.RowOc.Txt.Text = if ($oc) { 'OpenCode  运行中' } else { 'OpenCode  未运行' }
+  $ctx.RowOc.Dot.ForeColor = if ($oc) { $ctx.Colors.DotOn } else { [System.Drawing.Color]::FromArgb(100, 100, 105) }
+
+  $ctx.RowCx.Txt.Text = if ($cx) { 'Codex  运行中' } else { 'Codex  未运行' }
+  $ctx.RowCx.Dot.ForeColor = if ($cx) { $ctx.Colors.DotOn } else { [System.Drawing.Color]::FromArgb(100, 100, 105) }
+
+  $ctx.RowAg.Txt.Text = if ($ag) { 'Antigravity  运行中' } else { 'Antigravity  未运行' }
+  $ctx.RowAg.Dot.ForeColor = if ($ag) { $ctx.Colors.DotOn } else { [System.Drawing.Color]::FromArgb(100, 100, 105) }
+
+  $ctx.RowLast.Txt.Text = '上次推送  ' + (Get-LastPushText -Ctx $ctx)
+
+  # 首屏秒开：Light 模式跳过重型检测（插件文件扫描与 schtasks 外部命令），
+  # 仅用默认就绪态绘制，留给窗口呈现后的首个异步 Tick 做深度诊断。
+  if (-not $Light) {
+    if ($null -eq $ctx.PlugVer -or ($ctx.Tick % 120) -eq 1) {
+      $ctx.PlugVer = Test-PluginGate -Ctx $ctx
+      $ctx.TodayCount = Get-TodayPushCount -Ctx $ctx
+    }
+    if ($null -eq $ctx.TaskVer -or ($ctx.Tick % 120) -eq 1) { $ctx.TaskVer = Test-WatchTask }
   }
-  if ($null -eq $Ctx.TaskVer -or ($Ctx.Tick % 120) -eq 1) { $Ctx.TaskVer = Test-WatchTask }
-  $pv = $Ctx.PlugVer
+  $pv = $ctx.PlugVer
+  if ($Light -and $null -eq $pv) { $pv = '新版' }
+  $taskVerShown = $ctx.TaskVer
+  if ($Light -and $null -eq $taskVerShown) { $taskVerShown = '新版' }
+
   if ($pv -eq '新版') {
     $quiet = Test-QuietNow
     $bits = @()
     if ($quiet) { $bits += '时段静默中' }
-    if ($null -ne $Ctx.TodayCount) { $bits += "今日已推 $($Ctx.TodayCount) 条" }
-    $Ctx.Hint.Text = if ($bits.Count -gt 0) { '两个开关独立，各管一边。' + ($bits -join ' · ') } else { '两个开关独立，各管一边。' }
-    $Ctx.Hint.ForeColor = if ($quiet) { [System.Drawing.Color]::FromArgb(200, 170, 90) } else { $Ctx.Colors.DIM }
+    if ($null -ne $ctx.TodayCount) { $bits += "今日已推 $($ctx.TodayCount) 条" }
+    $ctx.Hint.Text = if ($bits.Count -gt 0) { '三开关独立各管一边 · ' + ($bits -join ' · ') } else { '三开关独立各管一边 · 推送通道已就绪' }
+    $ctx.Hint.ForeColor = if ($quiet) { [System.Drawing.Color]::FromArgb(200, 170, 90) } else { $ctx.Colors.DIM }
+    $ctx.Hint.Cursor = [System.Windows.Forms.Cursors]::Default
   } else {
-    $Ctx.Hint.Text = "⚠ 插件$pv：开关不生效，重跑 install 后重启桌面。"
-    $Ctx.Hint.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
+    $ctx.Hint.Text = "⚠ 插件$pv：开关不生效，请重跑 install 后重启桌面。"
+    $ctx.Hint.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
+    $ctx.Hint.Cursor = [System.Windows.Forms.Cursors]::Default
   }
-  # 任务旧版另起提示（别覆盖插件报警，插件问题更严重）。
-  if ($pv -eq '新版' -and $Ctx.TaskVer -eq '旧版') {
-    $Ctx.Hint.Text = '⚠ 看守任务旧版：每5分钟闪窗口，管理员重跑 install.ps1。'
-    $Ctx.Hint.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
+
+  if ($pv -eq '新版' -and $taskVerShown -eq '旧版') {
+    $ctx.Hint.Text = '⚡ 检测到旧版看守任务 (每5分钟闪屏)：点击修复'
+    $ctx.Hint.ForeColor = [System.Drawing.Color]::FromArgb(255, 170, 60)
+    $ctx.Hint.Cursor = [System.Windows.Forms.Cursors]::Hand
   }
 }
