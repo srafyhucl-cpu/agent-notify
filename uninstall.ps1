@@ -13,9 +13,11 @@ param(
   [string]$InstallDir = (Join-Path $env:USERPROFILE 'bin'),
   [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugins'),
   [string]$CodexConfig = (Join-Path $env:USERPROFILE '.codex\config.toml'),
+  [string]$AntigravityHooks = (Join-Path $env:USERPROFILE '.gemini\config\hooks.json'),
   [string]$TaskName = 'CodexNotifyWatch',
   [switch]$SkipShortcuts,
   [switch]$SkipCodexConfig,
+  [switch]$SkipAntigravityConfig,
   [switch]$SkipScheduledTask
 )
 
@@ -55,6 +57,23 @@ function Remove-InstalledFile {
 }
 $script:dirCandidates = $dirCandidates
 
+# 0. 悬浮窗：先杀运行中的窗体进程以释放二进制与脚本文件锁（限本安装目录宿主）
+try {
+  $esc = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\'))
+  $myParent = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
+  Get-CimInstance Win32_Process -Filter "Name='linkweixin.exe' OR Name='powershell.exe' OR Name='pwsh.exe' OR Name='pythonw.exe' OR Name='python.exe'" -ErrorAction Stop |
+    Where-Object {
+      $cl = $_.CommandLine
+      $cl -and ($cl -match $esc) -and
+      (($cl -match 'linkweixin-widget\.ps1') -or ($cl -match 'widget-detached\.py') -or ($cl -match 'linkweixin\.exe')) -and
+      ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $myParent)
+    } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Output "[uninstall] 已杀悬浮窗进程 $($_.ProcessId)" }
+  Start-Sleep -Milliseconds 200
+} catch {
+  Write-Output "[uninstall] 悬浮窗进程清理跳过：$($_.Exception.Message)"
+}
+
 # 1. 运行文件：优先安装记录，其次仓库 src 树，最后老版白名单
 $recordPath = Join-Path $InstallDir 'linkweixin-install.json'
 if (Test-Path $recordPath) {
@@ -73,7 +92,7 @@ if (Test-Path $recordPath) {
     }
     Write-Output "[uninstall] 无安装记录，按 src 树扫描清理 $($script:removedCount) 个文件。"
   } else {
-    foreach ($n in @('notify-ai.ps1', 'codex-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py')) {
+    foreach ($n in @('linkweixin.exe', 'notify-ai.ps1', 'codex-notify.ps1', 'antigravity-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py')) {
       Remove-InstalledFile $n
     }
     Write-Output "[uninstall] 无安装记录且无 src 树，按白名单清理 $($script:removedCount) 个文件。"
@@ -108,21 +127,7 @@ if ($legacyPlugDir -ne $PluginDir) {
   }
 }
 
-# 3. 悬浮窗：杀窗体进程（限本安装目录的 powershell / python 宿主）+ 删开机/桌面快捷方式。
-try {
-  $esc = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\'))
-  $myParent = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue).ParentProcessId
-  Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe' OR Name='pythonw.exe' OR Name='python.exe'" -ErrorAction Stop |
-    Where-Object {
-      $cl = $_.CommandLine
-      $cl -and ($cl -match $esc) -and
-      (($cl -match 'linkweixin-widget\.ps1') -or ($cl -match 'widget-detached\.py')) -and
-      ($_.ProcessId -ne $PID) -and ($_.ProcessId -ne $myParent)
-    } |
-    ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Output "[uninstall] 已杀悬浮窗进程 $($_.ProcessId)" }
-} catch {
-  Write-Output "[uninstall] 悬浮窗进程清理跳过：$($_.Exception.Message)"
-}
+# 3. 悬浮窗快捷方式清理
 if (-not $SkipShortcuts) {
   $lnkNames = @('linkWeixin 悬浮窗.lnk', 'linkWeixin Widget.lnk')
   foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
@@ -154,8 +159,51 @@ if (-not $SkipCodexConfig) {
   }
 }
 
+# 5.1 Antigravity hooks 清理
+if (-not $SkipAntigravityConfig -and (Test-Path $AntigravityHooks)) {
+  try {
+    $raw = Get-Content $AntigravityHooks -Raw -Encoding UTF8
+    $h = $raw | ConvertFrom-Json
+    $changed = $false
+    if ($h.'linkweixin-notify' -and $h.'linkweixin-notify'.Stop) {
+      $filtered = @($h.'linkweixin-notify'.Stop | Where-Object { $_.command -notmatch 'antigravity-notify\.ps1' -and $_.command -notmatch 'linkweixin' })
+      if ($filtered.Count -ne @($h.'linkweixin-notify'.Stop).Count) {
+        $h.'linkweixin-notify'.Stop = $filtered
+        $changed = $true
+      }
+    }
+    if ($h.hooks -and $h.hooks.Stop) {
+      $filtered = @($h.hooks.Stop | Where-Object { $_.command -notmatch 'antigravity-notify\.ps1' -and $_.command -notmatch 'linkweixin' })
+      if ($filtered.Count -ne @($h.hooks.Stop).Count) {
+        $h.hooks.Stop = $filtered
+        $changed = $true
+      }
+    }
+    if ($h.Stop) {
+      $filtered = @($h.Stop | Where-Object { $_.command -notmatch 'antigravity-notify\.ps1' -and $_.command -notmatch 'linkweixin' })
+      if ($filtered.Count -ne @($h.Stop).Count) {
+        $h.Stop = $filtered
+        $changed = $true
+      }
+    }
+    if ($changed) {
+      $bak = "$AntigravityHooks.bak-notify-wrapper"
+      if (Test-Path $bak) {
+        Copy-Item $bak $AntigravityHooks -Force
+        Write-Output "[uninstall] Antigravity hooks 配置已从备份还原：$bak"
+      } else {
+        $json = $h | ConvertTo-Json -Depth 6
+        [IO.File]::WriteAllText($AntigravityHooks, $json, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Output "[uninstall] Antigravity hooks 中已移除 linkWeixin 钩子。"
+      }
+    }
+  } catch {
+    Write-Output "[uninstall] 清理 Antigravity hooks 失败：$($_.Exception.Message)"
+  }
+}
+
 Write-Output '[uninstall] 环境变量 PUSHPLUS_TOKEN 请手动清理（如 setx PUSHPLUS_TOKEN "" 后删注册表，或直接不管）。'
 # 悬浮窗主动退出标记（留着会挡住看守任务的自动拉起；位置文件保留，重装后位置记忆还在）
 Remove-Item (Join-Path $env:TEMP 'opencode\widget-exit.txt') -Force -ErrorAction SilentlyContinue
-Write-Output '[uninstall] 完成，记得重启 opencode / codex 桌面端。'
+Write-Output '[uninstall] 完成，记得重启 OpenCode / Codex / Antigravity。'
 exit 0
