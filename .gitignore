@@ -9,3 +9,5 @@ Desktop.ini
 node_modules/
 dist/
 bin/
+.agents/
+.commandcode/
