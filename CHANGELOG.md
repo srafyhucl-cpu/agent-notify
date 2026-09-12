@@ -4,6 +4,23 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是
 `internal/app/version.go` 的 `Version`。
 
+## [Unreleased]
+
+### Added
+
+- `tools\test.ps1` 增加 `go vet ./...` 门禁，OpenCode 插件类型检查提升到 TypeScript `strict`。
+- 源码安装会注入 `Version`、`Commit`、`BuildTime`，`status` 与 `doctor` 能显示真实构建信息。
+- OpenCode 插件副本记录真实安装路径，自定义 `-InstallDir` 不再依赖 `%USERPROFILE%\bin`。
+
+### Changed
+
+- 安装时把 `$InstallDir` 中的绝对路径写进插件 `BAKED_BIN`，插件按 `BAKED_BIN`、`AGENT_NOTIFY_BIN`、默认目录、`PATH` 顺序解析运行程序。
+
+### Fixed
+
+- 修正自定义安装目录下 OpenCode 插件仍去找 `%USERPROFILE%\bin\agent-notify.exe` 导致任务完成不推送的问题。
+- 配置与凭据保存改为直接原子替换，写入失败时不再先删掉上一份可用文件。
+
 ## [1.0.0] - 2026-09-12
 
 ### Added

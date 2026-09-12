@@ -471,7 +471,6 @@ func saveCredentials(creds Credentials) error {
 	if err := os.WriteFile(tmp, append(data, '\n'), 0600); err != nil {
 		return err
 	}
-	_ = os.Remove(path)
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err

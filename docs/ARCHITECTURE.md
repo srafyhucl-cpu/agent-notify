@@ -43,6 +43,7 @@ Codex
 | `internal/marker` | `opencode.off` / `codex.off` 开关 | 文件存在即暂停；不读取旧 marker |
 | `internal/ui` | 原生 Win32 悬浮窗、设置、登录、历史、托盘 | 单实例、DPI 感知、双缓冲、会话状态实时刷新、`windowsgui` 发布模式 |
 | `plugin/agent-notify.ts` | OpenCode V2 插件 | 只调用当前 `agent-notify.exe notify`；失败全部吞掉 |
+| `plugin/agent-notify.ts` | OpenCode V2 插件 | 安装器把实际安装路径写进 `BAKED_BIN`；只调用当前 `agent-notify.exe notify`，失败全部吞掉 |
 | `install.ps1` / `uninstall.ps1` | 文件分发、安装记录、快捷方式、Codex 接管 | 不安装业务运行时；卸载按安装记录清理 |
 
 ## OpenCode 数据流
@@ -127,6 +128,8 @@ Codex
 | 历史 | `%TEMP%\agent-notify\push.log` |
 | 运行日志 | `%TEMP%\agent-notify\*.log` |
 | OpenCode 插件 | `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts` |
+
+插件副本的 `BAKED_BIN` 指向安装目录里的 exe，安装到自定义目录时不需要额外环境变量。手动移动 exe 后需重跑 `install.ps1`，或用 `AGENT_NOTIFY_BIN` 覆盖。
 
 测试与便携部署可覆盖 `AGENT_NOTIFY_CONFIG_DIR`、`AGENT_NOTIFY_TEMP_DIR`、`AGENT_NOTIFY_CONFIG_FILE`、`AGENT_NOTIFY_CREDENTIAL_FILE`、`AGENT_NOTIFY_LOG_FILE` 和相关 marker 路径。
 

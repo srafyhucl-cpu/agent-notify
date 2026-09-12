@@ -92,6 +92,7 @@ Start-Process $exe -ArgumentList "doctor" -Wait
    - 没有 `session.execution.succeeded`：当前 OpenCode 版本可能改了事件名或插件未加载。
 4. 检查插件路径是否为 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`。
 5. 重新运行 `install.ps1` 并重启 OpenCode，确保插件是当前版本。
+6. 如果程序装在自定义目录，检查插件副本里的 `BAKED_BIN` 是否指向实际 exe；重跑 `install.ps1` 会刷新它，也可以用 `AGENT_NOTIFY_BIN` 临时覆盖。
 
 CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json` 中 `quietHours` 覆盖的时段。
 

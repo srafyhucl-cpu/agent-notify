@@ -40,6 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
 ## 提交前检查
 
 - [ ] `go test ./...` 全绿
+- [ ] `go vet ./...` 全绿
 - [ ] `node_modules\.bin\tsc.cmd --noEmit` 全绿
 - [ ] `tools\lint.ps1` 全绿
 - [ ] `tools\test.ps1` 全绿
@@ -58,6 +59,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
 7. `push.log` 保持 JSON Lines 格式，解析器应跳过损坏行而不丢整份历史。
 8. 发布 exe 保持 `windowsgui`，不得恢复可见控制台闪烁。
 9. 不保留旧名称的迁移读取、别名命令或兼容文件。
+10. OpenCode 插件靠安装器写入的 `BAKED_BIN` 定位 exe，修改插件路径解析时必须同步更新 `install.ps1` 与 smoke 用例。
 
 完整契约见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 

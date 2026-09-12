@@ -9,6 +9,7 @@
   - opencode 插件：%USERPROFILE%\.config\opencode\plugins\agent-notify.ts
   - Codex 配置：%USERPROFILE%\.codex\config.toml（只改写指向 codex-computer-use.exe 的 notify 行）
   安装记录 agent-notify-install.json 记录本次落盘文件，卸载按它精确清理。
+  安装时会把 $InstallDir 里的绝对路径写进插件副本，插件不依赖默认安装目录。
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
@@ -159,7 +160,15 @@ try {
     New-Item -ItemType Directory -Force -Path (Split-Path $repoExe -Parent) | Out-Null
     Push-Location $RepoRoot
     try {
-      & $goExe build -ldflags '-H windowsgui -s -w' -trimpath -o $repoExe '.\cmd\agent-notify\'
+      $commit = 'unknown'
+      try {
+        $resolvedCommit = (& git rev-parse --short HEAD 2>$null).Trim()
+        if ($resolvedCommit) { $commit = $resolvedCommit }
+      } catch { }
+      $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+      $module = 'github.com/srafyhucl-cpu/agent-notify/internal/app'
+      $ldflags = "-H windowsgui -s -w -X $module.Version=$(Get-RepoVersion) -X $module.Commit=$commit -X $module.BuildTime=$buildTime"
+      & $goExe build -ldflags $ldflags -trimpath -o $repoExe '.\cmd\agent-notify\'
       if ($LASTEXITCODE -ne 0) { throw "go build 失败 exit=$LASTEXITCODE" }
     } finally {
       Pop-Location
@@ -171,9 +180,21 @@ try {
 
   $installedExe = Join-Path $InstallDir $ExeName
   Copy-Item $repoExe $installedExe -Force
-  Copy-Item (Join-Path $RepoRoot "plugin\$PluginName") (Join-Path $PluginDir $PluginName) -Force
+  $installedPlugin = Join-Path $PluginDir $PluginName
+  Copy-Item (Join-Path $RepoRoot "plugin\$PluginName") $installedPlugin -Force
+
+  # 插件默认只认 %USERPROFILE%\bin；把真实安装路径写进插件副本，自定义目录才不会失联。
+  $pluginText = [IO.File]::ReadAllText($installedPlugin)
+  $bakedPath = $installedExe.Replace('\', '\\').Replace('"', '\"')
+  $patchedText = [regex]::Replace($pluginText, '(?m)^const BAKED_BIN = ".*"$', { param($match) 'const BAKED_BIN = "' + $bakedPath + '"' })
+  if ($patchedText -eq $pluginText) {
+    Write-Output '[install] 警告：插件缺少 BAKED_BIN 占位，将回退到 %USERPROFILE%\bin 或 PATH。'
+  } else {
+    [IO.File]::WriteAllText($installedPlugin, $patchedText, (New-Object System.Text.UTF8Encoding($false)))
+  }
+
   Write-Output "[install] 已安装运行程序：$installedExe"
-  Write-Output "[install] 已安装 opencode 插件：$(Join-Path $PluginDir $PluginName)"
+  Write-Output "[install] 已安装 opencode 插件：$installedPlugin"
 
   # 3. 写安装记录（卸载按它精确清理；files 为相对 InstallDir 的正斜杠路径）
   $newFiles = @($ExeName)

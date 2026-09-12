@@ -36,6 +36,18 @@ func TestLoadSaveConfig(t *testing.T) {
 	if got != want {
 		t.Fatalf("LoadConfig = %#v, want %#v", got, want)
 	}
+
+	replaced := AppConfig{QuietHours: "1-7", CooldownMin: 30}
+	if err := SaveConfig(replaced, path); err != nil {
+		t.Fatalf("SaveConfig overwrite: %v", err)
+	}
+	got, err = LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig overwrite: %v", err)
+	}
+	if got != replaced {
+		t.Fatalf("LoadConfig after overwrite = %#v, want %#v", got, replaced)
+	}
 }
 
 func TestLoadConfigMissingAndInvalid(t *testing.T) {

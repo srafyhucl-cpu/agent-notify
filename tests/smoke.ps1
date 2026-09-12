@@ -139,6 +139,11 @@ try {
   Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json')) '沙箱安装缺安装记录'
   Assert-True ((Get-PESubsystem (Join-Path $RepoRoot 'bin\agent-notify.exe')) -eq 2) '安装器没有把 Console 构建重建为 Windows GUI 子系统'
   Assert-True (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts')) '沙箱安装缺插件'
+  $installedPluginText = [IO.File]::ReadAllText((Join-Path $sandboxPlugins 'agent-notify.ts'))
+  $expectedBaked = (Join-Path $sandboxInstall 'agent-notify.exe').Replace('\', '\\')
+  Assert-True ($installedPluginText.Contains('const BAKED_BIN = "' + $expectedBaked + '"')) "安装后的插件没有指向沙箱 exe：$expectedBaked"
+  Assert-True ($pluginRaw.Contains('const BAKED_BIN = ""')) '仓库内的插件副本应保持可移植的空 BAKED_BIN'
+  Write-Output '[ok] install baked plugin path'
   $installedFiles = @(Get-ChildItem $sandboxInstall -File | Select-Object -ExpandProperty Name | Sort-Object)
   Assert-True (($installedFiles -join ',') -eq 'agent-notify.exe,agent-notify-install.json') "安装目录文件意外：$($installedFiles -join ',')"
   $record = Get-Content (Join-Path $sandboxInstall 'agent-notify-install.json') -Raw -Encoding utf8 | ConvertFrom-Json

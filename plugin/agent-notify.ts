@@ -9,8 +9,11 @@
  * 去重：同一会话按冷却时间只推一次，多 location 重复投递靠共享状态文件兜住。
  * 安全：失败全部吞掉，永远不影响 agent 运行。
  *
+ * 路径：安装器会把安装目录里的绝对路径写进下面的 BAKED_BIN；仓库内直接运行时该值为空，
+ * 依次回退到环境变量、%USERPROFILE%\bin\agent-notify.exe 和 PATH。
+ *
  * 环境变量（改完要重启 opencode 桌面端才生效）：
- * - AGENT_NOTIFY_BIN：agent-notify.exe 路径，默认 %USERPROFILE%\bin\agent-notify.exe
+ * - AGENT_NOTIFY_BIN：覆盖 agent-notify.exe 路径，优先级高于安装器写入的路径
  * - AGENT_NOTIFY_OPENCODE_MARKER_FILE：开关 marker，存在即停，默认
  *   %USERPROFILE%\.config\agent-notify\opencode.off
  * - AGENT_NOTIFY_COOLDOWN_MIN：同会话冷却分钟数，默认读配置文件，兜底 10
@@ -57,34 +60,62 @@ const DEBUG_LOG_FILE = `${TEMP_DIR}/opencode-debug.log`
 const RAW_CHARS = 2000
 const DEFAULT_COOLDOWN_MIN = 10
 
-let fsMod = null
-let debugLog = null
-let cooldownMs = null
+// 安装器会把引号里的值替换为实际安装路径；仓库内副本保持空串，走下面的探测链。
+const BAKED_BIN = ""
 
-function envValue(name) {
+type FsModule = typeof import("node:fs")
+type DebugLogger = (message: string) => void
+type JsonRecord = Record<string, unknown>
+type SentState = Record<string, number>
+
+interface SessionApi {
+  context(input: { sessionID: string }): Promise<unknown>
+  get(input: { sessionID: string }): Promise<unknown>
+}
+
+interface PluginContext {
+  event: {
+    subscribe(options: { signal: AbortSignal }): AsyncIterable<unknown>
+  }
+  session: SessionApi
+}
+
+let fsMod: FsModule | null = null
+let debugLog: DebugLogger | null = null
+let cooldownMs: number | null = null
+
+function envValue(name: string): string {
   return (typeof process !== "undefined" && process.env[name]) || ""
 }
 
-function resolveTarget() {
+function existsInFs(path: string): boolean {
+  try {
+    return Boolean(fsMod && path && fsMod.existsSync(path))
+  } catch {
+    return false
+  }
+}
+
+function resolveTarget(): string {
   const configured = envValue("AGENT_NOTIFY_BIN")
   if (configured) {
     return configured
   }
+  // 安装器写入的绝对路径优先于 %USERPROFILE%\bin 默认值，自定义安装目录才不会失联。
+  if (existsInFs(BAKED_BIN)) {
+    return BAKED_BIN
+  }
   const home = envValue("USERPROFILE")
   if (home) {
     const installed = `${home}\\bin\\agent-notify.exe`
-    try {
-      if (fsMod && fsMod.existsSync(installed)) {
-        return installed
-      }
-    } catch {
-      /* 探测失败按 PATH 兜底 */
+    if (existsInFs(installed)) {
+      return installed
     }
   }
-  return "agent-notify.exe"
+  return BAKED_BIN || "agent-notify.exe"
 }
 
-async function fsAsync() {
+async function fsAsync(): Promise<FsModule | null> {
   if (!fsMod) {
     try {
       fsMod = await import("node:fs")
@@ -100,7 +131,7 @@ async function fsAsync() {
   return fsMod
 }
 
-function dbg(msg) {
+function dbg(msg: string): void {
   try {
     if (debugLog) {
       debugLog(msg)
@@ -111,7 +142,7 @@ function dbg(msg) {
 }
 
 // 冷却时间来源优先级：环境变量 > config.json > 默认值。
-function cooldown() {
+function cooldown(): number {
   if (cooldownMs !== null) {
     return cooldownMs
   }
@@ -119,7 +150,7 @@ function cooldown() {
   if (!minutes && CONFIG_FILE && fsMod) {
     try {
       const raw = fsMod.readFileSync(CONFIG_FILE, "utf8")
-      const parsed = JSON.parse(raw)
+      const parsed: unknown = JSON.parse(raw)
       const value = Number(isRecord(parsed) ? parsed.cooldownMin : 0)
       if (value > 0) {
         minutes = value
@@ -135,7 +166,7 @@ function cooldown() {
   return cooldownMs
 }
 
-function markerOff() {
+function markerOff(): boolean {
   try {
     if (!MARKER_FILE || !fsMod) {
       return false
@@ -146,19 +177,29 @@ function markerOff() {
   }
 }
 
-function readSent() {
+function readSent(): SentState {
   try {
     if (!fsMod) {
       return {}
     }
-    const parsed = JSON.parse(fsMod.readFileSync(STATE_FILE, "utf8"))
-    return isRecord(parsed) ? parsed : {}
+    const parsed: unknown = JSON.parse(fsMod.readFileSync(STATE_FILE, "utf8"))
+    if (!isRecord(parsed)) {
+      return {}
+    }
+    const state: SentState = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      const timestamp = Number(value)
+      if (Number.isFinite(timestamp)) {
+        state[key] = timestamp
+      }
+    }
+    return state
   } catch {
     return {}
   }
 }
 
-function writeSent(map) {
+function writeSent(map: SentState): void {
   try {
     if (fsMod) {
       fsMod.writeFileSync(STATE_FILE, JSON.stringify(map))
@@ -168,11 +209,19 @@ function writeSent(map) {
   }
 }
 
-function isRecord(value) {
+function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null
 }
 
-function spawnNotify(title, summary, sessionID) {
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function spawnNotify(
+  title: string,
+  summary: string,
+  sessionID: string,
+): Promise<void> {
   const target = resolveTarget()
   const args = [
     "notify",
@@ -211,7 +260,7 @@ function spawnNotify(title, summary, sessionID) {
           (error, stdout, stderr) => {
             clearTimeout(timer)
             dbg(
-              `exit sid=${sessionID} err=${(error && String(error.message || error)) || "none"} stderr=${String(stderr || "").slice(0, 200)} out=${String(stdout || "").slice(0, 200)}`,
+              `exit sid=${sessionID} err=${error ? errorMessage(error) : "none"} stderr=${String(stderr || "").slice(0, 200)} out=${String(stdout || "").slice(0, 200)}`,
             )
             done()
           },
@@ -224,9 +273,7 @@ function spawnNotify(title, summary, sessionID) {
         }
         child.on("error", (error) => {
           clearTimeout(timer)
-          dbg(
-            `error sid=${sessionID} ${String((error && error.message) || error)}`,
-          )
+          dbg(`error sid=${sessionID} ${errorMessage(error)}`)
           done()
         })
       })
@@ -235,9 +282,16 @@ function spawnNotify(title, summary, sessionID) {
 }
 
 /** 取会话最后一条 assistant 文本，截断到上限；拿不到返回空串。 */
-async function lastAssistantText(session, sessionID) {
+async function lastAssistantText(
+  session: SessionApi,
+  sessionID: string,
+): Promise<string> {
   const res = await session.context({ sessionID })
-  const data = Array.isArray(res) ? res : res && res.data
+  const data = Array.isArray(res)
+    ? res
+    : isRecord(res)
+      ? res.data
+      : undefined
   if (!Array.isArray(data)) {
     return ""
   }
@@ -246,11 +300,13 @@ async function lastAssistantText(session, sessionID) {
     if (!isRecord(item)) {
       continue
     }
-    const role = isRecord(item.info)
-      ? item.info.role
-      : typeof item.role === "string"
-        ? item.role
-        : item.type
+    const infoRole = isRecord(item.info) ? item.info.role : undefined
+    const role =
+      typeof infoRole === "string"
+        ? infoRole
+        : typeof item.role === "string"
+          ? item.role
+          : item.type
     if (role !== "assistant") {
       continue
     }
@@ -265,17 +321,18 @@ async function lastAssistantText(session, sessionID) {
       if (!Array.isArray(bucket)) {
         continue
       }
-      const text = bucket
-        .filter(
-          (part) =>
-            isRecord(part) &&
-            part.type === "text" &&
-            typeof part.text === "string" &&
-            part.text.trim().length > 0,
-        )
-        .map((part) => part.text)
-        .join("\n")
-        .trim()
+      const texts: string[] = []
+      for (const part of bucket) {
+        if (
+          isRecord(part) &&
+          part.type === "text" &&
+          typeof part.text === "string" &&
+          part.text.trim().length > 0
+        ) {
+          texts.push(part.text)
+        }
+      }
+      const text = texts.join("\n").trim()
       if (text.length > 0) {
         return text.slice(0, RAW_CHARS)
       }
@@ -284,19 +341,28 @@ async function lastAssistantText(session, sessionID) {
   return ""
 }
 
-async function sessionTitle(session, sessionID) {
+async function sessionTitle(
+  session: SessionApi,
+  sessionID: string,
+): Promise<string> {
   const res = await session.get({ sessionID })
-  const info = Array.isArray(res) ? undefined : res && res.data ? res.data : res
+  let info: unknown
+  if (!Array.isArray(res)) {
+    info = isRecord(res) && isRecord(res.data) ? res.data : res
+  }
   const title = isRecord(info) ? info.title : undefined
   return typeof title === "string" && title.trim().length > 0
     ? title.trim().slice(0, 80)
     : "opencode会话"
 }
 
-const lastSent = new Map()
-const pending = new Set()
+const lastSent = new Map<string, number>()
+const pending = new Set<string>()
 
-async function handleTaskComplete(ctx, sessionID) {
+async function handleTaskComplete(
+  ctx: PluginContext,
+  sessionID: string,
+): Promise<void> {
   await fsAsync()
   if (envValue("AGENT_NOTIFY_OFF") === "1") {
     dbg("skip: OFF=1")
@@ -345,18 +411,14 @@ async function handleTaskComplete(ctx, sessionID) {
   try {
     title = await sessionTitle(ctx.session, sessionID)
   } catch (error) {
-    dbg(
-      `title fail sid=${sessionID} err=${String((error && error.message) || error)}`,
-    )
+    dbg(`title fail sid=${sessionID} err=${errorMessage(error)}`)
   }
 
   let summary = ""
   try {
     summary = await lastAssistantText(ctx.session, sessionID)
   } catch (error) {
-    dbg(
-      `summary fail sid=${sessionID} err=${String((error && error.message) || error)}`,
-    )
+    dbg(`summary fail sid=${sessionID} err=${errorMessage(error)}`)
   }
 
   try {
@@ -369,12 +431,12 @@ async function handleTaskComplete(ctx, sessionID) {
 
 export default {
   id: "agent-notify",
-  setup: async (ctx) => {
+  setup: async (ctx: PluginContext) => {
     await fsAsync()
     try {
       if (envValue("AGENT_NOTIFY_DEBUG") === "1") {
         const fs = await import("node:fs")
-        debugLog = (msg) => {
+        debugLog = (msg: string) => {
           fs.appendFileSync(
             DEBUG_LOG_FILE,
             `${new Date().toISOString()} ${msg}\n`,

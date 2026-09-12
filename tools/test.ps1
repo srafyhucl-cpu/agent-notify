@@ -39,7 +39,9 @@ Push-Location $RepoRoot
 try {
   & $goExe test ./...
   if ($LASTEXITCODE -ne 0) { throw "Go 单测失败 exit=$LASTEXITCODE" }
-  Write-Output '[test] Go 单测通过'
+  & $goExe vet ./...
+  if ($LASTEXITCODE -ne 0) { throw "Go vet 失败 exit=$LASTEXITCODE" }
+  Write-Output '[test] Go 单测与 vet 通过'
 } finally {
   Pop-Location
 }
