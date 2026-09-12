@@ -404,3 +404,15 @@ func TestResizeForCurrentDPIAt96And144(t *testing.T) {
 		}
 	}
 }
+func TestWidgetWindowStaysOutOfTaskbar(t *testing.T) {
+	style := widgetExtendedStyle()
+	if style&WS_EX_TOOLWINDOW == 0 {
+		t.Fatal("widget window must use WS_EX_TOOLWINDOW so it does not add a taskbar button")
+	}
+	if style&WS_EX_APPWINDOW != 0 {
+		t.Fatal("widget window must not use WS_EX_APPWINDOW: the tray icon is the only shell entry")
+	}
+	if style&WS_EX_TOPMOST == 0 {
+		t.Fatal("widget window must stay topmost")
+	}
+}

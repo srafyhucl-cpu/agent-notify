@@ -577,7 +577,7 @@ func RunWidget() {
 	winX, winY := resolveWidgetPosition(rawPosition, int32(screenWidth), int32(screenHeight), winWidth, winHeight)
 
 	hwnd, _, createErr := pCreateWindowExW.Call(
-		WS_EX_APPWINDOW|WS_EX_TOPMOST,
+		widgetExtendedStyle(),
 		uintptr(unsafe.Pointer(classNameWidget)),
 		uintptr(unsafe.Pointer(windowTitleWidget)),
 		WS_POPUP|WS_MINIMIZEBOX|WS_SYSMENU|WS_VISIBLE,
@@ -696,4 +696,11 @@ func ForceForegroundWindow(hwnd uintptr) {
 		pSetForegroundWindow.Call(hwnd)
 	}
 	pSetWindowPos.Call(hwnd, uintptr(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE|SWP_SHOWWINDOW)
+}
+
+// widgetExtendedStyle keeps the floating widget out of the taskbar and out of
+// Alt+Tab while it stays topmost. The tray icon remains the way back in, so a
+// second taskbar button would only duplicate the entry the user already has.
+func widgetExtendedStyle() uintptr {
+	return WS_EX_TOOLWINDOW | WS_EX_TOPMOST
 }

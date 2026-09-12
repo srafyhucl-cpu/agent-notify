@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
   Build Agent-notify-v<version>.zip without a directory staging tree.
@@ -100,7 +100,15 @@ try {
   try {
     Add-ReleaseFile $archive $tempExe 'Agent-notify/bin/agent-notify.exe'
     Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\agent-notify.ts') 'Agent-notify/plugin/agent-notify.ts'
-    Add-ReleaseFile $archive (Join-Path $RepoRoot 'VERSION') 'Agent-notify/VERSION'
+    # VERSION is generated from the resolved --Version so packaged metadata can
+    # never drift from the executable that was just built.
+    $versionEntry = $archive.CreateEntry('Agent-notify/VERSION', [IO.Compression.CompressionLevel]::Optimal)
+    $versionWriter = New-Object IO.StreamWriter($versionEntry.Open(), (New-Object Text.UTF8Encoding($false)))
+    try {
+      $versionWriter.Write($Version)
+    } finally {
+      $versionWriter.Dispose()
+    }
     foreach ($name in @('install.ps1', 'uninstall.ps1', 'README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'LICENSE', '.env.example')) {
       Add-ReleaseFile $archive (Join-Path $RepoRoot $name) "Agent-notify/$name"
     }

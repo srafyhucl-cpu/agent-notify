@@ -1,7 +1,7 @@
 # Agent-notify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.0.1-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
@@ -21,12 +21,13 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 - 原生 Windows 悬浮窗：OpenCode / Codex 开关、运行状态、勿扰设置、推送历史、测试推送和托盘。
 - 设置窗内置 ClawBot 扫码登录、重新登录和退出登录，不再切换到独立控制台。
 - 悬浮窗、设置、登录和历史窗口均按 DPI 缩放并使用双缓冲绘制，支持多显示器 DPI 变化。
+- 悬浮窗是托盘型工具窗，不占用任务栏按钮，也不进入 Alt+Tab；隐藏后从托盘图标恢复。
 - JSON Lines 推送历史，区分成功、失败、未登录、会话未建立与跳过状态。
 - 退出码与输出面向脚本友好；hook 调用失败不会阻塞 agent。
 
 ## 安装
 
-从 Release 下载 `Agent-notify-v1.0.0.zip`，解压后运行：
+从 Release 下载 `Agent-notify-v1.0.1.zip`，解压后运行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
