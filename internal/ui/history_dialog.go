@@ -132,11 +132,11 @@ func ShowHistoryDialog(parentHwnd uintptr) {
 				fillRectLogical(hdc, RECT{0, 0, historyWidth, historyHeight}, uintptr(RGB(15, 19, 23)))
 				pSetBkMode.Call(hdc, TRANSPARENT)
 
-				titleFont := newFont(20, 700)
-				baseFont := newFont(14, 400)
-				strongFont := newFont(14, 700)
-				smallFont := newFont(12, 400)
-				iconFont := newIconFont(16)
+				titleFont := newTitleFont()
+				baseFont := newBaseFont()
+				strongFont := newStrongFont()
+				smallFont := newSmallFont()
+				iconFont := newUIIconFont()
 				oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
 				defer func() {
 					pSelectObject.Call(hdc, oldFont)

@@ -94,7 +94,37 @@ func widgetLayoutRects() widgetLayout {
 	}
 }
 
+// widgetTextLayout 集中定义悬浮窗内的文本区域，绘制与布局测试共用，避免文案改宽后溢出。
+type widgetTextLayout struct {
+	title            RECT
+	subtitle         RECT
+	connectionTitle  RECT
+	connectionDetail RECT
+	quiet            RECT
+	recentLabel      RECT
+	recentMeta       RECT
+	recentTitle      RECT
+	footerVersion    RECT
+	footerHint       RECT
+}
+
+func widgetTextRects() widgetTextLayout {
+	return widgetTextLayout{
+		title:            RECT{14, 7, 230, 36},
+		subtitle:         RECT{15, 31, 250, 50},
+		connectionTitle:  RECT{46, 62, 286, 84},
+		connectionDetail: RECT{46, 84, 300, 103},
+		quiet:            RECT{286, 74, 372, 94},
+		recentLabel:      RECT{28, 232, 110, 250},
+		recentMeta:       RECT{120, 231, 370, 250},
+		recentTitle:      RECT{28, 252, 370, 276},
+		footerVersion:    RECT{14, 342, 100, 358},
+		footerHint:       RECT{180, 342, 386, 358},
+	}
+}
+
 func pointInRect(x, y int32, rect RECT) bool {
+
 	return x >= rect.Left && x < rect.Right && y >= rect.Top && y < rect.Bottom
 }
 

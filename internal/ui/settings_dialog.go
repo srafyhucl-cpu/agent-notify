@@ -125,7 +125,7 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 		case WM_CREATE:
 			setUIDPI(windowDPI(hwnd))
 			backgroundBrush, _, _ = pCreateSolidBrush.Call(uintptr(RGB(15, 19, 23)))
-			editFont = newFont(14, 400)
+			editFont = newBaseFont()
 
 			quietEdit, _, _ = pCreateWindowExW.Call(
 				0,
@@ -151,6 +151,8 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			)
 			pSendMessageW.Call(quietEdit, WM_SETFONT, editFont, 1)
 			pSendMessageW.Call(cooldownEdit, WM_SETFONT, editFont, 1)
+			// 字段为空时显示占位提示，用户能直接看出该填什么格式。
+			pSendMessageW.Call(quietEdit, EM_SETCUEBANNER, 0, uintptr(unsafe.Pointer(StringToUTF16Ptr("例如 23:00-08:00"))))
 			setWindowText(quietEdit, cfg.QuietHours)
 			setWindowText(cooldownEdit, fmt.Sprintf("%d", cfg.CooldownMin))
 			pSetTimer.Call(hwnd, settingsTimer, 1000, 0)
@@ -162,7 +164,7 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			if editFont != 0 {
 				pDeleteObject.Call(editFont)
 			}
-			editFont = newFont(14, 400)
+			editFont = newBaseFont()
 			pSendMessageW.Call(quietEdit, WM_SETFONT, editFont, 1)
 			pSendMessageW.Call(cooldownEdit, WM_SETFONT, editFont, 1)
 			placeEdit(quietEdit, layout.quiet)
@@ -184,11 +186,11 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 				fillRectLogical(hdc, RECT{0, 0, settingsWidth, settingsHeight}, uintptr(RGB(15, 19, 23)))
 				pSetBkMode.Call(hdc, TRANSPARENT)
 
-				titleFont := newFont(20, 700)
-				baseFont := newFont(14, 400)
-				strongFont := newFont(14, 700)
-				smallFont := newFont(12, 400)
-				iconFont := newIconFont(16)
+				titleFont := newTitleFont()
+				baseFont := newBaseFont()
+				strongFont := newStrongFont()
+				smallFont := newSmallFont()
+				iconFont := newUIIconFont()
 				oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
 				defer func() {
 					pSelectObject.Call(hdc, oldFont)

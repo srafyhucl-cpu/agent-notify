@@ -157,6 +157,79 @@ func assertRectInside(t *testing.T, control namedRect, width, height int32) {
 	}
 }
 
+func TestWidgetTextFitsItsRects(t *testing.T) {
+	text := widgetTextRects()
+	checks := []struct {
+		name string
+		font func() uintptr
+		text string
+		rect RECT
+	}{
+		{"标题", newTitleFont, "Agent-notify", text.title},
+		{"副标题", newSmallFont, "OpenCode + Codex  ·  ClawBot 微信通知", text.subtitle},
+		{"连接标题", newStrongFont, "ClawBot 登录已失效", text.connectionTitle},
+		{"连接说明", newSmallFont, "请先给 ClawBot 发送一条微信消息", text.connectionDetail},
+		{"勿扰状态", newSmallFont, "勿扰 23:00-08:00", text.quiet},
+		{"最近推送标签", newSmallFont, "最近推送", text.recentLabel},
+		{"最近推送元信息", newSmallFont, "OpenCode · 失败 · 12 分钟前", text.recentMeta},
+		{"最近推送标题", newStrongFont, "【codex】请你先了解这个项目。", text.recentTitle},
+		{"页脚提示", newSmallFont, "右键托盘图标可退出", text.footerHint},
+	}
+
+	for _, dpi := range []uint32{96, 144, 192} {
+		t.Run(fmt.Sprintf("%ddpi", dpi), func(t *testing.T) {
+			withUIDPI(t, dpi)
+			for _, check := range checks {
+				font := check.font()
+				measured := measureTextWidth(font, check.text)
+				pDeleteObject.Call(font)
+				if measured <= 0 {
+					t.Fatalf("%s：无法测量文本宽度", check.name)
+				}
+				limit := scaleFloat(check.rect.Right - check.rect.Left)
+				if measured > limit {
+					t.Fatalf("%s 在 %d DPI 溢出：文本 %q 需要 %d 像素，可用 %d", check.name, dpi, check.text, measured, limit)
+				}
+			}
+		})
+	}
+}
+
+func TestDialogTextFitsItsRects(t *testing.T) {
+	checks := []struct {
+		name  string
+		font  func() uintptr
+		text  string
+		width int32
+	}{
+		{"设置通道说明", newSmallFont, "主动推送会话已就绪 · o9cq...chat", 312 - 52},
+		{"设置勿扰提示", newSmallFont, "留空表示关闭，格式 23-8", 496 - 374},
+		{"设置冷却提示", newSmallFont, "同一会话去重，默认 10", 496 - 374},
+		{"设置冷却标签", newBaseFont, "会话冷却（分钟）", 176 - 32},
+		{"登录副标题", newSmallFont, "扫码登录后，还需发送一条微信消息建立会话", 300 - 20},
+		{"历史范围", newSmallFont, "第 1-9 条 / 共 100 条", 568 - 340},
+		{"历史详情", newStrongFont, "09-11 10:00 · OpenCode · 失败", 590 - 30},
+	}
+
+	for _, dpi := range []uint32{96, 144, 192} {
+		t.Run(fmt.Sprintf("%ddpi", dpi), func(t *testing.T) {
+			withUIDPI(t, dpi)
+			for _, check := range checks {
+				font := check.font()
+				measured := measureTextWidth(font, check.text)
+				pDeleteObject.Call(font)
+				if measured <= 0 {
+					t.Fatalf("%s：无法测量文本宽度", check.name)
+				}
+				limit := scaleFloat(check.width)
+				if measured > limit {
+					t.Fatalf("%s 在 %d DPI 溢出：文本 %q 需要 %d 像素，可用 %d", check.name, dpi, check.text, measured, limit)
+				}
+			}
+		})
+	}
+}
+
 func TestHistoryRowAt(t *testing.T) {
 	layout := historyLayoutRects()
 

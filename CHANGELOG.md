@@ -4,6 +4,18 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是
 `internal/app/version.go` 的 `Version`。
 
+## [Unreleased]
+
+### Changed
+
+- 悬浮窗、设置、历史、登录窗口字号整体放大，并集中到 `internal/ui/ui_fonts.go` 统一按 DPI 缩放。
+- 设置窗口的勿扰时段输入框新增格式占位提示。
+
+### Fixed
+
+- “最近推送”卡片的时间与标题不再被截断，标题区域扩展到整卡宽度。
+- 新增文本宽度回归测试，覆盖 96/144/192 DPI 下关键文案不溢出。
+
 ## [1.0.0] - 2026-09-12
 
 ### Added

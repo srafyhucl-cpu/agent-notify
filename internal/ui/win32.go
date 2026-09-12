@@ -94,6 +94,7 @@ var (
 	pCreateFontW            = gdi32.NewProc("CreateFontW")
 	pGetDeviceCaps          = gdi32.NewProc("GetDeviceCaps")
 	pDrawTextW              = user32.NewProc("DrawTextW")
+	pGetTextExtentPoint32W  = gdi32.NewProc("GetTextExtentPoint32W")
 
 	pShell_NotifyIconW     = shell32.NewProc("Shell_NotifyIconW")
 	pDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
@@ -133,6 +134,7 @@ const (
 	WM_MOUSELEAVE    = 0x02A3
 	WM_NCLBUTTONDOWN = 0x00A1
 	WM_USER          = 0x0400
+	EM_SETCUEBANNER  = 0x1501
 	WM_COMMAND       = 0x0111
 	WM_USER_WAKEUP   = WM_USER + 200
 
@@ -253,6 +255,11 @@ type TRACKMOUSEEVENT struct {
 	DwFlags     uint32
 	HWndTrack   uintptr
 	DwHoverTime uint32
+}
+
+type SIZE struct {
+	CX int32
+	CY int32
 }
 
 type ICONINFO struct {

@@ -155,11 +155,11 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	healthColor, healthText := app.health()
 	fillRectLogical(hdc, RECT{0, 0, widgetWidth, 3}, uintptr(healthColor))
 
-	titleFont := newFont(20, 700)
-	baseFont := newFont(14, 400)
-	strongFont := newFont(14, 700)
-	smallFont := newFont(12, 400)
-	iconFont := newIconFont(16)
+	titleFont := newTitleFont()
+	baseFont := newBaseFont()
+	strongFont := newStrongFont()
+	smallFont := newSmallFont()
+	iconFont := newUIIconFont()
 	oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
 	defer func() {
 		pSelectObject.Call(hdc, oldFont)
@@ -171,12 +171,13 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	}()
 
 	layout := widgetLayoutRects()
+	text := widgetTextRects()
 	pSelectObject.Call(hdc, titleFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(242, 246, 247)))
-	DrawText(hdc, "Agent-notify", &RECT{14, 7, 230, 34}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, "Agent-notify", &text.title, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(131, 143, 154)))
-	DrawText(hdc, "OpenCode + Codex  ·  ClawBot 微信通知", &RECT{15, 30, 250, 47}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, "OpenCode + Codex  ·  ClawBot 微信通知", &text.subtitle, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 	drawPill(hdc, RECT{244, 10, 338, 34}, healthText, healthColor, smallFont)
 	drawWindowButton(hdc, layout.minimize, "\uE921", app.hoverMin, false, iconFont)
@@ -193,17 +194,17 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	drawEllipseLogical(hdc, 28, 75, 37, 84, uintptr(connectionColor), uintptr(connectionColor))
 	pSelectObject.Call(hdc, strongFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(232, 237, 240)))
-	DrawText(hdc, connectionTitle, &RECT{46, 62, 286, 84}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
+	DrawText(hdc, connectionTitle, &text.connectionTitle, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(135, 147, 158)))
-	DrawText(hdc, connectionDetail, &RECT{46, 84, 300, 103}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
+	DrawText(hdc, connectionDetail, &text.connectionDetail, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
 
 	quietText := "勿扰关闭"
 	if strings.TrimSpace(app.quietHours) != "" {
 		quietText = "勿扰 " + app.quietHours
 	}
 	pSetTextColor.Call(hdc, uintptr(RGB(255, 225, 163)))
-	DrawText(hdc, quietText, &RECT{300, 74, 372, 94}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, quietText, &text.quiet, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(119, 131, 142)))
@@ -220,10 +221,10 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	strokeRoundRect(hdc, layout.recent, 8, recentFill, border, 1)
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(126, 138, 149)))
-	DrawText(hdc, "最近推送", &RECT{28, 233, 110, 250}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, "最近推送", &text.recentLabel, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 	pSelectObject.Call(hdc, strongFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(230, 235, 238)))
-	DrawText(hdc, app.lastPushTitle, &RECT{28, 252, 286, 274}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
+	DrawText(hdc, app.lastPushTitle, &text.recentTitle, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(134, 146, 157)))
 	recentMeta := app.lastPushText
@@ -231,7 +232,7 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 		recentMeta = status + " · " + recentMeta
 	}
 	pSetTextColor.Call(hdc, uintptr(app.recentStatusColor()))
-	DrawText(hdc, recentMeta, &RECT{288, 250, 370, 275}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
+	DrawText(hdc, recentMeta, &text.recentMeta, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
 
 	drawIconTextButton(hdc, layout.test, "\uE724", "发送测试", app.hoverTest, true, false, baseFont, iconFont)
 	drawIconTextButton(hdc, layout.settings, "\uE713", "设置", app.hoverSettings, false, false, baseFont, iconFont)
@@ -240,8 +241,8 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(105, 117, 128)))
-	DrawText(hdc, "v"+app.Version(), &RECT{14, 344, 100, 358}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
-	DrawText(hdc, "右键托盘图标可退出", &RECT{220, 344, 386, 358}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, "v"+app.Version(), &text.footerVersion, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, "右键托盘图标可退出", &text.footerHint, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 }
 
 func (app *WidgetApp) recentStatusColor() uint32 {

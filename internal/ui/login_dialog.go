@@ -270,7 +270,7 @@ func ShowLoginDialog(parentHwnd uintptr) {
 		case WM_CREATE:
 			setUIDPI(windowDPI(hwnd))
 			state.setWindow(hwnd)
-			editFont := newFont(14, 400)
+			editFont := newBaseFont()
 			codeEdit, _, _ = pCreateWindowExW.Call(
 				0,
 				uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
@@ -378,10 +378,10 @@ func ShowLoginDialog(parentHwnd uintptr) {
 				fillRectLogical(hdc, RECT{0, 0, loginWidth, loginHeight}, uintptr(RGB(15, 19, 23)))
 				pSetBkMode.Call(hdc, TRANSPARENT)
 
-				titleFont := newFont(20, 700)
-				baseFont := newFont(14, 400)
-				smallFont := newFont(12, 400)
-				iconFont := newIconFont(15)
+				titleFont := newTitleFont()
+				baseFont := newBaseFont()
+				smallFont := newSmallFont()
+				iconFont := newUIIconFont()
 				oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
 				defer func() {
 					pSelectObject.Call(hdc, oldFont)
