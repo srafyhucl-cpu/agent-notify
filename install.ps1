@@ -178,14 +178,15 @@ try {
       $content = [IO.File]::ReadAllText($CodexConfig)
       $exeSlash = ($installedExe -replace '\\', '/')
       $want = "notify = [ `"$exeSlash`", `"codex`", `"turn-ended`" ]"
-      if ($content -match 'agent-notify') {
+      $notifyLine = [regex]::Match($content, '(?m)^notify\s*=.*$').Value
+      if ($notifyLine -match 'agent-notify') {
         Write-Output '[install] Codex notify 已指向 Agent-notify，无需改动。'
-      } elseif ($content -match '(?m)^notify\s*=.*codex-computer-use\.exe') {
+      } elseif ($notifyLine -match 'codex-computer-use\.exe') {
         Copy-Item $CodexConfig "$CodexConfig.bak-notify-wrapper" -Force
         $updated = [regex]::Replace($content, '(?m)^notify\s*=.*$', $want)
         [IO.File]::WriteAllText($CodexConfig, $updated)
         Write-Output "[install] Codex notify 已接管（原文件备份到 $CodexConfig.bak-notify-wrapper）。"
-      } elseif ($content -notmatch '(?m)^notify\s*=') {
+      } elseif ($notifyLine -eq '') {
         Copy-Item $CodexConfig "$CodexConfig.bak-notify-wrapper" -Force
         $updated = $content.TrimEnd() + "`r`n" + $want + "`r`n"
         [IO.File]::WriteAllText($CodexConfig, $updated)

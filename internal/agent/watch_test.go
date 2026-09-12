@@ -55,3 +55,33 @@ func TestHandleWatch(t *testing.T) {
 		t.Fatalf("custom notify was modified: %s", customAfter)
 	}
 }
+
+func TestHandleWatchIgnoresAgentNotifyOutsideNotifyLine(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", filepath.Join(tempDir, "config"))
+	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(tempDir, "temp"))
+
+	configPath := filepath.Join(tempDir, "config.toml")
+	original := `[projects.'d:\project\agent-notify']
+trust_level = "trusted"
+notify = [ "C:/some/path/codex-computer-use.exe", "turn-ended", "--previous-notify", "[\"D:/app/linkWeixin/linkweixin.exe\",\"codex\",\"turn-ended\"]" ]
+`
+	if err := os.WriteFile(configPath, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := HandleWatch(configPath, `D:\app\Agent-notify\agent-notify.exe`); err != nil {
+		t.Fatalf("HandleWatch: %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := `notify = [ "D:/app/Agent-notify/agent-notify.exe", "codex", "turn-ended" ]`
+	if !strings.Contains(string(data), expected) {
+		t.Fatalf("patched config:\n%s\nwant line:\n%s", data, expected)
+	}
+	if strings.Contains(string(data), "linkWeixin") {
+		t.Fatalf("old notify chain survived:\n%s", data)
+	}
+}
