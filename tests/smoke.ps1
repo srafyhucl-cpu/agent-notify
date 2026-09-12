@@ -101,6 +101,12 @@ try {
   Assert-True ($statusJson.codexEnabled -eq $true) 'status 初始 Codex 开关应为开启'
   Write-Output '[ok] status json'
 
+  # 4b. history JSON：空历史也要输出合法 JSON，脚本才不用区分文本提示
+  $historyRaw = "$(& $exePath history --limit 5 --json 2>&1)".Trim()
+  Assert-True ($LASTEXITCODE -eq 0) "history --json exit=$LASTEXITCODE"
+  Assert-True ($historyRaw -eq '[]') "history --json 空历史应为 []：$historyRaw"
+  Write-Output '[ok] history json'
+
   # 5. toggle 开关 marker
   & $exePath toggle --agent all --off 2>&1 | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "toggle off exit=$LASTEXITCODE"

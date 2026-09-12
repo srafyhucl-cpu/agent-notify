@@ -11,6 +11,7 @@
 - `tools\test.ps1` 增加 `go vet ./...` 门禁，OpenCode 插件类型检查提升到 TypeScript `strict`。
 - 源码安装会注入 `Version`、`Commit`、`BuildTime`，`status` 与 `doctor` 能显示真实构建信息。
 - OpenCode 插件副本记录真实安装路径，自定义 `-InstallDir` 不再依赖 `%USERPROFILE%\bin`。
+- `history --json` 输出机器可读的推送历史，便于脚本和自动化消费。
 
 ### Changed
 

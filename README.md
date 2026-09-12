@@ -100,7 +100,7 @@ agent-notify test        发送测试通知
 agent-notify doctor      检查配置、凭据、会话、网络与接入
 agent-notify toggle      开启或暂停 OpenCode / Codex 推送
 agent-notify watch       恢复被改回的 Codex notify 配置
-agent-notify history     查看最近推送记录
+agent-notify history     查看最近推送记录（`--json` 输出机器可读结果）
 agent-notify widget      启动桌面悬浮窗
 agent-notify version     查看版本与构建信息
 ```

@@ -116,7 +116,7 @@ func printHelp() {
 	fmt.Println("  doctor      检查配置、凭据、会话、网络和 Codex 接入")
 	fmt.Println("  toggle      开启或暂停 OpenCode / Codex 推送")
 	fmt.Println("  watch       检查并恢复 Codex notify 配置")
-	fmt.Println("  history     查看最近推送记录")
+	fmt.Println("  history     查看最近推送记录（--json 供脚本消费）")
 	fmt.Println("  widget      启动桌面悬浮窗（无参数时默认）")
 	fmt.Println("  version     打印版本、提交和构建时间")
 	fmt.Println()
@@ -124,6 +124,7 @@ func printHelp() {
 	fmt.Println("  agent-notify login")
 	fmt.Println("  agent-notify sync")
 	fmt.Println("  agent-notify test")
+	fmt.Println("  agent-notify history --limit 5 --json")
 	fmt.Println(`  agent-notify notify --title "构建完成" --summary "Release 已生成"`)
 	fmt.Println("  agent-notify toggle --agent all --off")
 }
@@ -610,6 +611,7 @@ func runWatch(args []string) int {
 func runHistory(args []string) int {
 	flags := flag.NewFlagSet("history", flag.ContinueOnError)
 	limit := flags.Int("limit", 20, "返回条数")
+	asJSON := flags.Bool("json", false, "以 JSON 输出，便于脚本消费")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -617,6 +619,18 @@ func runHistory(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
+	}
+	if *asJSON {
+		if records == nil {
+			records = []notify.HistoryItem{}
+		}
+		payload, err := json.MarshalIndent(records, "", "  ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println(string(payload))
+		return 0
 	}
 	if len(records) == 0 {
 		fmt.Println("暂无推送记录。")
