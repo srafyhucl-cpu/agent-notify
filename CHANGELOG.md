@@ -13,6 +13,8 @@
 - 新增 OpenCode 全局插件，监听任务完成事件并提取最新 assistant 摘要。
 - 新增 Codex notify 接入，保留 `codex-computer-use.exe` 原始参数和 stdin 透传。
 - 新增原生 Win32 悬浮窗、托盘、OpenCode / Codex 开关、勿扰设置、推送历史和测试推送。
+- 新增设置窗内 ClawBot 二维码登录、重新登录、退出登录与登录状态展示。
+- 新增 DPI 感知、双缓冲绘制和可滚动的历史详情面板，统一悬浮窗与弹窗视觉语言。
 - 新增 JSON Lines 推送历史，记录成功、失败、未登录和跳过状态。
 - 新增 `doctor`、`watch`、`status --json`、`toggle` 等运维命令。
 - 新增 Go 单测、OpenCode 插件类型检查、PowerShell 静态检查和隔离安装 smoke。
@@ -27,6 +29,8 @@
 - marker 统一为 `opencode.off` 和 `codex.off`。
 - Codex 配置看护改由悬浮窗定时执行，只在 notify 行仍直指上游程序时恢复。
 - 发布包名改为 `Agent-notify-v<版本>.zip`。
+- 悬浮窗关闭与最小化只隐藏到托盘，完全退出改由托盘菜单执行。
+- ClawBot 成为唯一微信推送通道；设置、登录、历史窗口不再调用旧运行时或外部脚本。
 
 ### Fixed
 

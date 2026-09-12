@@ -35,6 +35,9 @@ var (
 	pShowWindow             = user32.NewProc("ShowWindow")
 	pUpdateWindow           = user32.NewProc("UpdateWindow")
 	pSetForegroundWindow    = user32.NewProc("SetForegroundWindow")
+	pEnableWindow           = user32.NewProc("EnableWindow")
+	pIsChild                = user32.NewProc("IsChild")
+	pUnregisterClassW       = user32.NewProc("UnregisterClassW")
 	pGetMessageW            = user32.NewProc("GetMessageW")
 	pTranslateMessage       = user32.NewProc("TranslateMessage")
 	pDispatchMessageW       = user32.NewProc("DispatchMessageW")
@@ -67,6 +70,8 @@ var (
 	pRegisterWindowMessageW = user32.NewProc("RegisterWindowMessageW")
 	pSetWindowTextW         = user32.NewProc("SetWindowTextW")
 	pGetSystemMetrics       = user32.NewProc("GetSystemMetrics")
+	pGetDpiForSystem        = user32.NewProc("GetDpiForSystem")
+	pGetDpiForWindow        = user32.NewProc("GetDpiForWindow")
 	pCreateIconIndirect     = user32.NewProc("CreateIconIndirect")
 	pDestroyIcon            = user32.NewProc("DestroyIcon")
 
@@ -79,11 +84,15 @@ var (
 	pCreateSolidBrush       = gdi32.NewProc("CreateSolidBrush")
 	pCreatePen              = gdi32.NewProc("CreatePen")
 	pFillRect               = user32.NewProc("FillRect")
+	pGetDC                  = user32.NewProc("GetDC")
+	pReleaseDC              = user32.NewProc("ReleaseDC")
 	pRoundRect              = gdi32.NewProc("RoundRect")
 	pEllipse                = gdi32.NewProc("Ellipse")
 	pSetBkMode              = gdi32.NewProc("SetBkMode")
 	pSetTextColor           = gdi32.NewProc("SetTextColor")
+	pSetBkColor             = gdi32.NewProc("SetBkColor")
 	pCreateFontW            = gdi32.NewProc("CreateFontW")
+	pGetDeviceCaps          = gdi32.NewProc("GetDeviceCaps")
 	pDrawTextW              = user32.NewProc("DrawTextW")
 
 	pShell_NotifyIconW     = shell32.NewProc("Shell_NotifyIconW")
@@ -111,12 +120,16 @@ const (
 	WM_DESTROY       = 0x0002
 	WM_PAINT         = 0x000F
 	WM_CLOSE         = 0x0010
+	WM_ERASEBKGND    = 0x0014
+	WM_DPICHANGED    = 0x02E0
+	WM_KEYDOWN       = 0x0100
 	WM_TIMER         = 0x0113
 	WM_MOUSEMOVE     = 0x0200
 	WM_LBUTTONDOWN   = 0x0201
 	WM_LBUTTONUP     = 0x0202
 	WM_LBUTTONDBLCLK = 0x0203
 	WM_RBUTTONUP     = 0x0205
+	WM_MOUSEWHEEL    = 0x020A
 	WM_MOUSELEAVE    = 0x02A3
 	WM_NCLBUTTONDOWN = 0x00A1
 	WM_USER          = 0x0400
@@ -134,6 +147,7 @@ const (
 	SWP_NOSIZE     = 0x0001
 	SWP_NOMOVE     = 0x0002
 	SWP_NOZORDER   = 0x0004
+	SWP_NOACTIVATE = 0x0010
 	SWP_SHOWWINDOW = 0x0040
 	HWND_TOPMOST   = ^uintptr(0) // -1
 
@@ -141,12 +155,13 @@ const (
 	MF_SEPARATOR    = 0x00000800
 	TPM_RIGHTBUTTON = 0x0002
 
-	DT_CENTER     = 0x00000001
-	DT_RIGHT      = 0x00000002
-	DT_VCENTER    = 0x00000004
-	DT_SINGLELINE = 0x00000020
-	DT_WORDBREAK  = 0x00000010
-	DT_NOPREFIX   = 0x00000800
+	DT_CENTER       = 0x00000001
+	DT_RIGHT        = 0x00000002
+	DT_VCENTER      = 0x00000004
+	DT_SINGLELINE   = 0x00000020
+	DT_WORDBREAK    = 0x00000010
+	DT_NOPREFIX     = 0x00000800
+	DT_END_ELLIPSIS = 0x00008000
 
 	TRANSPARENT = 1
 
@@ -273,11 +288,12 @@ func StringToUTF16Ptr(s string) *uint16 {
 
 // DrawText wraps DrawTextW with automatic length and conversion.
 func DrawText(hdc uintptr, text string, rc *RECT, flags uint32) {
+	scaled := scaleRect(*rc)
 	pDrawTextW.Call(
 		hdc,
 		uintptr(unsafe.Pointer(StringToUTF16Ptr(text))),
 		^uintptr(0), // -1 in uintptr
-		uintptr(unsafe.Pointer(rc)),
+		uintptr(unsafe.Pointer(&scaled)),
 		uintptr(flags),
 	)
 }

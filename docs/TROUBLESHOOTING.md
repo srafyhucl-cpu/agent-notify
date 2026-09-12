@@ -39,6 +39,8 @@ Start-Process $exe -ArgumentList "doctor" -Wait
    Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "login" -Wait
    ```
 
+   优先双击悬浮窗，在“设置”里点击“扫码登录”；也可以继续使用上面的 CLI 登录命令。
+
 3. 发送测试：
 
    ```powershell
@@ -46,6 +48,21 @@ Start-Process $exe -ArgumentList "doctor" -Wait
    ```
 
 4. 查看 `%TEMP%\agent-notify\push.log`。若状态是 `未登录`，检查 `%USERPROFILE%\.config\agent-notify\clawbot.json` 是否存在且完整；若状态是 `失败`，根据 `error` 判断网络、TLS、超时或 ClawBot 返回。
+
+## 二维码登录失败
+
+1. 确认窗口中已显示二维码，而不是“获取二维码失败”或“登录失败”。
+2. 二维码过期时点击“重新获取”；重新获取会取消上一轮轮询，不会叠加登录请求。
+3. 获取二维码或轮询失败时检查网络、代理和 `https://ilinkai.weixin.qq.com` 是否可访问。
+4. 确认凭据文件可写：`%USERPROFILE%\.config\agent-notify\clawbot.json`。该文件只保存本机登录凭据，不写入日志或界面。
+5. 登录成功后关闭窗口，悬浮窗会在下一轮状态刷新后显示“ClawBot 已连接”。
+
+## 界面模糊、过小或点击位置偏移
+
+- Agent-notify 使用 Per-Monitor V2 DPI 感知，窗口大小、字体和命中区域会按显示器 DPI 一起缩放。
+- 本版本支持 72 到 384 DPI；如果修改 Windows 缩放后界面仍不对，请从托盘菜单退出并重新启动悬浮窗。
+- 多显示器在不同缩放比例之间移动窗口时，窗口会自动重新布局，不会裁切固定区域。
+- 如果截图或远程桌面里文字模糊，先确认客户端没有把远程会话再次缩放；本机原分辨率下不应出现半像素缩放。
 
 ## OpenCode 任务结束不推送
 
