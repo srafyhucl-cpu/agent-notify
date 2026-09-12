@@ -179,7 +179,7 @@ func main() {
 		if runHistory(args) != 0 {
 			os.Exit(1)
 		}
-	case "widget", "gui":
+	case "widget":
 		ui.RunWidget()
 	case "version", "-v", "--version":
 		ensureConsole()

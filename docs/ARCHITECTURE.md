@@ -40,7 +40,7 @@ Codex
 | `internal/notify` | 消息渲染、发送、JSONL 历史 | 摘要在最多 800 字符内截断；成功和失败都落历史 |
 | `internal/config` | 配置默认值、校验、原子保存、路径解析 | 所有路径可由 `AGENT_NOTIFY_*` 隔离 |
 | `internal/marker` | `opencode.off` / `codex.off` 开关 | 文件存在即暂停；不读取旧 marker |
-| `internal/ui` | 原生 Win32 悬浮窗、设置、历史、托盘 | 单实例、两分钟 Codex 看护、`windowsgui` 发布模式 |
+| `internal/ui` | 原生 Win32 悬浮窗、设置、登录、历史、托盘 | 单实例、DPI 感知、双缓冲、设置窗内扫码、两分钟 Codex 看护、`windowsgui` 发布模式 |
 | `plugin/agent-notify.ts` | OpenCode V2 插件 | 只调用 `agent-notify.exe notify`；失败全部吞掉 |
 | `install.ps1` / `uninstall.ps1` | 文件分发、安装记录、快捷方式、Codex 接管 | 不安装业务运行时；卸载按安装记录清理 |
 
@@ -137,6 +137,14 @@ Agent-notify/
 - `attachConsole` 只有在标准 stdout 不可用时才绑定 `CONOUT$`；重定向输出不会被覆盖。
 - 悬浮窗由同一 exe 的 `widget` 子命令启动，托盘和窗口消息都由 Go/Win32 管理。
 - `notify` 不主动分配控制台；后台 hook 调用不会弹窗。
+
+## UI 线程与 DPI
+
+- 所有窗口都在锁定到操作系统线程的 UI 消息循环中创建和销毁。
+- 进程声明 Per-Monitor V2 DPI 感知；窗口按当前显示器 DPI 调整尺寸，命中测试把物理坐标还原为逻辑坐标。
+- 绘制统一使用逻辑坐标，由 `internal/ui/scale.go` 缩放；`WM_PAINT` 先画到内存 DC，再一次性拷贝到窗口 DC。
+- 设置窗通过 `ShowLoginDialog` 打开二维码登录；扫码轮询在后台 goroutine 中运行，窗口通过定时器读取线程安全状态。
+- 设置与历史以模态弹窗运行，关闭时恢复父窗口的启用状态和 DPI 状态。
 
 ## 配置与去重
 

@@ -4,8 +4,6 @@ package ui
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -17,27 +15,22 @@ import (
 )
 
 const (
-	BS_AUTOCHECKBOX = 0x00000003
 	ES_AUTOHSCROLL  = 0x0080
 	ES_NUMBER       = 0x2000
-	WS_BORDER       = 0x00800000
+	WM_SETFONT      = 0x0030
+	WM_SETTEXT      = 0x000C
+	WM_GETTEXT      = 0x000D
+	WM_CTLCOLOREDIT = 0x0133
 
-	BM_GETCHECK = 0x00F0
-	BM_SETCHECK = 0x00F1
-	BST_CHECKED = 1
-
-	WM_SETFONT        = 0x0030
-	WM_SETTEXT        = 0x000C
-	WM_GETTEXT        = 0x000D
-	WM_CTLCOLOREDIT   = 0x0133
-	WM_CTLCOLORSTATIC = 0x0138
+	VK_ESCAPE = 0x001B
 
 	IDC_SETTINGS_QUIET    = 4001
 	IDC_SETTINGS_COOLDOWN = 4002
-	IDC_SETTINGS_SAVE     = 4003
-	IDC_SETTINGS_CANCEL   = 4004
-	IDC_SETTINGS_LOGIN    = 4005
-	IDC_SETTINGS_LOGOUT   = 4006
+)
+
+const (
+	settingsWidth  = int32(520)
+	settingsHeight = int32(390)
 )
 
 func getWindowText(hwnd uintptr) string {
@@ -50,138 +43,250 @@ func setWindowText(hwnd uintptr, text string) {
 	pSendMessageW.Call(hwnd, WM_SETTEXT, 0, uintptr(unsafe.Pointer(StringToUTF16Ptr(text))))
 }
 
-// LaunchClawBotLogin opens the QR login flow in a dedicated console window.
-func LaunchClawBotLogin() error {
-	executable, err := os.Executable()
-	if err != nil {
-		return err
+type settingsLayout struct {
+	close    RECT
+	login    RECT
+	logout   RECT
+	quiet    RECT
+	cooldown RECT
+	cancel   RECT
+	save     RECT
+}
+
+func settingsLayoutRects() settingsLayout {
+	return settingsLayout{
+		close:    RECT{482, 8, 512, 38},
+		login:    RECT{326, 94, 496, 130},
+		logout:   RECT{326, 138, 496, 174},
+		quiet:    RECT{184, 230, 366, 262},
+		cooldown: RECT{184, 282, 366, 314},
+		cancel:   RECT{310, 340, 398, 374},
+		save:     RECT{410, 340, 498, 374},
 	}
-	command := exec.Command(executable, "login")
-	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000010}
-	return command.Start()
+}
+
+func placeEdit(ctrl uintptr, rect RECT) {
+	inner := scaleRect(RECT{Left: rect.Left + 10, Top: rect.Top + 6, Right: rect.Right - 10, Bottom: rect.Bottom - 6})
+	pSetWindowPos.Call(
+		ctrl,
+		0,
+		uintptr(inner.Left),
+		uintptr(inner.Top),
+		uintptr(inner.Right-inner.Left),
+		uintptr(inner.Bottom-inner.Top),
+		SWP_NOZORDER|SWP_NOACTIVATE,
+	)
 }
 
 func ShowSettingsDialog(parentHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	parentDPI := windowDPI(parentHwnd)
+	setUIDPI(parentDPI)
+	defer setUIDPI(parentDPI)
+
 	hInstance, _, _ := pGetModuleHandleW.Call(0)
 	className := StringToUTF16Ptr("AgentNotifySettingsDialog")
 	cfg, _ := config.LoadConfig("")
 
 	var dialog uintptr
-	var quietEdit, cooldownEdit, backgroundBrush uintptr
+	var quietEdit, cooldownEdit, editFont, backgroundBrush uintptr
+	var tracking bool
+	var hoverClose, hoverLogin, hoverLogout, hoverCancel, hoverSave bool
+
+	layout := settingsLayoutRects()
 
 	wndProc := syscall.NewCallback(func(hwnd, msg, wParam, lParam uintptr) uintptr {
 		switch uint32(msg) {
 		case WM_CREATE:
-			font := newFont(13, 400)
-			backgroundBrush, _, _ = pCreateSolidBrush.Call(uintptr(RGB(22, 26, 31)))
+			setUIDPI(windowDPI(hwnd))
+			backgroundBrush, _, _ = pCreateSolidBrush.Call(uintptr(RGB(15, 19, 23)))
+			editFont = newFont(12, 400)
 
 			quietEdit, _, _ = pCreateWindowExW.Call(
 				0,
 				uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
 				0,
-				WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL,
-				170, 168, 120, 28,
+				WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,
+				uintptr(scaleFloat(layout.quiet.Left+10)),
+				uintptr(scaleFloat(layout.quiet.Top+6)),
+				uintptr(scaleFloat(layout.quiet.Right-layout.quiet.Left-20)),
+				uintptr(scaleFloat(layout.quiet.Bottom-layout.quiet.Top-12)),
 				hwnd, IDC_SETTINGS_QUIET, hInstance, 0,
 			)
 			cooldownEdit, _, _ = pCreateWindowExW.Call(
 				0,
 				uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
 				0,
-				WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL|ES_NUMBER,
-				170, 208, 120, 28,
+				WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL|ES_NUMBER,
+				uintptr(scaleFloat(layout.cooldown.Left+10)),
+				uintptr(scaleFloat(layout.cooldown.Top+6)),
+				uintptr(scaleFloat(layout.cooldown.Right-layout.cooldown.Left-20)),
+				uintptr(scaleFloat(layout.cooldown.Bottom-layout.cooldown.Top-12)),
 				hwnd, IDC_SETTINGS_COOLDOWN, hInstance, 0,
 			)
-			pSendMessageW.Call(quietEdit, WM_SETFONT, font, 1)
-			pSendMessageW.Call(cooldownEdit, WM_SETFONT, font, 1)
+			pSendMessageW.Call(quietEdit, WM_SETFONT, editFont, 1)
+			pSendMessageW.Call(cooldownEdit, WM_SETFONT, editFont, 1)
 			setWindowText(quietEdit, cfg.QuietHours)
 			setWindowText(cooldownEdit, fmt.Sprintf("%d", cfg.CooldownMin))
-
-			createButton := func(text string, id uintptr, x, y, width, height uintptr) uintptr {
-				control, _, _ := pCreateWindowExW.Call(
-					0,
-					uintptr(unsafe.Pointer(StringToUTF16Ptr("BUTTON"))),
-					uintptr(unsafe.Pointer(StringToUTF16Ptr(text))),
-					WS_CHILD|WS_VISIBLE,
-					x, y, width, height,
-					hwnd, id, hInstance, 0,
-				)
-				pSendMessageW.Call(control, WM_SETFONT, font, 1)
-				return control
-			}
-			createButton("扫码登录 / 重新登录", IDC_SETTINGS_LOGIN, 250, 62, 170, 32)
-			createButton("退出 ClawBot 登录", IDC_SETTINGS_LOGOUT, 250, 102, 170, 32)
-			createButton("保存", IDC_SETTINGS_SAVE, 250, 270, 80, 34)
-			createButton("取消", IDC_SETTINGS_CANCEL, 340, 270, 80, 34)
 			return 0
+
+		case WM_DPICHANGED:
+			setUIDPI(uint32(wParam & 0xFFFF))
+			resizeForCurrentDPI(hwnd, settingsWidth, settingsHeight)
+			if editFont != 0 {
+				pDeleteObject.Call(editFont)
+			}
+			editFont = newFont(12, 400)
+			pSendMessageW.Call(quietEdit, WM_SETFONT, editFont, 1)
+			pSendMessageW.Call(cooldownEdit, WM_SETFONT, editFont, 1)
+			placeEdit(quietEdit, layout.quiet)
+			placeEdit(cooldownEdit, layout.cooldown)
+			pInvalidateRect.Call(hwnd, 0, 0)
+			return 0
+
+		case WM_ERASEBKGND:
+			return 1
 
 		case WM_PAINT:
-			var paint PAINTSTRUCT
-			hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&paint)))
-			var rect RECT
-			pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rect)))
-			background, _, _ := pCreateSolidBrush.Call(uintptr(RGB(22, 26, 31)))
-			pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rect)), background)
-			pDeleteObject.Call(background)
-			pSetBkMode.Call(hdc, TRANSPARENT)
+			paintDoubleBuffered(hwnd, func(hdc uintptr, width, height int32) {
+				fillRectLogical(hdc, RECT{0, 0, settingsWidth, settingsHeight}, uintptr(RGB(15, 19, 23)))
+				pSetBkMode.Call(hdc, TRANSPARENT)
 
-			titleFont := newFont(18, 700)
-			baseFont := newFont(13, 400)
-			smallFont := newFont(11, 400)
-			oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
+				titleFont := newFont(18, 700)
+				baseFont := newFont(12, 400)
+				strongFont := newFont(12, 700)
+				smallFont := newFont(10, 400)
+				iconFont := newIconFont(14)
+				oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
+				defer func() {
+					pSelectObject.Call(hdc, oldFont)
+					pDeleteObject.Call(titleFont)
+					pDeleteObject.Call(baseFont)
+					pDeleteObject.Call(strongFont)
+					pDeleteObject.Call(smallFont)
+					pDeleteObject.Call(iconFont)
+				}()
 
-			pSetTextColor.Call(hdc, uintptr(RGB(242, 245, 247)))
-			DrawText(hdc, "Agent-notify 设置", &RECT{20, 14, 300, 42}, DT_SINGLELINE|DT_VCENTER)
+				pSetTextColor.Call(hdc, uintptr(RGB(242, 246, 247)))
+				DrawText(hdc, "Agent-notify 设置", &RECT{20, 12, 320, 42}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				pSelectObject.Call(hdc, smallFont)
+				pSetTextColor.Call(hdc, uintptr(RGB(133, 145, 156)))
+				DrawText(hdc, "微信通知与去重策略", &RECT{20, 40, 320, 62}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
-			pSelectObject.Call(hdc, baseFont)
-			pSetTextColor.Call(hdc, uintptr(RGB(232, 237, 240)))
-			DrawText(hdc, "ClawBot", &RECT{20, 62, 120, 88}, DT_SINGLELINE|DT_VCENTER)
+				drawCard(hdc, RECT{16, 74, 504, 190}, uintptr(RGB(22, 28, 34)), uintptr(RGB(41, 50, 59)))
+				pSelectObject.Call(hdc, smallFont)
+				pSetTextColor.Call(hdc, uintptr(RGB(126, 138, 149)))
+				DrawText(hdc, "微信推送通道", &RECT{32, 82, 280, 100}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
-			status := clawbot.GetStatus()
-			statusText := "未登录，点击右侧按钮扫码"
-			statusColor := uintptr(RGB(220, 92, 92))
-			if status.LoggedIn {
-				statusText = "已登录 · " + status.UserHint
-				statusColor = uintptr(RGB(54, 190, 144))
-			}
-			pSelectObject.Call(hdc, smallFont)
-			pSetTextColor.Call(hdc, statusColor)
-			DrawText(hdc, statusText, &RECT{20, 86, 230, 108}, DT_SINGLELINE|DT_VCENTER)
+				status := clawbot.GetStatus()
+				statusColor := uintptr(RGB(224, 104, 104))
+				statusTitle := "ClawBot 未连接"
+				statusDetail := "扫码登录后即可推送微信通知"
+				if status.LoggedIn {
+					statusColor = uintptr(RGB(55, 190, 147))
+					statusTitle = "ClawBot 已连接"
+					statusDetail = "已绑定 " + status.UserHint
+				}
+				drawEllipseLogical(hdc, 34, 113, 43, 122, statusColor, statusColor)
+				pSelectObject.Call(hdc, strongFont)
+				pSetTextColor.Call(hdc, uintptr(RGB(232, 237, 240)))
+				DrawText(hdc, statusTitle, &RECT{52, 106, 312, 128}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				pSelectObject.Call(hdc, smallFont)
+				pSetTextColor.Call(hdc, uintptr(RGB(137, 149, 160)))
+				DrawText(hdc, statusDetail, &RECT{52, 128, 312, 148}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
+				DrawText(hdc, "凭据仅保存在本机，不上传第三方。", &RECT{52, 152, 312, 172}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
-			pSetTextColor.Call(hdc, uintptr(RGB(151, 160, 170)))
-			DrawText(hdc, "凭据仅保存在本机，不会上传到第三方服务。", &RECT{20, 116, 220, 140}, DT_SINGLELINE|DT_VCENTER)
+				loginLabel := "扫码登录"
+				if status.LoggedIn {
+					loginLabel = "重新登录"
+				}
+				logoutLabel := "尚未登录"
+				logoutDanger := false
+				if status.LoggedIn {
+					logoutLabel = "退出登录"
+					logoutDanger = true
+				}
+				drawIconTextButton(hdc, layout.login, "\uE72C", loginLabel, hoverLogin, !status.LoggedIn, false, baseFont, iconFont)
+				drawIconTextButton(hdc, layout.logout, "\uE7E8", logoutLabel, hoverLogout && status.LoggedIn, false, logoutDanger, baseFont, iconFont)
 
-			pSelectObject.Call(hdc, baseFont)
-			pSetTextColor.Call(hdc, uintptr(RGB(232, 237, 240)))
-			DrawText(hdc, "勿扰时段", &RECT{20, 168, 145, 196}, DT_SINGLELINE|DT_VCENTER)
-			DrawText(hdc, "会话冷却（分钟）", &RECT{20, 208, 145, 236}, DT_SINGLELINE|DT_VCENTER)
+				drawCard(hdc, RECT{16, 202, 504, 332}, uintptr(RGB(22, 28, 34)), uintptr(RGB(41, 50, 59)))
+				pSelectObject.Call(hdc, smallFont)
+				pSetTextColor.Call(hdc, uintptr(RGB(126, 138, 149)))
+				DrawText(hdc, "通知策略", &RECT{32, 210, 280, 228}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
-			pSelectObject.Call(hdc, smallFont)
-			pSetTextColor.Call(hdc, uintptr(RGB(139, 148, 158)))
-			DrawText(hdc, "留空表示关闭；格式如 23-8", &RECT{298, 168, 442, 196}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER)
-			DrawText(hdc, "同一会话去重，默认 10", &RECT{298, 208, 442, 236}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER)
+				pSelectObject.Call(hdc, baseFont)
+				pSetTextColor.Call(hdc, uintptr(RGB(232, 237, 240)))
+				DrawText(hdc, "勿扰时段", &RECT{32, 234, 176, 262}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				DrawText(hdc, "会话冷却（分钟）", &RECT{32, 286, 176, 314}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
-			pSelectObject.Call(hdc, oldFont)
-			pDeleteObject.Call(titleFont)
-			pDeleteObject.Call(baseFont)
-			pDeleteObject.Call(smallFont)
-			pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&paint)))
+				drawFieldFrame(hdc, layout.quiet)
+				drawFieldFrame(hdc, layout.cooldown)
+
+				pSelectObject.Call(hdc, smallFont)
+				pSetTextColor.Call(hdc, uintptr(RGB(133, 145, 156)))
+				DrawText(hdc, "留空表示关闭，格式 23-8", &RECT{374, 232, 496, 260}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				DrawText(hdc, "同一会话去重，默认 10", &RECT{374, 284, 496, 312}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+
+				drawIconTextButton(hdc, layout.cancel, "\uE711", "取消", hoverCancel, false, false, baseFont, iconFont)
+				drawIconTextButton(hdc, layout.save, "\uE74E", "保存", hoverSave, true, false, baseFont, iconFont)
+				drawWindowButton(hdc, layout.close, "\uE8BB", hoverClose, true, iconFont)
+			})
 			return 0
 
-		case WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC:
-			pSetTextColor.Call(uintptr(wParam), uintptr(RGB(235, 239, 242)))
-			pSetBkColor := user32.NewProc("SetBkColor")
-			pSetBkColor.Call(uintptr(wParam), uintptr(RGB(16, 19, 23)))
+		case WM_CTLCOLOREDIT:
+			pSetTextColor.Call(wParam, uintptr(RGB(235, 239, 242)))
+			pSetBkColor.Call(wParam, uintptr(RGB(16, 20, 24)))
 			return backgroundBrush
 
-		case WM_COMMAND:
-			switch int(wParam & 0xFFFF) {
-			case IDC_SETTINGS_SAVE:
+		case WM_MOUSEMOVE:
+			if !tracking {
+				var track TRACKMOUSEEVENT
+				track.CbSize = uint32(unsafe.Sizeof(track))
+				track.DwFlags = 0x00000002
+				track.HWndTrack = hwnd
+				pTrackMouseEvent.Call(uintptr(unsafe.Pointer(&track)))
+				tracking = true
+			}
+			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
+			previous := [...]bool{hoverClose, hoverLogin, hoverLogout, hoverCancel, hoverSave}
+			hoverClose = pointInRect(x, y, layout.close)
+			hoverLogin = pointInRect(x, y, layout.login)
+			hoverLogout = pointInRect(x, y, layout.logout)
+			hoverCancel = pointInRect(x, y, layout.cancel)
+			hoverSave = pointInRect(x, y, layout.save)
+			current := [...]bool{hoverClose, hoverLogin, hoverLogout, hoverCancel, hoverSave}
+			changed := false
+			for i := range current {
+				if current[i] != previous[i] {
+					changed = true
+				}
+			}
+			if changed {
+				pInvalidateRect.Call(hwnd, 0, 0)
+			}
+			if hoverClose || hoverLogin || hoverLogout || hoverCancel || hoverSave {
+				hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
+				pSetCursor.Call(hand)
+			}
+			return 0
+
+		case WM_MOUSELEAVE:
+			tracking = false
+			hoverClose, hoverLogin, hoverLogout, hoverCancel, hoverSave = false, false, false, false, false
+			pInvalidateRect.Call(hwnd, 0, 0)
+			return 0
+
+		case WM_LBUTTONDOWN:
+			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
+			switch {
+			case pointInRect(x, y, layout.close), pointInRect(x, y, layout.cancel):
+				pDestroyWindow.Call(hwnd)
+			case pointInRect(x, y, layout.save):
 				quiet := strings.TrimSpace(getWindowText(quietEdit))
 				if !config.ValidQuietHours(quiet) {
-					pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr("勿扰时段格式无效。留空表示关闭，或使用 23-8 形式。"))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify"))), MB_OK|MB_ICONINFO)
+					showMessage(hwnd, "勿扰时段格式无效。留空表示关闭，或使用 23-8 形式。", MB_ICONINFO)
 					return 0
 				}
 				cooldown := config.DefaultCooldownMin
@@ -189,32 +294,28 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 					cooldown = parsed
 				}
 				if err := config.SaveConfig(config.AppConfig{QuietHours: quiet, CooldownMin: cooldown}, ""); err != nil {
-					pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr("保存失败："+err.Error()))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify"))), MB_OK|MB_ICONINFO)
+					showMessage(hwnd, "保存失败："+err.Error(), MB_ICONINFO)
 					return 0
 				}
 				pDestroyWindow.Call(hwnd)
-				return 0
-
-			case IDC_SETTINGS_CANCEL:
-				pDestroyWindow.Call(hwnd)
-				return 0
-
-			case IDC_SETTINGS_LOGIN:
-				if err := LaunchClawBotLogin(); err != nil {
-					pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr("无法启动登录终端："+err.Error()))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify"))), MB_OK|MB_ICONINFO)
+			case pointInRect(x, y, layout.login):
+				ShowLoginDialog(hwnd)
+				pInvalidateRect.Call(hwnd, 0, 0)
+			case pointInRect(x, y, layout.logout):
+				if !clawbot.GetStatus().LoggedIn {
 					return 0
 				}
-				pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr("已打开登录终端。请使用微信扫描二维码；完成后关闭终端即可。"))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify"))), MB_OK|MB_ICONINFO)
-				return 0
-
-			case IDC_SETTINGS_LOGOUT:
-				answer, _, _ := pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr("确定退出当前 ClawBot 登录吗？"))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify"))), MB_YESNO|MB_ICONQUESTION)
-				if answer == IDYES {
+				if showConfirm(hwnd, "确定退出当前 ClawBot 登录吗？") {
 					_ = clawbot.DeleteCredentials()
-					pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr("已退出 ClawBot 登录。"))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify"))), MB_OK|MB_ICONINFO)
+					showMessage(hwnd, "已退出 ClawBot 登录。", MB_ICONINFO)
 					pInvalidateRect.Call(hwnd, 0, 1)
 				}
-				return 0
+			}
+			return 0
+
+		case WM_KEYDOWN:
+			if wParam == VK_ESCAPE {
+				pDestroyWindow.Call(hwnd)
 			}
 			return 0
 
@@ -223,8 +324,13 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			return 0
 
 		case WM_DESTROY:
+			if editFont != 0 {
+				pDeleteObject.Call(editFont)
+				editFont = 0
+			}
 			if backgroundBrush != 0 {
 				pDeleteObject.Call(backgroundBrush)
+				backgroundBrush = 0
 			}
 			dialog = 0
 			return 0
@@ -239,12 +345,15 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 	windowClass.HInstance = hInstance
 	windowClass.HCursor, _, _ = pLoadCursorW.Call(0, uintptr(IDC_ARROW))
 	windowClass.LpszClassName = className
-	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&windowClass)))
+	if atom, _, registerErr := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&windowClass))); atom == 0 {
+		debugLog("RegisterClassExW settings failed: %v", registerErr)
+		return
+	}
+	defer pUnregisterClassW.Call(uintptr(unsafe.Pointer(className)), hInstance)
 
+	width, height := logicalSize(settingsWidth, settingsHeight)
 	screenWidth, _, _ := pGetSystemMetrics.Call(0)
 	screenHeight, _, _ := pGetSystemMetrics.Call(1)
-	width := int32(460)
-	height := int32(330)
 	x := (int32(screenWidth) - width) / 2
 	y := (int32(screenHeight) - height) / 2
 	dialog, _, _ = pCreateWindowExW.Call(
@@ -261,14 +370,8 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 	pDwmSetWindowAttribute.Call(dialog, 20, uintptr(unsafe.Pointer(&darkMode)), 4)
 	pShowWindow.Call(dialog, SW_SHOW)
 	pUpdateWindow.Call(dialog)
+	setModalParent(parentHwnd, false)
+	defer setModalParent(parentHwnd, true)
 
-	var message MSG
-	for dialog != 0 {
-		result, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0)
-		if result == 0 || int32(result) == -1 {
-			break
-		}
-		pTranslateMessage.Call(uintptr(unsafe.Pointer(&message)))
-		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&message)))
-	}
+	runDialogLoop(&dialog)
 }
