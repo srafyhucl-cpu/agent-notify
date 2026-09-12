@@ -202,7 +202,7 @@ func TestDialogTextFitsItsRects(t *testing.T) {
 		text  string
 		width int32
 	}{
-		{"设置通道说明", newSmallFont, "主动推送会话已就绪 · o9cq...chat", 312 - 52},
+		{"设置通道说明", newSmallFont, "主动推送会话已就绪 · user...1234", 312 - 52},
 		{"设置勿扰提示", newSmallFont, "留空表示关闭，格式 23-8", 496 - 374},
 		{"设置冷却提示", newSmallFont, "同一会话去重，默认 10", 496 - 374},
 		{"设置冷却标签", newBaseFont, "会话冷却（分钟）", 176 - 32},

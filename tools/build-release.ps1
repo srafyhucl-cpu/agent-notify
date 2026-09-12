@@ -28,7 +28,6 @@ function Resolve-GoCommand {
   if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_GO)) { $candidates += $env:AGENT_NOTIFY_GO }
   $onPath = Get-Command go.exe -ErrorAction SilentlyContinue
   if ($onPath) { $candidates += $onPath.Source }
-  $candidates += 'D:\MyGO\install\bin\go.exe'
   foreach ($candidate in $candidates) {
     if ($candidate -and (Test-Path $candidate)) { return $candidate }
   }
@@ -73,6 +72,12 @@ try {
   $zipPath = Join-Path $OutDir $zipName
   if (Test-Path -LiteralPath $zipPath) { [IO.File]::Delete($zipPath) }
 
+  $pluginSource = Join-Path $RepoRoot 'plugin\agent-notify.ts'
+  $pluginSourceText = [IO.File]::ReadAllText($pluginSource)
+  if (-not [regex]::IsMatch($pluginSourceText, '(?m)^const BAKED_BIN = ""\s*$')) {
+    throw 'Release plugin must keep BAKED_BIN empty so the installer can bind it to the target machine.'
+  }
+
 	Add-Type -AssemblyName System.IO.Compression.FileSystem
 	Add-Type -AssemblyName System.IO.Compression
 	$archive = [IO.Compression.ZipFile]::Open(
@@ -99,7 +104,7 @@ try {
 
   try {
     Add-ReleaseFile $archive $tempExe 'Agent-notify/bin/agent-notify.exe'
-    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\agent-notify.ts') 'Agent-notify/plugin/agent-notify.ts'
+    Add-ReleaseFile $archive $pluginSource 'Agent-notify/plugin/agent-notify.ts'
     # VERSION is generated from the resolved --Version so packaged metadata can
     # never drift from the executable that was just built.
     $versionEntry = $archive.CreateEntry('Agent-notify/VERSION', [IO.Compression.CompressionLevel]::Optimal)
@@ -117,6 +122,27 @@ try {
     }
   } finally {
     $archive.Dispose()
+  }
+
+  $forbiddenReleaseFiles = @(
+    'clawbot.json',
+    'config.json',
+    'opencode.off',
+    'codex.off',
+    'push.log',
+    'opencode-sent.json',
+    'agent-notify-install.json'
+  )
+  $verificationArchive = [IO.Compression.ZipFile]::OpenRead($zipPath)
+  try {
+    foreach ($entry in $verificationArchive.Entries) {
+      $leaf = [IO.Path]::GetFileName($entry.FullName)
+      if ($forbiddenReleaseFiles -contains $leaf -or $leaf.EndsWith('.log', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release archive contains user state: $($entry.FullName)"
+      }
+    }
+  } finally {
+    $verificationArchive.Dispose()
   }
 
   $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLower()

@@ -102,3 +102,37 @@ func TestGetPathsHonorsOverrides(t *testing.T) {
 		t.Fatalf("CredentialFile = %q", paths.CredentialFile)
 	}
 }
+
+func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
+	home := t.TempDir()
+	tempRoot := filepath.Join(home, "Temp")
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("TEMP", tempRoot)
+	for _, key := range []string{
+		"AGENT_NOTIFY_CONFIG_DIR",
+		"AGENT_NOTIFY_TEMP_DIR",
+		"AGENT_NOTIFY_CONFIG_FILE",
+		"AGENT_NOTIFY_CREDENTIAL_FILE",
+		"AGENT_NOTIFY_PLUGIN_FILE",
+		"AGENT_NOTIFY_OPENCODE_MARKER_FILE",
+		"AGENT_NOTIFY_CODEX_MARKER_FILE",
+		"AGENT_NOTIFY_LOG_FILE",
+	} {
+		t.Setenv(key, "")
+	}
+
+	paths := GetPaths()
+	configDir := filepath.Join(home, ".config", "agent-notify")
+	if paths.ConfigDir != configDir {
+		t.Fatalf("ConfigDir = %q, want %q", paths.ConfigDir, configDir)
+	}
+	if paths.CredentialFile != filepath.Join(configDir, "clawbot.json") {
+		t.Fatalf("CredentialFile = %q", paths.CredentialFile)
+	}
+	if paths.PluginFile != filepath.Join(home, ".config", "opencode", "plugins", "agent-notify.ts") {
+		t.Fatalf("PluginFile = %q", paths.PluginFile)
+	}
+	if paths.TempDir != filepath.Join(tempRoot, "agent-notify") {
+		t.Fatalf("TempDir = %q", paths.TempDir)
+	}
+}

@@ -19,7 +19,6 @@ function Resolve-GoCommand {
   if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_GO)) { $candidates += $env:AGENT_NOTIFY_GO }
   $onPath = Get-Command go.exe -ErrorAction SilentlyContinue
   if ($onPath) { $candidates += $onPath.Source }
-  $candidates += 'D:\MyGO\install\bin\go.exe'
   foreach ($candidate in $candidates) {
     if ($candidate -and (Test-Path $candidate)) { return $candidate }
   }
