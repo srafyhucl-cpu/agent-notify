@@ -93,6 +93,24 @@ function Resolve-GoCommand {
   return $null
 }
 
+function Test-WindowsGuiSubsystem {
+  param([string]$Path)
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+      $reader = New-Object IO.BinaryReader($stream)
+      $stream.Position = 0x3c
+      $peOffset = $reader.ReadInt32()
+      $stream.Position = $peOffset + 0x5c
+      return $reader.ReadUInt16() -eq 2
+    } finally {
+      $stream.Dispose()
+    }
+  } catch {
+    return $false
+  }
+}
+
 try {
   # 0. 自检：仓库文件齐全
   if ($HasSource) {
@@ -127,7 +145,11 @@ try {
 
   # 2. 编译并分发 Go 单文件运行程序
   $repoExe = Join-Path $RepoRoot "bin\$ExeName"
-  if (-not (Test-Path $repoExe)) {
+  $needsBuild = -not (Test-Path $repoExe) -or -not (Test-WindowsGuiSubsystem $repoExe)
+  if ($needsBuild -and -not $HasSource) {
+    throw "发布包中的 $ExeName 不是 Windows GUI 子系统，请重新下载正确版本。"
+  }
+  if ($needsBuild) {
     $goExe = Resolve-GoCommand
     if (-not $goExe) {
       throw "找不到 go.exe，无法编译 $ExeName。请安装 Go 或通过 AGENT_NOTIFY_GO 指定路径。"
@@ -141,6 +163,9 @@ try {
       if ($LASTEXITCODE -ne 0) { throw "go build 失败 exit=$LASTEXITCODE" }
     } finally {
       Pop-Location
+    }
+    if (-not (Test-WindowsGuiSubsystem $repoExe)) {
+      throw "编译结果不是 Windows GUI 子系统：$repoExe"
     }
   }
 

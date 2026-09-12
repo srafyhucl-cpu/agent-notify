@@ -39,6 +39,7 @@
 
 - 统一放大悬浮窗与弹窗的正文、辅助文字和图标字号，高缩放显示器上的文字不再细小难读。
 - 修正 Codex 配置看护和安装器错误地把项目路径中的 `agent-notify` 当作已完成接管的问题；现在只检查实际 `notify` 行，旧 `codex-computer-use.exe` 包装链会被替换。
+- 安装器会校验并重建 Windows GUI 子系统二进制，避免把 Console 构建安装后同时出现 Windows Terminal 空白窗口和悬浮窗。
 - GUI 子系统程序在 PowerShell 或管道重定向时不再把 stdout 覆盖为控制台设备。
 - Codex DryRun 只输出一份 JSON，不再重复打印。
 - 安装和卸载 smoke 使用明确文件路径清理，避免误删沙箱外内容。

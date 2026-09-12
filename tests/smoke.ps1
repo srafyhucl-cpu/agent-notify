@@ -12,6 +12,20 @@ function Assert-True {
   if (-not $Condition) { throw $Message }
 }
 
+function Get-PESubsystem {
+  param([string]$Path)
+  $stream = [IO.File]::OpenRead($Path)
+  try {
+    $reader = New-Object IO.BinaryReader($stream)
+    $stream.Position = 0x3c
+    $peOffset = $reader.ReadInt32()
+    $stream.Position = $peOffset + 0x5c
+    return $reader.ReadUInt16()
+  } finally {
+    $stream.Dispose()
+  }
+}
+
 function Resolve-GoCommand {
   $candidates = @()
   if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_GO)) { $candidates += $env:AGENT_NOTIFY_GO }
@@ -121,7 +135,9 @@ try {
     -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "沙箱安装 exit=$LASTEXITCODE"
   Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe')) '沙箱安装缺 exe'
+  Assert-True ((Get-PESubsystem (Join-Path $sandboxInstall 'agent-notify.exe')) -eq 2) '安装后的 exe 不是 Windows GUI 子系统'
   Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json')) '沙箱安装缺安装记录'
+  Assert-True ((Get-PESubsystem (Join-Path $RepoRoot 'bin\agent-notify.exe')) -eq 2) '安装器没有把 Console 构建重建为 Windows GUI 子系统'
   Assert-True (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts')) '沙箱安装缺插件'
   $installedFiles = @(Get-ChildItem $sandboxInstall -File | Select-Object -ExpandProperty Name | Sort-Object)
   Assert-True (($installedFiles -join ',') -eq 'agent-notify.exe,agent-notify-install.json') "安装目录文件意外：$($installedFiles -join ',')"
