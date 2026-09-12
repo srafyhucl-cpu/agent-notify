@@ -4,24 +4,6 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是
 `internal/app/version.go` 的 `Version`。
 
-## [Unreleased]
-
-### Added
-
-- `tools\test.ps1` 增加 `go vet ./...` 门禁，OpenCode 插件类型检查提升到 TypeScript `strict`。
-- 源码安装会注入 `Version`、`Commit`、`BuildTime`，`status` 与 `doctor` 能显示真实构建信息。
-- OpenCode 插件副本记录真实安装路径，自定义 `-InstallDir` 不再依赖 `%USERPROFILE%\bin`。
-- `history --json` 输出机器可读的推送历史，便于脚本和自动化消费。
-
-### Changed
-
-- 安装时把 `$InstallDir` 中的绝对路径写进插件 `BAKED_BIN`，插件按 `BAKED_BIN`、`AGENT_NOTIFY_BIN`、默认目录、`PATH` 顺序解析运行程序。
-
-### Fixed
-
-- 修正自定义安装目录下 OpenCode 插件仍去找 `%USERPROFILE%\bin\agent-notify.exe` 导致任务完成不推送的问题。
-- 配置与凭据保存改为直接原子替换，写入失败时不再先删掉上一份可用文件。
-
 ## [1.0.0] - 2026-09-12
 
 ### Added
@@ -38,6 +20,9 @@
 - 新增 `doctor`、`watch`、`status --json`、`toggle` 等运维命令。
 - 新增 Go 单测、OpenCode 插件类型检查、PowerShell 静态检查和隔离安装 smoke。
 - 新增 GitHub Actions CI 与版本包发布流程。
+- 新增 `history --json` 机器可读输出。
+- 新增 `go vet ./...` 门禁，插件类型检查提升到 TypeScript `strict`。
+- 源码安装注入 `Version`、`Commit`、`BuildTime`，`status` 与 `doctor` 显示真实构建信息。
 
 ### Changed
 
@@ -52,6 +37,7 @@
 - ClawBot 成为唯一微信推送通道；设置、登录、历史窗口不再调用旧运行时或外部脚本。
 - 扫码登录与主动推送会话明确拆成两个阶段；只有登录不再被视为可发送。
 - `ret/errcode=-14` 会将登录标记为失效并停止轮询，避免继续高压重试。
+- 安装时把 `$InstallDir` 中的绝对路径写进插件 `BAKED_BIN`，插件按 `BAKED_BIN`、`AGENT_NOTIFY_BIN`、默认目录、`PATH` 顺序解析运行程序。
 
 ### Fixed
 
@@ -64,6 +50,8 @@
 - 重新登录不会再把失效 token 作为可复用 `local_token_list`。
 - 切换 ClawBot 账号时会清空旧账号的游标和会话上下文。
 - 会话循环退出时会尽力发送 `notifystop`。
+- 修正自定义安装目录下 OpenCode 插件仍去找 `%USERPROFILE%\bin\agent-notify.exe` 导致任务完成不推送的问题。
+- 配置与凭据保存改为直接原子替换，写入失败时不再先删掉上一份可用文件。
 
 ### Removed
 
