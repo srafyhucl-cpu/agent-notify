@@ -1,13 +1,17 @@
 .env
 *.log
-notify-push-sent.json
-notify-debug.log
+*.tmp
 *.bak-notify-wrapper
 Thumbs.db
 Desktop.ini
-.freebuff/
+
 node_modules/
 dist/
 bin/
 .agents/
 .commandcode/
+.freebuff/
+
+# Local release/package scratch files.
+Agent-notify-v*.zip
+SHA256SUMS.txt

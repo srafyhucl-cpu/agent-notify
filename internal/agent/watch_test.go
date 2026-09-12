@@ -9,47 +9,49 @@ import (
 
 func TestHandleWatch(t *testing.T) {
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.toml")
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", filepath.Join(tempDir, "config"))
+	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(tempDir, "temp"))
 
-	// Case 1: Overwritten by codex with direct codex-computer-use.exe
-	orig := "model = \"test\"\nnotify = [ \"C:/some/path/codex-computer-use.exe\", \"turn-ended\" ]\n"
-	if err := os.WriteFile(configPath, []byte(orig), 0644); err != nil {
-		t.Fatalf("failed to write test config: %v", err)
+	configPath := filepath.Join(tempDir, "config.toml")
+	original := "model = \"test\"\nnotify = [ \"C:/some/path/codex-computer-use.exe\", \"turn-ended\" ]\n"
+	if err := os.WriteFile(configPath, []byte(original), 0600); err != nil {
+		t.Fatal(err)
 	}
 
-	fakeExe := "D:\\app\\linkWeixin\\linkweixin.exe"
-	HandleWatch(configPath, fakeExe)
-
+	fakeExe := `D:\Tools\Agent-notify\agent-notify.exe`
+	if err := HandleWatch(configPath, fakeExe); err != nil {
+		t.Fatalf("HandleWatch: %v", err)
+	}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		t.Fatalf("failed to read patched config: %v", err)
+		t.Fatal(err)
 	}
-	content := string(data)
-	expected := "notify = [ \"D:/app/linkWeixin/linkweixin.exe\", \"codex\", \"turn-ended\" ]"
-	if !strings.Contains(content, expected) {
-		t.Errorf("content does not contain expected line.\nGot:\n%s\nWant line:\n%s", content, expected)
+	expected := `notify = [ "D:/Tools/Agent-notify/agent-notify.exe", "codex", "turn-ended" ]`
+	if !strings.Contains(string(data), expected) {
+		t.Fatalf("patched config:\n%s\nwant line:\n%s", data, expected)
 	}
-
-	// Verify backup file created
-	bakPath := configPath + ".bak-notify-wrapper"
-	if _, err := os.Stat(bakPath); os.IsNotExist(err) {
-		t.Errorf("backup file %s was not created", bakPath)
+	if _, err := os.Stat(configPath + ".bak-notify-wrapper"); err != nil {
+		t.Fatalf("backup not created: %v", err)
 	}
 
-	// Case 2: Idempotent - running again should keep content unchanged
-	HandleWatch(configPath, fakeExe)
+	if err := HandleWatch(configPath, fakeExe); err != nil {
+		t.Fatalf("second HandleWatch: %v", err)
+	}
 	data2, _ := os.ReadFile(configPath)
-	if string(data2) != content {
-		t.Errorf("HandleWatch is not idempotent: before=%s, after=%s", content, string(data2))
+	if string(data2) != string(data) {
+		t.Fatalf("HandleWatch is not idempotent")
 	}
 
-	// Case 3: Custom notify - should NOT be modified
-	customConfigPath := filepath.Join(tempDir, "custom.toml")
-	customContent := "notify = [ \"my-custom-logger\", \"event\" ]\n"
-	_ = os.WriteFile(customConfigPath, []byte(customContent), 0644)
-	HandleWatch(customConfigPath, fakeExe)
-	data3, _ := os.ReadFile(customConfigPath)
-	if string(data3) != customContent {
-		t.Errorf("HandleWatch modified custom notify: %s", string(data3))
+	customPath := filepath.Join(tempDir, "custom.toml")
+	custom := "notify = [ \"my-custom-logger\", \"event\" ]\n"
+	if err := os.WriteFile(customPath, []byte(custom), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := HandleWatch(customPath, fakeExe); err != nil {
+		t.Fatalf("custom HandleWatch: %v", err)
+	}
+	customAfter, _ := os.ReadFile(customPath)
+	if string(customAfter) != custom {
+		t.Fatalf("custom notify was modified: %s", customAfter)
 	}
 }

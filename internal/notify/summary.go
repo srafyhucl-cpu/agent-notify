@@ -1,98 +1,64 @@
 package notify
 
 import (
-	"html"
 	"regexp"
 	"strings"
 )
 
 var (
 	reCodeBlock  = regexp.MustCompile("(?s)```.*?```")
-	reHeader     = regexp.MustCompile(`^(#{1,4})\s+(.*)$`)
-	reQuote      = regexp.MustCompile(`^>\s?(.*)$`)
-	reList       = regexp.MustCompile(`^(\d+[.)]|[-*])\s+(.*)$`)
+	reManyBreaks = regexp.MustCompile(`\n{3,}`)
 	reInlineCode = regexp.MustCompile("`([^`]+)`")
 	reBold       = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	reTripleBr   = regexp.MustCompile(`(?i)(<br>\s*){3,}`)
-	reTrimBr     = regexp.MustCompile(`(?i)^(<br>\s*)+|(<br>\s*)+$`)
+	reHeading    = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+	reListMarker = regexp.MustCompile(`(?m)^\s*(?:[-*]|\d+[.)])\s+`)
 )
 
-// CutSentence truncates text at a punctuation boundary within max runes.
+// CutSentence truncates text at a sentence boundary within max runes when a
+// useful boundary is available.
 func CutSentence(text string, maxChars int) string {
+	if maxChars <= 0 {
+		return text
+	}
 	runes := []rune(text)
 	if len(runes) <= maxChars {
 		return text
 	}
 	window := runes[:maxChars]
 	idx := -1
-	delims := []rune{'。', '！', '？', '!', '?', '\n'}
 	for i := len(window) - 1; i >= 0; i-- {
-		r := window[i]
-		for _, d := range delims {
-			if r == d {
-				idx = i
-				break
-			}
+		switch window[i] {
+		case '。', '！', '？', '!', '?', '\n':
+			idx = i
 		}
-		if idx != -1 {
+		if idx >= 0 {
 			break
 		}
 	}
 	if idx >= 100 {
-		return string(window[:idx+1]) + "…"
+		return strings.TrimSpace(string(window[:idx+1])) + "…"
 	}
-	return string(window) + "…"
+	return strings.TrimSpace(string(window)) + "…"
 }
 
-// FormatNotifySummary renders text as HTML for PushPlus notification.
-// Pure function with exact matching semantics to Format-NotifySummary.ps1.
+// FormatNotifySummary renders Markdown-ish agent output as readable plain text
+// for ClawBot. Code blocks are omitted because proactive chat notifications are
+// more useful when they stay concise.
 func FormatNotifySummary(text string, maxChars int) string {
 	text = strings.TrimPrefix(text, "\uFEFF")
-	// 1. Remove full code blocks
-	t := reCodeBlock.ReplaceAllString(text, "")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = reCodeBlock.ReplaceAllString(text, "")
+	text = reHeading.ReplaceAllString(text, "")
+	text = reListMarker.ReplaceAllString(text, "• ")
+	text = reInlineCode.ReplaceAllString(text, "$1")
+	text = reBold.ReplaceAllString(text, "$1")
 
-	// 2. Cut sentence before HTML encoding
-	t = CutSentence(strings.TrimSpace(t), maxChars)
-
-	// 3. HTML encode
-	t = html.EscapeString(t)
-
-	// 4. Line by line formatting
-	rawLines := strings.Split(t, "\n")
-	var out []string
-	for _, rawLine := range rawLines {
-		line := strings.TrimRight(rawLine, "\r\t ")
-		if line == "---" {
-			continue
-		}
-
-		l := line
-		wrap := ""
-		if m := reHeader.FindStringSubmatch(l); len(m) == 3 {
-			wrap = "b"
-			l = m[2]
-		} else if m := reQuote.FindStringSubmatch(l); len(m) == 2 {
-			l = m[1]
-		} else if m := reList.FindStringSubmatch(l); len(m) == 3 {
-			wrap = "li"
-			l = m[2]
-		}
-
-		l = reInlineCode.ReplaceAllString(l, "$1")
-		l = reBold.ReplaceAllString(l, "<b>$1</b>")
-
-		switch wrap {
-		case "b":
-			out = append(out, "<b>"+l+"</b>")
-		case "li":
-			out = append(out, "• "+l)
-		default:
-			out = append(out, l)
-		}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSpace(line)
 	}
-
-	res := strings.Join(out, "<br>")
-	res = reTripleBr.ReplaceAllString(res, "<br><br>")
-	res = reTrimBr.ReplaceAllString(res, "")
-	return strings.TrimSpace(res)
+	text = strings.TrimSpace(strings.Join(lines, "\n"))
+	text = reManyBreaks.ReplaceAllString(text, "\n\n")
+	return CutSentence(strings.TrimSpace(text), maxChars)
 }

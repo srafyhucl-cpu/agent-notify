@@ -3,90 +3,82 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// Paths holds runtime paths for linkWeixin.
 type Paths struct {
-	UserConfigDir        string
-	TempDir              string
-	AppConfigDir         string
-	AppConfigFile        string
-	OpenCodeMarker       string
-	CodexMarker          string
-	AntigravityMarker    string
-	PushLog              string
-	PluginFile           string
-	WidgetErrorLog       string
-	WidgetAliveFile      string
-	WidgetPosFile        string
-	WidgetExitMarker     string
-	AntigravityStateFile string
-	CodexWatchLog        string
-	CodexNotifyDebugLog  string
-	AntigravityDebugLog  string
+	ConfigDir           string
+	ConfigFile          string
+	CredentialFile      string
+	TempDir             string
+	OpenCodeMarker      string
+	CodexMarker         string
+	PushLog             string
+	PluginFile          string
+	WidgetErrorLog      string
+	WidgetAliveFile     string
+	WidgetPosFile       string
+	WidgetExitMarker    string
+	CodexWatchLog       string
+	CodexNotifyDebugLog string
+	WidgetTraceLog      string
+	BootLog             string
 }
 
-// GetPaths resolves runtime paths with environment variable overrides,
-// strictly compatible with Get-LinkWeixinPaths in PowerShell.
+// GetPaths resolves all Agent-notify runtime paths. Every location can be
+// overridden to keep tests and portable installs away from the user profile.
 func GetPaths() Paths {
-	userProfile := os.Getenv("USERPROFILE")
-	if userProfile == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			userProfile = home
+	home := strings.TrimSpace(os.Getenv("USERPROFILE"))
+	if home == "" {
+		if value, err := os.UserHomeDir(); err == nil {
+			home = value
 		}
 	}
 
-	temp := os.Getenv("TEMP")
-	if temp == "" {
-		temp = os.TempDir()
+	configDir := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_CONFIG_DIR"))
+	if configDir == "" {
+		configDir = filepath.Join(home, ".config", "agent-notify")
 	}
 
-	configDir := filepath.Join(userProfile, ".config", "opencode")
-	tempDir := filepath.Join(temp, "opencode")
-	appConfigDir := filepath.Join(userProfile, ".config", "linkweixin")
-
-	openCodeMarker := os.Getenv("OPENCODE_NOTIFY_MARKER_FILE")
-	if openCodeMarker == "" {
-		openCodeMarker = filepath.Join(configDir, "notify-pushplus.off")
+	tempRoot := strings.TrimSpace(os.Getenv("TEMP"))
+	if tempRoot == "" {
+		tempRoot = os.TempDir()
+	}
+	tempDir := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_TEMP_DIR"))
+	if tempDir == "" {
+		tempDir = filepath.Join(tempRoot, "agent-notify")
 	}
 
-	codexMarker := os.Getenv("CODEX_NOTIFY_MARKER_FILE")
-	if codexMarker == "" {
-		codexMarker = filepath.Join(configDir, "codex-notify.off")
-	}
-
-	antigravityMarker := os.Getenv("ANTIGRAVITY_NOTIFY_MARKER_FILE")
-	if antigravityMarker == "" {
-		antigravityMarker = filepath.Join(configDir, "antigravity-notify.off")
-	}
-
-	pushLog := os.Getenv("OPENCODE_NOTIFY_LOG_FILE")
-	if pushLog == "" {
-		pushLog = filepath.Join(tempDir, "notify-push.log")
-	}
-
-	antigravityStateFile := os.Getenv("ANTIGRAVITY_NOTIFY_STATE_FILE")
-	if antigravityStateFile == "" {
-		antigravityStateFile = filepath.Join(tempDir, "antigravity-notify-sent.json")
-	}
+	configFile := envOr("AGENT_NOTIFY_CONFIG_FILE", filepath.Join(configDir, "config.json"))
+	credentialFile := envOr("AGENT_NOTIFY_CREDENTIAL_FILE", filepath.Join(configDir, "clawbot.json"))
+	openCodeMarker := envOr("AGENT_NOTIFY_OPENCODE_MARKER_FILE", filepath.Join(configDir, "opencode.off"))
+	codexMarker := envOr("AGENT_NOTIFY_CODEX_MARKER_FILE", filepath.Join(configDir, "codex.off"))
+	pushLog := envOr("AGENT_NOTIFY_LOG_FILE", filepath.Join(tempDir, "push.log"))
+	pluginFile := envOr("AGENT_NOTIFY_PLUGIN_FILE", filepath.Join(home, ".config", "opencode", "plugins", "agent-notify.ts"))
 
 	return Paths{
-		UserConfigDir:        configDir,
-		TempDir:              tempDir,
-		AppConfigDir:         appConfigDir,
-		AppConfigFile:        filepath.Join(appConfigDir, "config.json"),
-		OpenCodeMarker:       openCodeMarker,
-		CodexMarker:          codexMarker,
-		AntigravityMarker:    antigravityMarker,
-		PushLog:              pushLog,
-		PluginFile:           filepath.Join(configDir, "plugins", "notify-pushplus.ts"),
-		WidgetErrorLog:       filepath.Join(tempDir, "widget-error.log"),
-		WidgetAliveFile:      filepath.Join(tempDir, "widget-alive.txt"),
-		WidgetPosFile:        filepath.Join(tempDir, "widget-pos.txt"),
-		WidgetExitMarker:     filepath.Join(tempDir, "widget-exit.txt"),
-		AntigravityStateFile: antigravityStateFile,
-		CodexWatchLog:        filepath.Join(tempDir, "codex-watch.log"),
-		CodexNotifyDebugLog:  filepath.Join(tempDir, "codex-notify-debug.log"),
-		AntigravityDebugLog:  filepath.Join(tempDir, "antigravity-notify-debug.log"),
+		ConfigDir:           configDir,
+		ConfigFile:          configFile,
+		CredentialFile:      credentialFile,
+		TempDir:             tempDir,
+		OpenCodeMarker:      openCodeMarker,
+		CodexMarker:         codexMarker,
+		PushLog:             pushLog,
+		PluginFile:          pluginFile,
+		WidgetErrorLog:      filepath.Join(tempDir, "widget-error.log"),
+		WidgetAliveFile:     filepath.Join(tempDir, "widget-alive.txt"),
+		WidgetPosFile:       filepath.Join(tempDir, "widget-pos.txt"),
+		WidgetExitMarker:    filepath.Join(tempDir, "widget-exit.txt"),
+		CodexWatchLog:       filepath.Join(tempDir, "codex-watch.log"),
+		CodexNotifyDebugLog: filepath.Join(tempDir, "codex-notify-debug.log"),
+		WidgetTraceLog:      filepath.Join(tempDir, "widget-trace.log"),
+		BootLog:             filepath.Join(tempDir, "boot.log"),
 	}
+}
+
+func envOr(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
 }

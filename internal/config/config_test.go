@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,200 +8,85 @@ import (
 )
 
 func TestDefaultConfig(t *testing.T) {
-	// Clear env to get clean defaults
-	t.Setenv("PUSHPLUS_TOKEN", "")
-	t.Setenv("WECOM_WEBHOOK_URL", "")
-	t.Setenv("FEISHU_WEBHOOK_URL", "")
-	t.Setenv("DINGTALK_WEBHOOK_URL", "")
-	t.Setenv("LINKWEIXIN_WEBHOOK_URL", "")
-	t.Setenv("OPENCODE_NOTIFY_QUIET", "")
-	t.Setenv("ANTIGRAVITY_NOTIFY_QUIET", "")
-	t.Setenv("OPENCODE_NOTIFY_COOLDOWN_MIN", "")
-	t.Setenv("ANTIGRAVITY_NOTIFY_COOLDOWN_MIN", "")
+	t.Setenv("AGENT_NOTIFY_QUIET", "22-7")
+	t.Setenv("AGENT_NOTIFY_COOLDOWN_MIN", "15")
 
 	cfg := DefaultConfig()
-	if !cfg.Channels.PushPlus.Enabled {
-		t.Error("PushPlus should be enabled by default")
+	if cfg.QuietHours != "22-7" {
+		t.Fatalf("QuietHours = %q, want 22-7", cfg.QuietHours)
 	}
-	if cfg.Channels.PushPlus.Token != "" {
-		t.Error("Token should be empty when env is unset")
-	}
-	if cfg.CooldownMin != 10 {
-		t.Errorf("CooldownMin = %d, want 10", cfg.CooldownMin)
+	if cfg.CooldownMin != 15 {
+		t.Fatalf("CooldownMin = %d, want 15", cfg.CooldownMin)
 	}
 }
 
-func TestDefaultConfigFromEnv(t *testing.T) {
-	t.Setenv("PUSHPLUS_TOKEN", "test-token-abc")
-	t.Setenv("WECOM_WEBHOOK_URL", "https://wecom.example.com/hook")
-	t.Setenv("OPENCODE_NOTIFY_COOLDOWN_MIN", "5")
+func TestLoadSaveConfig(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_QUIET", "")
+	t.Setenv("AGENT_NOTIFY_COOLDOWN_MIN", "")
+	path := filepath.Join(t.TempDir(), "nested", "config.json")
 
-	cfg := DefaultConfig()
-	if cfg.Channels.PushPlus.Token != "test-token-abc" {
-		t.Errorf("Token = %q, want %q", cfg.Channels.PushPlus.Token, "test-token-abc")
-	}
-	if !cfg.Channels.WeCom.Enabled {
-		t.Error("WeCom should be enabled when webhook is set")
-	}
-	if cfg.Channels.WeCom.Webhook != "https://wecom.example.com/hook" {
-		t.Errorf("WeCom webhook mismatch")
-	}
-	if cfg.CooldownMin != 5 {
-		t.Errorf("CooldownMin = %d, want 5", cfg.CooldownMin)
-	}
-}
-
-func TestLoadConfigFromFile(t *testing.T) {
-	t.Setenv("PUSHPLUS_TOKEN", "env-token")
-
-	dir := t.TempDir()
-	cfgFile := filepath.Join(dir, "config.json")
-
-	fileToken := "file-token-123"
-	cfgData := map[string]interface{}{
-		"channels": map[string]interface{}{
-			"pushplus": map[string]interface{}{
-				"enabled": true,
-				"token":   fileToken,
-			},
-		},
-		"cooldownMin": 20,
-	}
-	data, _ := json.Marshal(cfgData)
-	if err := os.WriteFile(cfgFile, data, 0644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cfg := LoadConfig(cfgFile)
-	// File token should override env token
-	if cfg.Channels.PushPlus.Token != fileToken {
-		t.Errorf("Token = %q, want %q (file should override env)", cfg.Channels.PushPlus.Token, fileToken)
-	}
-	if cfg.CooldownMin != 20 {
-		t.Errorf("CooldownMin = %d, want 20", cfg.CooldownMin)
-	}
-}
-
-func TestLoadConfigPartialOverride(t *testing.T) {
-	t.Setenv("PUSHPLUS_TOKEN", "env-token")
-	t.Setenv("WECOM_WEBHOOK_URL", "https://wecom.example.com")
-
-	dir := t.TempDir()
-	cfgFile := filepath.Join(dir, "config.json")
-
-	// File only overrides WeCom enabled to false, rest should keep env defaults
-	cfgData := map[string]interface{}{
-		"channels": map[string]interface{}{
-			"wecom": map[string]interface{}{
-				"enabled": false,
-			},
-		},
-	}
-	data, _ := json.Marshal(cfgData)
-	_ = os.WriteFile(cfgFile, data, 0644)
-
-	cfg := LoadConfig(cfgFile)
-	// PushPlus should still have env token
-	if cfg.Channels.PushPlus.Token != "env-token" {
-		t.Errorf("PushPlus Token = %q, want env-token", cfg.Channels.PushPlus.Token)
-	}
-	// WeCom enabled should be overridden to false
-	if cfg.Channels.WeCom.Enabled {
-		t.Error("WeCom should be disabled per file override")
-	}
-	// But webhook should still have env value
-	if cfg.Channels.WeCom.Webhook != "https://wecom.example.com" {
-		t.Errorf("WeCom Webhook = %q, want env value", cfg.Channels.WeCom.Webhook)
-	}
-}
-
-func TestLoadConfigMissingFile(t *testing.T) {
-	t.Setenv("PUSHPLUS_TOKEN", "fallback-token")
-	cfg := LoadConfig("/nonexistent/path/config.json")
-	if cfg.Channels.PushPlus.Token != "fallback-token" {
-		t.Errorf("Should fallback to env defaults, got Token = %q", cfg.Channels.PushPlus.Token)
-	}
-}
-
-func TestLoadConfigInvalidJSON(t *testing.T) {
-	t.Setenv("PUSHPLUS_TOKEN", "fallback-token")
-	dir := t.TempDir()
-	cfgFile := filepath.Join(dir, "config.json")
-	_ = os.WriteFile(cfgFile, []byte("not valid json {{{"), 0644)
-
-	cfg := LoadConfig(cfgFile)
-	if cfg.Channels.PushPlus.Token != "fallback-token" {
-		t.Errorf("Should fallback to env defaults on bad JSON, got Token = %q", cfg.Channels.PushPlus.Token)
-	}
-}
-
-func TestSaveConfig(t *testing.T) {
-	dir := t.TempDir()
-	cfgFile := filepath.Join(dir, "sub", "config.json")
-
-	cfg := AppConfig{
-		Channels: ChannelsConfig{
-			PushPlus: ChannelPushPlus{
-				Enabled: true,
-				Token:   "save-test-token",
-			},
-		},
-		QuietHours:  "23-7",
-		CooldownMin: 15,
-	}
-
-	if err := SaveConfig(cfg, cfgFile); err != nil {
+	want := AppConfig{QuietHours: "23-8", CooldownMin: 20}
+	if err := SaveConfig(want, path); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
 	}
+	got, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got != want {
+		t.Fatalf("LoadConfig = %#v, want %#v", got, want)
+	}
+}
 
-	// Verify file exists
-	if _, err := os.Stat(cfgFile); err != nil {
-		t.Fatalf("config file not created: %v", err)
+func TestLoadConfigMissingAndInvalid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.json")
+	if _, err := LoadConfig(path); err != nil {
+		t.Fatalf("missing config should use defaults: %v", err)
 	}
 
-	// Reload and verify
-	var loaded AppConfig
-	data, _ := os.ReadFile(cfgFile)
-	if err := json.Unmarshal(data, &loaded); err != nil {
-		t.Fatalf("unmarshal saved config: %v", err)
+	invalid := filepath.Join(t.TempDir(), "invalid.json")
+	if err := os.WriteFile(invalid, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	if loaded.Channels.PushPlus.Token != "save-test-token" {
-		t.Errorf("Loaded token = %q, want save-test-token", loaded.Channels.PushPlus.Token)
-	}
-	if loaded.CooldownMin != 15 {
-		t.Errorf("Loaded cooldown = %d, want 15", loaded.CooldownMin)
+	if _, err := LoadConfig(invalid); err == nil {
+		t.Fatal("invalid config should return an error")
 	}
 }
 
 func TestIsInQuietHours(t *testing.T) {
 	tests := []struct {
-		name   string
-		quiet  string
-		hour   int
-		expect bool
+		name  string
+		quiet string
+		hour  int
+		want  bool
 	}{
-		{"empty string", "", 14, false},
-		{"invalid format", "abc", 14, false},
-		{"same start/end", "8-8", 8, false},
-		{"daytime 9-17, hour=10", "9-17", 10, true},
-		{"daytime 9-17, hour=8", "9-17", 8, false},
-		{"daytime 9-17, hour=17", "9-17", 17, false},
-		{"nighttime 23-8, hour=23", "23-8", 23, true},
-		{"nighttime 23-8, hour=2", "23-8", 2, true},
-		{"nighttime 23-8, hour=8", "23-8", 8, false},
-		{"nighttime 23-8, hour=22", "23-8", 22, false},
-		{"with spaces", " 23 - 8 ", 1, true},
-		{"out of range hour", "25-8", 1, false},
+		{"empty", "", 12, false},
+		{"daytime inside", "9-17", 10, true},
+		{"daytime end exclusive", "9-17", 17, false},
+		{"overnight before end", "23-8", 2, true},
+		{"overnight after start", "23-8", 23, true},
+		{"overnight outside", "23-8", 12, false},
+		{"invalid", "8-8", 8, false},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Construct a time at the desired hour
-			now := time.Date(2025, 6, 15, tt.hour, 30, 0, 0, time.Local)
-			got := IsInQuietHours(tt.quiet, now)
-			if got != tt.expect {
-				t.Errorf("IsInQuietHours(%q, hour=%d) = %v, want %v", tt.quiet, tt.hour, got, tt.expect)
+			now := time.Date(2026, 9, 11, tt.hour, 0, 0, 0, time.Local)
+			if got := IsInQuietHours(tt.quiet, now); got != tt.want {
+				t.Fatalf("IsInQuietHours(%q, %d) = %v, want %v", tt.quiet, tt.hour, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetPathsHonorsOverrides(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", dir)
+	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(dir, "temp"))
+	paths := GetPaths()
+	if paths.ConfigFile != filepath.Join(dir, "config.json") {
+		t.Fatalf("ConfigFile = %q", paths.ConfigFile)
+	}
+	if paths.CredentialFile != filepath.Join(dir, "clawbot.json") {
+		t.Fatalf("CredentialFile = %q", paths.CredentialFile)
 	}
 }

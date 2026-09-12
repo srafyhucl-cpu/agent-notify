@@ -1,85 +1,42 @@
-﻿# Changelog
+# Changelog
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是
-`src/lib/LinkWeixin/LinkWeixin.psd1` 的 `ModuleVersion`。
+`internal/app/version.go` 的 `Version`。
 
-## [0.3.0] - 2026-09-10
-
-全面优化升级：成熟度跃升、现代深色 UI 焕新、多通道推送支持、推送历史与自愈中心、开源生态传播力赋能。
+## [1.0.0] - 2026-09-12
 
 ### Added
 
-- **多通道聚合推送**：新增企业微信群机器人（Markdown）、飞书群机器人（富文本卡片）、钉钉群机器人（Markdown）及自定义 Webhook 支持；支持与 PushPlus 微信多端联动同时分发
-- **图形化配置中心与系统诊断**（`widget-settings.ps1`）：悬浮窗集成【⚙ 设置】，无需手敲命令行 `setx`，可视化配置各通道凭据、即时连通性测试、免打扰时段与冷却设置
-- **看守任务闪屏一键自愈**：自动检测旧版闪屏看守任务，悬浮窗提示【⚡一键修复闪屏】，点击即可自动重写计划任务为隐藏无闪版本，彻底告别每 5 分钟闪黑框问题
-- **推送历史记录与详情面板**（`widget-history.ps1`）：悬浮窗新增【📜 历史】与上次推送点击直达，表格展示时间、通道、状态、任务标题，支持完整格式化摘要预览、一键复制内容与重发测试
-- **一键分享与社交名片**：托盘菜单新增【📋 复制推荐名片】，一键生成排版精美的项目宣传文案，方便在技术社群转发安利
-- **通用 CLI 独立调用支持**：除 OpenCode / Codex 外，支持作为通用命令行通知工具嵌入任意模型训练、数据爬取或自动化构建脚本
+- 新增 Go 单文件运行时 `agent-notify.exe`。
+- 新增 ClawBot 扫码登录、凭据保存、状态查询和有限重试发送。
+- 新增 OpenCode 全局插件，监听任务完成事件并提取最新 assistant 摘要。
+- 新增 Codex notify 接入，保留 `codex-computer-use.exe` 原始参数和 stdin 透传。
+- 新增原生 Win32 悬浮窗、托盘、OpenCode / Codex 开关、勿扰设置、推送历史和测试推送。
+- 新增 JSON Lines 推送历史，记录成功、失败、未登录和跳过状态。
+- 新增 `doctor`、`watch`、`status --json`、`toggle` 等运维命令。
+- 新增 Go 单测、OpenCode 插件类型检查、PowerShell 静态检查和隔离安装 smoke。
+- 新增 GitHub Actions CI 与版本包发布流程。
 
 ### Changed
 
-- **UI 彻底重塑与防折行优化**：
-  - 彻底重构开关卡片，采用品牌名与状态分层设计，无论在何种 Windows DPI 缩放下均绝不出现 `opencod\ne` 断词折行现象
-  - 窗口尺寸扩展为 316x386，采用高级深空暗调（Zinc 900 / 800）与微发光边框，视觉质感显著提升
-  - 彻底重构底部工具栏，将版本号、历史、设置、测试、退出等按钮独立清晰排布，消除了文字堆叠挤压
-- 模块版本提升至 `0.3.0`，新增并导出 `Get-LinkWeixinConfig`、`Set-LinkWeixinConfig`、`Get-LinkWeixinHistory` 等函数
-- 补充针对配置和日志解析的 Pester 单元测试（单测总数提升至 37 项全绿）
-
-## [0.2.0] - 2026-09-10
-
-### Added
-
-- 悬浮窗找回与自愈：`—` 改为最小化到任务栏（任务栏按钮带状态圆点，最可靠的找回路径）；
-  `×` 藏到托盘并每次弹气泡
-- 看守任务每 5 分钟看护悬浮窗：进程不在且非主动退出时按安装记录的 launcher 自动拉起
-  （静默死亡 ≤5 分钟自愈）；主动退出写 `%TEMP%\opencode\widget-exit.txt`（启动时清除）
-- 进程退出日志 `widget-exit.log` + 30 秒心跳，可定位"静默死亡"的时间窗
-- 悬浮窗 UI：Win11 DWM 圆角、按钮/标注悬停反馈、标题栏分隔线、卡片与按钮圆角、
-  控件工具提示、启动淡入
-- 悬浮窗体验：位置记忆（拖动后重启回到原位）、相对时间（刚刚 / N 分钟前 / 昨天）、
-  免打扰状态与今日推送数显示、托盘菜单"测试推送"、Per-Monitor V2 DPI 感知
+- 安装模型改为发布包中的 `bin/agent-notify.exe` 加 `plugin/agent-notify.ts`。
+- 配置与凭据统一保存到 `%USERPROFILE%\.config\agent-notify`。
+- 日志与去重状态统一保存到 `%TEMP%\agent-notify`。
+- 环境变量统一使用 `AGENT_NOTIFY_*` 前缀。
+- marker 统一为 `opencode.off` 和 `codex.off`。
+- Codex 配置看护改由悬浮窗定时执行，只在 notify 行仍直指上游程序时恢复。
+- 发布包名改为 `Agent-notify-v<版本>.zip`。
 
 ### Fixed
 
-- opencode 插件目录修正为 V2 约定 `~/.config/opencode/plugins/`（复数）。
-  安装器 / 卸载器 / 悬浮窗插件检查此前误用 V1 单数 `plugin\`，导致悬浮窗误报
-  "插件未安装"、并可能向错误目录反复写入；现改为复数路径，装/卸时自动清理旧目录残留
+- GUI 子系统程序在 PowerShell 或管道重定向时不再把 stdout 覆盖为控制台设备。
+- Codex DryRun 只输出一份 JSON，不再重复打印。
+- 安装和卸载 smoke 使用明确文件路径清理，避免误删沙箱外内容。
 
-## [0.1.0] - 2026-09-10
+### Removed
 
-第一个正式版本。工程化改造完成；对外契约（安装位置、入口文件名、参数、环境变量、
-marker 路径、推送行为）与历史版本保持一致，老用户重装即平滑升级。
-
-### Added
-
-- `LinkWeixin` PowerShell 模块（`src/lib/LinkWeixin/`）：路径解析、摘要渲染、
-  PushPlus 发送、codex 事件解析、codex-computer-use 定位、marker 读写；
-  入口脚本瘦身为薄封装
-- 测试体系：Pester 单测（33 项）、仓库 BOM/CRLF 硬门禁、冒烟沙箱安装/卸载用例；
-  统一入口 `tools/test.ps1`
-- 工程门禁：PSScriptAnalyzer 配置（含 PS 5.1 兼容检查）与 `tools/lint.ps1`、
-  opencode 插件 TypeScript 类型检查（`tsc --noEmit`）
-- 安装记录 `linkweixin-install.json`：整树安装、按记录精准卸载、自动清理旧版本残留文件
-- 悬浮窗 `pythonw` 启动链（GUI 子系统，无控制台、无 Windows Terminal 页签防误杀）；
-  系统没有 Python 时自动回退 `run-hidden.vbs`
-- 悬浮窗底栏显示版本号；安装记录记录实际启动方式（python / vbs）
-- 治理与文档：CONTRIBUTING / SECURITY / Issue 与 PR 模板 / ARCHITECTURE / TROUBLESHOOTING
-
-### Changed
-
-- 目录结构：`scripts/` → `src/`，`opencode-plugin/` → `plugin/`（安装到 `~/bin` 的路径不变）
-- 悬浮窗由单文件 484 行拆分为入口 + `widget/` 三个部件（同一作用域协作）
-- PushPlus 请求超时 10 秒 → 20 秒（慢代理链路实测单次 9~12 秒，10 秒会偶发失败）
-- 插件关闭子进程 stdin 改为显式 `child.stdin.end()`（原 `execFile` 的 `input` 选项
-  无效，此前仅靠脚本侧 `-NoStdin` 兜底）
-
-### Fixed
-
-- `widget-detached.py` 接线补全：纳入安装/卸载清单与快捷方式构建，不再是孤儿文件
-- 悬浮窗单实例接管兼容 `pythonw` 启动（命令行路径不带引号的形态）
-
-### 已知行为（非缺陷）
-
-- `Format-NotifySummary` 的 `>` 引用行分支为历史死代码（HTML 转义先于行内规则），
-  实际输出 `&gt; …`；0.1.0 按行为等价保留，单测已固化现状
+- 删除所有旧运行时、包装脚本、模块加载和兼容入口。
+- 删除旧品牌命名、旧配置文件、旧 marker、旧日志和旧环境变量。
+- 删除旧安装记录、旧快捷方式及旧发布包命名。
+- 不提供旧版本配置迁移或别名；v1.0.0 只使用本文档中的新契约。

@@ -2,40 +2,65 @@ package notify
 
 import (
 	"bufio"
+	"encoding/json"
+	"fmt"
 	"os"
-	"regexp"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"linkweixin/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/config"
 )
 
-// HistoryItem represents a parsed entry from the push log.
+// HistoryItem is one structured push record. The file uses JSON Lines so
+// summaries can contain newlines without corrupting the history.
 type HistoryItem struct {
-	Time     string `json:"time"`
-	RawTime  string `json:"rawTime"`
-	Title    string `json:"title"`
-	Summary  string `json:"summary"`
-	Channels string `json:"channels"`
-	Status   string `json:"status"`
-	Raw      string `json:"raw"`
+	Timestamp string `json:"timestamp"`
+	Agent     string `json:"agent,omitempty"`
+	Session   string `json:"session,omitempty"`
+	Title     string `json:"title"`
+	Summary   string `json:"summary,omitempty"`
+	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
 }
 
-var (
-	reLogLine = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(.*)$`)
-	reTitle   = regexp.MustCompile(`title=([^|]+)`)
-	reSummary = regexp.MustCompile(`summary=([^|]+)`)
-	reChan    = regexp.MustCompile(`channels=([^|]+)`)
-	reStatus  = regexp.MustCompile(`status=([^|]+)`)
-)
-
-// GetHistory reads push history from logPath (default: paths.PushLog), returns most recent entries first.
-func GetHistory(limit int, logPath string) ([]HistoryItem, error) {
-	if logPath == "" {
-		paths := config.GetPaths()
-		logPath = paths.PushLog
+func (h HistoryItem) LocalTime() time.Time {
+	if value, err := time.Parse(time.RFC3339Nano, h.Timestamp); err == nil {
+		return value.Local()
 	}
+	return time.Time{}
+}
 
+func appendHistory(item HistoryItem, logPath string) error {
+	if strings.TrimSpace(logPath) == "" {
+		logPath = config.GetPaths().PushLog
+	}
+	if strings.TrimSpace(item.Timestamp) == "" {
+		item.Timestamp = time.Now().Format(time.RFC3339Nano)
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0700); err != nil {
+		return fmt.Errorf("create history directory: %w", err)
+	}
+	data, err := json.Marshal(item)
+	if err != nil {
+		return fmt.Errorf("encode history: %w", err)
+	}
+	file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return fmt.Errorf("open history: %w", err)
+	}
+	defer file.Close()
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("write history: %w", err)
+	}
+	return nil
+}
+
+// GetHistory reads push history from logPath and returns the most recent entries first.
+func GetHistory(limit int, logPath string) ([]HistoryItem, error) {
+	if strings.TrimSpace(logPath) == "" {
+		logPath = config.GetPaths().PushLog
+	}
 	if limit <= 0 {
 		limit = 50
 	}
@@ -49,77 +74,37 @@ func GetHistory(limit int, logPath string) ([]HistoryItem, error) {
 	}
 	defer file.Close()
 
-	var lines []string
+	items := make([]HistoryItem, 0, limit)
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			lines = append(lines, line)
-		}
-	}
-
-	var results []HistoryItem
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := lines[i]
-		m := reLogLine.FindStringSubmatch(line)
-		if len(m) != 3 {
+		if line == "" {
 			continue
 		}
-
-		timeStr := m[1]
-		rest := m[2]
-		localTime := timeStr
-		if t, err := time.Parse(time.RFC3339Nano, timeStr); err == nil {
-			localTime = t.Local().Format("2006-01-02 15:04:05")
-		} else if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
-			localTime = t.Local().Format("2006-01-02 15:04:05")
+		var item HistoryItem
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
 		}
-
-		title := ""
-		summary := ""
-		channels := "PushPlus"
-		status := "成功"
-
-		if tm := reTitle.FindStringSubmatch(rest); len(tm) == 2 {
-			title = strings.TrimSpace(tm[1])
-		}
-		if sm := reSummary.FindStringSubmatch(rest); len(sm) == 2 {
-			summary = strings.TrimSpace(sm[1])
-		}
-		if cm := reChan.FindStringSubmatch(rest); len(cm) == 2 {
-			channels = strings.TrimSpace(cm[1])
-		}
-		if stm := reStatus.FindStringSubmatch(rest); len(stm) == 2 {
-			status = strings.TrimSpace(stm[1])
-		}
-
-		if title == "" {
-			title = rest
-		}
-
-		results = append(results, HistoryItem{
-			Time:     localTime,
-			RawTime:  timeStr,
-			Title:    title,
-			Summary:  summary,
-			Channels: channels,
-			Status:   status,
-			Raw:      line,
-		})
-
-		if len(results) >= limit {
-			break
-		}
+		items = append(items, item)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 
-	return results, nil
+	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
+		items[left], items[right] = items[right], items[left]
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
 }
 
 // ClearHistory removes the push log file.
 func ClearHistory(logPath string) error {
-	if logPath == "" {
-		paths := config.GetPaths()
-		logPath = paths.PushLog
+	if strings.TrimSpace(logPath) == "" {
+		logPath = config.GetPaths().PushLog
 	}
 	err := os.Remove(logPath)
 	if err != nil && !os.IsNotExist(err) {

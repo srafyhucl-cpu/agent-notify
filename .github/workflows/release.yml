@@ -9,52 +9,69 @@ permissions:
 
 jobs:
   release:
-    name: 构建并发布
+    name: Build and publish
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: 校验 tag 与模块版本一致
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verify tag and application version
         shell: powershell
         run: |
           $tag = '${{ github.ref_name }}'.TrimStart('v')
-          $psd1 = 'src/lib/LinkWeixin/LinkWeixin.psd1'
-          $m = Select-String -Path $psd1 -Pattern "ModuleVersion\s*=\s*'([^']+)'" | Select-Object -First 1
-          if (-not $m) { throw "读不到 psd1 ModuleVersion" }
-          $ver = $m.Matches[0].Groups[1].Value
-          if ($tag -ne $ver) { throw "tag v$tag 与 psd1 版本 $ver 不一致" }
-          Write-Output "版本一致：$ver"
+          $versionFile = 'internal\app\version.go'
+          $match = Select-String -Path $versionFile -Pattern 'Version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          if (-not $match) { throw "Could not read Version from $versionFile" }
+          $version = $match.Matches[0].Groups[1].Value
+          if ($tag -ne $version) { throw "tag v$tag does not match application version $version" }
+          Write-Output "Version verified: $version"
 
-      - name: 构建发布包
+      - name: Build release archive
         shell: powershell
         run: ./tools/build-release.ps1
 
-      - name: 从 CHANGELOG 提取本版 notes
+      - name: Extract release notes
         id: notes
         shell: powershell
         run: |
-          $ver = '${{ github.ref_name }}'.TrimStart('v')
-          # 必须显式 -Encoding UTF8：CHANGELOG.md 无 BOM，PS 5.1 默认按 ANSI 读会乱码
+          $version = '${{ github.ref_name }}'.TrimStart('v')
           $lines = Get-Content CHANGELOG.md -Encoding UTF8
           $start = -1
           $end = $lines.Count
           for ($i = 0; $i -lt $lines.Count; $i++) {
-            if ($start -lt 0 -and $lines[$i] -match "^## \[$([regex]::Escape($ver))\]") { $start = $i; continue }
-            if ($start -ge 0 -and $i -gt $start -and $lines[$i] -match '^## \[') { $end = $i; break }
+            if ($start -lt 0 -and $lines[$i] -match "^## \[$([regex]::Escape($version))\]") {
+              $start = $i
+              continue
+            }
+            if ($start -ge 0 -and $i -gt $start -and $lines[$i] -match '^## \[') {
+              $end = $i
+              break
+            }
           }
           $body = ''
-          if ($start -ge 0) { $body = ($lines[($start + 1)..($end - 1)] -join "`n").Trim() }
+          if ($start -ge 0) {
+            $body = ($lines[($start + 1)..($end - 1)] -join "`n").Trim()
+          }
           [IO.File]::WriteAllText('release-notes.md', $body, (New-Object System.Text.UTF8Encoding($false)))
-          if ($body.Length -gt 0) { 'has_notes=true' | Out-File $env:GITHUB_OUTPUT -Append -Encoding ascii }
-          else { 'has_notes=false' | Out-File $env:GITHUB_OUTPUT -Append -Encoding ascii }
-          Write-Output "notes length: $($body.Length)"
+          if ($body.Length -gt 0) {
+            'has_notes=true' | Out-File $env:GITHUB_OUTPUT -Append -Encoding ascii
+          } else {
+            'has_notes=false' | Out-File $env:GITHUB_OUTPUT -Append -Encoding ascii
+          }
 
-      - name: 创建 Release（zip + SHA256SUMS）
+      - name: Publish release
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = '${{ github.ref_name }}'
-          $zip = (Get-ChildItem dist\*.zip | Select-Object -First 1).FullName
-          $notesArgs = if ('${{ steps.notes.outputs.has_notes }}' -eq 'true') { @('--notes-file', 'release-notes.md') } else { @('--generate-notes') }
-          gh release create $tag "$zip" dist\SHA256SUMS.txt --title "linkWeixin $tag" @notesArgs
+          $zip = (Get-ChildItem dist\Agent-notify-v*.zip | Select-Object -First 1).FullName
+          if ('${{ steps.notes.outputs.has_notes }}' -eq 'true') {
+            gh release create $tag "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --notes-file release-notes.md
+          } else {
+            gh release create $tag "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --generate-notes
+          }

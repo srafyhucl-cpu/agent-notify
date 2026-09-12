@@ -1,49 +1,49 @@
 name: Bug 报告
-description: 推送、开关、悬浮窗、安装/卸载等出现问题时使用
+description: 推送、开关、悬浮窗、安装或卸载出现问题时使用
 title: "[Bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        提交前请先看 `docs/TROUBLESHOOTING.md`（含日志位置与常见症状排查）。
-        日志里不会记录 token，可放心粘贴。
+        提交前请先查看 `docs/TROUBLESHOOTING.md`。
+        日志不包含 ClawBot 凭据，可放心粘贴相关片段。
   - type: dropdown
     id: area
     attributes:
       label: 出问题的部分
       options:
-        - 推送（收不到 / 重复 / 内容不对）
-        - opencode 插件（任务跑完没推）
-        - codex 中转 / 看守任务
-        - 悬浮窗（窗口 / 托盘 / 开关 / 运行灯）
-        - 安装 / 卸载
-        - 文档 / 其它
+        - 推送（收不到、重复或内容不对）
+        - OpenCode 插件
+        - Codex 事件
+        - 悬浮窗（窗口、托盘、开关或运行状态）
+        - 安装或卸载
+        - 文档或其它
     validations:
       required: true
   - type: input
     id: env
     attributes:
       label: 环境
-      description: Windows 版本 / PowerShell 版本 / opencode 或 codex 版本 / 是否装了 Python
-      placeholder: "例：Win11 23H2 / PS 5.1.26100 / opencode 1.x / 有 Python 3.13"
+      description: Windows 版本、Agent-notify 版本、OpenCode 或 Codex 版本
+      placeholder: "例：Windows 11 23H2 / Agent-notify 1.0.0 / Codex 1.x"
     validations:
       required: true
   - type: textarea
     id: what
     attributes:
       label: 现象与复现步骤
-      description: 发生了什么、期望是什么、怎么复现
+      description: 发生了什么、期望是什么、如何复现
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
       label: 相关日志
-      description: "推送记录：%TEMP%\\opencode\\notify-push.log；调试日志：notify-debug.log / codex-notify-debug.log；悬浮窗：widget-error.log（详见排障文档）"
+      description: "推送记录：%TEMP%\\agent-notify\\push.log；插件调试：opencode-debug.log；Codex 调试：codex-notify-debug.log；悬浮窗：widget-error.log"
       render: text
   - type: textarea
     id: tried
     attributes:
       label: 已尝试的排查
-      description: 例如重跑 install.ps1、重启桌面端、开关 marker 状态等
+      description: 例如重跑 `agent-notify doctor`、重启桌面端或检查开关状态

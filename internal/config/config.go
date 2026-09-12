@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,227 +11,131 @@ import (
 	"time"
 )
 
-// ChannelPushPlus config for PushPlus WeChat channel.
-type ChannelPushPlus struct {
-	Enabled bool   `json:"enabled"`
-	Token   string `json:"token"`
-}
+const DefaultCooldownMin = 10
 
-// ChannelWebhook config for Webhook channels (WeCom, Feishu, DingTalk, Custom).
-type ChannelWebhook struct {
-	Enabled bool   `json:"enabled"`
-	Webhook string `json:"webhook"`
-}
-
-// ChannelsConfig groups all notification channels.
-type ChannelsConfig struct {
-	PushPlus ChannelPushPlus `json:"pushplus"`
-	WeCom    ChannelWebhook  `json:"wecom"`
-	Feishu   ChannelWebhook  `json:"feishu"`
-	DingTalk ChannelWebhook  `json:"dingtalk"`
-	Custom   ChannelWebhook  `json:"custom"`
-}
-
-// AppConfig represents ~/.config/linkweixin/config.json content.
 type AppConfig struct {
-	Channels    ChannelsConfig `json:"channels"`
-	QuietHours  string         `json:"quietHours"`
-	CooldownMin int            `json:"cooldownMin"`
+	QuietHours  string `json:"quietHours"`
+	CooldownMin int    `json:"cooldownMin"`
 }
 
-// DefaultConfig builds default configuration merged with current environment variables.
+var quietHoursPattern = regexp.MustCompile(`^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$`)
+
 func DefaultConfig() AppConfig {
-	pushToken := os.Getenv("PUSHPLUS_TOKEN")
-
-	wecomHook := os.Getenv("WECOM_WEBHOOK_URL")
-	feishuHook := os.Getenv("FEISHU_WEBHOOK_URL")
-	dingHook := os.Getenv("DINGTALK_WEBHOOK_URL")
-	customHook := os.Getenv("LINKWEIXIN_WEBHOOK_URL")
-
-	quiet := os.Getenv("OPENCODE_NOTIFY_QUIET")
-	if quiet == "" {
-		quiet = os.Getenv("ANTIGRAVITY_NOTIFY_QUIET")
+	cfg := AppConfig{
+		QuietHours:  strings.TrimSpace(os.Getenv("AGENT_NOTIFY_QUIET")),
+		CooldownMin: DefaultCooldownMin,
 	}
-
-	cooldown := 10
-	if cdStr := os.Getenv("OPENCODE_NOTIFY_COOLDOWN_MIN"); cdStr != "" {
-		if n, err := strconv.Atoi(strings.TrimSpace(cdStr)); err == nil && n > 0 {
-			cooldown = n
-		}
-	} else if cdStr := os.Getenv("ANTIGRAVITY_NOTIFY_COOLDOWN_MIN"); cdStr != "" {
-		if n, err := strconv.Atoi(strings.TrimSpace(cdStr)); err == nil && n > 0 {
-			cooldown = n
+	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_COOLDOWN_MIN")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
+			cfg.CooldownMin = value
 		}
 	}
-
-	return AppConfig{
-		Channels: ChannelsConfig{
-			PushPlus: ChannelPushPlus{
-				Enabled: true,
-				Token:   pushToken,
-			},
-			WeCom: ChannelWebhook{
-				Enabled: wecomHook != "",
-				Webhook: wecomHook,
-			},
-			Feishu: ChannelWebhook{
-				Enabled: feishuHook != "",
-				Webhook: feishuHook,
-			},
-			DingTalk: ChannelWebhook{
-				Enabled: dingHook != "",
-				Webhook: dingHook,
-			},
-			Custom: ChannelWebhook{
-				Enabled: customHook != "",
-				Webhook: customHook,
-			},
-		},
-		QuietHours:  quiet,
-		CooldownMin: cooldown,
-	}
+	return cfg
 }
 
-// LoadConfig reads config.json or falls back to defaults merged with env vars.
-func LoadConfig(configPath string) AppConfig {
+// LoadConfig reads the Agent-notify configuration. A missing file is valid and
+// returns environment-backed defaults; malformed JSON is returned as an error.
+func LoadConfig(configPath string) (AppConfig, error) {
 	cfg := DefaultConfig()
-	if configPath == "" {
-		paths := GetPaths()
-		configPath = paths.AppConfigFile
+	if strings.TrimSpace(configPath) == "" {
+		configPath = GetPaths().ConfigFile
 	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return cfg
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return cfg, fmt.Errorf("read config: %w", err)
 	}
 
-	// Partially parse raw JSON to selectively override fields
 	var raw struct {
-		Channels *struct {
-			PushPlus *struct {
-				Enabled *bool   `json:"enabled"`
-				Token   *string `json:"token"`
-			} `json:"pushplus"`
-			WeCom *struct {
-				Enabled *bool   `json:"enabled"`
-				Webhook *string `json:"webhook"`
-			} `json:"wecom"`
-			Feishu *struct {
-				Enabled *bool   `json:"enabled"`
-				Webhook *string `json:"webhook"`
-			} `json:"feishu"`
-			DingTalk *struct {
-				Enabled *bool   `json:"enabled"`
-				Webhook *string `json:"webhook"`
-			} `json:"dingtalk"`
-			Custom *struct {
-				Enabled *bool   `json:"enabled"`
-				Webhook *string `json:"webhook"`
-			} `json:"custom"`
-		} `json:"channels"`
 		QuietHours  *string `json:"quietHours"`
 		CooldownMin *int    `json:"cooldownMin"`
 	}
-
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return cfg
+		return cfg, fmt.Errorf("decode config: %w", err)
 	}
-
-	if raw.Channels != nil {
-		if raw.Channels.PushPlus != nil {
-			if raw.Channels.PushPlus.Enabled != nil {
-				cfg.Channels.PushPlus.Enabled = *raw.Channels.PushPlus.Enabled
-			}
-			if raw.Channels.PushPlus.Token != nil && strings.TrimSpace(*raw.Channels.PushPlus.Token) != "" {
-				cfg.Channels.PushPlus.Token = *raw.Channels.PushPlus.Token
-			}
-		}
-		if raw.Channels.WeCom != nil {
-			if raw.Channels.WeCom.Enabled != nil {
-				cfg.Channels.WeCom.Enabled = *raw.Channels.WeCom.Enabled
-			}
-			if raw.Channels.WeCom.Webhook != nil && strings.TrimSpace(*raw.Channels.WeCom.Webhook) != "" {
-				cfg.Channels.WeCom.Webhook = *raw.Channels.WeCom.Webhook
-			}
-		}
-		if raw.Channels.Feishu != nil {
-			if raw.Channels.Feishu.Enabled != nil {
-				cfg.Channels.Feishu.Enabled = *raw.Channels.Feishu.Enabled
-			}
-			if raw.Channels.Feishu.Webhook != nil && strings.TrimSpace(*raw.Channels.Feishu.Webhook) != "" {
-				cfg.Channels.Feishu.Webhook = *raw.Channels.Feishu.Webhook
-			}
-		}
-		if raw.Channels.DingTalk != nil {
-			if raw.Channels.DingTalk.Enabled != nil {
-				cfg.Channels.DingTalk.Enabled = *raw.Channels.DingTalk.Enabled
-			}
-			if raw.Channels.DingTalk.Webhook != nil && strings.TrimSpace(*raw.Channels.DingTalk.Webhook) != "" {
-				cfg.Channels.DingTalk.Webhook = *raw.Channels.DingTalk.Webhook
-			}
-		}
-		if raw.Channels.Custom != nil {
-			if raw.Channels.Custom.Enabled != nil {
-				cfg.Channels.Custom.Enabled = *raw.Channels.Custom.Enabled
-			}
-			if raw.Channels.Custom.Webhook != nil && strings.TrimSpace(*raw.Channels.Custom.Webhook) != "" {
-				cfg.Channels.Custom.Webhook = *raw.Channels.Custom.Webhook
-			}
-		}
-	}
-
 	if raw.QuietHours != nil {
-		cfg.QuietHours = *raw.QuietHours
+		cfg.QuietHours = strings.TrimSpace(*raw.QuietHours)
 	}
 	if raw.CooldownMin != nil && *raw.CooldownMin > 0 {
 		cfg.CooldownMin = *raw.CooldownMin
 	}
+	return NormalizeConfig(cfg), nil
+}
 
+func NormalizeConfig(cfg AppConfig) AppConfig {
+	cfg.QuietHours = strings.TrimSpace(cfg.QuietHours)
+	if !ValidQuietHours(cfg.QuietHours) {
+		cfg.QuietHours = ""
+	}
+	if cfg.CooldownMin <= 0 {
+		cfg.CooldownMin = DefaultCooldownMin
+	}
+	if cfg.CooldownMin > 1440 {
+		cfg.CooldownMin = 1440
+	}
 	return cfg
 }
 
-// SaveConfig writes AppConfig to config.json.
+// SaveConfig writes the configuration atomically.
 func SaveConfig(cfg AppConfig, configPath string) error {
-	if configPath == "" {
-		paths := GetPaths()
-		configPath = paths.AppConfigFile
+	cfg = NormalizeConfig(cfg)
+	if strings.TrimSpace(configPath) == "" {
+		configPath = GetPaths().ConfigFile
 	}
 
-	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
 	}
-
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("encode config: %w", err)
 	}
-
-	return os.WriteFile(configPath, data, 0644)
+	return writeFileAtomic(configPath, append(data, '\n'), 0600)
 }
 
-var quietRegex = regexp.MustCompile(`^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$`)
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	_ = os.Remove(path)
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
 
-// IsInQuietHours returns true if current time falls within the configured quiet hours (e.g. "23-8").
-func IsInQuietHours(quietRaw string, t time.Time) bool {
-	if strings.TrimSpace(quietRaw) == "" {
+func ValidQuietHours(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return true
+	}
+	match := quietHoursPattern.FindStringSubmatch(raw)
+	if len(match) != 3 {
 		return false
 	}
-	m := quietRegex.FindStringSubmatch(quietRaw)
-	if len(m) != 3 {
+	start, errStart := strconv.Atoi(match[1])
+	end, errEnd := strconv.Atoi(match[2])
+	return errStart == nil && errEnd == nil && start >= 0 && start <= 23 && end >= 0 && end <= 23 && start != end
+}
+
+// IsInQuietHours reports whether t falls in the configured start-end window.
+// The start is inclusive and the end is exclusive; a start after the end wraps
+// across midnight.
+func IsInQuietHours(raw string, t time.Time) bool {
+	if !ValidQuietHours(raw) || strings.TrimSpace(raw) == "" {
 		return false
 	}
-	s, err1 := strconv.Atoi(m[1])
-	e, err2 := strconv.Atoi(m[2])
-	if err1 != nil || err2 != nil {
-		return false
+	match := quietHoursPattern.FindStringSubmatch(strings.TrimSpace(raw))
+	start, _ := strconv.Atoi(match[1])
+	end, _ := strconv.Atoi(match[2])
+	hour := t.Hour()
+	if start < end {
+		return hour >= start && hour < end
 	}
-	if s < 0 || s > 23 || e < 0 || e > 23 || s == e {
-		return false
-	}
-	h := t.Hour()
-	if s < e {
-		return h >= s && h < e
-	}
-	return h >= s || h < e
+	return hour >= start || hour < end
 }

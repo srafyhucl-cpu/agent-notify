@@ -1,330 +1,177 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  linkWeixin 冒烟测试：语法检查 + DryRun 渲染 + watcher 幂等性。不真推，不碰真实配置。
+  Agent-notify 冒烟测试：脚本语法 + CLI DryRun + 开关 marker + 沙箱安装/卸载。不联网，不碰真实配置。
 #>
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $RepoRoot
 
-$files = @(
-  'src\notify-ai.ps1',
-  'src\codex-notify.ps1',
-  'src\antigravity-notify.ps1',
-  'src\codex-notify-watch.ps1',
-  'src\notify-toggle.ps1',
-  'src\linkweixin-widget.ps1',
-  'install.ps1',
-  'uninstall.ps1'
-) + @(Get-ChildItem -Path (Join-Path $RepoRoot 'src\lib') -Recurse -File -Include *.ps1, *.psm1, *.psd1 |
-    ForEach-Object { $_.FullName.Substring($RepoRoot.Length + 1) }) `
-  + @(Get-ChildItem -Path (Join-Path $RepoRoot 'src\widget') -Recurse -File -Include *.ps1 |
-    ForEach-Object { $_.FullName.Substring($RepoRoot.Length + 1) })
-foreach ($f in $files) {
+function Assert-True {
+  param([bool]$Condition, [string]$Message)
+  if (-not $Condition) { throw $Message }
+}
+
+function Resolve-GoCommand {
+  $candidates = @()
+  if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_GO)) { $candidates += $env:AGENT_NOTIFY_GO }
+  $onPath = Get-Command go.exe -ErrorAction SilentlyContinue
+  if ($onPath) { $candidates += $onPath.Source }
+  $candidates += 'D:\MyGO\install\bin\go.exe'
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate)) { return $candidate }
+  }
+  return $null
+}
+
+# 0. PowerShell 语法解析
+foreach ($file in @('install.ps1', 'uninstall.ps1', 'tools\build-release.ps1', 'tools\test.ps1', 'tools\lint.ps1', 'tests\smoke.ps1')) {
   $tokens = $null
-  $errs = $null
-  [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot $f), [ref]$tokens, [ref]$errs)
-  if ($errs.Count -gt 0) { throw "$f 语法失败：$($errs[0].Message)" }
-  Write-Output "[ok] syntax $f"
+  $errors = $null
+  [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot $file), [ref]$tokens, [ref]$errors)
+  if ($errors.Count -gt 0) { throw "$file 语法失败：$($errors[0].Message)" }
+  Write-Output "[ok] syntax $file"
 }
 
-# DryRun：不需要 token，验证渲染链路
-$dry = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-ai.ps1 -DryRun -Title 'smoke' -Summary 'hello **bold** smoke' 2>&1
-if ($dry -notmatch 'bold') { throw "DryRun 渲染失败：$dry" }
-Write-Output '[ok] notify-ai DryRun'
+# 1. 插件静态约束：只依赖新的 CLI，不再出现旧品牌/旧运行时
+$pluginRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'plugin\agent-notify.ts'))
+foreach ($needle in @('agent-notify.exe', 'AGENT_NOTIFY_BIN', 'notify",')) {
+  Assert-True ($pluginRaw -match [regex]::Escape($needle)) "插件缺少新协议标记：$needle"
+}
+$legacyNames = @(('link' + 'Weixin'), ('link' + 'weixin'), ('PUSH' + 'PLUS'), ('Push' + 'Plus'), ('power' + 'shell.exe'), ('notify' + '-ai.ps1'), ('anti' + 'gravity'))
+foreach ($legacy in $legacyNames) {
+  Assert-True (-not ($pluginRaw -match [regex]::Escape($legacy))) "插件仍残留旧实现：$legacy"
+}
+Write-Output '[ok] plugin only targets agent-notify.exe'
 
-# watcher：临时 config，验证 exe->wrapper 改写、幂等、自定义不动
-$tmp = Join-Path $env:TEMP 'linkweixin-smoke'
-New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+# 2. 编译 CLI（缓存放仓库所在磁盘）
+$goExe = Resolve-GoCommand
+if (-not $goExe) { throw '找不到 go.exe' }
+$driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
+$cacheRoot = Join-Path $driveRoot 'Temp\agent-notify-go'
+if ([string]::IsNullOrWhiteSpace($env:GOPATH)) { $env:GOPATH = $cacheRoot }
+if ([string]::IsNullOrWhiteSpace($env:GOMODCACHE)) { $env:GOMODCACHE = Join-Path $cacheRoot 'pkg\mod' }
+if ([string]::IsNullOrWhiteSpace($env:GOCACHE)) { $env:GOCACHE = Join-Path $cacheRoot 'build' }
+
+$smokeRoot = Join-Path $driveRoot ('Temp\agent-notify-smoke-' + [guid]::NewGuid().ToString('N'))
+$binDir = Join-Path $smokeRoot 'bin'
+$pluginDir = Join-Path $smokeRoot 'plugins'
+$configDir = Join-Path $smokeRoot 'config'
+New-Item -ItemType Directory -Force -Path $binDir, $pluginDir, $configDir | Out-Null
+
+$exePath = Join-Path $binDir 'agent-notify.exe'
+& $goExe build -ldflags '-s -w' -trimpath -o $exePath '.\cmd\agent-notify\'
+if ($LASTEXITCODE -ne 0) { throw "go build 失败 exit=$LASTEXITCODE" }
+Write-Output '[ok] go build'
+
+# 隔离环境：所有状态都落在沙箱里，绝不碰真实用户配置
+$env:AGENT_NOTIFY_CONFIG_DIR = $configDir
+$env:AGENT_NOTIFY_TEMP_DIR = (Join-Path $smokeRoot 'state')
+$env:AGENT_NOTIFY_CONFIG_FILE = Join-Path $configDir 'config.json'
+$env:AGENT_NOTIFY_CREDENTIAL_FILE = Join-Path $configDir 'clawbot.json'
+
 try {
-  $cfg = Join-Path $tmp 'config.toml'
-  Set-Content -Path $cfg -Value ('model = "x"' + "`n" + 'notify = [ "old", "codex-computer-use.exe", "turn-ended" ]') -Encoding utf8
-  $env:CODEX_CONFIG = $cfg
-  $env:CODEX_NOTIFY_WRAPPER = 'C:/smoke-test/bin/codex-notify.ps1'
-  & powershell -NoProfile -ExecutionPolicy Bypass -File src\codex-notify-watch.ps1
-  $after1 = Get-Content $cfg -Raw
-  if ($after1 -notmatch 'codex-notify\.ps1') { throw 'watcher 未改写 exe->wrapper' }
-  if (-not (Test-Path "$cfg.bak-notify-wrapper")) { throw 'watcher 未备份' }
-  & powershell -NoProfile -ExecutionPolicy Bypass -File src\codex-notify-watch.ps1
-  if ((Get-Content $cfg -Raw) -ne $after1) { throw 'watcher 不幂等' }
-  Write-Output '[ok] watcher patch + idempotent'
-  Set-Content -Path $cfg -Value 'notify = [ "my-custom-tool" ]' -Encoding utf8
-  Remove-Item "$cfg.bak-notify-wrapper" -Force -ErrorAction SilentlyContinue
-  & powershell -NoProfile -ExecutionPolicy Bypass -File src\codex-notify-watch.ps1
-  if ((Get-Content $cfg -Raw) -notmatch 'my-custom-tool') { throw 'watcher 误改自定义配置' }
-  Write-Output '[ok] watcher custom untouched'
-} finally {
-  $env:CODEX_CONFIG = $null
-  $env:CODEX_NOTIFY_WRAPPER = $null
-  Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-}
+  # 3. notify DryRun 渲染
+  $dry = & $exePath notify --dry-run --title '【smoke】' --summary 'hello **bold** smoke' --no-stdin 2>&1
+  Assert-True ($LASTEXITCODE -eq 0) "notify DryRun exit=$LASTEXITCODE"
+  $dryText = "$dry"
+  Assert-True ($dryText -match 'bold') "notify DryRun 未渲染摘要：$dryText"
+  Assert-True ($dryText -match 'smoke') "notify DryRun 未渲染标题：$dryText"
+  Write-Output '[ok] notify dry-run'
 
-# codex-notify：用 Start-Job 隔离跑，桩脚本捕获调参。不联网、不碰真实配置。
-# 注意：不能用 powershell.exe -File 直接调——PS5.1 调原生命令会剥掉/拆散 JSON
-# 内嵌双引号（上已实测），真机上 codex 用 argv 数组 spawn 则无此问题；
-# 且 wrapper 尾部 exit 0 不能跑在本进程。Job 传参走对象序列化，字符串一字不差。
-$tmp2 = Join-Path $env:TEMP 'linkweixin-smoke2'
-New-Item -ItemType Directory -Force -Path $tmp2 | Out-Null
-try {
-  $stub = Join-Path $tmp2 'stub.ps1'
-  Set-Content -Path $stub -Value '"$args" | Out-File -FilePath "$env:SMOKE_GOT" -Encoding utf8' -Encoding utf8
-  $gotPath = Join-Path $tmp2 'got.txt'
-  $nolocal = Join-Path $tmp2 'nolocal'
-  $sample = '{"last-assistant-message":"hello **world** smoke","input-messages":["帮我写个脚本测试一下"]}'
-  $job = Start-Job -ScriptBlock {
-    param($repo, $stubPath, $gotFile, $fakeLocal, $json)
-    $env:SMOKE_GOT = $gotFile
-    $env:NOTIFY_AI_SCRIPT = $stubPath
-    $env:LOCALAPPDATA = $fakeLocal
-    & (Join-Path $repo 'src\codex-notify.ps1') 'turn-ended' $json
-  } -ArgumentList $RepoRoot, $stub, $gotPath, $nolocal, $sample
-  $job | Wait-Job | Out-Null
-  $jout = Receive-Job $job
-  Remove-Job $job -Force -ErrorAction SilentlyContinue
-  if ($job.State -ne 'Completed') { throw "codex-notify job 未正常结束：$($job.State) $jout" }
-  if (-not (Test-Path $gotPath)) { throw 'codex-notify 未调到桩脚本' }
-  $got = Get-Content $gotPath -Raw
-  if ($got -notmatch '【codex】帮我写个脚本测试一下') { throw "codex-notify 标题不对：$got" }
-  if ($got -notmatch 'hello \*\*world\*\* smoke') { throw "codex-notify 摘要未原文透传：$got" }
-  Write-Output '[ok] codex-notify passthru + args'
-} finally {
-  Remove-Item $tmp2 -Recurse -Force -ErrorAction SilentlyContinue
-}
+  # 4. status JSON
+  $status = & $exePath status --json 2>&1
+  Assert-True ($LASTEXITCODE -eq 0) "status exit=$LASTEXITCODE"
+  $statusJson = "$status" | ConvertFrom-Json
+  Assert-True ($statusJson.openCodeEnabled -eq $true) 'status 初始 OpenCode 开关应为开启'
+  Assert-True ($statusJson.codexEnabled -eq $true) 'status 初始 Codex 开关应为开启'
+  Write-Output '[ok] status json'
 
-# 防大小写撞车回归：PS 变量不分大小写，$CARD/$card 这类同名不同写
-# 会静默覆盖（曾导致悬浮窗卡片颜色失效 + 启动 try 连带跳过 ShowDialog 秒退）
-$wraw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'src\linkweixin-widget.ps1'))
-# 拆分后部件与入口共享作用域，大小写撞车检查必须覆盖 widget\ 下全部文件。
-foreach ($wf in @(Get-ChildItem -Path (Join-Path $RepoRoot 'src\widget') -File -Filter *.ps1)) {
-  $wraw += "`n" + [IO.File]::ReadAllText($wf.FullName)
-}
-$vars = [regex]::Matches($wraw, '\$[A-Za-z][A-Za-z0-9_]*') | ForEach-Object { $_.Value } | Sort-Object -Unique
-$dupes = $vars | Group-Object { $_.ToLower() } | Where-Object { ($_.Group | Sort-Object -Unique).Count -gt 1 }
-if ($dupes) { throw ("widget 变量大小写撞车：" + (($dupes | ForEach-Object { $_.Group -join '/' }) -join '; ')) }
-Write-Output '[ok] widget no case-collision vars'
-# 找回与稳定性：最小化到任务栏、退出标记、DPI 感知、位置记忆
-if ($wraw -notmatch 'Minimize-WidgetWindow') { throw 'widget 缺“最小化到任务栏”' }
-if ($wraw -notmatch 'WidgetExitMarker') { throw 'widget 缺主动退出标记' }
-if ($wraw -notmatch 'SetProcessDpiAwarenessContext') { throw 'widget 缺 DPI 感知' }
-if ($wraw -notmatch 'Save-WidgetPosition') { throw 'widget 缺位置记忆' }
-Write-Output '[ok] widget recovery/dpi/position wiring'
-# 防闪屏回归：两处拉起子 powershell 必须带 -WindowStyle Hidden（读原文跨行匹配）
-foreach ($f in @('plugin\notify-pushplus.ts', 'src\codex-notify.ps1')) {
-  $raw = [IO.File]::ReadAllText((Join-Path $RepoRoot $f))
-  if ($raw -notmatch '(?s)-WindowStyle.\s*,?\s*.Hidden') {
-    throw "$f 缺 -WindowStyle Hidden，任务完成时会闪命令行窗口"
-  }
-  Write-Output "[ok] no-flash $f"
-}
-# watcher 自隐藏：已注册的旧任务动作改不动（要管理员），靠脚本启动自藏窗口
-$watchRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'src\codex-notify-watch.ps1'))
-if ($watchRaw -notmatch 'GetConsoleWindow') { throw 'watcher 缺自隐藏，计划任务每 5 分钟闪窗口' }
-Write-Output '[ok] no-flash src\codex-notify-watch.ps1'
-# 看守兼看护：必须有安装记录守卫（仓库/CI 不误启动）与 pythonw 拉起路径
-if ($watchRaw -notmatch 'linkweixin-install\.json') { throw 'watcher 缺悬浮窗看护的安装记录守卫' }
-if ($watchRaw -notmatch 'widget-detached\.py') { throw 'watcher 看护缺 pythonw 拉起路径' }
-Write-Output '[ok] watcher widget watchdog wiring'
-# 无窗口中转：.lnk/计划任务必须经 run-hidden.vbs 拉（Win11 默认终端 WT 下
-# 直接拉 powershell 必闪，-WindowStyle Hidden 都盖不住第一帧）
-$vbs = Join-Path $RepoRoot 'src\run-hidden.vbs'
-if (-not (Test-Path $vbs)) { throw '缺 src\run-hidden.vbs' }
-$vbsRaw = [IO.File]::ReadAllText($vbs)
-if ($vbsRaw -notmatch 'Run.*, 0, False') { throw 'run-hidden.vbs 必须以后台方式(0, False)拉起' }
-$instRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'install.ps1'))
-if ($instRaw -notmatch 'run-hidden\.vbs') { throw 'install.ps1 快捷方式/任务必须经 run-hidden.vbs 中转' }
-Write-Output '[ok] no-flash run-hidden.vbs + install wiring'
-# pythonw 双启动链：install 必须带 WidgetLauncher 检测（有 pythonw 用 Python，否则回退 Vbs）。
-if ($instRaw -notmatch 'WidgetLauncher' -or $instRaw -notmatch 'pythonw') { throw 'install.ps1 缺 WidgetLauncher/pythonw 启动器检测' }
-Write-Output '[ok] widget launcher auto-detect wiring'
-# pythonw 脱离启动器：无控制台、无 WT 页签，关不掉宿主才杀不死窗体
-$py = Join-Path $RepoRoot 'src\widget-detached.py'
-if (-not (Test-Path $py)) { throw '缺 src\widget-detached.py' }
-$pyRaw = [IO.File]::ReadAllText($py)
-if ($pyRaw -notmatch '0x08000000' -or $pyRaw -notmatch 'DEVNULL') { throw 'widget-detached.py 必须 CREATE_NO_WINDOW + 重定向标准句柄' }
-Write-Output '[ok] widget-detached.py present'
+  # 5. toggle 开关 marker
+  & $exePath toggle --agent all --off 2>&1 | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) "toggle off exit=$LASTEXITCODE"
+  Assert-True (Test-Path (Join-Path $configDir 'opencode.off')) 'toggle off 未建 OpenCode marker'
+  Assert-True (Test-Path (Join-Path $configDir 'codex.off')) 'toggle off 未建 Codex marker'
+  $offJson = "$(& $exePath status --json 2>&1)" | ConvertFrom-Json
+  Assert-True ($offJson.openCodeEnabled -eq $false) 'toggle off 后 OpenCode 应为关闭'
+  & $exePath toggle --agent all --on 2>&1 | Out-Null
+  Assert-True (-not (Test-Path (Join-Path $configDir 'opencode.off'))) 'toggle on 未删 OpenCode marker'
+  Assert-True (-not (Test-Path (Join-Path $configDir 'codex.off'))) 'toggle on 未删 Codex marker'
+  Write-Output '[ok] toggle markers'
 
-# notify-toggle：临时 -MarkerPath 隔离，断言 off->on->off + 回显。不碰真实 marker。
-$tmp3 = Join-Path $env:TEMP 'linkweixin-smoke-toggle'
-New-Item -ItemType Directory -Force -Path $tmp3 | Out-Null
-try {
-  $marker = Join-Path $tmp3 'notify-pushplus.off'
-  Remove-Item $marker -Force -ErrorAction SilentlyContinue
-  $t1 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -MarkerPath $marker 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "toggle 翻转 exit 非 0：$LASTEXITCODE" }
-  if ("$t1" -notmatch 'OFF') { throw "toggle 翻转回显不对（期望 OFF）：$t1" }
-  if (-not (Test-Path $marker)) { throw 'toggle 翻转未建 marker' }
-  Write-Output '[ok] toggle flip -> OFF'
-  $t2 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -MarkerPath $marker 2>&1
-  if ("$t2" -notmatch 'ON') { throw "toggle 翻转回显不对（期望 ON）：$t2" }
-  if (Test-Path $marker) { throw 'toggle 翻转未删 marker' }
-  Write-Output '[ok] toggle flip -> ON'
-  $t3 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -MarkerPath $marker -Off 2>&1
-  if ("$t3" -notmatch 'OFF' -or -not (Test-Path $marker)) { throw "toggle -Off 不对：$t3" }
-  $t4 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -MarkerPath $marker -On 2>&1
-  if ("$t4" -notmatch 'ON' -or (Test-Path $marker)) { throw "toggle -On 不对：$t4" }
-  Write-Output '[ok] toggle -On/-Off'
-  # -Agent Codex：独立 marker，翻转 + 回显（-CodexMarker 隔离，不碰真实文件）
-  $cxMarker = Join-Path $tmp3 'codex-notify.off'
-  Remove-Item $cxMarker -Force -ErrorAction SilentlyContinue
-  $c1 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -Agent Codex -CodexMarker $cxMarker 2>&1
-  if ("$c1" -notmatch 'OFF' -or -not (Test-Path $cxMarker)) { throw "toggle codex 翻转不对：$c1" }
-  $c2 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -Agent Codex -CodexMarker $cxMarker 2>&1
-  if ("$c2" -notmatch 'ON' -or (Test-Path $cxMarker)) { throw "toggle codex 翻转不对：$c2" }
-  Write-Output '[ok] toggle -Agent Codex'
-  # -Agent Antigravity：独立 marker，翻转 + 回显（-AntigravityMarker 隔离，不碰真实文件）
-  $agMarker = Join-Path $tmp3 'antigravity-notify.off'
-  Remove-Item $agMarker -Force -ErrorAction SilentlyContinue
-  $a1 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -Agent Antigravity -AntigravityMarker $agMarker 2>&1
-  if ("$a1" -notmatch 'OFF' -or -not (Test-Path $agMarker)) { throw "toggle antigravity 翻转不对：$a1" }
-  $a2 = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -Agent Antigravity -AntigravityMarker $agMarker 2>&1
-  if ("$a2" -notmatch 'ON' -or (Test-Path $agMarker)) { throw "toggle antigravity 翻转不对：$a2" }
-  Write-Output '[ok] toggle -Agent Antigravity'
-  # -Agent All：三边各翻各的，各回显一行
-  Remove-Item $marker -Force -ErrorAction SilentlyContinue
-  Remove-Item $cxMarker -Force -ErrorAction SilentlyContinue
-  Remove-Item $agMarker -Force -ErrorAction SilentlyContinue
-  $al = & powershell -NoProfile -ExecutionPolicy Bypass -File src\notify-toggle.ps1 -MarkerPath $marker -CodexMarker $cxMarker -AntigravityMarker $agMarker -Off 2>&1
-  if (("$al" -notmatch 'opencode: OFF') -or ("$al" -notmatch 'codex: OFF') -or ("$al" -notmatch 'antigravity: OFF')) { throw "toggle All 回显不对：$al" }
-  if (-not (Test-Path $marker) -or -not (Test-Path $cxMarker) -or -not (Test-Path $agMarker)) { throw 'toggle All 未建齐 marker' }
-  Write-Output '[ok] toggle -Agent All'
-} finally {
-  Remove-Item $tmp3 -Recurse -Force -ErrorAction SilentlyContinue
-}
+  # 6. Codex 事件解析（DryRun，不发送）
+  $payload = '{"last-assistant-message":"hello **world** smoke","input-messages":["帮我写个脚本测试一下"]}'
+  $codexDry = & $exePath codex turn-ended $payload -dry-run 2>&1
+  Assert-True ($LASTEXITCODE -eq 0) "codex dry-run exit=$LASTEXITCODE"
+  $codexText = "$codexDry"
+  Assert-True ($codexText -match '【codex】帮我写个脚本测试一下') "codex 标题解析失败：$codexText"
+  Write-Output '[ok] codex dry-run passthru'
+  $codexJson = $codexText | ConvertFrom-Json
+  Assert-True ($codexJson.title -match '【codex】帮我写个脚本测试一下') "codex 标题解析失败：$codexText"
+  Assert-True ($codexJson.message -match 'hello world smoke') "codex 摘要未透传：$codexText"
 
-# antigravity-notify：验证 stdin hook 上下文解析、首行标题提取、尾部摘要逆序提取、fullyIdle守卫、marker跳过与 DryRun 渲染
-$tmpAg = Join-Path $env:TEMP 'linkweixin-smoke-ag'
-New-Item -ItemType Directory -Force -Path $tmpAg | Out-Null
-try {
-  $transcriptFile = Join-Path $tmpAg 'transcript.jsonl'
-  $line1 = '{"role":"user","content":"<USER_REQUEST>**Task**: 测试 Antigravity 任务完成</USER_REQUEST>"}'
-  $line2 = '{"role":"assistant","content":"已完成 Antigravity 阶段 1 核心功能开发与 **深度验证**。"}'
-  Set-Content -Path $transcriptFile -Value @($line1, $line2) -Encoding utf8
-  $escapedTranscript = ($transcriptFile -replace '\\', '\\')
+  # 7. 沙箱安装/卸载：只应落盘 exe + 插件 + 安装记录
+  $repoBin = Join-Path $RepoRoot 'bin'
+  New-Item -ItemType Directory -Force -Path $repoBin | Out-Null
+  Copy-Item $exePath (Join-Path $repoBin 'agent-notify.exe') -Force
 
-  # 隔离 stateFile 避免与生产/旧测试产生冲突
-  $env:ANTIGRAVITY_NOTIFY_STATE_FILE = Join-Path $tmpAg 'sent.json'
-
-  # 1. fullyIdle == false 应该跳过并不调用推送，输出 {}
-  $payloadIdleFalse = "{`"fullyIdle`":false,`"transcriptPath`":`"$escapedTranscript`",`"conversationId`":`"conv-1`"}"
-  $out1 = $payloadIdleFalse | & powershell -NoProfile -ExecutionPolicy Bypass -File src\antigravity-notify.ps1 2>&1
-  if ($out1.Trim() -ne '{}') { throw "antigravity-notify fullyIdle=false 未返回 {}：$out1" }
-  Write-Output '[ok] antigravity-notify fullyIdle false guard'
-
-  # 1.1 fullyIdle == "false" (字符串格式) 也应安全跳过
-  $payloadIdleStr = "{`"fullyIdle`":`"false`",`"transcriptPath`":`"$escapedTranscript`",`"conversationId`":`"conv-1`"}"
-  $out1s = $payloadIdleStr | & powershell -NoProfile -ExecutionPolicy Bypass -File src\antigravity-notify.ps1 2>&1
-  if ($out1s.Trim() -ne '{}') { throw "antigravity-notify fullyIdle='false' 未返回 {}：$out1s" }
-  Write-Output '[ok] antigravity-notify fullyIdle string false guard'
-
-  # 2. marker 存在时跳过
-  $agMarkerSmoke = Join-Path $tmpAg 'antigravity-notify.off'
-  "off" | Out-File -FilePath $agMarkerSmoke -Encoding utf8
-  $env:ANTIGRAVITY_NOTIFY_MARKER_FILE = $agMarkerSmoke
-  $payloadOk = "{`"fullyIdle`":true,`"transcriptPath`":`"$escapedTranscript`",`"conversationId`":`"conv-1`"}"
-  $out2 = $payloadOk | & powershell -NoProfile -ExecutionPolicy Bypass -File src\antigravity-notify.ps1 2>&1
-  if ($out2.Trim() -ne '{}') { throw "antigravity-notify marker 存在时未返回 {}：$out2" }
-  Write-Output '[ok] antigravity-notify marker guard'
-
-  # 3. DryRun 正常渲染
-  Remove-Item $agMarkerSmoke -Force -ErrorAction SilentlyContinue
-  $env:ANTIGRAVITY_NOTIFY_MARKER_FILE = $null
-  $out3 = $payloadOk | & powershell -NoProfile -ExecutionPolicy Bypass -File src\antigravity-notify.ps1 -DryRun 2>&1
-  if ($out3 -notmatch '【Antigravity】' -or $out3 -notmatch '测试 Antigravity 任务完成') {
-    throw "antigravity-notify DryRun 标题未正确提取：$out3"
-  }
-  if ($out3 -match '\*\*Task\*\*') {
-    throw "antigravity-notify 标题未剔除 **Task**: 前缀：$out3"
-  }
-  if ($out3 -notmatch '深度验证') {
-    throw "antigravity-notify DryRun 摘要未正确提取：$out3"
-  }
-  Write-Output '[ok] antigravity-notify DryRun title & summary'
-} finally {
-  $env:ANTIGRAVITY_NOTIFY_MARKER_FILE = $null
-  $env:ANTIGRAVITY_NOTIFY_STATE_FILE = $null
-  Remove-Item $tmpAg -Recurse -Force -ErrorAction SilentlyContinue
-}
-
-# codex-notify + marker：marker 存在只跳过推送（桩不被调），拿掉恢复。不碰真实 marker。
-$tmp4 = Join-Path $env:TEMP 'linkweixin-smoke4'
-New-Item -ItemType Directory -Force -Path $tmp4 | Out-Null
-try {
-  $stub4 = Join-Path $tmp4 'stub.ps1'
-  Set-Content -Path $stub4 -Value '"$args" | Out-File -FilePath "$env:SMOKE_GOT4" -Encoding utf8' -Encoding utf8
-  $got4 = Join-Path $tmp4 'got.txt'
-  $marker4 = Join-Path $tmp4 'notify-pushplus.off'
-  $nolocal4 = Join-Path $tmp4 'nolocal'
-  "off smoke" | Out-File -FilePath $marker4 -Encoding utf8
-  $sample4 = '{"last-assistant-message":"marker test","input-messages":["marker"]}'
-  $runWrapper = {
-    param($repo, $stubPath, $gotFile, $fakeLocal, $json, $markerPath)
-    $env:SMOKE_GOT4 = $gotFile
-    $env:NOTIFY_AI_SCRIPT = $stubPath
-    $env:LOCALAPPDATA = $fakeLocal
-    $env:CODEX_NOTIFY_MARKER_FILE = $markerPath
-    & (Join-Path $repo 'src\codex-notify.ps1') 'turn-ended' $json
-  }
-  $job = Start-Job -ScriptBlock $runWrapper -ArgumentList $RepoRoot, $stub4, $got4, $nolocal4, $sample4, $marker4
-  $job | Wait-Job | Out-Null
-  Receive-Job $job | Out-Null
-  Remove-Job $job -Force -ErrorAction SilentlyContinue
-  if ($job.State -ne 'Completed') { throw "codex-notify marker job 未正常结束：$($job.State)" }
-  if (Test-Path $got4) { throw 'codex-notify marker 存在时仍调了推送' }
-  Write-Output '[ok] codex-notify marker-off skips push'
-  Remove-Item $marker4 -Force
-  $job = Start-Job -ScriptBlock $runWrapper -ArgumentList $RepoRoot, $stub4, $got4, $nolocal4, $sample4, (Join-Path $tmp4 'absent.off')
-  $job | Wait-Job | Out-Null
-  Receive-Job $job | Out-Null
-  Remove-Job $job -Force -ErrorAction SilentlyContinue
-  if (-not (Test-Path $got4)) { throw 'codex-notify marker 拿掉后未恢复推送' }
-  Write-Output '[ok] codex-notify marker removed resumes push'
-} finally {
-  Remove-Item $tmp4 -Recurse -Force -ErrorAction SilentlyContinue
-}
-
-# 沙箱安装/卸载：临时目录完整跑一遍安装与卸载，不碰真实 ~/bin、任务、快捷方式、codex 配置。
-# 安装记录 + 整树拷贝是部署模型的核心机制，这里做端到端兜底（顺带防"漏拷文件"类回归）。
-$tmp5 = Join-Path $env:TEMP 'linkweixin-smoke-install'
-Remove-Item $tmp5 -Recurse -Force -ErrorAction SilentlyContinue
-$instDir = Join-Path $tmp5 'bin'
-$plugDir = Join-Path $tmp5 'plugin'
-try {
-  New-Item -ItemType Directory -Force -Path $instDir | Out-Null
-  $sandboxHooks = Join-Path $tmp5 'hooks.json'
-  & powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -InstallDir $instDir -PluginDir $plugDir `
-    -AntigravityHooks $sandboxHooks -SkipScheduledTask -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "沙箱安装 exit=$LASTEXITCODE" }
-  if (-not (Test-Path $sandboxHooks)) { throw '沙箱安装未生成 Antigravity hooks.json' }
-  $hooksContent = Get-Content $sandboxHooks -Raw
-  if ($hooksContent -notmatch 'antigravity-notify\.ps1') { throw "沙箱安装 hooks 未注入：$hooksContent" }
-  foreach ($f in @('notify-ai.ps1', 'codex-notify.ps1', 'antigravity-notify.ps1', 'codex-notify-watch.ps1', 'notify-toggle.ps1', 'linkweixin-widget.ps1', 'run-hidden.vbs', 'widget-detached.py', 'widget\widget-form.ps1', 'widget\widget-state.ps1', 'widget\widget-actions.ps1', 'lib\LinkWeixin\LinkWeixin.psd1', 'lib\LinkWeixin\Private\Send-PushPlusNotification.ps1')) {
-    if (-not (Test-Path (Join-Path $instDir $f))) { throw "沙箱安装缺文件：$f" }
-  }
-  if (-not (Test-Path (Join-Path $plugDir 'notify-pushplus.ts'))) { throw '沙箱安装缺插件' }
-  $rec = Get-Content (Join-Path $instDir 'linkweixin-install.json') -Raw -Encoding utf8 | ConvertFrom-Json
-  if ([string]::IsNullOrWhiteSpace($rec.version)) { throw '沙箱安装记录缺 version' }
-  if (@('vbs', 'python') -notcontains $rec.launcher) { throw "沙箱安装记录 launcher 非法：$($rec.launcher)" }
-  if ([string]::IsNullOrWhiteSpace($rec.installedAt)) { throw '沙箱安装记录缺 installedAt' }
-  if (@($rec.files) -notcontains 'notify-ai.ps1' -or @($rec.files) -notcontains 'antigravity-notify.ps1' -or @($rec.files) -notcontains 'widget-detached.py' -or @($rec.files) -notcontains 'lib/LinkWeixin/LinkWeixin.psd1' -or @($rec.files) -notcontains 'widget/widget-form.ps1') { throw "沙箱安装记录 files 不完整：$(@($rec.files) -join ',')" }
+  $sandboxInstall = Join-Path $smokeRoot 'install-bin'
+  $sandboxPlugins = Join-Path $smokeRoot 'install-plugins'
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'install.ps1') `
+    -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) "沙箱安装 exit=$LASTEXITCODE"
+  Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe')) '沙箱安装缺 exe'
+  Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json')) '沙箱安装缺安装记录'
+  Assert-True (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts')) '沙箱安装缺插件'
+  $installedFiles = @(Get-ChildItem $sandboxInstall -File | Select-Object -ExpandProperty Name | Sort-Object)
+  Assert-True (($installedFiles -join ',') -eq 'agent-notify.exe,agent-notify-install.json') "安装目录文件意外：$($installedFiles -join ',')"
+  $record = Get-Content (Join-Path $sandboxInstall 'agent-notify-install.json') -Raw -Encoding utf8 | ConvertFrom-Json
+  Assert-True ($record.name -eq 'Agent-notify') "安装记录 name 异常：$($record.name)"
+  Assert-True (@($record.files) -contains 'agent-notify.exe') '安装记录缺 exe'
   Write-Output '[ok] install sandbox files + record'
 
-  & powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1 -InstallDir $instDir -PluginDir $plugDir `
-    -AntigravityHooks $sandboxHooks -SkipCodexConfig -SkipShortcuts -SkipScheduledTask | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "沙箱卸载 exit=$LASTEXITCODE" }
-  if (Test-Path $sandboxHooks) {
-    $hooksAfter = Get-Content $sandboxHooks -Raw
-    if ($hooksAfter -match 'antigravity-notify\.ps1') { throw '沙箱卸载 hooks 未清理' }
-  }
-  if (Test-Path (Join-Path $instDir 'linkweixin-install.json')) { throw '沙箱卸载残留：安装记录' }
-  foreach ($f in @('notify-ai.ps1', 'antigravity-notify.ps1', 'linkweixin-widget.ps1', 'widget-detached.py')) {
-    if (Test-Path (Join-Path $instDir $f)) { throw "沙箱卸载残留：$f" }
-  }
-  if (Test-Path (Join-Path $plugDir 'notify-pushplus.ts')) { throw '沙箱卸载残留：插件' }
-  $left = @(Get-ChildItem $instDir -Recurse -Force -ErrorAction SilentlyContinue)
-  if ($left.Count -gt 0) { throw "沙箱卸载残留：$($left.FullName -join '; ')" }
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
+    -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -SkipCodexConfig -SkipShortcuts -SkipProcessStop | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) "沙箱卸载 exit=$LASTEXITCODE"
+  Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe'))) '沙箱卸载残留 exe'
+  Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json'))) '沙箱卸载残留安装记录'
+  Assert-True (-not (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts'))) '沙箱卸载残留插件'
   Write-Output '[ok] uninstall sandbox clean'
 } finally {
-  Remove-Item $tmp5 -Recurse -Force -ErrorAction SilentlyContinue
+  $env:AGENT_NOTIFY_CONFIG_DIR = $null
+  $env:AGENT_NOTIFY_TEMP_DIR = $null
+  $env:AGENT_NOTIFY_CONFIG_FILE = $null
+  $env:AGENT_NOTIFY_CREDENTIAL_FILE = $null
+
+  # 清理沙箱：只逐个删除明确的文件路径，再逐个删除已空目录
+  $explicitFiles = @(
+    (Join-Path $smokeRoot 'bin\agent-notify.exe'),
+    (Join-Path $configDir 'config.json'),
+    (Join-Path $configDir 'clawbot.json'),
+    (Join-Path $configDir 'opencode.off'),
+    (Join-Path $configDir 'codex.off'),
+    (Join-Path $smokeRoot 'install-bin\agent-notify.exe'),
+    (Join-Path $smokeRoot 'install-bin\agent-notify-install.json'),
+    (Join-Path $smokeRoot 'install-plugins\agent-notify.ts'),
+    (Join-Path $smokeRoot 'state\push.log'),
+    (Join-Path $smokeRoot 'state\opencode-sent.json')
+  )
+  foreach ($file in $explicitFiles) {
+    if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+  }
+  foreach ($dir in @(
+      (Join-Path $smokeRoot 'state'),
+      $configDir,
+      $pluginDir,
+      $binDir,
+      (Join-Path $smokeRoot 'install-bin'),
+      (Join-Path $smokeRoot 'install-plugins'),
+      $smokeRoot
+    )) {
+    if (Test-Path -LiteralPath $dir) {
+      try { [IO.Directory]::Delete($dir, $false) } catch { Write-Warning "清理空目录失败：$dir - $($_.Exception.Message)" }
+    }
+  }
 }
 
 Write-Output 'SMOKE ALL GREEN'

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"linkweixin/internal/config"
-	"linkweixin/internal/marker"
-	"linkweixin/internal/notify"
+	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
+	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 )
 
 var reWhitespaces = regexp.MustCompile(`\s+`)
@@ -37,60 +37,41 @@ func FindCodexComputerUseExe() string {
 		modTime time.Time
 	}
 	var files []fileInfo
-	for _, m := range matches {
-		if fi, err := os.Stat(m); err == nil {
-			files = append(files, fileInfo{path: m, modTime: fi.ModTime()})
+	for _, match := range matches {
+		if info, err := os.Stat(match); err == nil {
+			files = append(files, fileInfo{path: match, modTime: info.ModTime()})
 		}
 	}
-
 	if len(files) == 0 {
 		return ""
 	}
-
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].modTime.After(files[j].modTime)
 	})
-
 	return files[0].path
 }
 
-// ConvertCodexArgs parses arguments passed to codex notify.
+// ConvertCodexArgs parses one Codex notify payload.
 func ConvertCodexArgs(args []string) (title string, summary string) {
 	taskName := ""
-	for _, a := range args {
-		trimmed := strings.TrimLeft(a, " \t\r\n")
+	for _, arg := range args {
+		trimmed := strings.TrimLeft(arg, " \t\r\n")
 		if !strings.HasPrefix(trimmed, "{") {
 			continue
 		}
 
-		var evt struct {
+		var event struct {
 			LastAssistantMessage string        `json:"last-assistant-message"`
 			InputMessages        []interface{} `json:"input-messages"`
 		}
-		if err := json.Unmarshal([]byte(trimmed), &evt); err != nil {
+		if err := json.Unmarshal([]byte(trimmed), &event); err != nil {
 			reLast := regexp.MustCompile(`last-assistant-message["':\s]+([^}"]+?)(?:,?\s*input-messages|\s*})`)
-			if m := reLast.FindStringSubmatch(trimmed); len(m) == 2 {
-				msg := strings.Trim(strings.TrimSpace(m[1]), "\"'")
-				if msg != "" {
-					runes := []rune(msg)
-					if len(runes) > 2000 {
-						summary = string(runes[:2000])
-					} else {
-						summary = msg
-					}
-				}
+			if match := reLast.FindStringSubmatch(trimmed); len(match) == 2 {
+				summary = truncateRunes(strings.Trim(strings.TrimSpace(match[1]), "\"'"), 2000)
 			}
 			reInput := regexp.MustCompile(`input-messages["':\s]+\["?([^\]"]*)"?\]`)
-			if m := reInput.FindStringSubmatch(trimmed); len(m) == 2 {
-				firstClean := strings.Trim(strings.TrimSpace(m[1]), "\"'")
-				if firstClean != "" {
-					firstRunes := []rune(firstClean)
-					if len(firstRunes) > 30 {
-						taskName = string(firstRunes[:30]) + "…"
-					} else {
-						taskName = firstClean
-					}
-				}
+			if match := reInput.FindStringSubmatch(trimmed); len(match) == 2 {
+				taskName = truncateRunes(strings.Trim(strings.TrimSpace(match[1]), "\"'"), 30)
 			}
 			if summary != "" {
 				break
@@ -98,30 +79,14 @@ func ConvertCodexArgs(args []string) (title string, summary string) {
 			continue
 		}
 
-		msg := strings.TrimSpace(evt.LastAssistantMessage)
-		if msg != "" {
-			runes := []rune(msg)
-			if len(runes) > 2000 {
-				summary = string(runes[:2000])
-			} else {
-				summary = msg
+		if message := strings.TrimSpace(event.LastAssistantMessage); message != "" {
+			summary = truncateRunes(message, 2000)
+		}
+		if len(event.InputMessages) > 0 {
+			if first, ok := event.InputMessages[0].(string); ok {
+				taskName = truncateRunes(strings.TrimSpace(reWhitespaces.ReplaceAllString(first, " ")), 30)
 			}
 		}
-
-		if len(evt.InputMessages) > 0 {
-			if first, ok := evt.InputMessages[0].(string); ok {
-				firstClean := strings.TrimSpace(reWhitespaces.ReplaceAllString(first, " "))
-				if firstClean != "" {
-					firstRunes := []rune(firstClean)
-					if len(firstRunes) > 30 {
-						taskName = string(firstRunes[:30]) + "…"
-					} else {
-						taskName = firstClean
-					}
-				}
-			}
-		}
-
 		if summary != "" {
 			break
 		}
@@ -135,80 +100,71 @@ func ConvertCodexArgs(args []string) (title string, summary string) {
 	return title, summary
 }
 
+func truncateRunes(value string, limit int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= limit {
+		return string(runes)
+	}
+	return string(runes[:limit]) + "…"
+}
+
 func writeCodexDebug(line string) {
-	if os.Getenv("CODEX_NOTIFY_DEBUG") == "0" {
+	if os.Getenv("AGENT_NOTIFY_CODEX_DEBUG") != "1" {
 		return
 	}
 	paths := config.GetPaths()
-	_ = os.MkdirAll(paths.TempDir, 0755)
+	_ = os.MkdirAll(paths.TempDir, 0700)
 	entry := fmt.Sprintf("%s %s\n", time.Now().Format(time.RFC3339), line)
-	f, err := os.OpenFile(paths.CodexNotifyDebugLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(paths.CodexNotifyDebugLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err == nil {
-		_, _ = f.WriteString(entry)
-		_ = f.Close()
+		_, _ = file.WriteString(entry)
+		_ = file.Close()
 	}
 }
 
-// HandleCodex wraps codex turn-ended events: pass-through to computer-use, then push notification.
-func HandleCodex(args []string) {
+// HandleCodex passes the original event through to codex-computer-use and then
+// sends an Agent-notify message for the completed turn.
+func HandleCodex(args []string) notify.NotifyResult {
 	writeCodexDebug(fmt.Sprintf("args=%s", strings.Join(args, " | ")))
 
-	// Check dry-run and filter flags from arguments passed to cuaExe
-	isDry := os.Getenv("CODEX_NOTIFY_DRYRUN") == "1"
+	isDry := os.Getenv("AGENT_NOTIFY_CODEX_DRYRUN") == "1"
 	var forwardArgs []string
-	for _, a := range args {
-		aLower := strings.ToLower(a)
-		if aLower == "-dry-run" || aLower == "--dry-run" || aLower == "-dryrun" {
+	for _, arg := range args {
+		switch strings.ToLower(arg) {
+		case "-dry-run", "--dry-run", "-dryrun":
 			isDry = true
-		} else {
-			forwardArgs = append(forwardArgs, a)
+		default:
+			forwardArgs = append(forwardArgs, arg)
 		}
 	}
 
-	// 1. Read stdin if redirected so we can pass it to computer-use
 	stdinBytes := ReadPipedStdinNonBlocking()
-	writeCodexDebug(fmt.Sprintf("step 1: stdinBytesLen=%d", len(stdinBytes)))
-
-	// 2. Pass-through to original codex-computer-use.exe
-	cuaExe := FindCodexComputerUseExe()
-	writeCodexDebug(fmt.Sprintf("step 2: cuaExe=%s", cuaExe))
-	if cuaExe != "" {
-		cmd := exec.Command(cuaExe, forwardArgs...)
+	if cuaExe := FindCodexComputerUseExe(); cuaExe != "" {
+		command := exec.Command(cuaExe, forwardArgs...)
 		if len(stdinBytes) > 0 {
-			cmd.Stdin = bytes.NewReader(stdinBytes)
+			command.Stdin = bytes.NewReader(stdinBytes)
 		}
-		err := cmd.Start()
-		writeCodexDebug(fmt.Sprintf("step 2: cuaStart err=%v", err))
-		go func() {
-			_ = cmd.Wait()
-		}()
+		if err := command.Start(); err == nil {
+			go func() { _ = command.Wait() }()
+		}
 	}
 
-	// 3. Check marker
 	paths := config.GetPaths()
-	isOff := marker.IsOff(paths.CodexMarker)
-	writeCodexDebug(fmt.Sprintf("step 3: codexMarker=%s isOff=%v", paths.CodexMarker, isOff))
-	if isOff {
-		writeCodexDebug("marker-off skip push")
-		return
+	if marker.IsOff(paths.CodexMarker) {
+		return notify.NotifyResult{Status: notify.StatusSkipped, Error: "Codex 推送已关闭"}
+	}
+	if !isDry && skippedForQuietHours() {
+		return notify.NotifyResult{Status: notify.StatusSkipped, Error: "当前处于勿扰时段"}
 	}
 
-	// 4. Parse args & Push
-	t0 := time.Now()
 	title, summary := ConvertCodexArgs(args)
-	writeCodexDebug(fmt.Sprintf("step 4: title=%s summary=%s", title, summary))
-
-	res := notify.SendNotification(notify.NotifyOptions{
+	result := notify.SendNotification(notify.NotifyOptions{
+		Agent:    "codex",
 		Title:    title,
 		Summary:  summary,
-		MaxChars: 500,
+		MaxChars: 800,
 		DryRun:   isDry,
 	})
-
-	secs := time.Since(t0).Seconds()
-	writeCodexDebug(fmt.Sprintf("push status=%s secs=%.2f summarylen=%d dry=%v", res.Status, secs, len([]rune(summary)), isDry))
-
-	if isDry && res.DryRunPayload != "" {
-		fmt.Println(res.DryRunPayload)
-	}
+	writeCodexDebug(fmt.Sprintf("push status=%s error=%s", result.Status, result.Error))
+	return result
 }

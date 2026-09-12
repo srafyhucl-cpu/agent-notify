@@ -1,47 +1,44 @@
 package agent
 
 import (
+	"path/filepath"
 	"testing"
+
+	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 )
 
 func TestConvertCodexArgs(t *testing.T) {
-	// Case 1: Standard event
-	jsonArg := `{"input-messages":["重构 LinkWeixin 模块并测试"],"last-assistant-message":"已经完成重构，所有单元测试通过。"}`
+	jsonArg := `{"input-messages":["重构 Agent-notify 模块并测试"],"last-assistant-message":"已经完成重构，所有单元测试通过。"}`
 	title, summary := ConvertCodexArgs([]string{"turn-ended", jsonArg})
 
-	expectedTitle := "【codex】重构 LinkWeixin 模块并测试"
-	expectedSummary := "已经完成重构，所有单元测试通过。"
-
-	if title != expectedTitle {
-		t.Errorf("title = %q, want %q", title, expectedTitle)
+	if title != "【codex】重构 Agent-notify 模块并测试" {
+		t.Fatalf("title = %q", title)
 	}
-	if summary != expectedSummary {
-		t.Errorf("summary = %q, want %q", summary, expectedSummary)
+	if summary != "已经完成重构，所有单元测试通过。" {
+		t.Fatalf("summary = %q", summary)
 	}
 
-	// Case 2: Long input message (> 30 runes)
 	longInput := "这是一段非常非常非常非常非常非常非常非常非常非常非常非常长的主题任务描述"
-	jsonArgLong := `{"input-messages":["` + longInput + `"],"last-assistant-message":"完成"}`
-	titleLong, _ := ConvertCodexArgs([]string{jsonArgLong})
-	runes := []rune(longInput)
-	expectedLongTitle := "【codex】" + string(runes[:30]) + "…"
-	if titleLong != expectedLongTitle {
-		t.Errorf("titleLong = %q, want %q", titleLong, expectedLongTitle)
+	titleLong, _ := ConvertCodexArgs([]string{`{"input-messages":["` + longInput + `"],"last-assistant-message":"完成"}`})
+	expected := "【codex】" + string([]rune(longInput)[:30]) + "…"
+	if titleLong != expected {
+		t.Fatalf("titleLong = %q, want %q", titleLong, expected)
 	}
 
-	// Case 3: Empty / non-json args
 	titleEmpty, summaryEmpty := ConvertCodexArgs([]string{"turn-ended", "something-else"})
-	if titleEmpty != "【codex】跑完了" {
-		t.Errorf("titleEmpty = %q, want %q", titleEmpty, "【codex】跑完了")
-	}
-	if summaryEmpty != "" {
-		t.Errorf("summaryEmpty = %q, want %q", summaryEmpty, "")
+	if titleEmpty != "【codex】跑完了" || summaryEmpty != "" {
+		t.Fatalf("empty event = %q / %q", titleEmpty, summaryEmpty)
 	}
 }
 
 func TestHandleCodexDryRun(t *testing.T) {
-	t.Setenv("CODEX_NOTIFY_DRYRUN", "1")
-	jsonArg := `{"input-messages":["DryRun测试"],"last-assistant-message":"完成"}`
-	// Should not panic or error
-	HandleCodex([]string{"turn-ended", jsonArg, "-dry-run"})
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(t.TempDir(), "temp"))
+	t.Setenv("AGENT_NOTIFY_CODEX_DRYRUN", "1")
+	t.Setenv("AGENT_NOTIFY_QUIET", "")
+
+	result := HandleCodex([]string{"turn-ended", `{"input-messages":["DryRun测试"],"last-assistant-message":"完成"}`})
+	if result.Status != notify.StatusDryRun {
+		t.Fatalf("Status = %q, want %q", result.Status, notify.StatusDryRun)
+	}
 }
