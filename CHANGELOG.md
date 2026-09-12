@@ -9,13 +9,14 @@
 ### Added
 
 - 新增 Go 单文件运行时 `agent-notify.exe`。
-- 新增 ClawBot 扫码登录、凭据保存、状态查询和有限重试发送。
+- 新增 ClawBot 2.4.6 二维码登录、配对码、节点跳转、凭据保存、状态查询和有限重试发送。
+- 新增首条微信消息建立主动推送会话的 `sync` 命令与会话上下文持久化。
 - 新增 OpenCode 全局插件，监听任务完成事件并提取最新 assistant 摘要。
 - 新增 Codex notify 接入，保留 `codex-computer-use.exe` 原始参数和 stdin 透传。
 - 新增原生 Win32 悬浮窗、托盘、OpenCode / Codex 开关、勿扰设置、推送历史和测试推送。
-- 新增设置窗内 ClawBot 二维码登录、重新登录、退出登录与登录状态展示。
+- 新增设置窗内 ClawBot 二维码登录、重新登录、退出登录和四类连接状态展示。
 - 新增 DPI 感知、双缓冲绘制和可滚动的历史详情面板，统一悬浮窗与弹窗视觉语言。
-- 新增 JSON Lines 推送历史，记录成功、失败、未登录和跳过状态。
+- 新增 JSON Lines 推送历史，区分成功、失败、未登录、会话未建立和跳过状态。
 - 新增 `doctor`、`watch`、`status --json`、`toggle` 等运维命令。
 - 新增 Go 单测、OpenCode 插件类型检查、PowerShell 静态检查和隔离安装 smoke。
 - 新增 GitHub Actions CI 与版本包发布流程。
@@ -23,7 +24,7 @@
 ### Changed
 
 - 安装模型改为发布包中的 `bin/agent-notify.exe` 加 `plugin/agent-notify.ts`。
-- 配置与凭据统一保存到 `%USERPROFILE%\.config\agent-notify`。
+- 配置、凭据和会话上下文统一保存到 `%USERPROFILE%\.config\agent-notify`。
 - 日志与去重状态统一保存到 `%TEMP%\agent-notify`。
 - 环境变量统一使用 `AGENT_NOTIFY_*` 前缀。
 - marker 统一为 `opencode.off` 和 `codex.off`。
@@ -31,12 +32,18 @@
 - 发布包名改为 `Agent-notify-v<版本>.zip`。
 - 悬浮窗关闭与最小化只隐藏到托盘，完全退出改由托盘菜单执行。
 - ClawBot 成为唯一微信推送通道；设置、登录、历史窗口不再调用旧运行时或外部脚本。
+- 扫码登录与主动推送会话明确拆成两个阶段；只有登录不再被视为可发送。
+- `ret/errcode=-14` 会将登录标记为失效并停止轮询，避免继续高压重试。
 
 ### Fixed
 
+- 统一放大悬浮窗与弹窗的正文、辅助文字和图标字号，高缩放显示器上的文字不再细小难读。
 - GUI 子系统程序在 PowerShell 或管道重定向时不再把 stdout 覆盖为控制台设备。
 - Codex DryRun 只输出一份 JSON，不再重复打印。
 - 安装和卸载 smoke 使用明确文件路径清理，避免误删沙箱外内容。
+- 重新登录不会再把失效 token 作为可复用 `local_token_list`。
+- 切换 ClawBot 账号时会清空旧账号的游标和会话上下文。
+- 会话循环退出时会尽力发送 `notifystop`。
 
 ### Removed
 

@@ -97,6 +97,8 @@ func TestDialogControlLayoutsStayInsideAndDoNotOverlap(t *testing.T) {
 			controls: []namedRect{
 				{"window close", login.winClose},
 				{"qr", login.qr},
+				{"code", login.code},
+				{"code submit", login.codeSubmit},
 				{"retry", login.retry},
 				{"done", login.done},
 			},
@@ -230,16 +232,16 @@ func TestRelativeHistoryTime(t *testing.T) {
 func TestLoginDialogStateTransitions(t *testing.T) {
 	state := &loginDialogState{}
 	generation, firstContext := state.begin(time.Minute)
-	_, bitmap, status, failure, success := state.snapshot()
-	if generation != 1 || bitmap != nil || status != "正在获取二维码…" || failure || success {
-		t.Fatalf("initial login state = generation %d bitmap %v status %q failure %v success %v", generation, bitmap, status, failure, success)
+	_, bitmap, status, failure, success, promptActive := state.snapshot()
+	if generation != 1 || bitmap != nil || status != "正在获取二维码…" || failure || success || promptActive {
+		t.Fatalf("initial login state = generation %d bitmap %v status %q failure %v success %v prompt %v", generation, bitmap, status, failure, success, promptActive)
 	}
 
 	qrBitmap := [][]bool{{true, false}, {false, true}}
 	state.update(generation, qrBitmap, "请使用微信扫描二维码", false, false)
-	_, bitmap, status, failure, success = state.snapshot()
-	if len(bitmap) != 2 || !bitmap[0][0] || status != "请使用微信扫描二维码" || failure || success {
-		t.Fatalf("updated login state = bitmap %v status %q failure %v success %v", bitmap, status, failure, success)
+	_, bitmap, status, failure, success, promptActive = state.snapshot()
+	if len(bitmap) != 2 || !bitmap[0][0] || status != "请使用微信扫描二维码" || failure || success || promptActive {
+		t.Fatalf("updated login state = bitmap %v status %q failure %v success %v prompt %v", bitmap, status, failure, success, promptActive)
 	}
 
 	nextGeneration, secondContext := state.begin(time.Minute)
@@ -252,9 +254,9 @@ func TestLoginDialogStateTransitions(t *testing.T) {
 		t.Fatal("begin did not cancel the previous login flow")
 	}
 	state.update(generation, nil, "stale status", true, false)
-	_, bitmap, status, failure, success = state.snapshot()
-	if bitmap != nil || status != "正在获取二维码…" || failure || success {
-		t.Fatalf("stale update changed login state = bitmap %v status %q failure %v success %v", bitmap, status, failure, success)
+	_, bitmap, status, failure, success, promptActive = state.snapshot()
+	if bitmap != nil || status != "正在获取二维码…" || failure || success || promptActive {
+		t.Fatalf("stale update changed login state = bitmap %v status %q failure %v success %v prompt %v", bitmap, status, failure, success, promptActive)
 	}
 
 	state.cancel()
@@ -263,7 +265,7 @@ func TestLoginDialogStateTransitions(t *testing.T) {
 	default:
 		t.Fatal("cancel did not stop the active login flow")
 	}
-	if got, _, _, _, _ := state.snapshot(); got != nextGeneration+1 {
+	if got, _, _, _, _, _ := state.snapshot(); got != nextGeneration+1 {
 		t.Fatalf("generation after cancel = %d, want %d", got, nextGeneration+1)
 	}
 }

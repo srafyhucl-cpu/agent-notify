@@ -4,8 +4,7 @@
  * 形状：opencode 桌面端加载器要求的 V2 定义 `{ id, setup }`，零顶层 import，
  * 不依赖 node_modules 里版本不一致的 `@opencode-ai/plugin`。
  *
- * 触发：`session.execution.succeeded`（桌面端实测的任务完成事件；
- * `session.idle` 在此版本不出现，保留做兼容）。
+ * 触发：`session.execution.succeeded`（桌面端实测的任务完成事件）。
  * 摘要：取该会话最近消息里最后一条 assistant 文本，压成一行交给 CLI 排版。
  * 去重：同一会话按冷却时间只推一次，多 location 重复投递靠共享状态文件兜住。
  * 安全：失败全部吞掉，永远不影响 agent 运行。
@@ -177,6 +176,8 @@ function spawnNotify(title, summary, sessionID) {
   const target = resolveTarget()
   const args = [
     "notify",
+    "--agent",
+    "opencode",
     "--title",
     title,
     "--summary",
@@ -295,7 +296,7 @@ async function sessionTitle(session, sessionID) {
 const lastSent = new Map()
 const pending = new Set()
 
-async function handleIdle(ctx, sessionID) {
+async function handleTaskComplete(ctx, sessionID) {
   await fsAsync()
   if (envValue("AGENT_NOTIFY_OFF") === "1") {
     dbg("skip: OFF=1")
@@ -396,10 +397,7 @@ export default {
               continue
             }
             const type = event.type
-            if (
-              type !== "session.execution.succeeded" &&
-              type !== "session.idle"
-            ) {
+            if (type !== "session.execution.succeeded") {
               continue
             }
             const props = event.properties || event.data
@@ -411,7 +409,7 @@ export default {
             if (!sessionID) {
               continue
             }
-            void handleIdle(ctx, sessionID)
+            void handleTaskComplete(ctx, sessionID)
           } catch {
             /* 单个事件失败不影响后续 */
           }

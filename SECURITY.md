@@ -12,18 +12,20 @@
 
 ## 凭据与数据
 
-- ClawBot token、bot id 和 recipient user id 只保存到 `%USERPROFILE%\.config\agent-notify\clawbot.json`。
+- ClawBot token、bot id、recipient user id、`context_token` 和消息游标只保存到 `%USERPROFILE%\.config\agent-notify\clawbot.json`。
 - 凭据文件创建时使用当前用户可读写权限。
-- `status`、悬浮窗和日志只显示脱敏后的用户标识，不输出 token。
+- `status`、悬浮窗和日志只显示脱敏后的用户标识，不输出 token 或 context token。
 - DryRun 只输出渲染后的标题和消息，不读取或打印凭据。
-- 推送历史和调试日志不包含 ClawBot token。
+- 推送历史和调试日志不包含 ClawBot token、context token 或消息游标。
+- 切换 bot 账号时会清空旧账号的会话上下文和游标，防止状态串用。
 
 ## 网络与发送
 
 - 默认使用 HTTPS 连接 `https://ilinkai.weixin.qq.com`。
 - 状态探测使用 HEAD 请求，不发送业务数据。
 - 发送失败按可重试类别进行有限退避，不无限循环。
-- HTTP 非 200 或业务返回 `ret != 0` 会写入历史错误并返回失败状态。
+- HTTP 非 2xx 或业务返回 `ret/errcode` 非零会写入历史错误并返回失败状态。
+- `ret=-14` 或 `errcode=-14` 会停止轮询并清除上下文，等待用户重新登录。
 
 ## 本地文件安全
 

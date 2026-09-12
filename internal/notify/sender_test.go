@@ -37,6 +37,27 @@ func TestSendNotificationWithoutLogin(t *testing.T) {
 	}
 }
 
+func TestSendNotificationWithoutSession(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", dir)
+	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(dir, "temp"))
+	if err := clawbot.SaveCredentials(clawbot.Credentials{
+		BotToken:    "token",
+		ILinkBotID:  "bot",
+		ILinkUserID: "user",
+	}); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+
+	result := SendNotification(NotifyOptions{Title: "测试", Summary: "hello"})
+	if result.Status != StatusSessionMissing {
+		t.Fatalf("Status = %q, want %q", result.Status, StatusSessionMissing)
+	}
+	if result.Error == "" {
+		t.Fatal("expected actionable session error")
+	}
+}
+
 func TestSendNotificationSuccess(t *testing.T) {
 	var message string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,10 +82,12 @@ func TestSendNotificationSuccess(t *testing.T) {
 	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", dir)
 	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(dir, "temp"))
 	if err := clawbot.SaveCredentials(clawbot.Credentials{
-		BotToken:    "token",
-		ILinkBotID:  "bot",
-		BaseURL:     server.URL,
-		ILinkUserID: "user",
+		BotToken:      "token",
+		ILinkBotID:    "bot",
+		BaseURL:       server.URL,
+		ILinkUserID:   "user",
+		ContextToken:  "context",
+		ContextUserID: "user",
 	}); err != nil {
 		t.Fatalf("SaveCredentials: %v", err)
 	}

@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -17,24 +18,29 @@ import (
 
 const (
 	loginWidth  = int32(360)
-	loginHeight = int32(470)
+	loginHeight = int32(500)
 	loginTimer  = 2
+
+	loginCodeEditID = 4301
+	WM_USER_VERIFY  = 0x0401
 )
 
 type loginDialogState struct {
 	mu         sync.Mutex
 	generation uint64
 	cancelFlow context.CancelFunc
+	hwnd       uintptr
 	bitmap     [][]bool
 	status     string
 	failure    bool
 	success    bool
+	prompt     chan string
 }
 
-func (state *loginDialogState) snapshot() (uint64, [][]bool, string, bool, bool) {
+func (state *loginDialogState) snapshot() (uint64, [][]bool, string, bool, bool, bool) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	return state.generation, state.bitmap, state.status, state.failure, state.success
+	return state.generation, state.bitmap, state.status, state.failure, state.success, state.prompt != nil
 }
 
 func (state *loginDialogState) update(generation uint64, bitmap [][]bool, status string, failure, success bool) {
@@ -68,7 +74,14 @@ func (state *loginDialogState) begin(timeout time.Duration) (uint64, context.Con
 	state.status = "正在获取二维码…"
 	state.failure = false
 	state.success = false
+	state.prompt = nil
 	return state.generation, ctx
+}
+
+func (state *loginDialogState) setWindow(hwnd uintptr) {
+	state.mu.Lock()
+	state.hwnd = hwnd
+	state.mu.Unlock()
 }
 
 func (state *loginDialogState) finish(generation uint64) {
@@ -77,6 +90,7 @@ func (state *loginDialogState) finish(generation uint64) {
 	if state.generation == generation {
 		cancel = state.cancelFlow
 		state.cancelFlow = nil
+		state.prompt = nil
 	}
 	state.mu.Unlock()
 	if cancel != nil {
@@ -89,9 +103,55 @@ func (state *loginDialogState) cancel() {
 	state.generation++
 	cancel := state.cancelFlow
 	state.cancelFlow = nil
+	state.prompt = nil
 	state.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+}
+
+func (state *loginDialogState) requestVerifyCode(ctx context.Context, retry bool) (string, error) {
+	channel := make(chan string, 1)
+
+	state.mu.Lock()
+	state.prompt = channel
+	if retry {
+		state.status = "配对码不匹配，请重新输入"
+	} else {
+		state.status = "请输入手机微信显示的数字配对码"
+	}
+	state.failure = false
+	hwnd := state.hwnd
+	state.mu.Unlock()
+
+	if hwnd != 0 {
+		pPostMessageW.Call(hwnd, WM_USER_VERIFY, 0, 0)
+	}
+
+	select {
+	case code := <-channel:
+		return code, nil
+	case <-ctx.Done():
+		state.mu.Lock()
+		if state.prompt == channel {
+			state.prompt = nil
+		}
+		state.mu.Unlock()
+		return "", ctx.Err()
+	}
+}
+
+func (state *loginDialogState) submitVerifyCode(code string) {
+	state.mu.Lock()
+	channel := state.prompt
+	state.prompt = nil
+	state.mu.Unlock()
+	if channel == nil {
+		return
+	}
+	select {
+	case channel <- code:
+	default:
 	}
 }
 
@@ -100,28 +160,23 @@ func startLoginFlow(state *loginDialogState) {
 	go func() {
 		defer state.finish(generation)
 
-		client := clawbot.NewAuthClient(clawbot.DefaultBaseURL)
-		response, err := client.FetchQRCode(ctx)
-		if err != nil {
-			state.update(generation, nil, "获取二维码失败："+err.Error(), true, false)
-			return
-		}
-		qr, err := qrcode.New(response.QRCode, qrcode.Medium)
-		if err != nil {
-			state.update(generation, nil, "二维码生成失败："+err.Error(), true, false)
-			return
-		}
-		state.update(generation, qr.Bitmap(), "请使用微信扫描二维码", false, false)
-
-		credentials, err := client.PollQRStatus(ctx, response.QRCode, func(status string) {
-			switch status {
-			case clawbot.StatusScanned:
-				state.update(generation, nil, "已扫码，请在微信中确认", false, false)
-			case clawbot.StatusConfirmed:
-				state.update(generation, nil, "已确认，正在保存凭据…", false, false)
-			case clawbot.StatusExpired:
-				state.update(generation, nil, "二维码已过期，请重新获取", true, false)
-			}
+		credentials, err := clawbot.Login(ctx, clawbot.LoginOptions{
+			OnQRCode: func(response clawbot.QRCodeResponse) error {
+				code, err := qrcode.New(response.DisplayContent(), qrcode.Medium)
+				if err != nil {
+					return err
+				}
+				state.update(generation, code.Bitmap(), "请使用微信扫描二维码", false, false)
+				return nil
+			},
+			OnStatus: func(status string) {
+				if text := loginStatusText(status); text != "" {
+					state.update(generation, nil, text, false, false)
+				}
+			},
+			VerifyCode: func(retry bool) (string, error) {
+				return state.requestVerifyCode(ctx, retry)
+			},
 		})
 		if err != nil {
 			state.update(generation, nil, "登录失败："+err.Error(), true, false)
@@ -131,8 +186,25 @@ func startLoginFlow(state *loginDialogState) {
 			state.update(generation, nil, "凭据保存失败："+err.Error(), true, false)
 			return
 		}
-		state.update(generation, nil, "登录成功，微信推送已连接", false, true)
+		state.update(generation, nil, "已登录。请在微信中给 ClawBot 发送一条消息以建立主动推送会话", false, true)
 	}()
+}
+
+func loginStatusText(status string) string {
+	switch status {
+	case clawbot.StatusScanned:
+		return "已扫码，请在微信中确认"
+	case clawbot.StatusScannedRedirect:
+		return "正在切换扫码节点…"
+	case clawbot.StatusConfirmed:
+		return "已确认，正在保存凭据…"
+	case clawbot.StatusExpired:
+		return "二维码已过期，正在重新获取…"
+	case clawbot.StatusVerifyBlocked:
+		return "配对码错误次数过多，正在重新获取二维码…"
+	default:
+		return ""
+	}
 }
 
 func drawQRCode(hdc uintptr, rect RECT, bitmap [][]bool) {
@@ -189,12 +261,28 @@ func ShowLoginDialog(parentHwnd uintptr) {
 	layout := loginLayoutRects()
 	var dialog uintptr
 	var tracking bool
-	var hoverClose, hoverRetry, hoverDone bool
+	var codeVisible bool
+	var codeEdit uintptr
+	var hoverClose, hoverRetry, hoverDone, hoverSubmit bool
 
 	wndProc := syscall.NewCallback(func(hwnd, msg, wParam, lParam uintptr) uintptr {
 		switch uint32(msg) {
 		case WM_CREATE:
 			setUIDPI(windowDPI(hwnd))
+			state.setWindow(hwnd)
+			editFont := newFont(14, 400)
+			codeEdit, _, _ = pCreateWindowExW.Call(
+				0,
+				uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
+				0,
+				WS_CHILD|ES_AUTOHSCROLL|ES_NUMBER,
+				uintptr(scaleFloat(layout.code.Left+10)),
+				uintptr(scaleFloat(layout.code.Top+6)),
+				uintptr(scaleFloat(layout.code.Right-layout.code.Left-20)),
+				uintptr(scaleFloat(layout.code.Bottom-layout.code.Top-12)),
+				hwnd, loginCodeEditID, hInstance, 0,
+			)
+			pSendMessageW.Call(codeEdit, WM_SETFONT, editFont, 1)
 			startLoginFlow(state)
 			pSetTimer.Call(hwnd, loginTimer, 100, 0)
 			return 0
@@ -205,11 +293,32 @@ func ShowLoginDialog(parentHwnd uintptr) {
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
+		case WM_USER_VERIFY:
+			if codeEdit != 0 {
+				setWindowText(codeEdit, "")
+				pShowWindow.Call(codeEdit, SW_SHOW)
+				user32.NewProc("SetFocus").Call(codeEdit)
+				codeVisible = true
+				pInvalidateRect.Call(hwnd, 0, 0)
+			}
+			return 0
+
 		case WM_ERASEBKGND:
 			return 1
 
 		case WM_TIMER:
 			if wParam == loginTimer {
+				_, _, _, _, _, promptActive := state.snapshot()
+				if promptActive != codeVisible {
+					codeVisible = promptActive
+					if codeEdit != 0 {
+						if codeVisible {
+							pShowWindow.Call(codeEdit, SW_SHOW)
+						} else {
+							pShowWindow.Call(codeEdit, SW_HIDE)
+						}
+					}
+				}
 				pInvalidateRect.Call(hwnd, 0, 0)
 			}
 			return 0
@@ -224,14 +333,15 @@ func ShowLoginDialog(parentHwnd uintptr) {
 				tracking = true
 			}
 			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
-			previousClose, previousRetry, previousDone := hoverClose, hoverRetry, hoverDone
+			previousClose, previousRetry, previousDone, previousSubmit := hoverClose, hoverRetry, hoverDone, hoverSubmit
 			hoverClose = pointInRect(x, y, layout.winClose)
 			hoverRetry = pointInRect(x, y, layout.retry)
 			hoverDone = pointInRect(x, y, layout.done)
-			if hoverClose != previousClose || hoverRetry != previousRetry || hoverDone != previousDone {
+			hoverSubmit = codeVisible && pointInRect(x, y, layout.codeSubmit)
+			if hoverClose != previousClose || hoverRetry != previousRetry || hoverDone != previousDone || hoverSubmit != previousSubmit {
 				pInvalidateRect.Call(hwnd, 0, 0)
 			}
-			if hoverClose || hoverRetry || hoverDone {
+			if hoverClose || hoverRetry || hoverDone || hoverSubmit {
 				hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
 				pSetCursor.Call(hand)
 			}
@@ -239,13 +349,22 @@ func ShowLoginDialog(parentHwnd uintptr) {
 
 		case WM_MOUSELEAVE:
 			tracking = false
-			hoverClose, hoverRetry, hoverDone = false, false, false
+			hoverClose, hoverRetry, hoverDone, hoverSubmit = false, false, false, false
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
 		case WM_LBUTTONDOWN:
 			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
 			switch {
+			case codeVisible && pointInRect(x, y, layout.codeSubmit):
+				code := strings.TrimSpace(getWindowText(codeEdit))
+				if code == "" {
+					return 0
+				}
+				pShowWindow.Call(codeEdit, SW_HIDE)
+				codeVisible = false
+				state.submitVerifyCode(code)
+				pInvalidateRect.Call(hwnd, 0, 0)
 			case pointInRect(x, y, layout.retry):
 				startLoginFlow(state)
 			case pointInRect(x, y, layout.winClose), pointInRect(x, y, layout.done):
@@ -259,10 +378,10 @@ func ShowLoginDialog(parentHwnd uintptr) {
 				fillRectLogical(hdc, RECT{0, 0, loginWidth, loginHeight}, uintptr(RGB(15, 19, 23)))
 				pSetBkMode.Call(hdc, TRANSPARENT)
 
-				titleFont := newFont(18, 700)
-				baseFont := newFont(12, 400)
-				smallFont := newFont(10, 400)
-				iconFont := newIconFont(13)
+				titleFont := newFont(20, 700)
+				baseFont := newFont(14, 400)
+				smallFont := newFont(12, 400)
+				iconFont := newIconFont(15)
 				oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
 				defer func() {
 					pSelectObject.Call(hdc, oldFont)
@@ -276,10 +395,10 @@ func ShowLoginDialog(parentHwnd uintptr) {
 				DrawText(hdc, "连接 ClawBot", &RECT{20, 14, 260, 42}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 				pSelectObject.Call(hdc, smallFont)
 				pSetTextColor.Call(hdc, uintptr(RGB(137, 149, 160)))
-				DrawText(hdc, "使用微信扫描二维码完成绑定", &RECT{20, 42, 280, 64}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				DrawText(hdc, "扫码登录后，还需发送一条微信消息建立会话", &RECT{20, 42, 300, 64}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 				drawWindowButton(hdc, layout.winClose, "\uE8BB", hoverClose, true, iconFont)
 
-				_, bitmap, status, failure, success := state.snapshot()
+				_, bitmap, status, failure, success, promptActive := state.snapshot()
 				drawQRCode(hdc, layout.qr, bitmap)
 
 				statusColor := uintptr(RGB(137, 149, 160))
@@ -290,7 +409,12 @@ func ShowLoginDialog(parentHwnd uintptr) {
 				}
 				pSelectObject.Call(hdc, baseFont)
 				pSetTextColor.Call(hdc, statusColor)
-				DrawText(hdc, status, &RECT{24, 352, 336, 392}, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
+				DrawText(hdc, status, &RECT{24, 344, 336, 378}, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
+
+				if promptActive {
+					drawFieldFrame(hdc, layout.code)
+					drawIconTextButton(hdc, layout.codeSubmit, "\uE73E", "提交", hoverSubmit, true, false, baseFont, iconFont)
+				}
 
 				drawIconTextButton(hdc, layout.retry, "\uE72C", "重新获取", hoverRetry, false, false, baseFont, iconFont)
 				label := "关闭"
@@ -357,17 +481,21 @@ func ShowLoginDialog(parentHwnd uintptr) {
 var loginWndProcCallback uintptr
 
 type loginLayout struct {
-	winClose RECT
-	qr       RECT
-	retry    RECT
-	done     RECT
+	winClose   RECT
+	qr         RECT
+	code       RECT
+	codeSubmit RECT
+	retry      RECT
+	done       RECT
 }
 
 func loginLayoutRects() loginLayout {
 	return loginLayout{
-		winClose: RECT{320, 8, 352, 40},
-		qr:       RECT{45, 78, 315, 348},
-		retry:    RECT{54, 402, 168, 438},
-		done:     RECT{192, 402, 306, 438},
+		winClose:   RECT{320, 8, 352, 40},
+		qr:         RECT{45, 78, 315, 334},
+		code:       RECT{64, 384, 212, 418},
+		codeSubmit: RECT{220, 384, 296, 418},
+		retry:      RECT{54, 434, 168, 470},
+		done:       RECT{192, 434, 306, 470},
 	}
 }

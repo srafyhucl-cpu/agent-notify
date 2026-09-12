@@ -23,39 +23,55 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 | `widget-alive.txt` | 悬浮窗 | 心跳时间 |
 | `widget-exit.txt` | 悬浮窗 | 用户主动退出标记 |
 
-用户配置与凭据在 `%USERPROFILE%\.config\agent-notify`。
+用户配置、登录凭据和会话上下文在 `%USERPROFILE%\.config\agent-notify`。
 
 ## 微信完全收不到
 
-1. 确认已登录：
+1. 确认登录和主动推送会话都已就绪：
 
    ```powershell
    Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "status" -Wait
    ```
 
-2. 未登录或凭据损坏时重新扫码：
+2. 未登录或提示登录失效时重新扫码：
 
    ```powershell
    Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "login" -Wait
    ```
 
-   优先双击悬浮窗，在“设置”里点击“扫码登录”；也可以继续使用上面的 CLI 登录命令。
+   扫码后按提示在微信中给 ClawBot 发送任意一条消息。`login` 默认会等待这条消息；也可以先使用 `login --wait=false`，再运行：
 
-3. 发送测试：
+   ```powershell
+   Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "sync" -Wait
+   ```
+
+3. 若状态是“已登录 · 等待微信消息建立会话”，说明登录成功但还没有 `context_token`。保持悬浮窗运行，或运行一次 `agent-notify sync`，然后在微信中给 ClawBot 发消息。
+
+4. 会话就绪后发送测试：
 
    ```powershell
    Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "test" -Wait
    ```
 
-4. 查看 `%TEMP%\agent-notify\push.log`。若状态是 `未登录`，检查 `%USERPROFILE%\.config\agent-notify\clawbot.json` 是否存在且完整；若状态是 `失败`，根据 `error` 判断网络、TLS、超时或 ClawBot 返回。
+5. 查看 `%TEMP%\agent-notify\push.log`。`未登录` 表示凭据缺失、损坏或登录失效；`会话未建立` 表示已登录但还没有收到微信消息；`失败` 表示网络、HTTP 或 ClawBot 业务返回错误。
+
+## 主动推送会话未建立
+
+- 先运行 `agent-notify status`。`loginStatus` 为“已登录”且 `sessionReady` 为 `false` 时，属于尚未收到首条微信消息。
+- 在微信中给 ClawBot 发送任意文字，然后在终端运行 `agent-notify sync --timeout 10m`。
+- 也可以在悬浮窗设置页保持窗口开启；后台会话循环会自动读取消息并保存上下文。
+- 如果 `doctor` 显示登录失效，不要继续等待消息，先重新运行 `agent-notify login`。
+- 不要手工把其他账号或其他用户的 `context_token` 放进凭据文件；不同账号的上下文会被拒绝并清除。
 
 ## 二维码登录失败
 
 1. 确认窗口中已显示二维码，而不是“获取二维码失败”或“登录失败”。
-2. 二维码过期时点击“重新获取”；重新获取会取消上一轮轮询，不会叠加登录请求。
-3. 获取二维码或轮询失败时检查网络、代理和 `https://ilinkai.weixin.qq.com` 是否可访问。
-4. 确认凭据文件可写：`%USERPROFILE%\.config\agent-notify\clawbot.json`。该文件只保存本机登录凭据，不写入日志或界面。
-5. 登录成功后关闭窗口，悬浮窗会在下一轮状态刷新后显示“ClawBot 已连接”。
+2. 如果微信要求数字配对码，按窗口或终端的提示输入。
+3. 二维码过期时点击“重新获取”；重新获取会取消上一轮轮询，不会叠加登录请求。
+4. 如果提示节点跳转，等待客户端自动切换后继续扫码。
+5. 如果显示“该微信已绑定过本机”，只有本机仍有有效旧凭据时才会复用；其余情况会自动重新获取二维码。
+6. 获取二维码或轮询持续失败时检查网络、代理和 `https://ilinkai.weixin.qq.com` 是否可访问。
+7. 确认凭据文件可写：`%USERPROFILE%\.config\agent-notify\clawbot.json`。该文件只保存本机登录凭据、游标和会话上下文，不写入日志或界面。
 
 ## 界面模糊、过小或点击位置偏移
 

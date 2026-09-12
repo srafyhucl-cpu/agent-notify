@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -14,33 +13,16 @@ import (
 func HandleOpenCode(title, summary, sessionID string, maxChars int, dryRun, noStdin bool) notify.NotifyResult {
 	paths := config.GetPaths()
 	if marker.IsOff(paths.OpenCodeMarker) {
-		return notify.NotifyResult{Status: notify.StatusSkipped, Error: "OpenCode 推送已关闭"}
+		return notify.RecordSkipped(notify.NotifyOptions{
+			Agent:     "opencode",
+			SessionID: sessionID,
+			Title:     title,
+			Summary:   summary,
+			MaxChars:  maxChars,
+			DryRun:    dryRun,
+		}, "OpenCode 推送已关闭")
 	}
-	if isDoNotDisturbTitle(title) {
-		return notify.NotifyResult{Status: notify.StatusSkipped, Error: "标题包含勿扰标记"}
-	}
-	if !dryRun && skippedForQuietHours() {
-		return notify.NotifyResult{Status: notify.StatusSkipped, Error: "当前处于勿扰时段"}
-	}
-
-	if strings.TrimSpace(summary) == "" && !noStdin {
-		if data := ReadPipedStdinNonBlocking(); len(data) > 0 {
-			summary = DecodeConsoleBytes(data)
-		}
-	}
-
-	result := notify.SendNotification(notify.NotifyOptions{
-		Agent:     "opencode",
-		SessionID: sessionID,
-		Title:     title,
-		Summary:   summary,
-		MaxChars:  maxChars,
-		DryRun:    dryRun,
-	})
-	if dryRun && result.DryRunPayload != "" {
-		fmt.Println(result.DryRunPayload)
-	}
-	return result
+	return HandleNotify("opencode", title, summary, sessionID, maxChars, dryRun, noStdin)
 }
 
 func isDoNotDisturbTitle(title string) bool {
