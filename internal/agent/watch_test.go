@@ -70,14 +70,14 @@ notify = [ "C:/some/path/codex-computer-use.exe", "turn-ended", "--previous-noti
 		t.Fatal(err)
 	}
 
-	if err := HandleWatch(configPath, `D:\app\Agent-notify\agent-notify.exe`); err != nil {
+	if err := HandleWatch(configPath, `D:\Tools\Agent-notify\agent-notify.exe`); err != nil {
 		t.Fatalf("HandleWatch: %v", err)
 	}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := `notify = [ "D:/app/Agent-notify/agent-notify.exe", "codex", "turn-ended" ]`
+	expected := `notify = [ "D:/Tools/Agent-notify/agent-notify.exe", "codex", "turn-ended" ]`
 	if !strings.Contains(string(data), expected) {
 		t.Fatalf("patched config:\n%s\nwant line:\n%s", data, expected)
 	}

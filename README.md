@@ -45,7 +45,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 
 安装器只在 Codex `config.toml` 的 `notify` 行缺失或指向 `codex-computer-use.exe` 时接管，并在修改前创建 `config.toml.bak-notify-wrapper`。自定义 notify 程序不会被覆盖。
 
-自定义安装目录（例如 `-InstallDir D:\app\Agent-notify`）时，安装器会把该绝对路径写进插件副本的 `BAKED_BIN`，OpenCode 插件无需额外环境变量就能找到运行程序。若把 exe 手动挪到别处，需要用 `AGENT_NOTIFY_BIN` 覆盖或重跑 `install.ps1`。
+自定义安装目录（例如 `-InstallDir D:\Tools\Agent-notify`）时，安装器会把该绝对路径写进插件副本的 `BAKED_BIN`，OpenCode 插件无需额外环境变量就能找到运行程序。若把 exe 手动挪到别处，需要用 `AGENT_NOTIFY_BIN` 覆盖或重跑 `install.ps1`。
 
 也可以从源码安装：
 
