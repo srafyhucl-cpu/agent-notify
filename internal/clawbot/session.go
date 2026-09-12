@@ -3,6 +3,7 @@ package clawbot
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 	"time"
 )
@@ -111,6 +112,13 @@ func RunSessionLoop(ctx context.Context, onMessage func(InboundMessage), onError
 				}
 				continue
 			}
+			if delay, report := sessionErrorDelay(err); !report {
+				if err := sleepContext(ctx, delay); err != nil {
+					return
+				}
+				backoff = time.Second
+				continue
+			}
 			if onError != nil {
 				onError(err)
 			}
@@ -133,6 +141,16 @@ func RunSessionLoop(ctx context.Context, onMessage func(InboundMessage), onError
 			}
 		}
 	}
+}
+
+// sessionErrorDelay keeps the pre-login state quiet and responsive: while the
+// credential file does not exist yet, poll again quickly instead of growing the
+// backoff or spamming the error log.
+func sessionErrorDelay(err error) (time.Duration, bool) {
+	if errors.Is(err, fs.ErrNotExist) {
+		return time.Second, false
+	}
+	return 0, true
 }
 
 func announceSessionStart(ctx context.Context, announcedToken string) string {

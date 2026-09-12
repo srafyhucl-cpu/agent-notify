@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestPollSessionOncePersistsContextAndCursor(t *testing.T) {
@@ -138,5 +141,20 @@ func TestPollSessionOnceMarksStaleToken(t *testing.T) {
 	}
 	if updated.ContextToken != "" || updated.ContextUserID != "" {
 		t.Fatalf("stale credentials kept context: %#v", updated)
+	}
+}
+
+func TestSessionErrorDelaySilencesMissingCredentials(t *testing.T) {
+	delay, report := sessionErrorDelay(fmt.Errorf("open credentials: %w", fs.ErrNotExist))
+	if report {
+		t.Fatal("missing credentials should not be reported")
+	}
+	if delay != time.Second {
+		t.Fatalf("delay = %v, want 1s", delay)
+	}
+
+	delay, report = sessionErrorDelay(errors.New("network down"))
+	if !report || delay != 0 {
+		t.Fatalf("unexpected network result: delay=%v report=%v", delay, report)
 	}
 }
