@@ -1,120 +1,149 @@
 # 故障排查
 
-先查日志，再对症状。所有日志都在 `%TEMP%\opencode\` 下（不记录 token，可放心粘贴）。
+先运行自检，再按症状查日志。日志不包含 ClawBot token，可以安全粘贴相关片段。
 
-## 日志位置速查
+```powershell
+$exe = "$env:USERPROFILE\bin\agent-notify.exe"
+Start-Process $exe -ArgumentList "status" -Wait
+Start-Process $exe -ArgumentList "doctor" -Wait
+```
 
-| 文件 | 写入方 | 看什么 |
+## 日志位置
+
+默认目录：`%TEMP%\agent-notify`
+
+| 文件 | 写入方 | 用途 |
 |---|---|---|
-| `notify-push.log` | opencode 插件 | 推送成功记录（时间 / 会话 / 标题）；悬浮窗"上次推送"也读它 |
-| `notify-debug.log` | opencode 插件 | `OPENCODE_NOTIFY_DEBUG=1` 时的事件/跳过原因（marker/冷却/时段） |
-| `codex-notify-debug.log` | codex wrapper | `CODEX_NOTIFY_DEBUG=1` 时的参数、marker 跳过、推送耗时 |
-| `codex-watch.log` | 看守 | 每次恢复 codex 配置的时间 |
-| `widget-error.log` | 悬浮窗 | UI 异常、模块加载失败、托盘自愈等 |
-| `widget-boot.log` | 悬浮窗 | 每次启动的 PID 与时间（对比 `widget-alive.txt` 判断是否还活着） |
-| `widget-alive.txt` | 悬浮窗 | ~30 秒一次心跳（最后一条 ≈ 死亡时间窗） |
-| `widget-exit.log` | 悬浮窗 | 进程退出记录（正常退出留痕，定位"静默死亡"） |
-| `notify-push-sent.json` | 插件 | 跨实例冷却状态（去重） |
+| `push.log` | CLI / 发送器 | JSON Lines 推送历史，悬浮窗也读取此文件 |
+| `opencode-debug.log` | OpenCode 插件 | `AGENT_NOTIFY_DEBUG=1` 时的打开、跳过和退出信息 |
+| `codex-notify-debug.log` | Codex 命令 | `AGENT_NOTIFY_CODEX_DEBUG=1` 时的参数、透传与发送信息 |
+| `codex-watch.log` | 悬浮窗看护 | Codex notify 行被恢复的时间 |
+| `widget-error.log` | 悬浮窗 | UI 或消息循环错误 |
+| `widget-trace.log` | 悬浮窗 | 启动、窗口创建和退出追踪 |
+| `widget-alive.txt` | 悬浮窗 | 心跳时间 |
+| `widget-exit.txt` | 悬浮窗 | 用户主动退出标记 |
 
-## 症状排查
+用户配置与凭据在 `%USERPROFILE%\.config\agent-notify`。
 
-### 微信完全收不到
+## 微信完全收不到
 
-1. 先确认服务号已关注，且 PushPlus 后台已绑定微信（不绑定一定收不到）
-2. 直推验证：`powershell -File "$env:USERPROFILE\bin\notify-ai.ps1" -Title t -Summary "直推验证"`
-   - 无输出且微信收到 → 通道 OK，问题在触发端
-   - stderr 有 `code=999` → PushPlus 拒收重复内容（固定文案第二次起发不出去；默认文案已带时间戳规避）
-   - stderr 有超时 → 网络/代理问题，脚本超时 20 秒；检查代理设置
-3. 没输出也没收到？`-DryRun` 看 payload 是否正常生成
+1. 确认已登录：
 
-### opencode 任务跑完没推
+   ```powershell
+   Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "status" -Wait
+   ```
 
-1. 开 `OPENCODE_NOTIFY_DEBUG=1`，**重启 opencode 桌面端（含后台 service）**，跑一个任务
-2. 看 `notify-debug.log`：
-   - 没有 `session.execution.succeeded` 事件 → 桌面端大版本可能改了事件名，带日志提 Issue
-   - `skip: marker-off` → 开关关着（悬浮窗或 `notify-toggle.ps1` 打开）
-   - `skip: quiet-hours` → 时段静默中
-   - `skip: cooldown` / `file-cooldown` → 同会话冷却（默认 10 分钟），可调 `OPENCODE_NOTIFY_COOLDOWN_MIN`
-   - `skip: dnd-title` → 会话标题含 🔕 或 `[勿扰]`
-   - `skip: no PUSHPLUS_TOKEN` → 环境变量没生效，见下文
-3. 悬浮窗底栏橙字提示"插件旧版/未安装"→ 重跑 `install.ps1` 并重启桌面端
+2. 未登录或凭据损坏时重新扫码：
 
-### codex turn 跑完没推
+   ```powershell
+   Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "login" -Wait
+   ```
 
-1. 开 `CODEX_NOTIFY_DEBUG=1`，重启 codex 桌面端，跑一个 turn
-2. 看 `codex-notify-debug.log`：
-   - 没有新行 → config.toml 的 notify 行没指向 wrapper（见下方"配置被改回"）
-   - `marker-off skip push` → 开关关着
-   - `push exit=...` 看子进程退出码与耗时
-3. 透传是否正常：原电脑操控功能是否还在（wrapper 先透传后推送，推送失败不影响透传）
+3. 发送测试：
 
-### 开关关了还在推
+   ```powershell
+   Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "test" -Wait
+   ```
 
-- opencode：看悬浮窗底栏是否报"插件旧版"（旧插件不认 marker）；重跑 `install.ps1` + 重启桌面端
-- codex：marker 只跳推送，透传不受影响是预期行为；仍推就开 debug 看 `marker-off` 是否出现
-- 标题/时段免打扰只管 opencode，codex 不看它们
+4. 查看 `%TEMP%\agent-notify\push.log`。若状态是 `未登录`，检查 `%USERPROFILE%\.config\agent-notify\clawbot.json` 是否存在且完整；若状态是 `失败`，根据 `error` 判断网络、TLS、超时或 ClawBot 返回。
 
-### 悬浮窗打不开 / 不见了 / 自己消失
+## OpenCode 任务结束不推送
 
-- **自己消失**：看守任务每 5 分钟检查并自动拉起（进程缺失、且不是主动退出时）。
-  排查死亡原因：`widget-alive.txt` 最后一条心跳 ≈ 死亡时间窗；
-  `widget-exit.log` 看退出记录；`widget-error.log` 看异常堆栈
-- **找回来**：任务栏按钮（`—` 最小化后常驻）/ 双击托盘图标 / 桌面「linkWeixin 悬浮窗」。
-  托盘图标在 Win11 默认收进 `^` 溢出区：拖出来钉住，或去
-  设置 → 个性化 → 任务栏 → 其他系统托盘图标 打开
-- **主动退出后不会被自动拉起**（红字"退出"或托盘菜单退出）：桌面双击快捷方式重开，
-  或重新登录后随开机自启恢复
-- 打不开：跑窗体脚本看报错（`%TEMP%\opencode\widget-error.log`）；模块加载失败会弹窗提示
-- 灯灭不了：`codex-plus-plus*`（Codex++，另一个软件）已排除；仍绿先确认 Codex
-  进程真退了（看守/后台 service 常驻也会亮）
+1. 设置 `AGENT_NOTIFY_DEBUG=1`，完全重启 OpenCode 桌面端。
+2. 运行一个任务后查看 `%TEMP%\agent-notify\opencode-debug.log`。
+3. 常见跳过原因：
+   - `skip: OFF=1`：插件总开关打开。
+   - `skip: marker-off`：`opencode.off` 存在，可在悬浮窗或 `toggle` 中开启。
+   - `skip: cooldown`：同一会话仍在冷却窗口。
+   - `skip: file-cooldown`：其他 OpenCode 实例已推送同一会话。
+   - 没有 `session.execution.succeeded`：当前 OpenCode 版本可能改了事件名或插件未加载。
+4. 检查插件路径是否为 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`。
+5. 重新运行 `install.ps1` 并重启 OpenCode，确保插件是当前版本。
 
-### 每 5 分钟闪一下窗口
+CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json` 中 `quietHours` 覆盖的时段。
 
-看守任务注册动作是旧版（没经 `run-hidden.vbs`）。管理员重跑一遍 `install.ps1` 重注册即可；
-悬浮窗底栏会橙字提示。
+## Codex 任务结束不推送
 
-### codex 配置被改回直调 exe
+1. 设置 `AGENT_NOTIFY_CODEX_DEBUG=1`，重启 Codex。
+2. 查看 `codex-notify-debug.log`。
+3. 检查 `%USERPROFILE%\.codex\config.toml` 的 notify 行是否指向：
 
-codex 桌面启动/更新时会重写 `config.toml`。看守任务每 5 分钟恢复；
-没装看守（`-SkipScheduledTask` 装的）就手动重跑 `install.ps1` 或看守脚本。
+   ```toml
+   notify = [ "C:/Users/<name>/bin/agent-notify.exe", "codex", "turn-ended" ]
+   ```
 
-### 环境变量改了不生效
+4. 检查 `%USERPROFILE%\.config\agent-notify\codex.off` 是否存在。
+5. 运行 `agent-notify watch`，或重启悬浮窗。只有 notify 行仍直指 `codex-computer-use.exe` 时，看护才会恢复 Agent-notify。
+6. 如果 Codex 原本使用自定义 notify 程序，安装器不会覆盖；需要手动把自定义程序与 Agent-notify 串接。
 
-环境变量只在进程启动时读一次：`setx` 后**必须重启对应桌面端（含后台 service）**。
-opencode 后台 service 可用 `opencode-cli.exe service restart` 单独重启。
+## Codex 电脑操控失效
 
-## 历史踩坑（复现时注意）
+Agent-notify 应在发送前透传原始参数和 stdin。检查：
 
-1. **PushPlus 拒收重复内容（code=999）**：固定文案第二次起发不出去。
-   解法：兜底文案带时间戳保证唯一；脚本对非 200 打 stderr，不静默吞。
-2. **stdin 悬挂**：`execFile` 默认 stdin 是常开管道，脚本 `ReadToEnd()` 会等到超时。
-   解法：插件侧显式 `child.stdin.end()` + 脚本 `-NoStdin` 开关双保险。
-3. **PowerShell 5.1 读 UTF-8 无 BOM 按 GBK 解析**：所有 `.ps1/.psm1/.psd1` 必须带
-   BOM（仓库守卫测试硬检；新增文件忘了会被 `Repo.Tests.ps1` 拦下）。
-4. **`Invoke-RestMethod` 5.1 默认 latin-1 发 body**：中文变问号，必须转 UTF-8 字节数组。
-5. **空 `-Summary` 嵌套调用绑定失败**：`powershell -File` 链下空字符串参数会丢，
-   导致子进程报 MissingArgument。解法：为空时整个省略该参数。
-6. **codex 桌面会改写 `config.toml`**：启动/更新后 notify 被改回直调 exe
-   （exe 路径里的哈希目录也会变）。解法：wrapper 动态找最新 exe + watcher 定时恢复。
-7. **opencode 事件名以实测为准**：SDK 文档的 `session.idle` 本版不发，
-   以 debug 抓到的 `session.execution.succeeded` 为准；`session.context()` 返回
-   扁平 `{type, text}` + assistant `content[]` 结构，不是文档里的 `{info, parts}`。
-8. **环境变量只在进程启动时读一次**：见上。
-9. **全局插件对本机所有会话生效**（含 agent/API 会话），靠冷却压频率。
-10. **开关关了还推**：先看悬浮窗底栏，报插件旧版就是装上去的插件没更新——
-    重跑 `install.ps1` 再重启桌面端（插件只在启动时加载）。
-11. **悬浮窗 codex 灯灭不了**：`codex-plus-plus*` 已排除；仍绿先确认
-    Codex 桌面进程真的退了。
-12. **Win11 默认终端是 Windows Terminal 时黑窗口/页签闪**：WT 会在 powershell
-    应用 `-WindowStyle Hidden` 之前先把窗口建出来，所以 `.lnk` 快捷方式和
-    计划任务**必须**经 `src\run-hidden.vbs` 中转（wscript 本身无控制台）。
-    悬浮窗另走 `pythonw`（GUI 宿主，连控制台都不分配，防 WT 空页签被误关）。
+1. 使用的配置是 `agent-notify.exe codex turn-ended`，不是只调用 `notify`。
+2. `codex-notify-debug.log` 能看到参数。
+3. 最近的 Codex 版本是否改变了 `codex-computer-use.exe` 路径；`agent-notify doctor` 会检查接入。
+4. 如果自定义 notify 已存在，先恢复自定义链路，再在其后追加 Agent-notify。
 
-## 提 Issue 前建议收集
+## 悬浮窗不见了
 
-- `linkweixin-install.json`（版本 / launcher 字段）
-- 相关日志的**最后 30 行**（上面速查表按症状选）
-- 环境：Windows 版本、`$PSVersionTable.PSVersion`、agent 版本、是否装了 Python
-- 已尝试的排查步骤
+- 最小化按钮会隐藏窗口，任务栏按钮仍可用于恢复。
+- 关闭按钮会藏入托盘，双击托盘图标可以恢复。
+- 桌面快捷方式名为 `Agent-notify 悬浮窗`。
+- 托盘图标可能在 Windows 11 的溢出区中，可在“任务栏设置 → 其他系统托盘图标”里固定。
+- 用户主动退出会写 `widget-exit.txt`，悬浮窗不会在当前登录会话中被独立看守进程重新拉起。
+- 异常退出后重新打开桌面快捷方式即可；开机自启也会在下次登录时恢复悬浮窗。
 
-模板见仓库 Issue 表单。
+## 悬浮窗无法启动或反复退出
+
+1. 查看 `%TEMP%\agent-notify\widget-error.log`。
+2. 查看 `%TEMP%\agent-notify\widget-trace.log` 最后几行。
+3. 确认 `agent-notify.exe widget` 可以手动启动。
+4. 若二进制被安全软件隔离，重新解压 Release 并校验 `SHA256SUMS.txt`。
+5. 若安装目录内有旧进程占用文件，运行 `uninstall.ps1` 后重新安装。
+
+## 开关关了仍在推送
+
+- 确认当前用户是安装 Agent-notify 的同一 Windows 用户；配置与 marker 都按用户目录隔离。
+- 运行 `agent-notify status --json`，检查 `openCodeEnabled` 与 `codexEnabled`。
+- OpenCode 插件与 CLI 都会检查 marker；如果只有插件未更新，重跑安装并重启 OpenCode。
+- Codex 关闭推送时仍会透传上游程序，这是预期行为。
+
+## 推送重复
+
+- OpenCode 默认对同一 `sessionID` 在 10 分钟内去重。
+- 修改 `cooldownMin` 后重启 OpenCode，使插件重新读取配置。
+- `opencode-sent.json` 是跨实例去重状态；删掉它只会让后续事件重新建立状态，不会补发历史消息。
+
+## PowerShell 中的 CLI 输出
+
+`agent-notify.exe` 是 GUI 子系统程序，避免在 hook 和开机启动时闪窗。不要用捕获表达式等待输出；对需要等待的命令使用：
+
+```powershell
+Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "doctor" -Wait
+```
+
+需要机器可读输出时，显式重定向：
+
+```powershell
+Start-Process "$env:USERPROFILE\bin\agent-notify.exe" `
+  -ArgumentList "status --json" `
+  -Wait -NoNewWindow `
+  -RedirectStandardOutput "$env:TEMP\agent-notify-status.json"
+```
+
+## 安装或卸载失败
+
+- 关闭正在运行的 Agent-notify 悬浮窗后重试。
+- 安装目录必须可写；默认是 `%USERPROFILE%\bin`。
+- 如果 `bin` 中没有 exe，安装器会尝试调用 Go 编译。安装 Go，或通过 `AGENT_NOTIFY_GO` 指定 `go.exe`。
+- 卸载保留 `%USERPROFILE%\.config\agent-notify`，这是避免误删登录凭据和用户配置。
+- 如需完全重置，先备份需要的配置，再手动删除上述目录并重新安装。
+
+## 提 Issue 前收集
+
+- `agent-notify-install.json` 的版本字段。
+- `agent-notify doctor` 的文本输出。
+- 对应日志最后 30 行。
+- Windows 版本、Agent-notify 版本、OpenCode 或 Codex 版本。
+- 已执行的排查步骤。

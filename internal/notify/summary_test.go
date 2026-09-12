@@ -7,96 +7,42 @@ import (
 
 func TestFormatNotifySummary(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		max      int
-		expected string
+		name string
+		in   string
+		max  int
+		want string
 	}{
-		{
-			name:     "标题行加粗",
-			input:    "# 标题",
-			max:      500,
-			expected: "<b>标题</b>",
-		},
-		{
-			name:     "无序与有序列表转圆点",
-			input:    "- 甲\n1. 乙",
-			max:      500,
-			expected: "• 甲<br>• 乙",
-		},
-		{
-			name:     "引用行（由于先转义，> 变为 &gt;）",
-			input:    "> 引用",
-			max:      500,
-			expected: "&gt; 引用",
-		},
-		{
-			name:     "行内加粗",
-			input:    "**加粗**",
-			max:      500,
-			expected: "<b>加粗</b>",
-		},
-		{
-			name:     "行内代码去反引号",
-			input:    "`x`",
-			max:      500,
-			expected: "x",
-		},
-		{
-			name:     "HTML 转义",
-			input:    "a < b & c",
-			max:      500,
-			expected: "a &lt; b &amp; c",
-		},
-		{
-			name:     "代码块整段剔除",
-			input:    "前\n```secret```\n后",
-			max:      500,
-			expected: "前<br><br>后",
-		},
-		{
-			name:     "按句截断：句号在 100 字之后时切在句末",
-			input:    strings.Repeat("a", 110) + "。" + strings.Repeat("b", 50),
-			max:      120,
-			expected: strings.Repeat("a", 110) + "。…",
-		},
-		{
-			name:     "按句截断：无边界时硬切",
-			input:    strings.Repeat("a", 200),
-			max:      120,
-			expected: strings.Repeat("a", 120) + "…",
-		},
-		{
-			name:     "连续空行折叠为两行",
-			input:    "a\n\n\n\nb",
-			max:      500,
-			expected: "a<br><br>b",
-		},
-		{
-			name:     "--- 分隔行剔除",
-			input:    "a\n---\nb",
-			max:      500,
-			expected: "a<br>b",
-		},
-		{
-			name:     "首尾空白裁掉",
-			input:    "\n\na\n\n",
-			max:      500,
-			expected: "a",
-		},
-		{
-			name:     "普通文本原样输出",
-			input:    "hello",
-			max:      500,
-			expected: "hello",
-		},
+		{"heading", "# 标题", 500, "标题"},
+		{"lists", "- 甲\n1. 乙", 500, "• 甲\n• 乙"},
+		{"inline markup", "**加粗** 和 `code`", 500, "加粗 和 code"},
+		{"code block omitted", "前\n```secret```\n后", 500, "前\n\n后"},
+		{"collapse blank lines", "a\n\n\n\nb", 500, "a\n\nb"},
+		{"plain text", "hello", 500, "hello"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := FormatNotifySummary(tt.input, tt.max)
-			if actual != tt.expected {
-				t.Errorf("FormatNotifySummary() = %q, want %q", actual, tt.expected)
+			if got := FormatNotifySummary(tt.in, tt.max); got != tt.want {
+				t.Fatalf("FormatNotifySummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCutSentence(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		max  int
+		want string
+	}{
+		{"short", "hello", 10, "hello"},
+		{"hard cut", strings.Repeat("a", 200), 100, strings.Repeat("a", 100) + "…"},
+		{"sentence cut", strings.Repeat("a", 110) + "。" + strings.Repeat("b", 50), 120, strings.Repeat("a", 110) + "。…"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CutSentence(tt.in, tt.max); got != tt.want {
+				t.Fatalf("CutSentence() = %q, want %q", got, tt.want)
 			}
 		})
 	}

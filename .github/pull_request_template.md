@@ -7,7 +7,7 @@
 - [ ] feat 新功能
 - [ ] fix 修复
 - [ ] docs 文档
-- [ ] refactor 重构（行为不变）
+- [ ] refactor 重构
 - [ ] test 测试
 - [ ] chore / ci 工程
 
@@ -16,9 +16,9 @@
 - [ ] `tools\lint.ps1` 全绿
 - [ ] `tools\test.ps1` 全绿
 - [ ] 改动 `plugin/` 时 `npx tsc --noEmit` 全绿
-- [ ] 新增/修改 ps1/psm1/psd1 为 UTF-8 BOM + CRLF
+- [ ] 修改 PowerShell 脚本时保留 UTF-8 BOM + CRLF
 - [ ] 行为有变化时已更新 `CHANGELOG.md`
-- [ ] 未破坏外部契约（入口名 / 环境变量 / marker 路径 / 静默 exit 0，见 CONTRIBUTING）
+- [ ] 未破坏 `AGENT_NOTIFY_*`、marker 与 ClawBot 会话文件契约
 
 ## 关联 Issue
 

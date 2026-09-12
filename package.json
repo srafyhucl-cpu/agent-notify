@@ -1,7 +1,7 @@
 {
-  "name": "linkweixin",
+  "name": "agent-notify",
   "private": true,
-  "description": "linkWeixin opencode 插件的类型检查工程（仅 devDependencies，不参与运行时）",
+  "description": "Agent-notify OpenCode 插件的类型检查工程（仅 devDependencies，不参与运行时）",
   "scripts": {
     "typecheck": "tsc --noEmit"
   },

@@ -8,11 +8,10 @@ import (
 	"unsafe"
 )
 
-// ProcessStatus checks running status of the 3 agents.
+// ProcessStatus tracks the two supported local agents.
 type ProcessStatus struct {
-	OpenCodeRunning    bool
-	CodexRunning       bool
-	AntigravityRunning bool
+	OpenCodeRunning bool
+	CodexRunning    bool
 }
 
 // DetectProcesses scans running processes using CreateToolhelp32Snapshot.
@@ -26,40 +25,31 @@ func DetectProcesses() ProcessStatus {
 
 	var entry PROCESSENTRY32W
 	entry.DwSize = uint32(unsafe.Sizeof(entry))
-
 	ret, _, _ := pProcess32FirstW.Call(hSnap, uintptr(unsafe.Pointer(&entry)))
 	if ret == 0 {
 		return ProcessStatus{}
 	}
 
 	var status ProcessStatus
-
 	for {
-		name := syscall.UTF16ToString(entry.SzExeFile[:])
-		nameLower := strings.ToLower(name)
-
+		nameLower := strings.ToLower(syscall.UTF16ToString(entry.SzExeFile[:]))
 		if strings.Contains(nameLower, "opencode") {
 			status.OpenCodeRunning = true
 		}
 		if strings.Contains(nameLower, "codex") && !strings.Contains(nameLower, "codex-plus-plus") {
 			status.CodexRunning = true
 		}
-		if strings.Contains(nameLower, "antigravity") || strings.Contains(nameLower, "language_server") {
-			status.AntigravityRunning = true
-		}
-
 		ret, _, _ = pProcess32NextW.Call(hSnap, uintptr(unsafe.Pointer(&entry)))
 		if ret == 0 {
 			break
 		}
 	}
-
 	return status
 }
 
-// KillOtherLinkWeixinInstances terminates any zombie linkweixin.exe processes except the current PID.
-func KillOtherLinkWeixinInstances() {
-	curPid := uint32(syscall.Getpid())
+// KillOtherAgentNotifyInstances terminates stale GUI instances except the current PID.
+func KillOtherAgentNotifyInstances() {
+	currentPID := uint32(syscall.Getpid())
 	const TH32CS_SNAPPROCESS = 0x00000002
 	hSnap, _, _ := pCreateToolhelp32Snapshot.Call(TH32CS_SNAPPROCESS, 0)
 	if hSnap == 0 || hSnap == ^uintptr(0) {
@@ -69,7 +59,6 @@ func KillOtherLinkWeixinInstances() {
 
 	var entry PROCESSENTRY32W
 	entry.DwSize = uint32(unsafe.Sizeof(entry))
-
 	ret, _, _ := pProcess32FirstW.Call(hSnap, uintptr(unsafe.Pointer(&entry)))
 	if ret == 0 {
 		return
@@ -77,17 +66,15 @@ func KillOtherLinkWeixinInstances() {
 
 	pOpenProcess := kernel32.NewProc("OpenProcess")
 	pTerminateProcess := kernel32.NewProc("TerminateProcess")
-
 	for {
 		name := syscall.UTF16ToString(entry.SzExeFile[:])
-		if strings.EqualFold(name, "linkweixin.exe") && entry.Th32ProcessID != curPid {
-			hProc, _, _ := pOpenProcess.Call(0x0001, 0, uintptr(entry.Th32ProcessID)) // PROCESS_TERMINATE
-			if hProc != 0 {
-				pTerminateProcess.Call(hProc, 0)
-				pCloseHandle.Call(hProc)
+		if strings.EqualFold(name, "agent-notify.exe") && entry.Th32ProcessID != currentPID {
+			hProcess, _, _ := pOpenProcess.Call(0x0001, 0, uintptr(entry.Th32ProcessID))
+			if hProcess != 0 {
+				pTerminateProcess.Call(hProcess, 0)
+				pCloseHandle.Call(hProcess)
 			}
 		}
-
 		ret, _, _ = pProcess32NextW.Call(hSnap, uintptr(unsafe.Pointer(&entry)))
 		if ret == 0 {
 			break

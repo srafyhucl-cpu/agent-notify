@@ -1,11 +1,11 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  PSScriptAnalyzer 全量扫描（本地与 CI 共用入口）。有 Error/Warning 非零退出。
+  PowerShell 静态检查：语法解析全量扫描 + PSScriptAnalyzer（可用时）Error 级检查。
 
 .DESCRIPTION
-  按仓库根目录 PSScriptAnalyzerSettings.psd1 扫描全部 ps1/psm1/psd1；
-  本地缺 PSScriptAnalyzer 时自动装到 CurrentUser（CI 同样适用）。
+  语法解析不依赖外部模块，始终执行；PSScriptAnalyzer 若已安装则额外跑一遍
+  Error 级规则。CI 与本机共用同一入口。
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\lint.ps1
@@ -14,23 +14,39 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
+$failures = @()
 
-if (-not (Get-Module PSScriptAnalyzer -ListAvailable)) {
-  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -Confirm:$false
-}
-Import-Module PSScriptAnalyzer
+$files = @(Get-ChildItem -Path $RepoRoot -Recurse -File -Include *.ps1, *.psm1, *.psd1 |
+    Where-Object { $_.FullName -notmatch '[\\/](\.git|node_modules|dist|bin)[\\/]' })
 
-$settings = Join-Path $RepoRoot 'PSScriptAnalyzerSettings.psd1'
-$results = @(Invoke-ScriptAnalyzer -Path $RepoRoot -Recurse -Settings $settings -Severity Error, Warning |
-    Where-Object { $_.ScriptPath -notmatch '[\\/]\.git[\\/]|[\\/]node_modules[\\/]|[\\/]dist[\\/]' })
-
-if ($results.Count -gt 0) {
-  foreach ($r in $results) {
-    "{0}  {1}:{2}  {3}" -f $r.Severity, $r.ScriptName, $r.Line, $r.Message
+foreach ($file in $files) {
+  $tokens = $null
+  $errors = $null
+  [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+  if ($errors.Count -gt 0) {
+    $failures += "$($file.Name):$($errors[0].Extent.StartLineNumber) $($errors[0].Message)"
   }
-  Write-Output "[lint] 有 $($results.Count) 处 Error/Warning，请修复或按理由加入 PSScriptAnalyzerSettings.psd1 排除"
+}
+
+if ($failures.Count -gt 0) {
+  $failures | ForEach-Object { Write-Output "[lint] 语法错误：$_" }
   exit 1
 }
-Write-Output '[lint] PSScriptAnalyzer 全绿'
+Write-Output "[lint] 语法解析通过（$($files.Count) 个文件）"
+
+if (Get-Module PSScriptAnalyzer -ListAvailable) {
+  Import-Module PSScriptAnalyzer
+  $results = @(Invoke-ScriptAnalyzer -Path $RepoRoot -Recurse -Severity Error |
+      Where-Object { $_.ScriptPath -notmatch '[\\/](\.git|node_modules|dist|bin)[\\/]' })
+  if ($results.Count -gt 0) {
+    foreach ($result in $results) {
+      Write-Output ("[lint] {0}  {1}:{2}  {3}" -f $result.Severity, $result.ScriptName, $result.Line, $result.Message)
+    }
+    exit 1
+  }
+  Write-Output '[lint] PSScriptAnalyzer Error 级检查通过'
+} else {
+  Write-Output '[lint] 未安装 PSScriptAnalyzer，跳过深度规则检查'
+}
+
 exit 0

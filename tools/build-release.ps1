@@ -1,16 +1,11 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  构建发布包：linkWeixin-v<版本>.zip + SHA256SUMS.txt（本地与 CI 共用）。
+  Build Agent-notify-v<version>.zip without a directory staging tree.
 
 .DESCRIPTION
-  版本号默认读 src/lib/LinkWeixin/LinkWeixin.psd1 的 ModuleVersion（单一来源）。
-  打包内容：install.ps1 / uninstall.ps1 / src/** / plugin/** / LICENSE /
-  README.md / CHANGELOG.md / .env.example；解压后根目录即可安装。
-
-.EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-release.ps1
-  powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-release.ps1 -Version 0.1.0 -OutDir dist
+  Version source: internal/app/version.go.
+  The archive always contains a top-level Agent-notify directory.
 #>
 param(
   [string]$Version,
@@ -22,39 +17,111 @@ $RepoRoot = Split-Path $PSScriptRoot -Parent
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 
 if (-not $Version) {
-  $psd1 = Join-Path $RepoRoot 'src\lib\LinkWeixin\LinkWeixin.psd1'
-  $m = Select-String -Path $psd1 -Pattern "ModuleVersion\s*=\s*'([^']+)'" | Select-Object -First 1
-  if (-not $m) { throw "无法从 psd1 读出 ModuleVersion：$psd1" }
-  $Version = $m.Matches[0].Groups[1].Value
+  $versionFile = Join-Path $RepoRoot 'internal\app\version.go'
+  $match = Select-String -Path $versionFile -Pattern 'Version\s*=\s*"([^"]+)"' | Select-Object -First 1
+  if (-not $match) { throw "Could not read Version from $versionFile" }
+  $Version = $match.Matches[0].Groups[1].Value
 }
 
-# 组装发布目录（临时 staging），保持仓库的相对结构，解压即用。
-$stage = Join-Path $env:TEMP ("linkweixin-release-" + [guid]::NewGuid().ToString('N'))
-$stageRoot = Join-Path $stage 'linkWeixin'
-New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
+function Resolve-GoCommand {
+  $candidates = @()
+  if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_GO)) { $candidates += $env:AGENT_NOTIFY_GO }
+  $onPath = Get-Command go.exe -ErrorAction SilentlyContinue
+  if ($onPath) { $candidates += $onPath.Source }
+  $candidates += 'D:\MyGO\install\bin\go.exe'
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate)) { return $candidate }
+  }
+  return $null
+}
+
+$goExe = Resolve-GoCommand
+if (-not $goExe) { throw 'go.exe was not found' }
+
+$driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
+$cacheRoot = Join-Path $driveRoot 'Temp\agent-notify-go'
+if ([string]::IsNullOrWhiteSpace($env:GOPATH)) { $env:GOPATH = $cacheRoot }
+if ([string]::IsNullOrWhiteSpace($env:GOMODCACHE)) { $env:GOMODCACHE = Join-Path $cacheRoot 'pkg\mod' }
+if ([string]::IsNullOrWhiteSpace($env:GOCACHE)) { $env:GOCACHE = Join-Path $cacheRoot 'build' }
+
+$buildRoot = Join-Path $driveRoot ('Temp\agent-notify-build-' + [guid]::NewGuid().ToString('N'))
+$tempExe = Join-Path $buildRoot 'agent-notify.exe'
+New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
+
 try {
-  Copy-Item (Join-Path $RepoRoot 'install.ps1') $stageRoot -Force
-  Copy-Item (Join-Path $RepoRoot 'uninstall.ps1') $stageRoot -Force
-  Copy-Item (Join-Path $RepoRoot 'src') (Join-Path $stageRoot 'src') -Recurse -Force
-  Copy-Item (Join-Path $RepoRoot 'plugin') (Join-Path $stageRoot 'plugin') -Recurse -Force
-  foreach ($f in @('LICENSE', 'README.md', 'CHANGELOG.md', '.env.example')) {
-    $p = Join-Path $RepoRoot $f
-    if (Test-Path $p) { Copy-Item $p $stageRoot -Force }
+  $commit = 'unknown'
+  try {
+    $commit = (& git rev-parse --short HEAD 2>$null).Trim()
+    if (-not $commit) { $commit = 'unknown' }
+  } catch {
+    $commit = 'unknown'
+  }
+  $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $module = 'github.com/srafyhucl-cpu/agent-notify/internal/app'
+  $ldflags = "-H windowsgui -s -w -X $module.Version=$Version -X $module.Commit=$commit -X $module.BuildTime=$buildTime"
+
+  Push-Location $RepoRoot
+  try {
+    & $goExe build -ldflags $ldflags -trimpath -o $tempExe '.\cmd\agent-notify\'
+    if ($LASTEXITCODE -ne 0) { throw "go build failed: exit=$LASTEXITCODE" }
+  } finally {
+    Pop-Location
   }
 
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-  $zipName = "linkWeixin-v$Version.zip"
+  $zipName = "Agent-notify-v$Version.zip"
   $zipPath = Join-Path $OutDir $zipName
-  Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-  Compress-Archive -Path $stageRoot -DestinationPath $zipPath -CompressionLevel Optimal
+  if (Test-Path -LiteralPath $zipPath) { [IO.File]::Delete($zipPath) }
 
-  $hash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+	Add-Type -AssemblyName System.IO.Compression.FileSystem
+	Add-Type -AssemblyName System.IO.Compression
+	$archive = [IO.Compression.ZipFile]::Open(
+    $zipPath,
+    [IO.Compression.ZipArchiveMode]::Create
+  )
+
+  function Add-ReleaseFile {
+    param(
+      [IO.Compression.ZipArchive]$Zip,
+      [string]$Source,
+      [string]$EntryName
+    )
+    if (-not (Test-Path -LiteralPath $Source)) {
+      throw "Release source is missing: $Source"
+    }
+    [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+      $Zip,
+      $Source,
+      $EntryName,
+      [IO.Compression.CompressionLevel]::Optimal
+    )
+  }
+
+  try {
+    Add-ReleaseFile $archive $tempExe 'Agent-notify/bin/agent-notify.exe'
+    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\agent-notify.ts') 'Agent-notify/plugin/agent-notify.ts'
+    Add-ReleaseFile $archive (Join-Path $RepoRoot 'VERSION') 'Agent-notify/VERSION'
+    foreach ($name in @('install.ps1', 'uninstall.ps1', 'README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'LICENSE', '.env.example')) {
+      Add-ReleaseFile $archive (Join-Path $RepoRoot $name) "Agent-notify/$name"
+    }
+    foreach ($name in @('ARCHITECTURE.md', 'TROUBLESHOOTING.md')) {
+      Add-ReleaseFile $archive (Join-Path $RepoRoot "docs\$name") "Agent-notify/docs/$name"
+    }
+  } finally {
+    $archive.Dispose()
+  }
+
+  $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLower()
   $sumPath = Join-Path $OutDir 'SHA256SUMS.txt'
-  # 标准 sha256sum 格式（hash + 两空格 + 文件名），ascii 保证校验工具兼容。
-  "$hash  $zipName" | Out-File -FilePath $sumPath -Encoding ascii -Force
-  Write-Output "[release] 已生成 $zipPath"
-  Write-Output "[release] SHA256 $hash"
-  Write-Output "[release] 校验文件 $sumPath"
+  [IO.File]::WriteAllText(
+    $sumPath,
+    "$hash  $zipName`r`n",
+    [Text.Encoding]::ASCII
+  )
+  Write-Output "[release] archive: $zipPath"
+  Write-Output "[release] sha256:  $hash"
+  Write-Output "[release] sums:    $sumPath"
 } finally {
-  Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $tempExe) { [IO.File]::Delete($tempExe) }
+  if (Test-Path -LiteralPath $buildRoot) { [IO.Directory]::Delete($buildRoot, $false) }
 }

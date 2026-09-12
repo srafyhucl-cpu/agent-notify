@@ -3,122 +3,65 @@ package notify
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+	"time"
 )
 
-func TestGetHistory_EmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	logFile := filepath.Join(dir, "push.log")
-	_ = os.WriteFile(logFile, []byte(""), 0644)
+func TestHistoryLifecycle(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "push.log")
+	items := []HistoryItem{
+		{Timestamp: "2026-09-11T10:00:00Z", Agent: "opencode", Title: "A", Summary: "first", Status: StatusSuccess},
+		{Timestamp: "2026-09-11T11:00:00Z", Agent: "codex", Title: "B", Summary: "second", Status: StatusFailed, Error: "network"},
+	}
+	for _, item := range items {
+		if err := appendHistory(item, logPath); err != nil {
+			t.Fatalf("appendHistory: %v", err)
+		}
+	}
 
-	records, err := GetHistory(50, logFile)
+	got, err := GetHistory(10, logPath)
 	if err != nil {
 		t.Fatalf("GetHistory: %v", err)
 	}
-	if len(records) != 0 {
-		t.Errorf("len(records) = %d, want 0", len(records))
+	if len(got) != 2 {
+		t.Fatalf("len(GetHistory) = %d, want 2", len(got))
 	}
-}
+	if got[0].Title != "B" || got[0].Agent != "codex" {
+		t.Fatalf("latest item = %#v", got[0])
+	}
+	if got[1].Summary != "first" {
+		t.Fatalf("oldest item = %#v", got[1])
+	}
 
-func TestGetHistory_NonexistentFile(t *testing.T) {
-	records, err := GetHistory(50, filepath.Join(t.TempDir(), "nope.log"))
+	limited, err := GetHistory(1, logPath)
 	if err != nil {
-		t.Fatalf("should not error for non-existent: %v", err)
+		t.Fatalf("GetHistory limit: %v", err)
 	}
-	if records != nil {
-		t.Errorf("records should be nil for non-existent file")
-	}
-}
-
-func TestGetHistory_MultipleEntries(t *testing.T) {
-	dir := t.TempDir()
-	logFile := filepath.Join(dir, "push.log")
-	lines := []string{
-		"2025-06-15T10:00:00.000Z push title=【AI任务】测试一 | channels=PushPlus | status=成功 | summary=摘要一",
-		"2025-06-15T11:00:00.000Z push title=【codex】测试二 | channels=PushPlus,企业微信 | status=部分成功 | summary=摘要二",
-		"2025-06-15T12:00:00.000Z push title=【Antigravity】测试三 | channels=飞书 | status=成功 | summary=摘要三",
-	}
-	content := strings.Join(lines, "\r\n") + "\r\n"
-	_ = os.WriteFile(logFile, []byte(content), 0644)
-
-	records, err := GetHistory(50, logFile)
-	if err != nil {
-		t.Fatalf("GetHistory: %v", err)
-	}
-	if len(records) != 3 {
-		t.Fatalf("len(records) = %d, want 3", len(records))
+	if len(limited) != 1 || limited[0].Title != "B" {
+		t.Fatalf("limited history = %#v", limited)
 	}
 
-	// Should be most recent first
-	if !strings.Contains(records[0].Title, "测试三") {
-		t.Errorf("records[0].Title = %q, want to contain 测试三", records[0].Title)
-	}
-	if records[0].Channels != "飞书" {
-		t.Errorf("records[0].Channels = %q, want 飞书", records[0].Channels)
-	}
-	if records[0].Status != "成功" {
-		t.Errorf("records[0].Status = %q, want 成功", records[0].Status)
-	}
-}
-
-func TestGetHistory_LimitWorks(t *testing.T) {
-	dir := t.TempDir()
-	logFile := filepath.Join(dir, "push.log")
-	lines := []string{
-		"2025-06-15T10:00:00.000Z push title=A | channels=PushPlus | status=成功 | summary=1",
-		"2025-06-15T11:00:00.000Z push title=B | channels=PushPlus | status=成功 | summary=2",
-		"2025-06-15T12:00:00.000Z push title=C | channels=PushPlus | status=成功 | summary=3",
-	}
-	_ = os.WriteFile(logFile, []byte(strings.Join(lines, "\n")+"\n"), 0644)
-
-	records, _ := GetHistory(2, logFile)
-	if len(records) != 2 {
-		t.Errorf("len(records) = %d, want 2 (limited)", len(records))
-	}
-}
-
-func TestClearHistory(t *testing.T) {
-	dir := t.TempDir()
-	logFile := filepath.Join(dir, "push.log")
-	_ = os.WriteFile(logFile, []byte("some data"), 0644)
-
-	err := ClearHistory(logFile)
-	if err != nil {
+	if err := ClearHistory(logPath); err != nil {
 		t.Fatalf("ClearHistory: %v", err)
 	}
-	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
-		t.Error("log file should be removed after ClearHistory")
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatal("history file still exists after ClearHistory")
 	}
 }
 
-func TestClearHistory_NonexistentFile(t *testing.T) {
-	err := ClearHistory(filepath.Join(t.TempDir(), "nonexistent.log"))
+func TestGetHistoryMissingFile(t *testing.T) {
+	items, err := GetHistory(10, filepath.Join(t.TempDir(), "missing.log"))
 	if err != nil {
-		t.Errorf("ClearHistory for non-existent should not error: %v", err)
+		t.Fatalf("GetHistory missing file: %v", err)
+	}
+	if items != nil {
+		t.Fatalf("missing file should return nil, got %#v", items)
 	}
 }
 
-func TestCutSentence(t *testing.T) {
-	tests := []struct {
-		name   string
-		text   string
-		max    int
-		expect string
-	}{
-		{"短文本原样", "hello", 500, "hello"},
-		{"刚好等于 max", strings.Repeat("a", 100), 100, strings.Repeat("a", 100)},
-		{"无句号硬切", strings.Repeat("a", 200), 100, strings.Repeat("a", 100) + "…"},
-		{"句号在 100+", strings.Repeat("a", 110) + "。" + strings.Repeat("b", 50), 120, strings.Repeat("a", 110) + "。…"},
-		{"句号太靠前", "前。" + strings.Repeat("a", 200), 120, "前。" + strings.Repeat("a", 118) + "…"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := CutSentence(tt.text, tt.max)
-			if got != tt.expect {
-				t.Errorf("CutSentence() = %q, want %q", got, tt.expect)
-			}
-		})
+func TestHistoryItemLocalTime(t *testing.T) {
+	item := HistoryItem{Timestamp: time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)}
+	if item.LocalTime().IsZero() {
+		t.Fatal("LocalTime returned zero for valid timestamp")
 	}
 }

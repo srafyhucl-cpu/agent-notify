@@ -4,38 +4,44 @@ import (
 	"fmt"
 	"strings"
 
-	"linkweixin/internal/config"
-	"linkweixin/internal/marker"
+	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 )
 
-// HandleToggle handles toggling of markers for agents.
-func HandleToggle(agentName, mode string) {
+// HandleToggle changes the marker for one agent or both agents.
+func HandleToggle(agentName, mode string) error {
 	paths := config.GetPaths()
 	if mode == "" {
 		mode = "Flip"
 	}
-	agentNameLower := strings.ToLower(strings.TrimSpace(agentName))
-	if agentNameLower == "" || agentNameLower == "all" {
-		oc, _ := marker.SetMarker(paths.OpenCodeMarker, mode)
-		cx, _ := marker.SetMarker(paths.CodexMarker, mode)
-		ag, _ := marker.SetMarker(paths.AntigravityMarker, mode)
-		fmt.Printf("opencode: %s\n", oc)
-		fmt.Printf("codex: %s\n", cx)
-		fmt.Printf("antigravity: %s\n", ag)
-		return
+	agentName = strings.ToLower(strings.TrimSpace(agentName))
+	if agentName == "" || agentName == "all" {
+		openCode, err := marker.SetMarker(paths.OpenCodeMarker, mode)
+		if err != nil {
+			return err
+		}
+		codex, err := marker.SetMarker(paths.CodexMarker, mode)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("opencode: %s\n", openCode)
+		fmt.Printf("codex: %s\n", codex)
+		return nil
 	}
 
-	switch agentNameLower {
+	var markerPath string
+	switch agentName {
 	case "opencode":
-		res, _ := marker.SetMarker(paths.OpenCodeMarker, mode)
-		fmt.Println(res)
+		markerPath = paths.OpenCodeMarker
 	case "codex":
-		res, _ := marker.SetMarker(paths.CodexMarker, mode)
-		fmt.Println(res)
-	case "antigravity":
-		res, _ := marker.SetMarker(paths.AntigravityMarker, mode)
-		fmt.Println(res)
+		markerPath = paths.CodexMarker
 	default:
-		fmt.Printf("Unknown agent: %s\n", agentName)
+		return fmt.Errorf("unknown agent: %s", agentName)
 	}
+	result, err := marker.SetMarker(markerPath, mode)
+	if err != nil {
+		return err
+	}
+	fmt.Println(result)
+	return nil
 }

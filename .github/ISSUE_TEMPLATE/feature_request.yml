@@ -7,7 +7,7 @@ body:
     id: need
     attributes:
       label: 想解决什么问题
-      description: 先讲场景与痛点，再讲想要的方案
+      description: 先描述场景与痛点，再说明期望结果
     validations:
       required: true
   - type: textarea
@@ -21,6 +21,6 @@ body:
   - type: checkboxes
     id: contract
     attributes:
-      label: 契约检查
+      label: 项目边界
       options:
-        - label: 我理解本项目保持 Windows + PowerShell 5.1 + 中文优先
+        - label: 我理解 Agent-notify 面向 Windows 10/11，优先支持 OpenCode 与 Codex
