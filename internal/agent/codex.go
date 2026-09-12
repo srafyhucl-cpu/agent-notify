@@ -150,21 +150,32 @@ func HandleCodex(args []string) notify.NotifyResult {
 	}
 
 	paths := config.GetPaths()
-	if marker.IsOff(paths.CodexMarker) {
-		return notify.NotifyResult{Status: notify.StatusSkipped, Error: "Codex 推送已关闭"}
-	}
-	if !isDry && skippedForQuietHours() {
-		return notify.NotifyResult{Status: notify.StatusSkipped, Error: "当前处于勿扰时段"}
-	}
-
 	title, summary := ConvertCodexArgs(args)
-	result := notify.SendNotification(notify.NotifyOptions{
+	opts := notify.NotifyOptions{
 		Agent:    "codex",
 		Title:    title,
 		Summary:  summary,
 		MaxChars: 800,
 		DryRun:   isDry,
-	})
+	}
+
+	if marker.IsOff(paths.CodexMarker) {
+		result := notify.RecordSkipped(opts, "Codex 推送已关闭")
+		writeCodexDebug(fmt.Sprintf("push status=%s error=%s", result.Status, result.Error))
+		return result
+	}
+	if !isDry && skippedForQuietHours() {
+		result := notify.RecordSkipped(opts, "当前处于勿扰时段")
+		writeCodexDebug(fmt.Sprintf("push status=%s error=%s", result.Status, result.Error))
+		return result
+	}
+	if isDoNotDisturbTitle(title) {
+		result := notify.RecordSkipped(opts, "标题包含勿扰标记")
+		writeCodexDebug(fmt.Sprintf("push status=%s error=%s", result.Status, result.Error))
+		return result
+	}
+
+	result := notify.SendNotification(opts)
 	writeCodexDebug(fmt.Sprintf("push status=%s error=%s", result.Status, result.Error))
 	return result
 }

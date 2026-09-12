@@ -26,6 +26,7 @@ const (
 
 	IDC_SETTINGS_QUIET    = 4001
 	IDC_SETTINGS_COOLDOWN = 4002
+	settingsTimer         = 1
 )
 
 const (
@@ -78,6 +79,28 @@ func placeEdit(ctrl uintptr, rect RECT) {
 	)
 }
 
+func settingsConnectionState(status clawbot.Status) (string, string, string, uint32, string) {
+	loginLabel := "扫码登录"
+	if status.LoggedIn {
+		loginLabel = "重新登录"
+	}
+
+	switch {
+	case !status.LoggedIn:
+		return loginLabel, "ClawBot 未连接", "扫码登录后，还需发送一条微信消息", RGB(224, 104, 104), "凭据仅保存在本机，不上传第三方。"
+	case status.Stale:
+		return loginLabel, "ClawBot 登录已失效", "请重新扫码登录", RGB(224, 104, 104), "不会复用已经失效的登录或会话。"
+	case !status.SessionReady:
+		return loginLabel, "已登录，等待微信消息", "请给 ClawBot 发送一条消息建立会话", RGB(224, 165, 70), "也可运行 agent-notify sync。"
+	default:
+		detail := "主动推送会话已就绪"
+		if status.UserHint != "" {
+			detail += " · " + status.UserHint
+		}
+		return loginLabel, "ClawBot 已连接", detail, RGB(55, 190, 147), "凭据仅保存在本机，不上传第三方。"
+	}
+}
+
 func ShowSettingsDialog(parentHwnd uintptr) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -102,7 +125,7 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 		case WM_CREATE:
 			setUIDPI(windowDPI(hwnd))
 			backgroundBrush, _, _ = pCreateSolidBrush.Call(uintptr(RGB(15, 19, 23)))
-			editFont = newFont(12, 400)
+			editFont = newFont(14, 400)
 
 			quietEdit, _, _ = pCreateWindowExW.Call(
 				0,
@@ -130,6 +153,7 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			pSendMessageW.Call(cooldownEdit, WM_SETFONT, editFont, 1)
 			setWindowText(quietEdit, cfg.QuietHours)
 			setWindowText(cooldownEdit, fmt.Sprintf("%d", cfg.CooldownMin))
+			pSetTimer.Call(hwnd, settingsTimer, 1000, 0)
 			return 0
 
 		case WM_DPICHANGED:
@@ -138,12 +162,18 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			if editFont != 0 {
 				pDeleteObject.Call(editFont)
 			}
-			editFont = newFont(12, 400)
+			editFont = newFont(14, 400)
 			pSendMessageW.Call(quietEdit, WM_SETFONT, editFont, 1)
 			pSendMessageW.Call(cooldownEdit, WM_SETFONT, editFont, 1)
 			placeEdit(quietEdit, layout.quiet)
 			placeEdit(cooldownEdit, layout.cooldown)
 			pInvalidateRect.Call(hwnd, 0, 0)
+			return 0
+
+		case WM_TIMER:
+			if wParam == settingsTimer {
+				pInvalidateRect.Call(hwnd, 0, 0)
+			}
 			return 0
 
 		case WM_ERASEBKGND:
@@ -154,11 +184,11 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 				fillRectLogical(hdc, RECT{0, 0, settingsWidth, settingsHeight}, uintptr(RGB(15, 19, 23)))
 				pSetBkMode.Call(hdc, TRANSPARENT)
 
-				titleFont := newFont(18, 700)
-				baseFont := newFont(12, 400)
-				strongFont := newFont(12, 700)
-				smallFont := newFont(10, 400)
-				iconFont := newIconFont(14)
+				titleFont := newFont(20, 700)
+				baseFont := newFont(14, 400)
+				strongFont := newFont(14, 700)
+				smallFont := newFont(12, 400)
+				iconFont := newIconFont(16)
 				oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
 				defer func() {
 					pSelectObject.Call(hdc, oldFont)
@@ -181,27 +211,16 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 				DrawText(hdc, "微信推送通道", &RECT{32, 82, 280, 100}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 				status := clawbot.GetStatus()
-				statusColor := uintptr(RGB(224, 104, 104))
-				statusTitle := "ClawBot 未连接"
-				statusDetail := "扫码登录后即可推送微信通知"
-				if status.LoggedIn {
-					statusColor = uintptr(RGB(55, 190, 147))
-					statusTitle = "ClawBot 已连接"
-					statusDetail = "已绑定 " + status.UserHint
-				}
-				drawEllipseLogical(hdc, 34, 113, 43, 122, statusColor, statusColor)
+				loginLabel, statusTitle, statusDetail, statusColor, statusFootnote := settingsConnectionState(status)
+				drawEllipseLogical(hdc, 34, 113, 43, 122, uintptr(statusColor), uintptr(statusColor))
 				pSelectObject.Call(hdc, strongFont)
 				pSetTextColor.Call(hdc, uintptr(RGB(232, 237, 240)))
 				DrawText(hdc, statusTitle, &RECT{52, 106, 312, 128}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 				pSelectObject.Call(hdc, smallFont)
 				pSetTextColor.Call(hdc, uintptr(RGB(137, 149, 160)))
 				DrawText(hdc, statusDetail, &RECT{52, 128, 312, 148}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
-				DrawText(hdc, "凭据仅保存在本机，不上传第三方。", &RECT{52, 152, 312, 172}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				DrawText(hdc, statusFootnote, &RECT{52, 152, 312, 172}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
 
-				loginLabel := "扫码登录"
-				if status.LoggedIn {
-					loginLabel = "重新登录"
-				}
 				logoutLabel := "尚未登录"
 				logoutDanger := false
 				if status.LoggedIn {
@@ -324,6 +343,7 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			return 0
 
 		case WM_DESTROY:
+			pKillTimer.Call(hwnd, settingsTimer)
 			if editFont != 0 {
 				pDeleteObject.Call(editFont)
 				editFont = 0

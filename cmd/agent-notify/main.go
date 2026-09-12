@@ -1,5 +1,9 @@
 package main
 
+//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -arch 386 -o rsrc_windows_386.syso
+//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -arch amd64 -o rsrc_windows_amd64.syso
+//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -arch arm64 -o rsrc_windows_arm64.syso
+
 import (
 	"bufio"
 	"context"
@@ -103,12 +107,13 @@ func printHelp() {
 	fmt.Println("  agent-notify [命令] [选项]")
 	fmt.Println()
 	fmt.Println("命令:")
-	fmt.Println("  login       使用微信扫码登录 ClawBot（推荐先执行）")
+	fmt.Println("  login       微信扫码登录 ClawBot，默认随后等待首条消息")
+	fmt.Println("  sync        等待首条微信消息，建立主动推送会话")
 	fmt.Println("  logout      删除本机 ClawBot 凭据")
-	fmt.Println("  status      查看登录、开关、配置与运行状态")
-	fmt.Println("  notify      发送一条通知（供 OpenCode / 脚本调用）")
+	fmt.Println("  status      查看登录、会话、开关、配置与运行状态")
+	fmt.Println("  notify      发送一条通知（供脚本或插件调用）")
 	fmt.Println("  test        发送测试通知并验证完整链路")
-	fmt.Println("  doctor      检查配置、凭据、网络和 Codex 接入")
+	fmt.Println("  doctor      检查配置、凭据、会话、网络和 Codex 接入")
 	fmt.Println("  toggle      开启或暂停 OpenCode / Codex 推送")
 	fmt.Println("  watch       检查并恢复 Codex notify 配置")
 	fmt.Println("  history     查看最近推送记录")
@@ -117,6 +122,7 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("常用示例:")
 	fmt.Println("  agent-notify login")
+	fmt.Println("  agent-notify sync")
 	fmt.Println("  agent-notify test")
 	fmt.Println(`  agent-notify notify --title "构建完成" --summary "Release 已生成"`)
 	fmt.Println("  agent-notify toggle --agent all --off")
@@ -125,7 +131,7 @@ func printHelp() {
 func main() {
 	if len(os.Args) < 2 {
 		if stdinAvailable() {
-			result := agent.HandleOpenCode("【opencode】任务完成", "", "", 800, false, false)
+			result := agent.HandleNotify("", "【通知】任务完成", "", "", 800, false, false)
 			if result.Error != "" && result.Status != notify.StatusSkipped {
 				fmt.Fprintln(os.Stderr, result.Error)
 			}
@@ -141,6 +147,9 @@ func main() {
 	case "login":
 		ensureConsole()
 		runLogin(args)
+	case "sync":
+		ensureConsole()
+		runSync(args)
 	case "logout":
 		ensureConsole()
 		runLogout(args)
@@ -202,40 +211,44 @@ func stdinAvailable() bool {
 
 func runLogin(args []string) {
 	flags := flag.NewFlagSet("login", flag.ContinueOnError)
-	baseURL := flags.String("base-url", clawbot.DefaultBaseURL, "ClawBot iLink API 地址")
 	timeout := flags.Duration("timeout", 5*time.Minute, "等待扫码确认的最长时间")
+	wait := flags.Bool("wait", true, "登录后等待首条微信消息以建立主动推送会话")
+	waitTimeout := flags.Duration("wait-timeout", 3*time.Minute, "等待首条微信消息的最长时间")
 	if err := flags.Parse(args); err != nil {
 		return
 	}
 
-	client := clawbot.NewAuthClient(*baseURL)
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	qr, err := client.FetchQRCode(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "获取二维码失败: %v\n", err)
-		os.Exit(1)
-	}
-	rendered, err := clawbot.RenderQR(qr.QRCode)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "渲染二维码失败: %v\n", err)
-		os.Exit(1)
-	}
+	input := bufio.NewReader(os.Stdin)
 
-	fmt.Println("请使用微信 ClawBot 扫描以下二维码：")
-	fmt.Println(rendered)
-	fmt.Println("等待扫码...")
-	credentials, err := client.PollQRStatus(ctx, qr.QRCode, func(status string) {
-		switch status {
-		case clawbot.StatusWait:
-			fmt.Println("状态：等待扫码")
-		case clawbot.StatusScanned:
-			fmt.Println("状态：已扫码，请在微信中确认")
-		case clawbot.StatusConfirmed:
-			fmt.Println("状态：已确认")
-		case clawbot.StatusExpired:
-			fmt.Println("状态：二维码已过期")
-		}
+	credentials, err := clawbot.Login(ctx, clawbot.LoginOptions{
+		OnQRCode: func(response clawbot.QRCodeResponse) error {
+			rendered, err := clawbot.RenderQR(response.DisplayContent())
+			if err != nil {
+				return err
+			}
+			fmt.Println("请使用微信 ClawBot 扫描以下二维码：")
+			fmt.Println(rendered)
+			return nil
+		},
+		OnStatus: func(status string) {
+			if text := loginStatusText(status); text != "" {
+				fmt.Println("状态：" + text)
+			}
+		},
+		VerifyCode: func(retry bool) (string, error) {
+			prompt := "请输入手机微信显示的数字配对码: "
+			if retry {
+				prompt = "配对码不匹配，请重新输入: "
+			}
+			fmt.Print(prompt)
+			line, err := input.ReadString('\n')
+			if err != nil {
+				return "", err
+			}
+			return strings.TrimSpace(line), nil
+		},
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "登录失败: %v\n", err)
@@ -246,6 +259,74 @@ func runLogin(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("ClawBot 登录成功。凭据已保存到 %s\n", clawbot.CredentialsPath())
+
+	if !*wait {
+		fmt.Println("下一步：在微信中给 ClawBot 发送任意一条消息，然后运行 agent-notify sync 建立主动推送会话。")
+		return
+	}
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), *waitTimeout)
+	defer waitCancel()
+	fmt.Println("下一步：请在微信中给 ClawBot 发送任意一条消息，用于建立主动推送会话…")
+	if _, err := clawbot.AwaitSessionContext(waitCtx, nil); err != nil {
+		fmt.Println("尚未收到微信消息，主动推送会话还未建立。")
+		fmt.Println("在微信中给 ClawBot 发一条消息后，运行 agent-notify sync 即可完成。")
+		return
+	}
+	fmt.Println("主动推送会话已建立，可以发送微信通知了。")
+}
+
+// runSync waits until the bound WeChat account sends one message, which is what
+// makes proactive ClawBot sends possible.
+func runSync(args []string) {
+	flags := flag.NewFlagSet("sync", flag.ContinueOnError)
+	timeout := flags.Duration("timeout", 5*time.Minute, "等待首条消息的最长时间")
+	if err := flags.Parse(args); err != nil {
+		return
+	}
+
+	status := clawbot.GetStatus()
+	switch {
+	case !status.LoggedIn:
+		fmt.Fprintln(os.Stderr, "尚未登录 ClawBot，请先运行 agent-notify login。")
+		os.Exit(1)
+	case status.Stale:
+		fmt.Fprintln(os.Stderr, "ClawBot 登录已失效，请重新运行 agent-notify login。")
+		os.Exit(1)
+	case status.SessionReady:
+		fmt.Println("主动推送会话已就绪。")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	fmt.Println("请在微信中给 ClawBot 发送任意一条消息…")
+	if _, err := clawbot.AwaitSessionContext(ctx, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "建立主动推送会话失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("主动推送会话已建立。")
+}
+
+func loginStatusText(status string) string {
+	switch status {
+	case clawbot.StatusWait:
+		return "等待扫码"
+	case clawbot.StatusScanned:
+		return "已扫码，请在微信中确认"
+	case clawbot.StatusScannedRedirect:
+		return "正在切换扫码节点"
+	case clawbot.StatusNeedVerifyCode:
+		return "需要在微信中查看数字配对码"
+	case clawbot.StatusConfirmed:
+		return "已确认"
+	case clawbot.StatusExpired:
+		return "二维码已过期，正在重新获取"
+	case clawbot.StatusVerifyBlocked:
+		return "配对码错误次数过多，正在重新获取二维码"
+	default:
+		return ""
+	}
 }
 
 func runLogout(args []string) {
@@ -310,6 +391,7 @@ func runStatus(args []string) {
 
 	fmt.Printf("Agent-notify v%s\n", app.Version)
 	fmt.Printf("ClawBot: %s\n", loginStatus(status))
+	fmt.Printf("主动推送会话: %s\n", sessionStatus(status))
 	fmt.Printf("OpenCode 推送: %s\n", onOff(openCodeOn))
 	fmt.Printf("Codex 推送: %s\n", onOff(codexOn))
 	fmt.Printf("勿扰时段: %s\n", emptyAs(cfg.QuietHours, "关闭"))
@@ -325,7 +407,8 @@ func runStatus(args []string) {
 
 func runNotify(args []string) {
 	flags := flag.NewFlagSet("notify", flag.ContinueOnError)
-	title := flags.String("title", "【opencode】任务完成", "通知标题")
+	agentName := flags.String("agent", "", "来源标识，例如 opencode")
+	title := flags.String("title", "【通知】任务完成", "通知标题")
 	summary := flags.String("summary", "", "通知摘要；为空时读取 stdin")
 	sessionID := flags.String("session", "", "会话 ID，用于记录来源")
 	maxChars := flags.Int("max-chars", 800, "摘要最大字符数")
@@ -335,7 +418,7 @@ func runNotify(args []string) {
 		return
 	}
 
-	result := agent.HandleOpenCode(*title, *summary, *sessionID, *maxChars, *dryRun, *noStdin)
+	result := agent.HandleNotify(*agentName, *title, *summary, *sessionID, *maxChars, *dryRun, *noStdin)
 	if result.Error != "" && result.Status != notify.StatusSkipped && !*dryRun {
 		fmt.Fprintln(os.Stderr, result.Error)
 	}
@@ -386,11 +469,25 @@ func runDoctor() int {
 	}
 
 	status := clawbot.GetStatus()
-	if !status.LoggedIn {
+	switch {
+	case !status.LoggedIn:
 		reportCheck(false, "ClawBot 登录", "未登录，请运行 agent-notify login")
 		failures++
-	} else {
+		reportCheck(false, "主动推送会话", "未登录")
+		failures++
+	case status.Stale:
+		reportCheck(false, "ClawBot 登录", "登录已失效，请重新运行 agent-notify login")
+		failures++
+		reportCheck(false, "主动推送会话", "登录已失效")
+		failures++
+	default:
 		reportCheck(true, "ClawBot 登录", status.UserHint)
+		if status.SessionReady {
+			reportCheck(true, "主动推送会话", "已就绪")
+		} else {
+			reportCheck(false, "主动推送会话", "请在微信中给 ClawBot 发送一条消息，再运行 agent-notify sync")
+			failures++
+		}
 	}
 
 	baseURL := clawbot.DefaultBaseURL
@@ -548,13 +645,32 @@ func historyAgent(item notify.HistoryItem) string {
 }
 
 func loginStatus(status clawbot.Status) string {
-	if !status.LoggedIn {
+	switch {
+	case !status.LoggedIn:
 		return "未登录"
+	case status.Stale:
+		return "登录已失效，请重新扫码"
+	case !status.SessionReady:
+		return "已登录 · 等待微信消息建立会话"
+	default:
+		if status.UserHint == "" {
+			return "已登录 · 会话就绪"
+		}
+		return "已登录 · 会话就绪 · " + status.UserHint
 	}
-	if status.UserHint == "" {
-		return "已登录"
+}
+
+func sessionStatus(status clawbot.Status) string {
+	switch {
+	case !status.LoggedIn:
+		return "未建立（未登录）"
+	case status.Stale:
+		return "未建立（登录已失效）"
+	case status.SessionReady:
+		return "就绪"
+	default:
+		return "未建立（请先给 ClawBot 发一条微信消息）"
 	}
-	return "已登录 · " + status.UserHint
 }
 
 func onOff(enabled bool) string {

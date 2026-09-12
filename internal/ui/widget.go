@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
@@ -23,6 +24,8 @@ import (
 const (
 	widgetWidth  = int32(400)
 	widgetHeight = int32(360)
+
+	WM_USER_REFRESH = WM_USER + 1
 )
 
 var (
@@ -33,30 +36,32 @@ var (
 )
 
 type WidgetApp struct {
-	hwnd            uintptr
-	tray            *TrayManager
-	paths           config.Paths
-	onOpenCode      bool
-	onCodex         bool
-	clawbotLoggedIn bool
-	clawbotHint     string
-	quietHours      string
-	lastPushText    string
-	lastPushTitle   string
-	lastPushStatus  string
-	lastPushAgent   string
-	procStatus      ProcessStatus
-	hoverOpenCode   bool
-	hoverCodex      bool
-	hoverMin        bool
-	hoverClose      bool
-	hoverConnection bool
-	hoverRecent     bool
-	hoverHistory    bool
-	hoverSettings   bool
-	hoverTest       bool
-	hoverHide       bool
-	isTracking      bool
+	hwnd                uintptr
+	tray                *TrayManager
+	paths               config.Paths
+	onOpenCode          bool
+	onCodex             bool
+	clawbotLoggedIn     bool
+	clawbotSessionReady bool
+	clawbotStale        bool
+	clawbotHint         string
+	quietHours          string
+	lastPushText        string
+	lastPushTitle       string
+	lastPushStatus      string
+	lastPushAgent       string
+	procStatus          ProcessStatus
+	hoverOpenCode       bool
+	hoverCodex          bool
+	hoverMin            bool
+	hoverClose          bool
+	hoverConnection     bool
+	hoverRecent         bool
+	hoverHistory        bool
+	hoverSettings       bool
+	hoverTest           bool
+	hoverHide           bool
+	isTracking          bool
 }
 
 type widgetLayout struct {
@@ -261,6 +266,15 @@ func RunWidget() {
 
 	instance := &WidgetApp{paths: paths}
 
+	sessionCtx, sessionCancel := context.WithCancel(context.Background())
+	defer sessionCancel()
+	go clawbot.RunSessionLoop(sessionCtx, nil, func(err error) {
+		debugLog("clawbot session loop: %v", err)
+		if instance.hwnd != 0 {
+			pPostMessageW.Call(instance.hwnd, WM_USER_REFRESH, 0, 0)
+		}
+	})
+
 	if hWakeupEvent != 0 {
 		go func() {
 			for {
@@ -277,6 +291,11 @@ func RunWidget() {
 		message := uint32(msg)
 		if message == WM_USER_WAKEUP || (msgWakeupID != 0 && message == msgWakeupID) {
 			restoreAndBringToFront(hwnd)
+			return 0
+		}
+		if message == WM_USER_REFRESH {
+			instance.refreshState()
+			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 		}
 
@@ -475,6 +494,7 @@ func RunWidget() {
 			case IDM_EXIT:
 				savePosition(hwnd, paths.WidgetPosFile)
 				_ = os.WriteFile(paths.WidgetExitMarker, []byte(time.Now().Format(time.RFC3339)), 0600)
+				sessionCancel()
 				if instance.tray != nil {
 					instance.tray.Destroy()
 				}
@@ -489,6 +509,7 @@ func RunWidget() {
 			return 0
 
 		case WM_DESTROY:
+			sessionCancel()
 			if instance.tray != nil {
 				instance.tray.Destroy()
 			}
@@ -562,6 +583,8 @@ func (app *WidgetApp) refreshState() {
 	app.onCodex = !marker.IsOff(app.paths.CodexMarker)
 	clawbotStatus := clawbot.GetStatus()
 	app.clawbotLoggedIn = clawbotStatus.LoggedIn
+	app.clawbotSessionReady = clawbotStatus.SessionReady
+	app.clawbotStale = clawbotStatus.Stale
 	app.clawbotHint = clawbotStatus.UserHint
 	if cfg, err := config.LoadConfig(""); err == nil {
 		app.quietHours = cfg.QuietHours
@@ -582,9 +605,10 @@ func (app *WidgetApp) refreshState() {
 	}
 
 	state := 0
-	if app.clawbotLoggedIn && app.onOpenCode && app.onCodex {
+	ready := app.clawbotLoggedIn && app.clawbotSessionReady
+	if ready && app.onOpenCode && app.onCodex {
 		state = 2
-	} else if app.clawbotLoggedIn && (app.onOpenCode || app.onCodex) {
+	} else if ready && (app.onOpenCode || app.onCodex) {
 		state = 1
 	}
 	if app.tray != nil {
@@ -595,6 +619,12 @@ func (app *WidgetApp) refreshState() {
 func (app *WidgetApp) health() (uint32, string) {
 	if !app.clawbotLoggedIn {
 		return RGB(220, 92, 92), "未登录"
+	}
+	if app.clawbotStale {
+		return RGB(220, 92, 92), "登录已失效"
+	}
+	if !app.clawbotSessionReady {
+		return RGB(224, 165, 70), "等待微信消息"
 	}
 	if app.onOpenCode && app.onCodex {
 		return RGB(54, 190, 144), "正常"

@@ -35,6 +35,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
 
 `tools\test.ps1` 需要 `node_modules`；未修改插件时可以运行 `-SkipTypeScript`，但发布前应跑完整套件。
 
+修改 `cmd\agent-notify\agent-notify.manifest` 后，在仓库根目录运行 `go generate ./cmd/agent-notify`，并提交重新生成的三个 `rsrc_windows_*.syso`。
+
 ## 提交前检查
 
 - [ ] `go test ./...` 全绿
