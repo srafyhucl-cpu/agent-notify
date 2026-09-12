@@ -45,7 +45,10 @@ func HandleWatch(configPath string, exePath string) error {
 		return err
 	}
 	content := string(data)
-	if strings.Contains(strings.ToLower(content), "agent-notify") || !reDirectCodexNotify.MatchString(content) {
+	notifyLine := reAnyNotifyLine.FindString(content)
+	if notifyLine == "" ||
+		strings.Contains(strings.ToLower(notifyLine), "agent-notify") ||
+		!reDirectCodexNotify.MatchString(notifyLine) {
 		return nil
 	}
 
