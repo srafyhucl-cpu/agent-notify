@@ -27,6 +27,9 @@ var (
 	ErrStaleToken = errors.New("clawbot: 登录凭据已失效，请重新扫码登录")
 	// ErrNoSession means no inbound message has established a context token yet.
 	ErrNoSession = errors.New("clawbot: 尚未建立微信会话，请先给 ClawBot 发送一条消息")
+	// ErrSessionExpired means the server accepted the login but rejected the
+	// saved proactive-message context.
+	ErrSessionExpired = errors.New("clawbot: 主动推送会话已失效，请先给 ClawBot 发送一条消息")
 )
 
 // Client is a minimal iLink ClawBot API client.
@@ -150,7 +153,18 @@ func (c *Client) sendOnce(ctx context.Context, payload sendMessageRequest) error
 	if err := c.postJSON(ctx, "/ilink/bot/sendmessage", payload, &resp); err != nil {
 		return err
 	}
+	if isSessionPreparationFailure(resp.Ret, resp.ErrCode, resp.ErrMsg) {
+		businessErr := checkAPIStatus("sendmessage", resp.Ret, resp.ErrCode, resp.ErrMsg)
+		return fmt.Errorf("%w: %v", ErrSessionExpired, businessErr)
+	}
 	return checkAPIStatus("sendmessage", resp.Ret, resp.ErrCode, resp.ErrMsg)
+}
+
+func isSessionPreparationFailure(ret, errCode int, errMsg string) bool {
+	if ret != -2 && errCode != -2 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(strings.TrimSpace(errMsg)), "prepare failed")
 }
 
 // GetUpdates long-polls one batch of inbound messages. The returned cursor is
@@ -255,6 +269,9 @@ func isRetryable(err error) bool {
 		return false
 	}
 	if errors.Is(err, ErrStaleToken) || errors.Is(err, ErrNoSession) {
+		return false
+	}
+	if errors.Is(err, ErrSessionExpired) {
 		return false
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

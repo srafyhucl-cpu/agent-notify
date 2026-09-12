@@ -60,6 +60,7 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 - 先运行 `agent-notify status`。`loginStatus` 为“已登录”且 `sessionReady` 为 `false` 时，属于尚未收到首条微信消息。
 - 在微信中给 ClawBot 发送任意文字，然后在终端运行 `agent-notify sync --timeout 10m`。
 - 也可以在悬浮窗设置页保持窗口开启；后台会话循环会自动读取消息并保存上下文。
+- 如果日志出现 `ret=-2 prepare failed`，说明登录仍有效但之前的主动推送上下文已被服务端拒绝；程序会清除旧上下文，给 ClawBot 发一条新消息即可恢复。
 - 如果 `doctor` 显示登录失效，不要继续等待消息，先重新运行 `agent-notify login`。
 - 不要手工把其他账号或其他用户的 `context_token` 放进凭据文件；不同账号的上下文会被拒绝并清除。
 

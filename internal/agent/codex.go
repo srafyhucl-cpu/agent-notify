@@ -141,6 +141,7 @@ func HandleCodex(args []string) notify.NotifyResult {
 	stdinBytes := ReadPipedStdinNonBlocking()
 	if cuaExe := FindCodexComputerUseExe(); cuaExe != "" {
 		command := exec.Command(cuaExe, forwardArgs...)
+		configureHiddenProcess(command)
 		if len(stdinBytes) > 0 {
 			command.Stdin = bytes.NewReader(stdinBytes)
 		}

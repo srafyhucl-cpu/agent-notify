@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
@@ -111,5 +112,47 @@ func TestSendNotificationSuccess(t *testing.T) {
 	}
 	if len(history) != 1 || history[0].Status != StatusSuccess {
 		t.Fatalf("history = %#v", history)
+	}
+}
+
+func TestSendNotificationExpiredSessionIsCleared(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret": -2, "errmsg": "prepare failed",
+		})
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", dir)
+	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(dir, "temp"))
+	if err := clawbot.SaveCredentials(clawbot.Credentials{
+		BotToken:      "token",
+		ILinkBotID:    "bot",
+		BaseURL:       server.URL,
+		ILinkUserID:   "user",
+		ContextToken:  "context",
+		ContextUserID: "user",
+	}); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+
+	result := SendNotification(NotifyOptions{Title: "测试", Summary: "hello"})
+	if result.Status != StatusSessionMissing {
+		t.Fatalf("Status = %q, error = %q", result.Status, result.Error)
+	}
+	if !strings.Contains(result.Error, "主动推送会话已失效") {
+		t.Fatalf("unexpected error: %q", result.Error)
+	}
+
+	credentials, err := clawbot.LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if credentials.ContextToken != "" || credentials.ContextUserID != "" {
+		t.Fatalf("expired context was not cleared: %#v", credentials)
+	}
+	if status := clawbot.GetStatus(); status.SessionReady {
+		t.Fatalf("session status still reports ready: %#v", status)
 	}
 }

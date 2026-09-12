@@ -201,6 +201,20 @@ func markStale() error {
 	})
 }
 
+// ClearSessionContext invalidates the saved proactive-message context while
+// keeping the ClawBot login and message cursor available for recovery.
+func ClearSessionContext(expectedToken string) error {
+	expectedToken = strings.TrimSpace(expectedToken)
+	return updateCredentials(func(credentials *Credentials) error {
+		if expectedToken != "" && strings.TrimSpace(credentials.ContextToken) != expectedToken {
+			return nil
+		}
+		credentials.ContextToken = ""
+		credentials.ContextUserID = ""
+		return nil
+	})
+}
+
 func messageCarriesContext(message InboundMessage) bool {
 	return strings.TrimSpace(message.ContextToken) != "" &&
 		strings.TrimSpace(message.GroupID) == "" &&

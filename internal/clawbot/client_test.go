@@ -147,6 +147,37 @@ func TestClientStaleTokenIsNotRetried(t *testing.T) {
 	}
 }
 
+func TestClientSessionPreparationFailureIsNotRetried(t *testing.T) {
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{name: "ret", body: map[string]any{"ret": -2, "errmsg": "prepare failed"}},
+		{name: "errcode", body: map[string]any{"ret": 0, "errcode": -2, "errmsg": "prepare failed"}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				_ = json.NewEncoder(w).Encode(testCase.body)
+			}))
+			defer server.Close()
+
+			client := newClientWithBaseURL(boundCredentials(), server.URL)
+			client.attempts = 3
+			client.httpClient = server.Client()
+			err := client.SendText(context.Background(), "hello")
+			if !errors.Is(err, ErrSessionExpired) {
+				t.Fatalf("error = %v, want ErrSessionExpired", err)
+			}
+			if calls.Load() != 1 {
+				t.Fatalf("server calls = %d, want 1", calls.Load())
+			}
+		})
+	}
+}
+
 func TestClientGetUpdates(t *testing.T) {
 	var captured getUpdatesRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

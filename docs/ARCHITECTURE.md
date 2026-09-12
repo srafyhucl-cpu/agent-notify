@@ -114,6 +114,7 @@ Codex
 - 切换账号会清空旧账号的游标和上下文。
 - `ret=-14` 或 `errcode=-14` 表示 token 失效；立即停止轮询，清空上下文与游标，写入 `stale_at`，等待用户重新扫码。
 - 未建立会话时，领取试发送返回 `会话未建立`，不会消耗无意义的重试。
+- `sendmessage` 返回 `ret=-2 prepare failed` 时保留登录与消息游标，但清除已失效的上下文并显示“会话未建立”；用户再次给 ClawBot 发消息即可重建会话。
 - 悬浮窗和 `login` 都通过同一个 `RunSessionLoop` 或一次性 `sync` 路径获取上下文，不维护第二套协议实现。
 
 `status` 与悬浮窗只显示脱敏后的用户标识，不输出 token 或 context token。

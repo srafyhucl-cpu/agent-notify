@@ -1,7 +1,7 @@
 # Agent-notify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.0.2-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
@@ -27,7 +27,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 
 ## 安装
 
-从 Release 下载 `Agent-notify-v1.0.1.zip`，解压后运行：
+从 Release 下载 `Agent-notify-v1.0.2.zip`，解压后运行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1

@@ -158,3 +158,34 @@ func TestSessionErrorDelaySilencesMissingCredentials(t *testing.T) {
 		t.Fatalf("unexpected network result: delay=%v report=%v", delay, report)
 	}
 }
+
+func TestClearSessionContextPreservesNewerContext(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	credentials := boundCredentials()
+	credentials.ContextToken = "new-context"
+	if err := SaveCredentials(credentials); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+
+	if err := ClearSessionContext("old-context"); err != nil {
+		t.Fatalf("ClearSessionContext: %v", err)
+	}
+	updated, err := LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if updated.ContextToken != "new-context" || updated.ContextUserID != "user-1" {
+		t.Fatalf("newer context was cleared: %#v", updated)
+	}
+
+	if err := ClearSessionContext("new-context"); err != nil {
+		t.Fatalf("ClearSessionContext matching token: %v", err)
+	}
+	updated, err = LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials after clear: %v", err)
+	}
+	if updated.ContextToken != "" || updated.ContextUserID != "" {
+		t.Fatalf("matching context was not cleared: %#v", updated)
+	}
+}

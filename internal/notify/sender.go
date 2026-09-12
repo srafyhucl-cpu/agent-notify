@@ -73,6 +73,11 @@ func SendNotification(opts NotifyOptions) NotifyResult {
 			status = StatusNotLoggedIn
 		case errors.Is(err, clawbot.ErrNoSession):
 			status = StatusSessionMissing
+		case errors.Is(err, clawbot.ErrSessionExpired):
+			status = StatusSessionMissing
+			if clearErr := clawbot.ClearSessionContext(creds.ContextToken); clearErr != nil {
+				return recordFailure(opts, title, summary, status, clawbotHint(err)+"；本地会话状态清理失败: "+clearErr.Error())
+			}
 		}
 		return recordFailure(opts, title, summary, status, clawbotHint(err))
 	}
@@ -95,6 +100,8 @@ func clawbotHint(err error) string {
 		return "ClawBot 登录已失效，请重新运行 agent-notify login"
 	case errors.Is(err, clawbot.ErrNoSession):
 		return "尚未建立微信会话：请先在微信中给 ClawBot 发送一条消息，再运行 agent-notify sync"
+	case errors.Is(err, clawbot.ErrSessionExpired):
+		return "ClawBot 主动推送会话已失效：请先在微信中给 ClawBot 发送一条消息，再运行 agent-notify sync"
 	default:
 		return err.Error()
 	}
