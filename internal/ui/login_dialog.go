@@ -478,6 +478,7 @@ func ShowLoginDialog(parentHwnd uintptr) {
 	runDialogLoop(&dialog)
 }
 
+//lint:ignore U1000 Retained so the Windows callback remains reachable.
 var loginWndProcCallback uintptr
 
 type loginLayout struct {

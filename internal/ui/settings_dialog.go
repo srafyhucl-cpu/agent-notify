@@ -31,7 +31,12 @@ const (
 
 const (
 	settingsWidth  = int32(520)
-	settingsHeight = int32(390)
+	settingsHeight = int32(438)
+
+	settingsToggleTrackWidth   = int32(72)
+	settingsToggleCornerRadius = int32(12)
+	settingsToggleInset        = int32(4)
+	settingsToggleKnobSize     = int32(24)
 )
 
 func getWindowText(hwnd uintptr) string {
@@ -50,8 +55,33 @@ type settingsLayout struct {
 	logout   RECT
 	quiet    RECT
 	cooldown RECT
+	reply    RECT
 	cancel   RECT
 	save     RECT
+}
+
+type settingsHoverState struct {
+	close  bool
+	login  bool
+	logout bool
+	reply  bool
+	cancel bool
+	save   bool
+}
+
+func (s settingsHoverState) any() bool {
+	return s.close || s.login || s.logout || s.reply || s.cancel || s.save
+}
+
+func settingsHoverAt(x, y int32, layout settingsLayout) settingsHoverState {
+	return settingsHoverState{
+		close:  pointInRect(x, y, layout.close),
+		login:  pointInRect(x, y, layout.login),
+		logout: pointInRect(x, y, layout.logout),
+		reply:  pointInRect(x, y, layout.reply),
+		cancel: pointInRect(x, y, layout.cancel),
+		save:   pointInRect(x, y, layout.save),
+	}
 }
 
 func settingsLayoutRects() settingsLayout {
@@ -61,8 +91,9 @@ func settingsLayoutRects() settingsLayout {
 		logout:   RECT{326, 138, 496, 174},
 		quiet:    RECT{184, 230, 366, 262},
 		cooldown: RECT{184, 282, 366, 314},
-		cancel:   RECT{310, 340, 398, 374},
-		save:     RECT{410, 340, 498, 374},
+		reply:    RECT{382, 330, 486, 358},
+		cancel:   RECT{310, 394, 398, 428},
+		save:     RECT{410, 394, 498, 428},
 	}
 }
 
@@ -77,6 +108,29 @@ func placeEdit(ctrl uintptr, rect RECT) {
 		uintptr(inner.Bottom-inner.Top),
 		SWP_NOZORDER|SWP_NOACTIVATE,
 	)
+}
+
+func drawSettingsToggle(hdc uintptr, rect RECT, enabled, hover bool) {
+	track := rect
+	if track.Right-track.Left > settingsToggleTrackWidth {
+		track.Left = track.Right - settingsToggleTrackWidth
+	}
+	fillColor := uintptr(RGB(52, 62, 72))
+	if enabled {
+		fillColor = uintptr(RGB(39, 143, 113))
+	}
+	if hover {
+		fillColor = uintptr(RGB(65, 77, 88))
+		if enabled {
+			fillColor = uintptr(RGB(48, 164, 130))
+		}
+	}
+	fillRoundRect(hdc, track, uintptr(settingsToggleCornerRadius), fillColor)
+	knobX := track.Left + settingsToggleInset
+	if enabled {
+		knobX = track.Right - settingsToggleKnobSize - settingsToggleInset
+	}
+	drawEllipseLogical(hdc, knobX, track.Top+settingsToggleInset, knobX+settingsToggleKnobSize, track.Bottom-settingsToggleInset, uintptr(RGB(244, 249, 248)), uintptr(RGB(244, 249, 248)))
 }
 
 func settingsConnectionState(status clawbot.Status) (string, string, string, uint32, string) {
@@ -112,11 +166,12 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 	hInstance, _, _ := pGetModuleHandleW.Call(0)
 	className := StringToUTF16Ptr("AgentNotifySettingsDialog")
 	cfg, _ := config.LoadConfig("")
+	replyEnabled := cfg.ReplyEnabled
 
 	var dialog uintptr
 	var quietEdit, cooldownEdit, editFont, backgroundBrush uintptr
 	var tracking bool
-	var hoverClose, hoverLogin, hoverLogout, hoverCancel, hoverSave bool
+	var hoverClose, hoverLogin, hoverLogout, hoverReply, hoverCancel, hoverSave bool
 
 	layout := settingsLayoutRects()
 
@@ -232,7 +287,7 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 				drawIconTextButton(hdc, layout.login, "\uE72C", loginLabel, hoverLogin, !status.LoggedIn, false, baseFont, iconFont)
 				drawIconTextButton(hdc, layout.logout, "\uE7E8", logoutLabel, hoverLogout && status.LoggedIn, false, logoutDanger, baseFont, iconFont)
 
-				drawCard(hdc, RECT{16, 202, 504, 332}, uintptr(RGB(22, 28, 34)), uintptr(RGB(41, 50, 59)))
+				drawCard(hdc, RECT{16, 202, 504, 374}, uintptr(RGB(22, 28, 34)), uintptr(RGB(41, 50, 59)))
 				pSelectObject.Call(hdc, smallFont)
 				pSetTextColor.Call(hdc, uintptr(RGB(126, 138, 149)))
 				DrawText(hdc, "通知策略", &RECT{32, 210, 280, 228}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
@@ -241,14 +296,17 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 				pSetTextColor.Call(hdc, uintptr(RGB(232, 237, 240)))
 				DrawText(hdc, "勿扰时段", &RECT{32, 234, 176, 262}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 				DrawText(hdc, "会话冷却（分钟）", &RECT{32, 286, 176, 314}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				DrawText(hdc, "引用回复", &RECT{32, 330, 176, 358}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 				drawFieldFrame(hdc, layout.quiet)
 				drawFieldFrame(hdc, layout.cooldown)
+				drawSettingsToggle(hdc, layout.reply, replyEnabled, hoverReply)
 
 				pSelectObject.Call(hdc, smallFont)
 				pSetTextColor.Call(hdc, uintptr(RGB(133, 145, 156)))
 				DrawText(hdc, "留空表示关闭，格式 23-8", &RECT{374, 232, 496, 260}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
-				DrawText(hdc, "同一会话去重，默认 10", &RECT{374, 284, 496, 312}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				DrawText(hdc, fmt.Sprintf("同一会话去重，默认 %d", config.DefaultCooldownMin), &RECT{374, 284, 496, 312}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+				DrawText(hdc, "引用通知续聊对应会话", &RECT{180, 330, 370, 358}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 				drawIconTextButton(hdc, layout.cancel, "\uE711", "取消", hoverCancel, false, false, baseFont, iconFont)
 				drawIconTextButton(hdc, layout.save, "\uE74E", "保存", hoverSave, true, false, baseFont, iconFont)
@@ -271,23 +329,25 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 				tracking = true
 			}
 			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
-			previous := [...]bool{hoverClose, hoverLogin, hoverLogout, hoverCancel, hoverSave}
-			hoverClose = pointInRect(x, y, layout.close)
-			hoverLogin = pointInRect(x, y, layout.login)
-			hoverLogout = pointInRect(x, y, layout.logout)
-			hoverCancel = pointInRect(x, y, layout.cancel)
-			hoverSave = pointInRect(x, y, layout.save)
-			current := [...]bool{hoverClose, hoverLogin, hoverLogout, hoverCancel, hoverSave}
-			changed := false
-			for i := range current {
-				if current[i] != previous[i] {
-					changed = true
-				}
+			previous := settingsHoverState{
+				close:  hoverClose,
+				login:  hoverLogin,
+				logout: hoverLogout,
+				reply:  hoverReply,
+				cancel: hoverCancel,
+				save:   hoverSave,
 			}
-			if changed {
+			current := settingsHoverAt(x, y, layout)
+			hoverClose = current.close
+			hoverLogin = current.login
+			hoverLogout = current.logout
+			hoverReply = current.reply
+			hoverCancel = current.cancel
+			hoverSave = current.save
+			if current != previous {
 				pInvalidateRect.Call(hwnd, 0, 0)
 			}
-			if hoverClose || hoverLogin || hoverLogout || hoverCancel || hoverSave {
+			if current.any() {
 				hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
 				pSetCursor.Call(hand)
 			}
@@ -295,7 +355,7 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 
 		case WM_MOUSELEAVE:
 			tracking = false
-			hoverClose, hoverLogin, hoverLogout, hoverCancel, hoverSave = false, false, false, false, false
+			hoverClose, hoverLogin, hoverLogout, hoverReply, hoverCancel, hoverSave = false, false, false, false, false, false
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
@@ -304,6 +364,9 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			switch {
 			case pointInRect(x, y, layout.close), pointInRect(x, y, layout.cancel):
 				pDestroyWindow.Call(hwnd)
+			case pointInRect(x, y, layout.reply):
+				replyEnabled = !replyEnabled
+				pInvalidateRect.Call(hwnd, 0, 0)
 			case pointInRect(x, y, layout.save):
 				quiet := strings.TrimSpace(getWindowText(quietEdit))
 				if !config.ValidQuietHours(quiet) {
@@ -314,7 +377,10 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 				if parsed, err := strconv.Atoi(strings.TrimSpace(getWindowText(cooldownEdit))); err == nil && parsed > 0 {
 					cooldown = parsed
 				}
-				if err := config.SaveConfig(config.AppConfig{QuietHours: quiet, CooldownMin: cooldown}, ""); err != nil {
+				cfg.QuietHours = quiet
+				cfg.CooldownMin = cooldown
+				cfg.ReplyEnabled = replyEnabled
+				if err := config.SaveConfig(cfg, ""); err != nil {
 					showMessage(hwnd, "保存失败："+err.Error(), MB_ICONINFO)
 					return 0
 				}

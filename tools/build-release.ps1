@@ -39,9 +39,11 @@ if (-not $goExe) { throw 'go.exe was not found' }
 
 $driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
 $cacheRoot = Join-Path $driveRoot 'Temp\agent-notify-go'
-if ([string]::IsNullOrWhiteSpace($env:GOPATH)) { $env:GOPATH = $cacheRoot }
-if ([string]::IsNullOrWhiteSpace($env:GOMODCACHE)) { $env:GOMODCACHE = Join-Path $cacheRoot 'pkg\mod' }
-if ([string]::IsNullOrWhiteSpace($env:GOCACHE)) { $env:GOCACHE = Join-Path $cacheRoot 'build' }
+$env:GOPATH = $cacheRoot
+$env:GOMODCACHE = Join-Path $cacheRoot 'pkg\mod'
+$env:GOCACHE = Join-Path $cacheRoot 'build'
+$env:GOTMPDIR = Join-Path $cacheRoot 'tmp'
+New-Item -ItemType Directory -Force -Path $env:GOTMPDIR | Out-Null
 
 $buildRoot = Join-Path $driveRoot ('Temp\agent-notify-build-' + [guid]::NewGuid().ToString('N'))
 $tempExe = Join-Path $buildRoot 'agent-notify.exe'

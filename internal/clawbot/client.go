@@ -20,6 +20,9 @@ const (
 	defaultSendAttempts = 3
 	sendTimeout         = 15 * time.Second
 	initialRetryDelay   = 500 * time.Millisecond
+	clientIDBytes       = 16
+	endpointSendMessage = "/ilink/bot/sendmessage"
+	endpointGetUpdates  = "/ilink/bot/getupdates"
 )
 
 var (
@@ -92,21 +95,28 @@ func newClientWithBaseURL(creds Credentials, baseURL string) *Client {
 	}
 }
 
-// SendText sends one plain-text message to the account that completed ClawBot login.
-func (c *Client) SendText(ctx context.Context, text string) error {
+// SendText sends one plain-text message and returns the identifiers needed to
+// correlate a later quoted reply.
+func (c *Client) SendText(ctx context.Context, text string) (SendResult, error) {
 	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("clawbot: message text is empty")
+		return SendResult{}, fmt.Errorf("clawbot: message text is empty")
 	}
 	if strings.TrimSpace(c.contextToken) == "" ||
 		strings.TrimSpace(c.contextUser) != strings.TrimSpace(c.userID) {
-		return ErrNoSession
+		return SendResult{}, ErrNoSession
 	}
 
+	clientID := randomClientID()
+	accountScope := AccountScope(c.botID, c.userID)
+	writeClawbotDebugEvent(DebugOperationSendRequest, DebugSendRequest{
+		ClientID:     clientID,
+		AccountScope: accountScope,
+	})
 	payload := sendMessageRequest{
 		Msg: sendMessage{
 			FromUserID:   "",
 			ToUserID:     c.userID,
-			ClientID:     randomClientID(),
+			ClientID:     clientID,
 			MessageType:  MessageTypeBot,
 			MessageState: MessageStateFinish,
 			ContextToken: c.contextToken,
@@ -126,10 +136,10 @@ func (c *Client) SendText(ctx context.Context, text string) error {
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
 		attemptCtx, cancel := context.WithTimeout(ctx, sendTimeout)
-		err := c.sendOnce(attemptCtx, payload)
+		result, err := c.sendOnce(attemptCtx, payload)
 		cancel()
 		if err == nil {
-			return nil
+			return result, nil
 		}
 		lastErr = err
 		if attempt == attempts || !isRetryable(err) {
@@ -140,24 +150,33 @@ func (c *Client) SendText(ctx context.Context, text string) error {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return ctx.Err()
+			return SendResult{}, ctx.Err()
 		case <-timer.C:
 		}
 		delay *= 2
 	}
-	return lastErr
+	return SendResult{}, lastErr
 }
 
-func (c *Client) sendOnce(ctx context.Context, payload sendMessageRequest) error {
+func (c *Client) sendOnce(ctx context.Context, payload sendMessageRequest) (SendResult, error) {
 	var resp sendMessageResponse
-	if err := c.postJSON(ctx, "/ilink/bot/sendmessage", payload, &resp); err != nil {
-		return err
+	if err := c.postJSON(ctx, endpointSendMessage, payload, &resp); err != nil {
+		return SendResult{}, err
 	}
 	if isSessionPreparationFailure(resp.Ret, resp.ErrCode, resp.ErrMsg) {
 		businessErr := checkAPIStatus("sendmessage", resp.Ret, resp.ErrCode, resp.ErrMsg)
-		return fmt.Errorf("%w: %v", ErrSessionExpired, businessErr)
+		return SendResult{}, fmt.Errorf("%w: %v", ErrSessionExpired, businessErr)
 	}
-	return checkAPIStatus("sendmessage", resp.Ret, resp.ErrCode, resp.ErrMsg)
+	if err := checkAPIStatus("sendmessage", resp.Ret, resp.ErrCode, resp.ErrMsg); err != nil {
+		return SendResult{}, err
+	}
+	result := resp.sendResult(payload.Msg.ClientID)
+	writeClawbotDebugEvent(DebugOperationSendResult, DebugSendResult{
+		MessageID:    result.MessageID,
+		ClientID:     result.ClientID,
+		AccountScope: AccountScope(c.botID, c.userID),
+	})
+	return result, nil
 }
 
 func isSessionPreparationFailure(ret, errCode int, errMsg string) bool {
@@ -178,7 +197,7 @@ func (c *Client) GetUpdates(ctx context.Context, cursor string) (Updates, error)
 	var resp getUpdatesResponse
 	pollCtx, cancel := context.WithTimeout(ctx, defaultLongPollTimeout)
 	defer cancel()
-	if err := c.postJSON(pollCtx, "/ilink/bot/getupdates", payload, &resp); err != nil {
+	if err := c.postJSON(pollCtx, endpointGetUpdates, payload, &resp); err != nil {
 		return Updates{}, err
 	}
 	if err := checkAPIStatus("getupdates", resp.Ret, resp.ErrCode, resp.ErrMsg); err != nil {
@@ -196,7 +215,24 @@ func (c *Client) GetUpdates(ctx context.Context, cursor string) (Updates, error)
 	if resp.LongPollingTimeoutMS > 0 {
 		result.LongPollingTimeout = time.Duration(resp.LongPollingTimeoutMS) * time.Millisecond
 	}
+	c.writeClawbotGetUpdatesDebug(result.Messages)
 	return result, nil
+}
+
+func (c *Client) writeClawbotGetUpdatesDebug(messages []InboundMessage) {
+	accountScope := AccountScope(c.botID, c.userID)
+	records := make([]DebugInboundReference, 0, len(messages))
+	for _, message := range messages {
+		records = append(records, DebugInboundReference{
+			MessageID:            message.PlatformMessageID(),
+			HasReference:         message.HasReference(),
+			ReferencedMessageIDs: message.ReferencedMessageIDs(),
+			AccountScope:         accountScope,
+			Private:              message.MessageType == MessageTypeUser && strings.TrimSpace(message.GroupID) == "",
+			BoundSender:          strings.TrimSpace(message.FromUserID) == strings.TrimSpace(c.userID),
+		})
+	}
+	writeClawbotDebugEvent(DebugOperationGetUpdatesData, records)
 }
 
 // NotifyStart announces that this client is online. Callers treat it as best
@@ -247,6 +283,12 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, result any
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &httpStatusError{status: resp.StatusCode, body: string(respData)}
+	}
+	switch path {
+	case endpointSendMessage:
+		writeClawbotDebug(DebugOperationSendResponse, respData)
+	case endpointGetUpdates:
+		writeClawbotDebug(DebugOperationGetUpdates, respData)
 	}
 	if err := json.Unmarshal(respData, result); err != nil {
 		return fmt.Errorf("clawbot: decode response: %w", err)
@@ -312,7 +354,7 @@ func Probe(ctx context.Context, baseURL string) error {
 }
 
 func randomClientID() string {
-	var b [16]byte
+	var b [clientIDBytes]byte
 	_, _ = rand.Read(b[:])
 	return "agent-notify-" + hex.EncodeToString(b[:])
 }

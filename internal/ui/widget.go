@@ -19,6 +19,7 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
 	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
+	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
 )
 
 const (
@@ -28,11 +29,23 @@ const (
 	WM_USER_REFRESH = WM_USER + 1
 )
 
+const (
+	widgetScreenInset   = int32(30)
+	widgetMinimumMargin = int32(20)
+)
+
+const (
+	widgetTrayStateStopped = iota
+	widgetTrayStatePartial
+	widgetTrayStateReady
+)
+
 var (
 	classNameWidget   = StringToUTF16Ptr("AgentNotifyWidgetMain")
 	windowTitleWidget = StringToUTF16Ptr("Agent-notify")
 	msgWakeupID       uint32
-	wndProcCallback   uintptr
+	//lint:ignore U1000 Retained so the Windows callback remains reachable.
+	wndProcCallback uintptr
 )
 
 type WidgetApp struct {
@@ -51,16 +64,7 @@ type WidgetApp struct {
 	lastPushStatus      string
 	lastPushAgent       string
 	procStatus          ProcessStatus
-	hoverOpenCode       bool
-	hoverCodex          bool
-	hoverMin            bool
-	hoverClose          bool
-	hoverConnection     bool
-	hoverRecent         bool
-	hoverHistory        bool
-	hoverSettings       bool
-	hoverTest           bool
-	hoverHide           bool
+	hover               widgetHoverState
 	isTracking          bool
 }
 
@@ -76,6 +80,39 @@ type widgetLayout struct {
 	settings   RECT
 	history    RECT
 	hide       RECT
+}
+
+type widgetHoverState struct {
+	openCode   bool
+	codex      bool
+	minimize   bool
+	close      bool
+	connection bool
+	recent     bool
+	history    bool
+	settings   bool
+	test       bool
+	hide       bool
+}
+
+func (s widgetHoverState) any() bool {
+	return s.openCode || s.codex || s.minimize || s.close || s.connection ||
+		s.recent || s.history || s.settings || s.test || s.hide
+}
+
+func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
+	return widgetHoverState{
+		openCode:   pointInRect(x, y, layout.openCode),
+		codex:      pointInRect(x, y, layout.codex),
+		minimize:   pointInRect(x, y, layout.minimize),
+		close:      pointInRect(x, y, layout.close),
+		connection: pointInRect(x, y, layout.connection),
+		recent:     pointInRect(x, y, layout.recent),
+		history:    pointInRect(x, y, layout.history),
+		settings:   pointInRect(x, y, layout.settings),
+		test:       pointInRect(x, y, layout.test),
+		hide:       pointInRect(x, y, layout.hide),
+	}
 }
 
 func widgetLayoutRects() widgetLayout {
@@ -140,13 +177,13 @@ func debugLog(format string, args ...interface{}) {
 }
 
 func resolveWidgetPosition(raw string, screenWidth, screenHeight, winWidth, winHeight int32) (int32, int32) {
-	defaultX := screenWidth - winWidth - 30
+	defaultX := screenWidth - winWidth - widgetScreenInset
 	defaultY := (screenHeight - winHeight) / 2
-	if defaultX < 20 {
-		defaultX = 20
+	if defaultX < widgetMinimumMargin {
+		defaultX = widgetMinimumMargin
 	}
-	if defaultY < 20 {
-		defaultY = 20
+	if defaultY < widgetMinimumMargin {
+		defaultY = widgetMinimumMargin
 	}
 	parts := strings.Split(strings.TrimSpace(raw), ",")
 	if len(parts) != 2 {
@@ -298,7 +335,10 @@ func RunWidget() {
 
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	defer sessionCancel()
-	go clawbot.RunSessionLoop(sessionCtx, nil, func(err error) {
+	replyDispatcher := reply.NewDispatcher(reply.DispatcherOptions{
+		SendText: reply.NewClawBotTextSender(),
+	})
+	go clawbot.RunSessionLoop(sessionCtx, replyDispatcher.Handle, func(err error) {
 		debugLog("clawbot session loop: %v", err)
 		if instance.hwnd != 0 {
 			pPostMessageW.Call(instance.hwnd, WM_USER_REFRESH, 0, 0)
@@ -373,28 +413,12 @@ func RunWidget() {
 
 			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
 			layout := widgetLayoutRects()
-			previous := [...]bool{instance.hoverOpenCode, instance.hoverCodex, instance.hoverMin, instance.hoverClose, instance.hoverConnection, instance.hoverRecent, instance.hoverHistory, instance.hoverSettings, instance.hoverTest, instance.hoverHide}
-			instance.hoverOpenCode = pointInRect(x, y, layout.openCode)
-			instance.hoverCodex = pointInRect(x, y, layout.codex)
-			instance.hoverMin = pointInRect(x, y, layout.minimize)
-			instance.hoverClose = pointInRect(x, y, layout.close)
-			instance.hoverConnection = pointInRect(x, y, layout.connection)
-			instance.hoverRecent = pointInRect(x, y, layout.recent)
-			instance.hoverHistory = pointInRect(x, y, layout.history)
-			instance.hoverSettings = pointInRect(x, y, layout.settings)
-			instance.hoverTest = pointInRect(x, y, layout.test)
-			instance.hoverHide = pointInRect(x, y, layout.hide)
-			current := [...]bool{instance.hoverOpenCode, instance.hoverCodex, instance.hoverMin, instance.hoverClose, instance.hoverConnection, instance.hoverRecent, instance.hoverHistory, instance.hoverSettings, instance.hoverTest, instance.hoverHide}
-			changed := false
-			for i := range current {
-				if current[i] != previous[i] {
-					changed = true
-				}
-			}
-			if changed {
+			previous := instance.hover
+			instance.hover = widgetHoverAt(x, y, layout)
+			if instance.hover != previous {
 				pInvalidateRect.Call(hwnd, 0, 0)
 			}
-			if instance.hoverMin || instance.hoverClose || instance.hoverOpenCode || instance.hoverCodex || instance.hoverConnection || instance.hoverRecent || instance.hoverHistory || instance.hoverSettings || instance.hoverTest || instance.hoverHide {
+			if instance.hover.any() {
 				hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
 				pSetCursor.Call(hand)
 			}
@@ -402,16 +426,7 @@ func RunWidget() {
 
 		case WM_MOUSELEAVE:
 			instance.isTracking = false
-			instance.hoverOpenCode = false
-			instance.hoverCodex = false
-			instance.hoverMin = false
-			instance.hoverClose = false
-			instance.hoverConnection = false
-			instance.hoverRecent = false
-			instance.hoverHistory = false
-			instance.hoverSettings = false
-			instance.hoverTest = false
-			instance.hoverHide = false
+			instance.hover = widgetHoverState{}
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
@@ -634,12 +649,12 @@ func (app *WidgetApp) refreshState() {
 		app.lastPushText = "暂无记录"
 	}
 
-	state := 0
+	state := widgetTrayStateStopped
 	ready := app.clawbotLoggedIn && app.clawbotSessionReady
 	if ready && app.onOpenCode && app.onCodex {
-		state = 2
+		state = widgetTrayStateReady
 	} else if ready && (app.onOpenCode || app.onCodex) {
-		state = 1
+		state = widgetTrayStatePartial
 	}
 	if app.tray != nil {
 		app.tray.UpdateState(state)

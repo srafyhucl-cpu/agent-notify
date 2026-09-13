@@ -70,6 +70,15 @@ func TestDialogControlLayoutsStayInsideAndDoNotOverlap(t *testing.T) {
 	login := loginLayoutRects()
 	history := historyLayoutRects()
 
+	replyHover := settingsHoverAt(
+		(settings.reply.Left+settings.reply.Right)/2,
+		(settings.reply.Top+settings.reply.Bottom)/2,
+		settings,
+	)
+	if !replyHover.reply || replyHover.close || replyHover.login || replyHover.logout || replyHover.cancel || replyHover.save {
+		t.Fatalf("settings reply hover = %#v, want only reply", replyHover)
+	}
+
 	tests := []struct {
 		name     string
 		width    int32
@@ -86,6 +95,7 @@ func TestDialogControlLayoutsStayInsideAndDoNotOverlap(t *testing.T) {
 				{"logout", settings.logout},
 				{"quiet", settings.quiet},
 				{"cooldown", settings.cooldown},
+				{"reply", settings.reply},
 				{"cancel", settings.cancel},
 				{"save", settings.save},
 			},
@@ -205,6 +215,7 @@ func TestDialogTextFitsItsRects(t *testing.T) {
 		{"设置通道说明", newSmallFont, "主动推送会话已就绪 · user...1234", 312 - 52},
 		{"设置勿扰提示", newSmallFont, "留空表示关闭，格式 23-8", 496 - 374},
 		{"设置冷却提示", newSmallFont, "同一会话去重，默认 10", 496 - 374},
+		{"设置引用回复提示", newSmallFont, "引用通知续聊对应会话", 370 - 180},
 		{"设置冷却标签", newBaseFont, "会话冷却（分钟）", 176 - 32},
 		{"登录副标题", newSmallFont, "扫码登录后，还需发送一条微信消息建立会话", 300 - 20},
 		{"历史范围", newSmallFont, "第 1-9 条 / 共 100 条", 568 - 340},

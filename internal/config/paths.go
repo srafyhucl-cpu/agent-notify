@@ -21,8 +21,14 @@ type Paths struct {
 	WidgetExitMarker    string
 	CodexWatchLog       string
 	CodexNotifyDebugLog string
+	CodexTitleLog       string
 	WidgetTraceLog      string
 	BootLog             string
+	ReplyRouteFile      string
+	ReplyStateFile      string
+	OpenCodeReplyDir    string
+	ClawbotDebugLog     string
+	ReplyDebugLog       string
 }
 
 // GetPaths resolves all Agent-notify runtime paths. Every location can be
@@ -55,6 +61,9 @@ func GetPaths() Paths {
 	codexMarker := envOr("AGENT_NOTIFY_CODEX_MARKER_FILE", filepath.Join(configDir, "codex.off"))
 	pushLog := envOr("AGENT_NOTIFY_LOG_FILE", filepath.Join(tempDir, "push.log"))
 	pluginFile := envOr("AGENT_NOTIFY_PLUGIN_FILE", filepath.Join(home, ".config", "opencode", "plugins", "agent-notify.ts"))
+	replyRouteFile := envOr("AGENT_NOTIFY_REPLY_ROUTE_FILE", filepath.Join(configDir, "reply-routes.jsonl"))
+	replyStateFile := envOr("AGENT_NOTIFY_REPLY_STATE_FILE", filepath.Join(configDir, "reply-state.jsonl"))
+	openCodeReplyDir := envOr("AGENT_NOTIFY_OPENCODE_REPLY_DIR", filepath.Join(configDir, "opencode-reply-inbox"))
 
 	return Paths{
 		ConfigDir:           configDir,
@@ -65,12 +74,18 @@ func GetPaths() Paths {
 		CodexMarker:         codexMarker,
 		PushLog:             pushLog,
 		PluginFile:          pluginFile,
+		ReplyRouteFile:      replyRouteFile,
+		ReplyStateFile:      replyStateFile,
+		OpenCodeReplyDir:    openCodeReplyDir,
 		WidgetErrorLog:      filepath.Join(tempDir, "widget-error.log"),
 		WidgetAliveFile:     filepath.Join(tempDir, "widget-alive.txt"),
 		WidgetPosFile:       filepath.Join(tempDir, "widget-pos.txt"),
 		WidgetExitMarker:    filepath.Join(tempDir, "widget-exit.txt"),
 		CodexWatchLog:       filepath.Join(tempDir, "codex-watch.log"),
 		CodexNotifyDebugLog: filepath.Join(tempDir, "codex-notify-debug.log"),
+		CodexTitleLog:       filepath.Join(tempDir, "codex-title.log"),
+		ClawbotDebugLog:     filepath.Join(tempDir, "clawbot-debug.log"),
+		ReplyDebugLog:       filepath.Join(tempDir, "reply-debug.log"),
 		WidgetTraceLog:      filepath.Join(tempDir, "widget-trace.log"),
 		BootLog:             filepath.Join(tempDir, "boot.log"),
 	}

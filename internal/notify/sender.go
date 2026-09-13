@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
 )
 
 const (
@@ -19,14 +19,20 @@ const (
 	StatusSessionMissing = "会话未建立"
 	StatusDryRun         = "DryRun"
 	StatusSkipped        = "已跳过"
+	// DefaultMaxChars is unlimited. Explicit positive values still cap the
+	// complete rendered notification in runes for compatibility.
+	DefaultMaxChars         = 0
+	notificationSendTimeout = 45 * time.Second
 )
 
 // NotifyOptions holds arguments for sending one notification.
 type NotifyOptions struct {
-	Agent     string
+	Agent string
+	// SessionID is the OpenCode session ID or authoritative Codex thread ID.
 	SessionID string
 	Title     string
 	Summary   string
+	Notice    string
 	MaxChars  int
 	DryRun    bool
 }
@@ -36,16 +42,20 @@ type NotifyResult struct {
 	Status        string
 	Error         string
 	DryRunPayload string
+	MessageID     string
+	ClientID      string
 }
 
 // SendNotification renders one plain-text ClawBot message and records the
 // outcome in the structured history log.
 func SendNotification(opts NotifyOptions) NotifyResult {
-	if opts.MaxChars <= 0 {
-		opts.MaxChars = 800
+	opts, protocol := prepareNotification(opts)
+	if protocol.Silent {
+		return RecordSkipped(opts, protocol.Reason)
 	}
 
-	title, summary, message := renderNotification(opts)
+	rendered := renderNotification(opts, time.Now())
+	title, summary, message := rendered.Title, rendered.Summary, rendered.Message
 
 	if opts.DryRun {
 		payload, _ := json.Marshal(map[string]string{
@@ -64,9 +74,10 @@ func SendNotification(opts NotifyOptions) NotifyResult {
 		return recordFailure(opts, title, summary, StatusNotLoggedIn, clawbotHint(err))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), notificationSendTimeout)
 	defer cancel()
-	if err := client.SendText(ctx, message); err != nil {
+	sendResult, err := client.SendText(ctx, message)
+	if err != nil {
 		status := StatusFailed
 		switch {
 		case errors.Is(err, clawbot.ErrStaleToken):
@@ -89,8 +100,20 @@ func SendNotification(opts NotifyOptions) NotifyResult {
 		Title:     title,
 		Summary:   summary,
 		Status:    StatusSuccess,
+		MessageID: sendResult.MessageID,
+		ClientID:  sendResult.ClientID,
 	}, config.GetPaths().PushLog)
-	return NotifyResult{Status: StatusSuccess}
+	if isRouteable(opts, sendResult) {
+		_ = reply.RecordRoute(reply.Route{
+			MessageID: sendResult.MessageID,
+			ClientID:  sendResult.ClientID,
+			BotID:     creds.ILinkBotID,
+			UserID:    creds.ILinkUserID,
+			Agent:     strings.TrimSpace(opts.Agent),
+			SessionID: strings.TrimSpace(opts.SessionID),
+		})
+	}
+	return NotifyResult{Status: StatusSuccess, MessageID: sendResult.MessageID, ClientID: sendResult.ClientID}
 }
 
 // clawbotHint turns a ClawBot error into an actionable Chinese message.
@@ -122,8 +145,9 @@ func recordFailure(opts NotifyOptions, title, summary, status, message string) N
 
 // RecordSkipped records a notification suppressed by policy without sending it.
 func RecordSkipped(opts NotifyOptions, reason string) NotifyResult {
-	if opts.MaxChars <= 0 {
-		opts.MaxChars = 800
+	opts, protocol := prepareNotification(opts)
+	if strings.TrimSpace(reason) == "" && protocol.Silent {
+		reason = protocol.Reason
 	}
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
@@ -132,7 +156,8 @@ func RecordSkipped(opts NotifyOptions, reason string) NotifyResult {
 	if opts.DryRun {
 		return NotifyResult{Status: StatusSkipped, Error: reason}
 	}
-	title, summary, _ := renderNotification(opts)
+	rendered := renderNotification(opts, time.Now())
+	title, summary := rendered.Title, rendered.Summary
 	_ = appendHistory(HistoryItem{
 		Timestamp: time.Now().Format(time.RFC3339Nano),
 		Agent:     strings.TrimSpace(opts.Agent),
@@ -145,19 +170,22 @@ func RecordSkipped(opts NotifyOptions, reason string) NotifyResult {
 	return NotifyResult{Status: StatusSkipped, Error: reason}
 }
 
-func renderNotification(opts NotifyOptions) (title, summary, message string) {
-	title = strings.TrimSpace(strings.ReplaceAll(opts.Title, "\n", " "))
-	if title == "" {
-		title = "任务完成"
+func prepareNotification(opts NotifyOptions) (NotifyOptions, ProtocolResult) {
+	if strings.TrimSpace(opts.Summary) == "" {
+		return opts, ProtocolResult{}
 	}
-	if !strings.HasPrefix(title, "【") {
-		title = "【通知】" + title
-	}
+	protocol := ParseProtocolBlocks(opts.Summary)
+	opts.Summary = protocol.Body
+	return opts, protocol
+}
 
-	summary = FormatNotifySummary(opts.Summary, opts.MaxChars)
-	if summary == "" {
-		summary = fmt.Sprintf("任务已完成。%s", time.Now().Format("01-02 15:04:05"))
+func isRouteable(opts NotifyOptions, result clawbot.SendResult) bool {
+	agent := strings.ToLower(strings.TrimSpace(opts.Agent))
+	if agent != "codex" && agent != "opencode" {
+		return false
 	}
-	message = title + "\n\n" + summary
-	return title, summary, message
+	if strings.TrimSpace(opts.SessionID) == "" {
+		return false
+	}
+	return strings.TrimSpace(result.MessageID) != "" || strings.TrimSpace(result.ClientID) != ""
 }

@@ -114,6 +114,47 @@ func TestPollSessionOnceIgnoresOtherSenders(t *testing.T) {
 	}
 }
 
+func TestPollSessionOnceDispatchesPrivateMessageWithoutContextToken(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret":             0,
+			"get_updates_buf": "cursor-1",
+			"msgs": []map[string]any{{
+				"msg_id":       "reply-1",
+				"from_user_id": "user-1",
+				"message_type": MessageTypeUser,
+				"item_list":    []map[string]any{{"type": ItemTypeText, "text_item": map[string]string{"text": "继续"}}},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	credentials := boundCredentials()
+	credentials.BaseURL = server.URL
+	if err := SaveCredentials(credentials); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+
+	var received []InboundMessage
+	if _, err := PollSessionOnce(context.Background(), func(message InboundMessage) {
+		received = append(received, message)
+	}); err != nil {
+		t.Fatalf("PollSessionOnce: %v", err)
+	}
+	if len(received) != 1 || received[0].PlatformMessageID() != "reply-1" {
+		t.Fatalf("received = %#v", received)
+	}
+	updated, err := LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if updated.ContextToken != credentials.ContextToken {
+		t.Fatalf("context changed without a token: %#v", updated)
+	}
+}
+
 func TestPollSessionOnceMarksStaleToken(t *testing.T) {
 	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
 

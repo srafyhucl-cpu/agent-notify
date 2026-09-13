@@ -59,6 +59,22 @@ func TestGetHistoryMissingFile(t *testing.T) {
 	}
 }
 
+func TestGetHistoryReadsLegacyRecords(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "push.log")
+	legacy := `{"timestamp":"2026-09-11T10:00:00Z","agent":"codex","title":"legacy","status":"成功"}` + "\n"
+	if err := os.WriteFile(logPath, []byte(legacy), 0600); err != nil {
+		t.Fatalf("write legacy history: %v", err)
+	}
+
+	items, err := GetHistory(1, logPath)
+	if err != nil {
+		t.Fatalf("GetHistory legacy: %v", err)
+	}
+	if len(items) != 1 || items[0].Title != "legacy" || items[0].MessageID != "" || items[0].ClientID != "" {
+		t.Fatalf("legacy history = %#v", items)
+	}
+}
+
 func TestHistoryItemLocalTime(t *testing.T) {
 	item := HistoryItem{Timestamp: time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)}
 	if item.LocalTime().IsZero() {

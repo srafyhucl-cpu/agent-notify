@@ -50,7 +50,7 @@ func TestClientSendText(t *testing.T) {
 	defer server.Close()
 
 	client := newClientWithBaseURL(boundCredentials(), server.URL)
-	if err := client.SendText(context.Background(), "hello"); err != nil {
+	if _, err := client.SendText(context.Background(), "hello"); err != nil {
 		t.Fatalf("SendText returned error: %v", err)
 	}
 	if captured.Msg.FromUserID != "" {
@@ -85,7 +85,7 @@ func TestClientSendTextRequiresSession(t *testing.T) {
 	credentials.ContextToken = ""
 	credentials.ContextUserID = ""
 	client := newClientWithBaseURL(credentials, server.URL)
-	err := client.SendText(context.Background(), "hello")
+	_, err := client.SendText(context.Background(), "hello")
 	if !errors.Is(err, ErrNoSession) {
 		t.Fatalf("error = %v, want ErrNoSession", err)
 	}
@@ -96,7 +96,21 @@ func TestClientSendTextRequiresSession(t *testing.T) {
 
 func TestClientRetriesTransientFailure(t *testing.T) {
 	var calls atomic.Int32
+	var capturedClientID string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request sendMessageRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		if request.Msg.ClientID == "" {
+			t.Error("request client_id is empty")
+		}
+		if capturedClientID == "" {
+			capturedClientID = request.Msg.ClientID
+		} else if request.Msg.ClientID != capturedClientID {
+			t.Errorf("retry client_id = %q, want %q", request.Msg.ClientID, capturedClientID)
+		}
 		if calls.Add(1) == 1 {
 			http.Error(w, "temporary", http.StatusBadGateway)
 			return
@@ -108,7 +122,7 @@ func TestClientRetriesTransientFailure(t *testing.T) {
 	client := newClientWithBaseURL(boundCredentials(), server.URL)
 	client.attempts = 2
 	client.httpClient = server.Client()
-	if err := client.SendText(context.Background(), "hello"); err != nil {
+	if _, err := client.SendText(context.Background(), "hello"); err != nil {
 		t.Fatalf("SendText should retry transient failure: %v", err)
 	}
 	if calls.Load() != 2 {
@@ -136,7 +150,7 @@ func TestClientStaleTokenIsNotRetried(t *testing.T) {
 			client := newClientWithBaseURL(boundCredentials(), server.URL)
 			client.attempts = 3
 			client.httpClient = server.Client()
-			err := client.SendText(context.Background(), "hello")
+			_, err := client.SendText(context.Background(), "hello")
 			if !errors.Is(err, ErrStaleToken) {
 				t.Fatalf("error = %v, want ErrStaleToken", err)
 			}
@@ -167,7 +181,7 @@ func TestClientSessionPreparationFailureIsNotRetried(t *testing.T) {
 			client := newClientWithBaseURL(boundCredentials(), server.URL)
 			client.attempts = 3
 			client.httpClient = server.Client()
-			err := client.SendText(context.Background(), "hello")
+			_, err := client.SendText(context.Background(), "hello")
 			if !errors.Is(err, ErrSessionExpired) {
 				t.Fatalf("error = %v, want ErrSessionExpired", err)
 			}

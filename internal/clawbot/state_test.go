@@ -49,6 +49,32 @@ func TestSaveCredentialsIsolatesAccounts(t *testing.T) {
 	}
 }
 
+func TestSaveCredentialsClearsCursorWhenBoundUserChanges(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	first := boundCredentials()
+	first.GetUpdatesBuf = "cursor-1"
+	if err := SaveCredentials(first); err != nil {
+		t.Fatalf("SaveCredentials first account: %v", err)
+	}
+
+	next := first
+	next.ILinkUserID = "user-2"
+	next.ContextUserID = "user-2"
+	next.ContextToken = "ctx-2"
+	next.GetUpdatesBuf = "cursor-2"
+	if err := SaveCredentials(next); err != nil {
+		t.Fatalf("SaveCredentials second user: %v", err)
+	}
+
+	got, err := LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if got.ContextToken != "" || got.ContextUserID != "" || got.GetUpdatesBuf != "" {
+		t.Fatalf("user-scoped state leaked across login: %#v", got)
+	}
+}
+
 func TestSaveCredentialsRejectsCrossUserContext(t *testing.T) {
 	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
 	credentials := boundCredentials()
@@ -76,7 +102,7 @@ func TestClientRejectsContextFromAnotherUser(t *testing.T) {
 	credentials := boundCredentials()
 	credentials.ContextUserID = "another-user"
 	client := newClientWithBaseURL(credentials, server.URL)
-	err := client.SendText(context.Background(), "hello")
+	_, err := client.SendText(context.Background(), "hello")
 	if !errors.Is(err, ErrNoSession) {
 		t.Fatalf("error = %v, want ErrNoSession", err)
 	}

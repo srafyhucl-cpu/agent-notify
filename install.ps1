@@ -73,13 +73,35 @@ function Test-InsideDir {
   } catch { return $false }
 }
 
+# 同目录写入再替换，避免安装中断留下半写入的 exe 或插件。
+function Install-FileAtomically {
+  param([string]$Source, [string]$Destination)
+  $parent = Split-Path -Parent $Destination
+  New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  $temporary = Join-Path $parent ((Split-Path -Leaf $Destination) + '.new-' + [guid]::NewGuid().ToString('N'))
+  try {
+    Copy-Item -LiteralPath $Source -Destination $temporary -Force
+    if (Test-Path -LiteralPath $Destination) {
+      [IO.File]::Replace($temporary, $Destination, [NullString]::Value, $true)
+    } else {
+      [IO.File]::Move($temporary, $Destination)
+    }
+  } finally {
+    if (Test-Path -LiteralPath $temporary) {
+      Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 # Go 构建缓存放仓库所在磁盘，避免默认写入 C 盘用户缓存。
 function Initialize-GoEnvironment {
   $driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
   $cacheRoot = Join-Path $driveRoot 'Temp\agent-notify-go'
-  if ([string]::IsNullOrWhiteSpace($env:GOPATH)) { $env:GOPATH = $cacheRoot }
-  if ([string]::IsNullOrWhiteSpace($env:GOMODCACHE)) { $env:GOMODCACHE = Join-Path $cacheRoot 'pkg\mod' }
-  if ([string]::IsNullOrWhiteSpace($env:GOCACHE)) { $env:GOCACHE = Join-Path $cacheRoot 'build' }
+  $env:GOPATH = $cacheRoot
+  $env:GOMODCACHE = Join-Path $cacheRoot 'pkg\mod'
+  $env:GOCACHE = Join-Path $cacheRoot 'build'
+  $env:GOTMPDIR = Join-Path $cacheRoot 'tmp'
+  New-Item -ItemType Directory -Force -Path $env:GOTMPDIR | Out-Null
 }
 
 function Resolve-GoCommand {
@@ -134,18 +156,9 @@ try {
     } catch { $oldFiles = @() }
   }
 
-  # 1. 停掉正在运行的悬浮窗，释放二进制文件锁
-  try {
-    $escaped = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\'))
-    Get-CimInstance Win32_Process -Filter "Name='agent-notify.exe'" -ErrorAction SilentlyContinue |
-      Where-Object { $_.CommandLine -and ($_.CommandLine -match $escaped) -and ($_.ProcessId -ne $PID) } |
-      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Milliseconds 200
-  } catch { }
-
-  # 2. 编译并分发 Go 单文件运行程序
+  # 2. 编译 Go 单文件运行程序；构建成功前保留正在运行的旧版本。
   $repoExe = Join-Path $RepoRoot "bin\$ExeName"
-  $needsBuild = -not (Test-Path $repoExe) -or -not (Test-WindowsGuiSubsystem $repoExe)
+  $needsBuild = $HasSource -or -not (Test-Path $repoExe) -or -not (Test-WindowsGuiSubsystem $repoExe)
   if ($needsBuild -and -not $HasSource) {
     throw "发布包中的 $ExeName 不是 Windows GUI 子系统，请重新下载正确版本。"
   }
@@ -177,10 +190,19 @@ try {
     }
   }
 
+  # 3. 停掉正在运行的悬浮窗，释放二进制文件锁并替换文件。
+  try {
+    $escaped = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\'))
+    Get-CimInstance Win32_Process -Filter "Name='agent-notify.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { $_.CommandLine -and ($_.CommandLine -match $escaped) -and ($_.ProcessId -ne $PID) } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 200
+  } catch { }
+
   $installedExe = Join-Path $InstallDir $ExeName
-  Copy-Item $repoExe $installedExe -Force
+  Install-FileAtomically -Source $repoExe -Destination $installedExe
   $installedPlugin = Join-Path $PluginDir $PluginName
-  Copy-Item (Join-Path $RepoRoot "plugin\$PluginName") $installedPlugin -Force
+  Install-FileAtomically -Source (Join-Path $RepoRoot "plugin\$PluginName") -Destination $installedPlugin
 
   # 插件默认只认 %USERPROFILE%\bin；把真实安装路径写进插件副本，自定义目录才不会失联。
   $pluginText = [IO.File]::ReadAllText($installedPlugin)
@@ -195,7 +217,7 @@ try {
   Write-Output "[install] 已安装运行程序：$installedExe"
   Write-Output "[install] 已安装 opencode 插件：$installedPlugin"
 
-  # 3. 写安装记录（卸载按它精确清理；files 为相对 InstallDir 的正斜杠路径）
+  # 4. 写安装记录（卸载按它精确清理；files 为相对 InstallDir 的正斜杠路径）
   $newFiles = @($ExeName)
   $record = [ordered]@{
     name        = 'Agent-notify'
@@ -207,7 +229,7 @@ try {
   $json = [regex]::Replace($json, '"files":\s*"([^"]+)"', '"files": [ "$1" ]')
   [IO.File]::WriteAllText($recordPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 
-  # 4. 清理旧记录里已不再分发的文件
+  # 5. 清理旧记录里已不再分发的文件
   $stale = @($oldFiles | Where-Object { $_ -and ($newFiles -notcontains $_) })
   foreach ($rel in $stale) {
     $full = Join-Path $InstallDir $rel
@@ -215,7 +237,7 @@ try {
     if (Test-Path $full) { Remove-Item $full -Force; Write-Output "[install] 清理旧版本文件：$rel" }
   }
 
-  # 5. 接管 Codex notify：只动指向 codex-computer-use.exe 的行，自定义配置不覆盖
+  # 6. 接管 Codex notify：只动指向 codex-computer-use.exe 的行，自定义配置不覆盖
   if (-not $SkipCodexConfig) {
     if (-not (Test-Path $CodexConfig)) {
       Write-Output "[install] 跳过 Codex 配置：找不到 $CodexConfig"
@@ -242,7 +264,7 @@ try {
     }
   }
 
-  # 6. 快捷方式（开机自启 + 桌面），目标就是 exe 的 widget 子命令
+  # 7. 快捷方式（开机自启 + 桌面），目标就是 exe 的 widget 子命令
   if (-not $SkipShortcuts) {
     try {
       $ws = New-Object -ComObject WScript.Shell
@@ -261,7 +283,7 @@ try {
     }
   }
 
-  # 7. 启动悬浮窗
+  # 8. 启动悬浮窗
   if (-not $SkipWidgetLaunch) {
     try {
       Start-Process $installedExe -ArgumentList @('widget') -WindowStyle Hidden

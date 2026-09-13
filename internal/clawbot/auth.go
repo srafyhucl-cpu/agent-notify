@@ -30,10 +30,13 @@ const (
 )
 
 const (
-	qrStatusTimeout  = 35 * time.Second
-	maxQRRefresh     = 3
-	qrPollRetryStart = time.Second
-	qrPollRetryMax   = 5 * time.Second
+	qrStatusTimeout   = 35 * time.Second
+	maxQRRefresh      = 3
+	qrPollRetryStart  = time.Second
+	qrPollRetryMax    = 5 * time.Second
+	qrStatusHTTPGrace = 10 * time.Second
+	maxLocalTokens    = 10
+	qrCodeEndpoint    = "/ilink/bot/get_bot_qrcode?bot_type=3"
 )
 
 var (
@@ -82,7 +85,7 @@ func NewAuthClient(baseURL string) *AuthClient {
 	}
 	return &AuthClient{
 		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: qrStatusTimeout + 10*time.Second},
+		httpClient: &http.Client{Timeout: qrStatusTimeout + qrStatusHTTPGrace},
 	}
 }
 
@@ -94,7 +97,7 @@ func (c *AuthClient) FetchQRCode(ctx context.Context, localTokens []string) (QRC
 	tokens := uniqueTokens(localTokens)
 	var result QRCodeResponse
 	body := qrCodeRequest{LocalTokenList: tokens, BaseInfo: newBaseInfo()}
-	if err := c.doJSON(ctx, http.MethodPost, c.baseURL+"/ilink/bot/get_bot_qrcode?bot_type=3", body, &result); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, c.baseURL+qrCodeEndpoint, body, &result); err != nil {
 		return QRCodeResponse{}, fmt.Errorf("clawbot: fetch qr code: %w", err)
 	}
 	if err := checkAPIStatus("get_bot_qrcode", result.Ret, result.ErrCode, result.ErrMsg); err != nil {
@@ -106,7 +109,7 @@ func (c *AuthClient) FetchQRCode(ctx context.Context, localTokens []string) (QRC
 
 	// Old servers answer POST without a code and expose the GET shape only.
 	var fallback QRCodeResponse
-	if err := c.doJSON(ctx, http.MethodGet, c.baseURL+"/ilink/bot/get_bot_qrcode?bot_type=3", nil, &fallback); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, c.baseURL+qrCodeEndpoint, nil, &fallback); err != nil {
 		return result, fmt.Errorf("clawbot: fetch qr code: %w", err)
 	}
 	if err := checkAPIStatus("get_bot_qrcode", fallback.Ret, fallback.ErrCode, fallback.ErrMsg); err != nil {
@@ -360,7 +363,7 @@ func uniqueTokens(tokens []string) []string {
 		}
 		seen[token] = struct{}{}
 		result = append(result, token)
-		if len(result) == 10 {
+		if len(result) == maxLocalTokens {
 			break
 		}
 	}
@@ -441,12 +444,16 @@ func saveCredentials(creds Credentials) error {
 		creds.BaseURL = DefaultBaseURL
 	}
 
-	if previous, err := loadCredentials(); err == nil && strings.TrimSpace(previous.ILinkBotID) != "" && previous.ILinkBotID != creds.ILinkBotID {
-		// A cursor and context token are scoped to one bot account. Never
-		// carry them into a different account after re-login.
-		creds.GetUpdatesBuf = ""
-		creds.ContextToken = ""
-		creds.ContextUserID = ""
+	if previous, err := loadCredentials(); err == nil {
+		// A cursor and context token are scoped to both the bot account and
+		// the bound WeChat user. Never carry them across a re-login boundary.
+		accountChanged := strings.TrimSpace(previous.ILinkBotID) != strings.TrimSpace(creds.ILinkBotID) ||
+			strings.TrimSpace(previous.ILinkUserID) != strings.TrimSpace(creds.ILinkUserID)
+		if accountChanged {
+			creds.GetUpdatesBuf = ""
+			creds.ContextToken = ""
+			creds.ContextUserID = ""
+		}
 	}
 	if strings.TrimSpace(creds.ContextUserID) != strings.TrimSpace(creds.ILinkUserID) {
 		creds.ContextToken = ""

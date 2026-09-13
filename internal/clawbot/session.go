@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+const (
+	sessionLifecycleTimeout = 10 * time.Second
+	sessionIdlePollInterval = time.Second
+	sessionBackoffInitial   = time.Second
+	sessionBackoffMax       = time.Minute
+)
+
 // SessionEvent reports one batch of inbound messages.
 type SessionEvent struct {
 	Messages []InboundMessage
@@ -41,24 +48,30 @@ func PollSessionOnce(ctx context.Context, onMessage func(InboundMessage)) (Statu
 	if cursor := strings.TrimSpace(updates.Cursor); cursor != "" {
 		next.GetUpdatesBuf = cursor
 	}
+	dispatchMessages := make([]InboundMessage, 0, len(updates.Messages))
 	for _, message := range updates.Messages {
-		if !messageCarriesContext(message) {
-			continue
-		}
 		from := strings.TrimSpace(message.FromUserID)
 		if from != strings.TrimSpace(credentials.ILinkUserID) {
 			continue
 		}
-		next.ContextToken = strings.TrimSpace(message.ContextToken)
-		next.ContextUserID = from
-		if onMessage != nil {
-			onMessage(message)
+		if message.MessageType != MessageTypeUser || strings.TrimSpace(message.GroupID) != "" {
+			continue
 		}
+		if token := strings.TrimSpace(message.ContextToken); token != "" {
+			next.ContextToken = token
+			next.ContextUserID = from
+		}
+		dispatchMessages = append(dispatchMessages, message)
 	}
 
 	if next != credentials {
 		if err := SaveCredentials(next); err != nil {
 			return GetStatus(), err
+		}
+	}
+	if onMessage != nil {
+		for _, message := range dispatchMessages {
+			onMessage(message)
 		}
 	}
 	return GetStatus(), nil
@@ -75,7 +88,7 @@ func AwaitSessionContext(ctx context.Context, onMessage func(InboundMessage)) (C
 		if status.SessionReady {
 			return LoadCredentials()
 		}
-		if err := sleepContext(ctx, time.Second); err != nil {
+		if err := sleepContext(ctx, sessionIdlePollInterval); err != nil {
 			return Credentials{}, err
 		}
 	}
@@ -86,7 +99,7 @@ func AwaitSessionContext(ctx context.Context, onMessage func(InboundMessage)) (C
 // bound account is known. It stops on a stale token; callers should ask the
 // user to log in again.
 func RunSessionLoop(ctx context.Context, onMessage func(InboundMessage), onError func(error)) {
-	backoff := time.Second
+	backoff := sessionBackoffInitial
 	announcedToken := ""
 
 	defer func() {
@@ -116,7 +129,7 @@ func RunSessionLoop(ctx context.Context, onMessage func(InboundMessage), onError
 				if err := sleepContext(ctx, delay); err != nil {
 					return
 				}
-				backoff = time.Second
+				backoff = sessionBackoffInitial
 				continue
 			}
 			if onError != nil {
@@ -125,15 +138,15 @@ func RunSessionLoop(ctx context.Context, onMessage func(InboundMessage), onError
 			if err := sleepContext(ctx, backoff); err != nil {
 				return
 			}
-			if backoff < time.Minute {
+			if backoff < sessionBackoffMax {
 				backoff *= 2
-				if backoff > time.Minute {
-					backoff = time.Minute
+				if backoff > sessionBackoffMax {
+					backoff = sessionBackoffMax
 				}
 			}
 			continue
 		}
-		backoff = time.Second
+		backoff = sessionBackoffInitial
 
 		if status.SessionReady {
 			if token := announceSessionStart(ctx, announcedToken); token != "" {
@@ -166,7 +179,7 @@ func announceSessionStart(ctx context.Context, announcedToken string) string {
 	if err != nil {
 		return ""
 	}
-	notifyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	notifyCtx, cancel := context.WithTimeout(ctx, sessionLifecycleTimeout)
 	defer cancel()
 	if err := client.NotifyStart(notifyCtx); err != nil {
 		return ""
@@ -186,7 +199,7 @@ func stopSessionLifecycle(announcedToken string) {
 	if err != nil {
 		return
 	}
-	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	stopCtx, cancel := context.WithTimeout(context.Background(), sessionLifecycleTimeout)
 	defer cancel()
 	_ = client.NotifyStop(stopCtx)
 }
@@ -213,12 +226,6 @@ func ClearSessionContext(expectedToken string) error {
 		credentials.ContextUserID = ""
 		return nil
 	})
-}
-
-func messageCarriesContext(message InboundMessage) bool {
-	return strings.TrimSpace(message.ContextToken) != "" &&
-		strings.TrimSpace(message.GroupID) == "" &&
-		message.MessageType == MessageTypeUser
 }
 
 func sleepContext(ctx context.Context, duration time.Duration) error {

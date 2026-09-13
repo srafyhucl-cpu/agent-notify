@@ -48,7 +48,7 @@ foreach ($file in @('install.ps1', 'uninstall.ps1', 'tools\build-release.ps1', '
 
 # 1. 插件静态约束：只依赖新的 CLI，不再出现旧品牌/旧运行时
 $pluginRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'plugin\agent-notify.ts'))
-foreach ($needle in @('agent-notify.exe', 'AGENT_NOTIFY_BIN', 'notify",')) {
+foreach ($needle in @('agent-notify.exe', 'AGENT_NOTIFY_BIN', 'notify",', 'PromptCurrentInput', 'promptAsync', 'writeReplyFileAtomic', 'cleanupStaleReplyArtifacts', 'REPLY_HEARTBEAT_DIR', 'clearReplyHeartbeat')) {
   Assert-True ($pluginRaw -match [regex]::Escape($needle)) "插件缺少新协议标记：$needle"
 }
 $legacyNames = @(('link' + 'Weixin'), ('link' + 'weixin'), ('PUSH' + 'PLUS'), ('Push' + 'Plus'), ('power' + 'shell.exe'), ('notify' + '-ai.ps1'), ('anti' + 'gravity'))
@@ -98,6 +98,8 @@ try {
   $statusJson = "$status" | ConvertFrom-Json
   Assert-True ($statusJson.openCodeEnabled -eq $true) 'status 初始 OpenCode 开关应为开启'
   Assert-True ($statusJson.codexEnabled -eq $true) 'status 初始 Codex 开关应为开启'
+  Assert-True ($statusJson.replyEnabled -eq $false) 'status 初始引用回复开关应默认关闭'
+  Assert-True (-not [string]::IsNullOrWhiteSpace($statusJson.replyRouteFile)) 'status 缺少引用路由文件路径'
   Write-Output '[ok] status json'
 
   # 4b. history JSON：空历史也要输出合法 JSON，脚本才不用区分文本提示
@@ -105,6 +107,71 @@ try {
   Assert-True ($LASTEXITCODE -eq 0) "history --json exit=$LASTEXITCODE"
   Assert-True ($historyRaw -eq '[]') "history --json 空历史应为 []：$historyRaw"
   Write-Output '[ok] history json'
+
+  # 4c. reply-check 只读闸门：无诊断日志时必须报告证据不足
+  $gateRaw = "$(& $exePath reply-check --json 2>&1)".Trim()
+  Assert-True ($LASTEXITCODE -eq 2) "reply-check 无证据应返回 2，实际 $LASTEXITCODE：$gateRaw"
+  $gateJson = $gateRaw | ConvertFrom-Json
+  Assert-True ($gateJson.gate.status -eq 'awaiting-send') "reply-check 状态应为 awaiting-send：$gateRaw"
+  Assert-True ($gateJson.replyEnabled -eq $false) 'reply-check 不应改变引用回复开关'
+  Write-Output '[ok] reply-check no evidence'
+
+  # 4d. reply-check 正/反向路径：只在沙箱写诊断日志，不触网
+  $debugLog = Join-Path $env:AGENT_NOTIFY_TEMP_DIR 'clawbot-debug.log'
+  New-Item -ItemType Directory -Force -Path $env:AGENT_NOTIFY_TEMP_DIR | Out-Null
+  $utf8NoBom = New-Object Text.UTF8Encoding($false)
+  $credentialsPath = Join-Path $configDir 'clawbot.json'
+  $routeFile = Join-Path $configDir 'reply-routes.jsonl'
+  [IO.File]::WriteAllText($credentialsPath, '{"bot_token":"token","ilink_bot_id":"bot-1","ilink_user_id":"user-1"}', $utf8NoBom)
+	  $now = [DateTime]::UtcNow
+	  $scopeBytes = [Text.Encoding]::UTF8.GetBytes("bot-1`0user-1")
+	  $sha256 = [Security.Cryptography.SHA256]::Create()
+	  try { $scopeHash = $sha256.ComputeHash($scopeBytes) } finally { $sha256.Dispose() }
+	  $scope = ([BitConverter]::ToString($scopeHash).Replace('-', '').ToLowerInvariant()).Substring(0, 32)
+	  $routeJson = @{
+    messageID = 'platform-1'
+    clientID = 'client-1'
+    botID = 'bot-1'
+    userID = 'user-1'
+    agent = 'codex'
+    sessionID = 'thread-1'
+    createdAt = $now.ToString('o')
+    expiresAt = $now.AddDays(1).ToString('o')
+  } | ConvertTo-Json -Compress
+  [IO.File]::WriteAllText($routeFile, $routeJson + [Environment]::NewLine, $utf8NoBom)
+  [IO.File]::WriteAllLines($debugLog, @(
+    ('2026-09-13T07:00:00+08:00 sendmessage-result data={"account_scope":"' + $scope + '","message_id":"platform-1","client_id":"client-1"}')
+    ('2026-09-13T07:00:01+08:00 getupdates-result data=[{"msg_id":"reply-1","has_reference":true,"referenced_msg_ids":["platform-1"],"account_scope":"' + $scope + '","private":true,"bound_sender":true}]')
+  ), $utf8NoBom)
+  $gatePassRaw = "$(& $exePath reply-check --json 2>&1)".Trim()
+  Assert-True ($LASTEXITCODE -eq 0) "reply-check 匹配时应返回 0，实际 $LASTEXITCODE：$gatePassRaw"
+  $gatePass = $gatePassRaw | ConvertFrom-Json
+  Assert-True ($gatePass.gate.status -eq 'passed') "reply-check 应通过：$gatePassRaw"
+  Remove-Item -LiteralPath $routeFile -Force
+  $routeFailRaw = "$(& $exePath reply-check --json 2>&1)".Trim()
+  Assert-True ($LASTEXITCODE -eq 1) "reply-check 路由缺失时应返回 1，实际 $LASTEXITCODE：$routeFailRaw"
+  $routeFail = $routeFailRaw | ConvertFrom-Json
+  Assert-True ($routeFail.gate.status -eq 'failed') "reply-check 应判路由未通过：$routeFailRaw"
+  Assert-True ($routeFail.gate.routeFailures -eq 1) "reply-check 应记录 1 条路由失败：$routeFailRaw"
+  [IO.File]::WriteAllLines($debugLog, @(
+    ('2026-09-13T07:01:00+08:00 sendmessage-result data={"account_scope":"' + $scope + '","message_id":"platform-1","client_id":"client-1"}')
+    ('2026-09-13T07:01:01+08:00 getupdates-result data=[{"msg_id":"reply-2","has_reference":true,"referenced_msg_ids":["platform-9"],"account_scope":"' + $scope + '","private":true,"bound_sender":true}]')
+  ), $utf8NoBom)
+  $gateFailRaw = "$(& $exePath reply-check --json 2>&1)".Trim()
+  Assert-True ($LASTEXITCODE -eq 1) "reply-check 未匹配时应返回 1，实际 $LASTEXITCODE：$gateFailRaw"
+  $gateFail = $gateFailRaw | ConvertFrom-Json
+  Assert-True ($gateFail.gate.status -eq 'failed') "reply-check 应判未通过：$gateFailRaw"
+  [IO.File]::WriteAllLines($debugLog, @(
+    ('2026-09-13T07:02:00+08:00 sendmessage-result data={"account_scope":"' + $scope + '","message_id":"platform-1","client_id":"client-1"}')
+    ('2026-09-13T07:02:01+08:00 getupdates-result data=[{"msg_id":"reply-3","has_reference":true,"referenced_msg_ids":[],"account_scope":"' + $scope + '","private":true,"bound_sender":true}]')
+  ), $utf8NoBom)
+  $missingIDRaw = "$(& $exePath reply-check --json 2>&1)".Trim()
+  Assert-True ($LASTEXITCODE -eq 1) "reply-check 引用缺少 ID 时应返回 1，实际 $LASTEXITCODE：$missingIDRaw"
+  $missingID = $missingIDRaw | ConvertFrom-Json
+  Assert-True ($missingID.gate.status -eq 'failed') "缺少引用 ID 应判未通过：$missingIDRaw"
+  Assert-True ($missingID.gate.failedQuotes -eq 1) "缺少引用 ID 应记录 1 条失败：$missingIDRaw"
+  Assert-True (-not [string]::IsNullOrWhiteSpace($missingID.gate.quotes[0].referenceError)) '缺少引用 ID 应包含明确原因'
+  Write-Output '[ok] reply-check gate'
 
   # 5. toggle 开关 marker
   & $exePath toggle --agent all --off 2>&1 | Out-Null
@@ -136,6 +203,10 @@ try {
 
   $sandboxInstall = Join-Path $smokeRoot 'install-bin'
   $sandboxPlugins = Join-Path $smokeRoot 'install-plugins'
+  New-Item -ItemType Directory -Force -Path $sandboxInstall, $sandboxPlugins | Out-Null
+  [IO.File]::WriteAllText((Join-Path $sandboxInstall 'agent-notify.exe'), 'old-install')
+  [IO.File]::WriteAllText((Join-Path $sandboxPlugins 'agent-notify.ts'), 'old-plugin')
+  Write-Output '[ok] install upgrade fixtures'
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'install.ps1') `
     -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "沙箱安装 exit=$LASTEXITCODE"
@@ -144,13 +215,15 @@ try {
   Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json')) '沙箱安装缺安装记录'
   Assert-True ((Get-PESubsystem (Join-Path $RepoRoot 'bin\agent-notify.exe')) -eq 2) '安装器没有把 Console 构建重建为 Windows GUI 子系统'
   Assert-True (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts')) '沙箱安装缺插件'
+  $atomicLeftovers = @(Get-ChildItem -Path $sandboxInstall, $sandboxPlugins -File | Where-Object { $_.Name -like '*.new-*' })
+  Assert-True ($atomicLeftovers.Count -eq 0) '原子安装残留替换临时文件'
   $installedPluginText = [IO.File]::ReadAllText((Join-Path $sandboxPlugins 'agent-notify.ts'))
   $expectedBaked = (Join-Path $sandboxInstall 'agent-notify.exe').Replace('\', '\\')
   Assert-True ($installedPluginText.Contains('const BAKED_BIN = "' + $expectedBaked + '"')) "安装后的插件没有指向沙箱 exe：$expectedBaked"
   Assert-True ($pluginRaw.Contains('const BAKED_BIN = ""')) '仓库内的插件副本应保持可移植的空 BAKED_BIN'
   Write-Output '[ok] install baked plugin path'
   $installedFiles = @(Get-ChildItem $sandboxInstall -File | Select-Object -ExpandProperty Name | Sort-Object)
-  Assert-True (($installedFiles -join ',') -eq 'agent-notify.exe,agent-notify-install.json') "安装目录文件意外：$($installedFiles -join ',')"
+  Assert-True ($installedFiles.Count -eq 2 -and ($installedFiles -contains 'agent-notify.exe') -and ($installedFiles -contains 'agent-notify-install.json')) "安装目录文件意外：$($installedFiles -join ',')"
   $record = Get-Content (Join-Path $sandboxInstall 'agent-notify-install.json') -Raw -Encoding utf8 | ConvertFrom-Json
   Assert-True ($record.name -eq 'Agent-notify') "安装记录 name 异常：$($record.name)"
   Assert-True (@($record.files) -contains 'agent-notify.exe') '安装记录缺 exe'
@@ -174,13 +247,17 @@ try {
     (Join-Path $smokeRoot 'bin\agent-notify.exe'),
     (Join-Path $configDir 'config.json'),
     (Join-Path $configDir 'clawbot.json'),
+    (Join-Path $configDir 'reply-routes.jsonl.lock'),
+    (Join-Path $configDir 'reply-routes.jsonl'),
     (Join-Path $configDir 'opencode.off'),
     (Join-Path $configDir 'codex.off'),
     (Join-Path $smokeRoot 'install-bin\agent-notify.exe'),
     (Join-Path $smokeRoot 'install-bin\agent-notify-install.json'),
     (Join-Path $smokeRoot 'install-plugins\agent-notify.ts'),
     (Join-Path $smokeRoot 'state\push.log'),
-    (Join-Path $smokeRoot 'state\opencode-sent.json')
+    (Join-Path $smokeRoot 'state\codex-notify-debug.log'),
+    (Join-Path $smokeRoot 'state\opencode-sent.json'),
+    (Join-Path $smokeRoot 'state\clawbot-debug.log')
   )
   foreach ($file in $explicitFiles) {
     if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }

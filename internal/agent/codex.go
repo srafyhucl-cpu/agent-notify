@@ -17,7 +17,13 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 )
 
-var reWhitespaces = regexp.MustCompile(`\s+`)
+var (
+	reWhitespaces       = regexp.MustCompile(`\s+`)
+	reLastAssistantText = regexp.MustCompile(`last-assistant-message["':\s]+([^}"]+?)(?:,?\s*input-messages|\s*})`)
+	reInputMessages     = regexp.MustCompile(`input-messages["':\s]+\["?([^\]"]*)"?\]`)
+)
+
+const codexTurnCompleteType = "agent-turn-complete"
 
 // FindCodexComputerUseExe dynamically locates the latest codex-computer-use.exe.
 func FindCodexComputerUseExe() string {
@@ -51,44 +57,90 @@ func FindCodexComputerUseExe() string {
 	return files[0].path
 }
 
-// ConvertCodexArgs parses one Codex notify payload.
-func ConvertCodexArgs(args []string) (title string, summary string) {
+// ConvertCodexArgs parses one Codex notify payload. Routing identifiers are
+// taken only from the same JSON event that supplies notification content; IDs
+// from unrelated arguments are never combined.
+func ConvertCodexArgs(args []string) (title string, summary string, threadID string) {
 	taskName := ""
+	contentStarted := false
+	contentThreadID := ""
+	contentIDMissing := false
+	contentIDConflict := false
+	fallbackThreadID := ""
+	fallbackIDConflict := false
+
+	recordContentThreadID := func(candidate string) {
+		if candidate == "" {
+			contentIDMissing = true
+			return
+		}
+		if contentThreadID == "" {
+			contentThreadID = candidate
+			return
+		}
+		if contentThreadID != candidate {
+			contentIDConflict = true
+		}
+	}
+	recordFallbackThreadID := func(candidate string) {
+		if candidate == "" {
+			return
+		}
+		if fallbackThreadID == "" {
+			fallbackThreadID = candidate
+			return
+		}
+		if fallbackThreadID != candidate {
+			fallbackIDConflict = true
+		}
+	}
 	for _, arg := range args {
 		trimmed := strings.TrimLeft(arg, " \t\r\n")
 		if !strings.HasPrefix(trimmed, "{") {
 			continue
 		}
 
-		var event struct {
-			LastAssistantMessage string        `json:"last-assistant-message"`
-			InputMessages        []interface{} `json:"input-messages"`
-		}
+		var event codexNotifyEvent
 		if err := json.Unmarshal([]byte(trimmed), &event); err != nil {
-			reLast := regexp.MustCompile(`last-assistant-message["':\s]+([^}"]+?)(?:,?\s*input-messages|\s*})`)
-			if match := reLast.FindStringSubmatch(trimmed); len(match) == 2 {
-				summary = truncateRunes(strings.Trim(strings.TrimSpace(match[1]), "\"'"), 2000)
+			foundContent := false
+			if summary == "" {
+				if match := reLastAssistantText.FindStringSubmatch(trimmed); len(match) == 2 {
+					summary = strings.Trim(strings.TrimSpace(match[1]), "\"'")
+					foundContent = foundContent || summary != ""
+				}
 			}
-			reInput := regexp.MustCompile(`input-messages["':\s]+\["?([^\]"]*)"?\]`)
-			if match := reInput.FindStringSubmatch(trimmed); len(match) == 2 {
-				taskName = truncateRunes(strings.Trim(strings.TrimSpace(match[1]), "\"'"), 30)
+			if taskName == "" {
+				if match := reInputMessages.FindStringSubmatch(trimmed); len(match) == 2 {
+					taskName = strings.Trim(strings.TrimSpace(match[1]), "\"'")
+					foundContent = foundContent || taskName != ""
+				}
 			}
-			if summary != "" {
-				break
+			if foundContent {
+				contentStarted = true
+				contentIDMissing = true
 			}
 			continue
 		}
 
-		if message := strings.TrimSpace(event.LastAssistantMessage); message != "" {
-			summary = truncateRunes(message, 2000)
+		hasContent := strings.TrimSpace(event.LastAssistantMessage) != "" || len(event.InputMessages) > 0
+		isTurnEvent := strings.EqualFold(strings.TrimSpace(event.Type), codexTurnCompleteType)
+		eventThreadID := codexEventThreadID(event)
+		if hasContent {
+			contentStarted = true
+			recordContentThreadID(eventThreadID)
+		} else if !isTurnEvent {
+			recordFallbackThreadID(eventThreadID)
 		}
-		if len(event.InputMessages) > 0 {
-			if first, ok := event.InputMessages[0].(string); ok {
-				taskName = truncateRunes(strings.TrimSpace(reWhitespaces.ReplaceAllString(first, " ")), 30)
+
+		if message := strings.TrimSpace(event.LastAssistantMessage); message != "" {
+			if summary == "" {
+				summary = message
 			}
 		}
-		if summary != "" {
-			break
+		if len(event.InputMessages) > 0 && taskName == "" {
+			if first, ok := event.InputMessages[0].(string); ok {
+				taskName = strings.TrimSpace(reWhitespaces.ReplaceAllString(first, " "))
+			}
 		}
 	}
 
@@ -97,15 +149,16 @@ func ConvertCodexArgs(args []string) (title string, summary string) {
 	} else {
 		title = "【codex】跑完了"
 	}
-	return title, summary
-}
-
-func truncateRunes(value string, limit int) string {
-	runes := []rune(strings.TrimSpace(value))
-	if len(runes) <= limit {
-		return string(runes)
+	if contentStarted {
+		if contentIDMissing || contentIDConflict {
+			return title, summary, ""
+		}
+		return title, summary, contentThreadID
 	}
-	return string(runes[:limit]) + "…"
+	if fallbackIDConflict {
+		return title, summary, ""
+	}
+	return title, summary, fallbackThreadID
 }
 
 func writeCodexDebug(line string) {
@@ -125,6 +178,10 @@ func writeCodexDebug(line string) {
 // HandleCodex passes the original event through to codex-computer-use and then
 // sends an Agent-notify message for the completed turn.
 func HandleCodex(args []string) notify.NotifyResult {
+	return handleCodex(args, windowsCodexTitleResolver{})
+}
+
+func handleCodex(args []string, titles codexTitleResolver) notify.NotifyResult {
 	writeCodexDebug(fmt.Sprintf("args=%s", strings.Join(args, " | ")))
 
 	isDry := os.Getenv("AGENT_NOTIFY_CODEX_DRYRUN") == "1"
@@ -151,13 +208,24 @@ func HandleCodex(args []string) notify.NotifyResult {
 	}
 
 	paths := config.GetPaths()
-	title, summary := ConvertCodexArgs(args)
+	title, summary, threadID := ConvertCodexArgs(args)
+	notice := ""
+	if threadID != "" {
+		resolution := titles.Resolve(threadID, strings.TrimPrefix(title, "【codex】"))
+		writeCodexTitleDiagnostic(threadID, resolution)
+		if resolution.Name != "" {
+			title = "【codex】" + resolution.Name
+		}
+		notice = resolution.Warning
+	}
 	opts := notify.NotifyOptions{
-		Agent:    "codex",
-		Title:    title,
-		Summary:  summary,
-		MaxChars: 800,
-		DryRun:   isDry,
+		Agent:     "codex",
+		SessionID: threadID,
+		Title:     title,
+		Summary:   summary,
+		Notice:    notice,
+		MaxChars:  notify.DefaultMaxChars,
+		DryRun:    isDry,
 	}
 
 	if marker.IsOff(paths.CodexMarker) {

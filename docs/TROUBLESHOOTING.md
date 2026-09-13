@@ -2,6 +2,8 @@
 
 先运行自检，再按症状查日志。日志不包含 ClawBot token，可以安全粘贴相关片段。
 
+token、context token 等敏感字段不会进入日志。`AGENT_NOTIFY_CLAWBOT_DEBUG=1` 生成的协议诊断日志会保留消息 ID 和引用结构，但消息正文会替换为 `[REDACTED]`；排查完成后应删除或停用该开关。
+
 ```powershell
 $exe = "$env:USERPROFILE\bin\agent-notify.exe"
 Start-Process $exe -ArgumentList "status" -Wait
@@ -17,6 +19,9 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 | `push.log` | CLI / 发送器 | JSON Lines 推送历史，悬浮窗也读取此文件 |
 | `opencode-debug.log` | OpenCode 插件 | `AGENT_NOTIFY_DEBUG=1` 时的打开、跳过和退出信息 |
 | `codex-notify-debug.log` | Codex 命令 | `AGENT_NOTIFY_CODEX_DEBUG=1` 时的参数、透传与发送信息 |
+| `codex-title.log` | Codex 标题解析 | 线程 ID、标题来源、失败阶段、SQLite 错误码、重试次数和降级来源，不含通知正文 |
+| `clawbot-debug.log` | ClawBot 客户端 | `AGENT_NOTIFY_CLAWBOT_DEBUG=1` 时的发送 `client_id`、脱敏响应和解析后的关联 ID |
+| `reply-debug.log` | 引用分发器 | 成功分发（引用 ID、Agent、目标会话）、路由、状态和可见错误信息，不记录回复正文 |
 | `codex-watch.log` | 悬浮窗看护 | Codex notify 行被恢复的时间 |
 | `widget-error.log` | 悬浮窗 | UI 或消息循环错误 |
 | `widget-trace.log` | 悬浮窗 | 启动、窗口创建和退出追踪 |
@@ -63,6 +68,34 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 - 如果日志出现 `ret=-2 prepare failed`，说明登录仍有效但之前的主动推送上下文已被服务端拒绝；程序会清除旧上下文，给 ClawBot 发一条新消息即可恢复。
 - 如果 `doctor` 显示登录失效，不要继续等待消息，先重新运行 `agent-notify login`。
 - 不要手工把其他账号或其他用户的 `context_token` 放进凭据文件；不同账号的上下文会被拒绝并清除。
+
+## 微信引用回复不生效
+
+先确认设置里的“引用回复”已经保存为开启；该开关首版默认关闭。
+
+确认 Agent-notify 悬浮窗正在运行；引用消息由悬浮窗的 ClawBot 长轮询处理，完全退出托盘程序后不会触发 Agent。
+
+1. 只能引用 Agent-notify 自己推送的通知，并且必须是当前绑定微信用户的私聊消息。群聊、其他发送者和普通文本不会触发 Agent。
+2. 打开 `AGENT_NOTIFY_CLAWBOT_DEBUG=1` 并重启悬浮窗。发送一条通知、在微信中引用它回复一句话，然后运行 `agent-notify reply-check`。
+   该命令只读核对 scoped `sendmessage-result`、当前账号未过期的本地路由与 `getupdates-result`：退出码 `0` 表示引用 ID 全部精确匹配且路由可解析，`1` 表示存在无法对应的引用（不要开启），`2` 表示证据不足。
+   PowerShell 脚本中建议用 `agent-notify reply-check --json | Out-String` 调用，确保等待进程结束并读取 `$LASTEXITCODE`。
+   需要人工核对时仍可查看 `%TEMP%\agent-notify\clawbot-debug.log` 中的 `client_id`、`sendmessage-result` 和引用时解析出的消息 ID。
+   P0 只承认当前登录账号产生的 scoped 证据：诊断记录里的 `account_scope` 必须与当前凭据一致，入站记录还必须是 `private` 且 `bound_sender`。发送证据也可来自 bot ID、用户 ID 均匹配且未过期的本地路由；升级前旧引用日志、其他账号、群聊和陌生发送者都会被忽略并计入 `ignoredSends` / `ignoredQuotes`。
+   引用样本仍必须由最新悬浮窗采集；引用升级前的旧通知不会产生可用诊断，`reply-check` 会停留在“尚无发送记录/证据不足”。
+3. 两者没有稳定一致的 ID 时不要继续开启；系统不会按标题、正文或最近通知猜测目标。引用结构存在但平台未返回 ID，或匹配到的 ID 无法解析到未过期的本机路由，同样属于 P0 未通过。
+4. Codex 通知只有包含 `thread-id` 或 `thread_id` 时才会建立路由。查看 `push.log` 的 `messageID` / `clientID`，以及 `reply-routes.jsonl` 是否存在对应记录。
+5. 路由和入站去重 Claim 默认保留 30 天；账号重新登录后会按 bot ID 和绑定用户 ID 隔离，不会复用旧账号记录。
+6. 运行 `agent-notify doctor` 检查 `codex queue`。如果 Codex CLI 未安装或版本过旧，普通通知仍可使用，但 Codex 引用回复会失败并给出微信错误提示。
+   Codex 命令优先读取 `AGENT_NOTIFY_CODEX_BIN`，其次搜索 PATH，最后自动扫描 `%LOCALAPPDATA%\OpenAI\Codex\bin`；开机自启时不应依赖 Codex 桌面端临时注入的 PATH。
+7. `codex queue` 可写入尚未在前台打开的持久化线程，恢复同一线程后会执行。若提示线程已归档，先运行 `codex unarchive <thread-id>`；若提示线程不存在或已删除，请确认通知中的 `thread-id`。系统不会自动回退到其他会话。
+   临时会话（ephemeral）、Codex 未启用持久化队列，或检测到本地 app-server 状态冲突时同样会返回可见错误；按错误提示重启 Codex 或改用持久化会话后重试。
+   如果 `codex queue` 在 30 秒内没有确认退出，错误会按“投递未确认”显示；系统不会自动重试，请先检查对应 Codex 会话是否已收到回复。
+8. OpenCode 必须先重新启动桌面端，使新版插件写入 5 秒心跳。心跳缺失、过旧或插件不支持 `session.prompt` / `promptAsync` 时，Agent-notify 会拒绝任务并返回错误。
+9. OpenCode 超出 10 秒同步等待窗口后会按队列已接收处理；后台会在任务有效期内继续观察结果，插件之后报告的会话投递失败或最终未确认会回写微信，同时可在 `opencode-debug.log` 查看细节。
+10. 插件提交会话 prompt 默认 30 秒未返回时按“状态未知”上报失败且不重试，避免重复执行；单个请求悬空不会阻塞后续回复任务，可用 `AGENT_NOTIFY_OPENCODE_REPLY_TIMEOUT_MS` 调整该超时（重启桌面端生效）。
+11. 插件读取会话标题和摘要各自默认 10 秒超时：超时只退回默认标题或空摘要，推送照发，且不会把该会话永久标记为处理中；可用 `AGENT_NOTIFY_OPENCODE_FETCH_TIMEOUT_MS` 调整（重启桌面端生效）。
+
+成功提交引用回复后不会额外发送“已收到”消息；请在对应 Agent 完成后等待下一条通知。无法关联、去重状态不可用、路由过期、命令明确失败或投递未确认时，错误会直接发回微信。
 
 ## 二维码登录失败
 
@@ -111,6 +144,15 @@ CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json`
 5. 运行 `agent-notify watch`，或重启悬浮窗。只有 notify 行仍直指 `codex-computer-use.exe` 时，看护才会恢复 Agent-notify。
 6. 如果 Codex 原本使用自定义 notify 程序，安装器不会覆盖；需要手动把自定义程序与 Agent-notify 串接。
 
+## Codex 标题不正确或出现标题读取失败
+
+运行 `agent-notify doctor`，查看 `Codex 会话标题` 检查结果。正常状态会只读解析 `%USERPROFILE%\.codex\state_*.sqlite`。
+
+- 标题优先使用 `threads.name`，缺失时依次降级到 `threads.title`、`threads.first_user_message`、`session_index.jsonl`、notify payload 和默认标题。
+- 通知末尾出现“标题读取失败”说明数据库不可读、锁超时或字段不兼容；正文仍会发送，原 `thread-id` 不会被清除，引用回复仍按该线程精确路由。
+- 详细错误阶段、SQLite 错误码和重试次数见 `%TEMP%\agent-notify\codex-title.log`；该日志不记录通知正文。
+- 数据库短暂锁定时程序会有限重试，不需要手工重启；持续失败时先确认 Codex 未损坏，再检查 `CODEX_HOME`。
+
 ## Codex 电脑操控失效
 
 Agent-notify 应在发送前透传原始参数和 stdin。检查：
@@ -149,6 +191,8 @@ Agent-notify 应在发送前透传原始参数和 stdin。检查：
 - OpenCode 默认对同一 `sessionID` 在 10 分钟内去重。
 - 修改 `cooldownMin` 后重启 OpenCode，使插件重新读取配置。
 - `opencode-sent.json` 是跨实例去重状态；删掉它只会让后续事件重新建立状态，不会补发历史消息。
+- 引用回复按入站 `msg_id` 去重；缺失时使用 `seq + 引用 ID + 文本哈希`。同一微信消息重复投递不会重复执行 Agent。
+- 删除 `reply-state.jsonl` 只会移除本机去重历史；不要在正常运行时手工删除，否则旧消息重投可能再次执行。
 
 ## PowerShell 中的 CLI 输出
 

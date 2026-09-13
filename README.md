@@ -1,7 +1,7 @@
 # Agent-notify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.3-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.1.0-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
@@ -17,6 +17,10 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 - 凭据和会话上下文只保存在本机。
 - OpenCode 全局插件，监听任务完成事件并自动提取会话摘要。
 - Codex `notify` 接入，保留上游 `codex-computer-use.exe` 事件透传。
+- Codex 通知使用真实会话名；OpenCode 使用插件读取的会话标题，两者都带本地时间页脚。
+- 协议块不会出现在微信正文；正常心跳静默，异常或未知心跳保留正文并推送。
+- 通知默认不截断；需要人工限制时可显式传入 `--max-chars`。
+- 微信引用 Agent-notify 通知后可继续对应的 Codex 会话；目标只按原始平台消息 ID 精确匹配，不回退到最近会话。
 - 通用 CLI，可在编译、测试、训练或爬虫结束后主动推送。
 - 原生 Windows 悬浮窗：OpenCode / Codex 开关、运行状态、勿扰设置、推送历史、测试推送和托盘。
 - 设置窗内置 ClawBot 扫码登录、重新登录和退出登录，不再切换到独立控制台。
@@ -27,7 +31,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 
 ## 安装
 
-从 Release 下载 `Agent-notify-v1.0.3.zip`，解压后运行：
+从 Release 下载 `Agent-notify-v1.1.0.zip`，解压后运行：
 
 发布包不包含任何账号凭据或绝对安装路径。安装器会在每台机器上按当前用户目录写入插件所需的实际可执行文件路径。
 
@@ -80,6 +84,7 @@ Start-Process $exe -ArgumentList "status" -Wait
 2. 在微信中给 ClawBot 发送任意一条消息。
 3. 收到首条消息并保存其 `context_token` 后，主动推送会话才算就绪。
 4. 点击“发送测试”或运行 `agent-notify test`，确认微信能收到通知。
+5. 如需继续 Agent 会话，在设置中先完成一次真实的引用 ID 对照验证，再开启“引用回复”。详细步骤见[微信引用回复](#微信引用回复)。
 
 `login` 默认会等待首条消息。若选择 `agent-notify login --wait=false`，稍后运行 `agent-notify sync` 即可继续等待。悬浮窗运行时会自动维持会话轮询，因此扫码后在设置页保持悬浮窗运行也能完成第二步。
 
@@ -119,9 +124,12 @@ agent-notify.exe sync --timeout 10m
 agent-notify.exe toggle --agent all --off
 agent-notify.exe toggle --agent opencode --on
 agent-notify.exe status --json
+agent-notify.exe notify --dry-run --title "长通知" --summary "完整正文" --max-chars 0
 ```
 
 `notify` 未提供 `--summary` 且未指定 `--no-stdin` 时，会从标准输入读取摘要。发送前必须同时满足“已登录”和“主动推送会话已就绪”；仅扫码登录不会自动获得发送能力。
+
+Codex 通知格式为 `【codex】会话名`，OpenCode 为 `【opencode】会话标题`，非空正文后附本地时间页脚。`--max-chars 0` 表示不限长；正数会同时计入标题、正文和页脚。
 
 ## 文件与配置
 
@@ -133,7 +141,11 @@ agent-notify.exe status --json
 | OpenCode 开关 | `%USERPROFILE%\.config\agent-notify\opencode.off` |
 | Codex 开关 | `%USERPROFILE%\.config\agent-notify\codex.off` |
 | 推送历史 | `%TEMP%\agent-notify\push.log` |
+| 引用路由 | `%USERPROFILE%\.config\agent-notify\reply-routes.jsonl` |
+| 引用去重状态 | `%USERPROFILE%\.config\agent-notify\reply-state.jsonl` |
+| OpenCode 回复收件箱 | `%USERPROFILE%\.config\agent-notify\opencode-reply-inbox` |
 | 运行日志 | `%TEMP%\agent-notify\*.log` |
+| Codex 标题诊断 | `%TEMP%\agent-notify\codex-title.log` |
 
 `clawbot.json` 除登录 token 外，还保存账号绑定的 `context_token`、消息游标和失效标记；这些状态按 ClawBot 账号隔离，不会在切换账号时复用。文件不会写入日志或界面。
 
@@ -142,14 +154,52 @@ agent-notify.exe status --json
 ```json
 {
   "quietHours": "23-8",
-  "cooldownMin": 10
+  "cooldownMin": 10,
+  "replyEnabled": false
 }
 ```
 
 - `quietHours` 为空表示关闭勿扰；格式为 `23-8`，结束时间不包含在静默时段内。
 - `cooldownMin` 是 OpenCode 同一会话的去重窗口，默认 10 分钟，范围为 1 到 1440。
+- `replyEnabled` 控制微信引用回复，默认是 `false`。开启后仍只处理当前绑定用户的私聊引用回复。
+- 路由和去重 Claim 只保存在本机，默认保留 30 天；两类记录都按 ClawBot bot ID 和绑定用户 ID 隔离。
+- 路由和去重文件达到大小阈值且积累足够过期或损坏记录时会原子压缩，过期记录不会被长期物理保留。
 
 可用的 `AGENT_NOTIFY_*` 覆盖项见 [.env.example](.env.example)。所有路径和开关都统一使用 Agent-notify 命名；v1.0.0 不读取旧名称的配置、环境变量、命令别名或迁移文件。
+
+## 微信引用回复
+
+首版只把 Codex 作为正式验收目标。该功能默认关闭；开启前必须完成一次真实的 `sendmessage` 与 `getupdates` 消息 ID 对照，确认平台返回的是稳定且一致的 ID。
+P0 还要求匹配到的 ID 能解析到本机持久化路由；引用结构存在但没有消息 ID、ID 冲突以及路由缺失或过期都不会通过验收。
+发送证据同时接受 scoped 调试日志中的 `sendmessage-result` 和当前账号未过期的本地路由；后者用于兼容调试开关未覆盖发送进程的情况，但仍要求引用 ID 与发送时平台消息 ID 或客户端 ID 精确相等。
+
+启用步骤：
+
+1. 设置 `AGENT_NOTIFY_CLAWBOT_DEBUG=1` 并重启 Agent-notify 悬浮窗。
+2. 发送一条 Codex 测试通知，然后在微信中引用这条通知并回复普通文本。
+3. 运行 `agent-notify reply-check`。该命令只读核对调试响应或本地路由提供的发送证据、引用 ID，以及与分发器一致的本地路由，不会改动开关或发送消息。
+4. 只有输出“P0 对照通过”时才在设置中开启“引用回复”；“证据不足”时按提示补齐样本，“P0 未通过”时保持关闭。
+
+P0 只承认当前登录账号的 scoped 证据：诊断里的 `account_scope` 必须与当前凭据一致，且引用样本必须是该用户的私聊。发送侧可来自 scoped 调试响应或 bot ID、用户 ID 均匹配的未过期本地路由；升级前的旧引用日志、其他账号、群聊和陌生发送者会被忽略并计数。引用仍必须由最新悬浮窗重新采集，不能引用升级前的旧通知充作引用样本。
+
+需要人工复核时，同一份 `%TEMP%\agent-notify\clawbot-debug.log` 仍保留 `client_id`、脱敏后的 `sendmessage` 响应和解析出的引用 ID；`ref_msg.message_item.msg_id`、`ref_msg.msg_id`、`ref_msg.referenced_msg_id` 与顶层 `referenced_msg_id` 都会归一化成字符串后参与精确比对。发送进程未继承调试开关时，`reply-routes.jsonl` 中当前账号的未过期路由仍可作为发送证据，但不会绕过引用 ID 的精确匹配。
+
+运行时约束：
+
+- 引用回复由悬浮窗内的 ClawBot 会话轮询处理，使用期间需要保持 Agent-notify 运行。
+- 只有当前绑定微信用户的私聊引用回复会触发 Agent。
+- 只有能在本机 30 天路由中找到唯一精确消息 ID 时才会执行 `codex queue --thread=<thread-id> --message=<text>`。
+- `codex queue` 支持尚未在前台打开的持久化线程：消息由 Codex 写入线程队列，下次恢复同一线程时执行。已归档线程会提示先运行 `codex unarchive`；不存在或已删除的线程会明确失败。
+- 临时会话（ephemeral）不支持引用续聊，Codex 未启用持久化队列或本地 app-server 状态冲突时也会返回可见错误，不会静默落到其他会话。
+- `codex queue` 在 30 秒内没有确认退出时，结果按“投递未确认”处理；系统不会自动重试，并会提示先检查对应的 Codex 会话。
+- Codex 命令按“`AGENT_NOTIFY_CODEX_BIN` / 测试注入 > PATH > `%LOCALAPPDATA%\OpenAI\Codex\bin` 本地安装目录”的顺序发现，避免开机自启进程没有 Codex 临时 PATH 时失联。
+- 禁止按标题、通知正文或“最近一条通知”猜测目标；多个 ID 冲突、路由缺失或过期都会停止转发并在微信中显示错误。
+- 提交成功后不额外回复确认；Agent 下一轮完成时仍通过原有通知链路反馈。
+- Codex 通知必须携带 `thread-id`（兼容 `thread_id`）才会建立可回复路由。缺失线程 ID 时仍会正常推送通知。
+- OpenCode 二期通过插件本地收件箱调用现有会话的 `session.prompt`，并兼容旧版 `promptAsync`；重启 OpenCode 后插件才会刷新心跳，插件不支持任一投递能力时会安全拒绝并返回错误。
+- OpenCode 任务写入本地收件箱后，Go 侧最多等待 10 秒获取同步结果；超时后按受保护队列已接收处理，后台会在任务有效期内继续观察结果。后续失败或最终未确认会回写微信，但不会自动重试 Agent 任务。
+
+调试日志会分别记录发送时生成的 `client_id`、脱敏后的 `sendmessage` 响应、解析后的发送结果，以及 `getupdates` 中每条消息解析出的引用 ID；`token`、`context_token`、`secret` 等字段和消息正文都会替换为 `[REDACTED]`。完成 P0 对照后应关闭 `AGENT_NOTIFY_CLAWBOT_DEBUG`。
 
 ## Codex 接入
 
@@ -163,10 +213,13 @@ notify = [ "C:/Users/<name>/bin/agent-notify.exe", "codex", "turn-ended" ]
 
 1. 动态查找最新的 `codex-computer-use.exe` 并原样透传参数与 stdin。
 2. 检查 `codex.off` marker；关闭时只跳过推送，不影响透传。
-3. 从 `input-messages` 提取标题，从 `last-assistant-message` 提取摘要。
-4. 发送 ClawBot 消息并记录历史。
+3. 从 `last-assistant-message` 提取摘要；标题按 Codex 状态库的 `threads.name → threads.title → threads.first_user_message`、`session_index.jsonl`、payload 首条消息依次降级。
+4. 从 `thread-id`（兼容 `thread_id`）提取权威线程 ID；只有该 ID 存在时，发送成功后才建立 30 天引用路由。
+5. 发送 `【codex】会话名`、正文和本地时间页脚并记录历史；引用回复命中已记录线程后按消息 ID 执行 `codex queue`。
 
 悬浮窗每两分钟检查一次 Codex 配置；如果 Codex 更新后把 notify 行改回直调 `codex-computer-use.exe`，会自动恢复为 Agent-notify。
+
+标题读取失败不会阻断通知或清除 `thread-id`：原通知末尾会显示简短降级提示，引用回复仍精确路由到原线程。详细诊断写入 `%TEMP%\agent-notify\codex-title.log`。
 
 ## 卸载
 
@@ -205,6 +258,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
 ```
 
 `tools\test.ps1` 会运行 Go 单测、TypeScript 类型检查和隔离沙箱 smoke；smoke 不联网，不访问真实用户配置。
+
+如需验证本机 Codex CLI 的真实 `queue` 入队路径，请只在隔离的 `CODEX_HOME` 和测试线程上运行：
+
+```powershell
+$env:CODEX_HOME = 'D:\Temp\codex-probe'
+$env:AGENT_NOTIFY_CODEX_INTEGRATION_THREAD = '<isolated-thread-id>'
+$env:AGENT_NOTIFY_CODEX_INTEGRATION_BIN = 'codex'
+go test -count=1 -run TestCodexQueueRunnerRealCLIIntegration -v ./internal/reply
+```
+
+该测试会向指定测试线程写入一条探针消息，默认未设置环境变量时自动跳过。
 
 ## 文档
 

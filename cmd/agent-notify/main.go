@@ -23,6 +23,7 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
 	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
+	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
 	"github.com/srafyhucl-cpu/agent-notify/internal/ui"
 )
 
@@ -40,6 +41,8 @@ const (
 	stdInputHandle  = ^uintptr(9)  // -10
 	stdOutputHandle = ^uintptr(10) // -11
 	stdErrorHandle  = ^uintptr(11) // -12
+
+	doctorCodexQueueTimeout = 6 * time.Second
 )
 
 func bindConsole() {
@@ -114,6 +117,7 @@ func printHelp() {
 	fmt.Println("  notify      发送一条通知（供脚本或插件调用）")
 	fmt.Println("  test        发送测试通知并验证完整链路")
 	fmt.Println("  doctor      检查配置、凭据、会话、网络和 Codex 接入")
+	fmt.Println("  reply-check 只读校验微信引用 ID 与通知发送记录是否精确对应")
 	fmt.Println("  toggle      开启或暂停 OpenCode / Codex 推送")
 	fmt.Println("  watch       检查并恢复 Codex notify 配置")
 	fmt.Println("  history     查看最近推送记录（--json 供脚本消费）")
@@ -132,7 +136,7 @@ func printHelp() {
 func main() {
 	if len(os.Args) < 2 {
 		if stdinAvailable() {
-			result := agent.HandleNotify("", "【通知】任务完成", "", "", 800, false, false)
+			result := agent.HandleNotify("", "【通知】任务完成", "", "", notify.DefaultMaxChars, false, false)
 			if result.Error != "" && result.Status != notify.StatusSkipped {
 				fmt.Fprintln(os.Stderr, result.Error)
 			}
@@ -167,6 +171,11 @@ func main() {
 		ensureConsole()
 		if runDoctor() != 0 {
 			os.Exit(1)
+		}
+	case "reply-check", "replycheck":
+		ensureConsole()
+		if code := runReplyCheck(args); code != 0 {
+			os.Exit(code)
 		}
 	case "toggle":
 		ensureConsole()
@@ -373,12 +382,15 @@ func runStatus(args []string) {
 		"clawbot":         status,
 		"quietHours":      cfg.QuietHours,
 		"cooldownMinutes": cfg.CooldownMin,
+		"replyEnabled":    cfg.ReplyEnabled,
 		"openCodeEnabled": openCodeOn,
 		"codexEnabled":    codexOn,
 		"pushLog":         paths.PushLog,
 		"lastPush":        firstHistory(history),
 		"pluginFile":      paths.PluginFile,
 		"pluginInstalled": fileExists(paths.PluginFile),
+		"replyRouteFile":  paths.ReplyRouteFile,
+		"codexTitleLog":   paths.CodexTitleLog,
 	}
 	if cfgErr != nil {
 		output["configError"] = cfgErr.Error()
@@ -395,12 +407,15 @@ func runStatus(args []string) {
 	fmt.Printf("主动推送会话: %s\n", sessionStatus(status))
 	fmt.Printf("OpenCode 推送: %s\n", onOff(openCodeOn))
 	fmt.Printf("Codex 推送: %s\n", onOff(codexOn))
+	fmt.Printf("引用回复: %s\n", onOff(cfg.ReplyEnabled))
 	fmt.Printf("勿扰时段: %s\n", emptyAs(cfg.QuietHours, "关闭"))
 	fmt.Printf("会话冷却: %d 分钟\n", cfg.CooldownMin)
 	fmt.Printf("配置文件: %s\n", paths.ConfigFile)
 	fmt.Printf("凭据文件: %s\n", paths.CredentialFile)
 	fmt.Printf("OpenCode 插件: %s\n", installedStatus(fileExists(paths.PluginFile)))
 	fmt.Printf("推送日志: %s\n", paths.PushLog)
+	fmt.Printf("引用路由文件: %s\n", paths.ReplyRouteFile)
+	fmt.Printf("Codex 标题诊断: %s\n", paths.CodexTitleLog)
 	if cfgErr != nil {
 		fmt.Printf("配置错误: %v\n", cfgErr)
 	}
@@ -409,10 +424,10 @@ func runStatus(args []string) {
 func runNotify(args []string) {
 	flags := flag.NewFlagSet("notify", flag.ContinueOnError)
 	agentName := flags.String("agent", "", "来源标识，例如 opencode")
-	title := flags.String("title", "【通知】任务完成", "通知标题")
+	title := flags.String("title", "", "通知标题；为空时按 agent 使用默认标题")
 	summary := flags.String("summary", "", "通知摘要；为空时读取 stdin")
 	sessionID := flags.String("session", "", "会话 ID，用于记录来源")
-	maxChars := flags.Int("max-chars", 800, "摘要最大字符数")
+	maxChars := flags.Int("max-chars", notify.DefaultMaxChars, "最终消息最大字符数，0 表示不限")
 	dryRun := flags.Bool("dry-run", false, "只输出消息，不发送")
 	noStdin := flags.Bool("no-stdin", false, "禁止读取 stdin")
 	if err := flags.Parse(args); err != nil {
@@ -513,6 +528,7 @@ func runDoctor() int {
 	}
 
 	codexConfig := codexConfigPath()
+	codexInUse := false
 	if data, err := os.ReadFile(codexConfig); err != nil {
 		if os.IsNotExist(err) {
 			reportCheck(true, "Codex 接入", "未发现 config.toml，按未使用处理")
@@ -524,16 +540,30 @@ func runDoctor() int {
 		content := strings.ToLower(string(data))
 		switch {
 		case strings.Contains(content, "agent-notify"):
+			codexInUse = true
 			reportCheck(true, "Codex 接入", codexConfig)
 		case strings.Contains(content, "codex-computer-use.exe"):
+			codexInUse = true
 			reportCheck(false, "Codex 接入", "notify 仍直指上游程序，请运行 agent-notify watch")
 			failures++
 		case strings.Contains(content, "notify"):
+			codexInUse = true
 			reportCheck(true, "Codex 接入", "自定义 notify 保持不变")
 		default:
 			reportCheck(false, "Codex 接入", "config.toml 未配置 notify")
 			failures++
 		}
+	}
+	failures += checkCodexReplySupport(cfg, codexInUse)
+	health := agent.CheckCodexTitleHealth()
+	switch health.Status {
+	case agent.CodexTitleStatusNormal:
+		reportCheck(true, "Codex 会话标题", "正常："+health.Detail)
+	case agent.CodexTitleStatusDegraded:
+		reportWarning("Codex 会话标题", "降级："+health.Detail)
+	default:
+		reportCheck(false, "Codex 会话标题", "故障："+health.Detail)
+		failures++
 	}
 	if upstream := agent.FindCodexComputerUseExe(); upstream != "" {
 		reportCheck(true, "Codex 上游程序", upstream)
@@ -559,12 +589,38 @@ func runDoctor() int {
 	return 0
 }
 
+func checkCodexReplySupport(cfg config.AppConfig, codexInUse bool) int {
+	ctx, cancel := context.WithTimeout(context.Background(), doctorCodexQueueTimeout)
+	defer cancel()
+
+	binary, err := reply.CheckCodexQueue(ctx)
+	if err != nil {
+		if cfg.ReplyEnabled && codexInUse {
+			reportCheck(false, "Codex 引用回复", err.Error())
+			return 1
+		}
+		reportWarning("Codex 引用回复", err.Error()+"；仅影响 Codex 引用回复，普通通知仍可用")
+		return 0
+	}
+
+	reportCheck(true, "Codex 引用回复", binary+"（按线程精确投递）")
+	return 0
+}
+
 func reportCheck(ok bool, name, detail string) {
 	state := "OK"
 	if !ok {
 		state = "FAIL"
 	}
 	fmt.Printf("[%-4s] %s", state, name)
+	if detail != "" {
+		fmt.Printf(" - %s", detail)
+	}
+	fmt.Println()
+}
+
+func reportWarning(name, detail string) {
+	fmt.Printf("[%-4s] %s", "WARN", name)
 	if detail != "" {
 		fmt.Printf(" - %s", detail)
 	}

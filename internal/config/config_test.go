@@ -10,6 +10,7 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	t.Setenv("AGENT_NOTIFY_QUIET", "22-7")
 	t.Setenv("AGENT_NOTIFY_COOLDOWN_MIN", "15")
+	t.Setenv("AGENT_NOTIFY_REPLY_ENABLED", "true")
 
 	cfg := DefaultConfig()
 	if cfg.QuietHours != "22-7" {
@@ -17,6 +18,25 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.CooldownMin != 15 {
 		t.Fatalf("CooldownMin = %d, want 15", cfg.CooldownMin)
+	}
+	if !cfg.ReplyEnabled {
+		t.Fatal("ReplyEnabled = false, want true")
+	}
+}
+
+func TestReplyEnabledDefaultsOffForLegacyConfig(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_REPLY_ENABLED", "")
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"quietHours":"","cooldownMin":10}`), 0600); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.ReplyEnabled {
+		t.Fatal("legacy config enabled quoted replies by default")
 	}
 }
 
@@ -109,6 +129,9 @@ func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("TEMP", tempRoot)
 	for _, key := range []string{
+		"AGENT_NOTIFY_REPLY_ROUTE_FILE",
+		"AGENT_NOTIFY_REPLY_STATE_FILE",
+		"AGENT_NOTIFY_OPENCODE_REPLY_DIR",
 		"AGENT_NOTIFY_CONFIG_DIR",
 		"AGENT_NOTIFY_TEMP_DIR",
 		"AGENT_NOTIFY_CONFIG_FILE",
@@ -128,6 +151,15 @@ func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
 	}
 	if paths.CredentialFile != filepath.Join(configDir, "clawbot.json") {
 		t.Fatalf("CredentialFile = %q", paths.CredentialFile)
+	}
+	if paths.ReplyRouteFile != filepath.Join(configDir, "reply-routes.jsonl") {
+		t.Fatalf("ReplyRouteFile = %q", paths.ReplyRouteFile)
+	}
+	if paths.ReplyStateFile != filepath.Join(configDir, "reply-state.jsonl") {
+		t.Fatalf("ReplyStateFile = %q", paths.ReplyStateFile)
+	}
+	if paths.OpenCodeReplyDir != filepath.Join(configDir, "opencode-reply-inbox") {
+		t.Fatalf("OpenCodeReplyDir = %q", paths.OpenCodeReplyDir)
 	}
 	if paths.PluginFile != filepath.Join(home, ".config", "opencode", "plugins", "agent-notify.ts") {
 		t.Fatalf("PluginFile = %q", paths.PluginFile)

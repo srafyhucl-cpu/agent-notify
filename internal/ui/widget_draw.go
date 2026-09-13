@@ -180,12 +180,12 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	DrawText(hdc, "OpenCode + Codex  ·  ClawBot 微信通知", &text.subtitle, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 	drawPill(hdc, RECT{244, 10, 338, 34}, healthText, healthColor, smallFont)
-	drawWindowButton(hdc, layout.minimize, "\uE921", app.hoverMin, false, iconFont)
-	drawWindowButton(hdc, layout.close, "\uE8BB", app.hoverClose, true, iconFont)
+	drawWindowButton(hdc, layout.minimize, "\uE921", app.hover.minimize, false, iconFont)
+	drawWindowButton(hdc, layout.close, "\uE8BB", app.hover.close, true, iconFont)
 
 	connectionFill := uintptr(RGB(20, 26, 31))
 	connectionBorder := uintptr(RGB(39, 49, 58))
-	if app.hoverConnection {
+	if app.hover.connection {
 		connectionFill = uintptr(RGB(27, 35, 42))
 	}
 	fillRoundRect(hdc, layout.connection, 8, connectionFill)
@@ -209,12 +209,12 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(119, 131, 142)))
 	DrawText(hdc, "通知代理", &RECT{15, 119, 150, 134}, DT_SINGLELINE|DT_NOPREFIX)
-	drawAgentCard(hdc, layout.openCode, "OpenCode", app.onOpenCode, app.procStatus.OpenCodeRunning, app.hoverOpenCode, strongFont, smallFont)
-	drawAgentCard(hdc, layout.codex, "Codex", app.onCodex, app.procStatus.CodexRunning, app.hoverCodex, strongFont, smallFont)
+	drawAgentCard(hdc, layout.openCode, "OpenCode", app.onOpenCode, app.procStatus.OpenCodeRunning, app.hover.openCode, strongFont, smallFont)
+	drawAgentCard(hdc, layout.codex, "Codex", app.onCodex, app.procStatus.CodexRunning, app.hover.codex, strongFont, smallFont)
 
 	recentFill := uintptr(RGB(22, 28, 34))
 	border := uintptr(RGB(41, 50, 59))
-	if app.hoverRecent {
+	if app.hover.recent {
 		recentFill = uintptr(RGB(29, 37, 44))
 	}
 	fillRoundRect(hdc, layout.recent, 8, recentFill)
@@ -234,10 +234,10 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	pSetTextColor.Call(hdc, uintptr(app.recentStatusColor()))
 	DrawText(hdc, recentMeta, &text.recentMeta, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
 
-	drawIconTextButton(hdc, layout.test, "\uE724", "发送测试", app.hoverTest, true, false, baseFont, iconFont)
-	drawIconTextButton(hdc, layout.settings, "\uE713", "设置", app.hoverSettings, false, false, baseFont, iconFont)
-	drawIconTextButton(hdc, layout.history, "\uE81C", "历史", app.hoverHistory, false, false, baseFont, iconFont)
-	drawIconTextButton(hdc, layout.hide, "\uE8A7", "隐藏", app.hoverHide, false, false, baseFont, iconFont)
+	drawIconTextButton(hdc, layout.test, "\uE724", "发送测试", app.hover.test, true, false, baseFont, iconFont)
+	drawIconTextButton(hdc, layout.settings, "\uE713", "设置", app.hover.settings, false, false, baseFont, iconFont)
+	drawIconTextButton(hdc, layout.history, "\uE81C", "历史", app.hover.history, false, false, baseFont, iconFont)
+	drawIconTextButton(hdc, layout.hide, "\uE8A7", "隐藏", app.hover.hide, false, false, baseFont, iconFont)
 
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(105, 117, 128)))

@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+const minSentenceBoundaryRunes = 100
+
 var (
 	reCodeBlock  = regexp.MustCompile("(?s)```.*?```")
 	reManyBreaks = regexp.MustCompile(`\n{3,}`)
@@ -35,7 +37,7 @@ func CutSentence(text string, maxChars int) string {
 			break
 		}
 	}
-	if idx >= 100 {
+	if idx >= minSentenceBoundaryRunes {
 		return strings.TrimSpace(string(window[:idx+1])) + "…"
 	}
 	return strings.TrimSpace(string(window)) + "…"

@@ -12,6 +12,15 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
 )
 
+const (
+	// Summaries are stored one JSON object per line; a long summary can legitimately
+	// exceed bufio's default 64KiB buffer, so the scanner starts there and stops at
+	// historyScanMaxLineBytes.
+	historyScanInitialBuffer = 64 * 1024
+	historyScanMaxLineBytes  = 2 * 1024 * 1024
+	defaultHistoryLimit      = 50
+)
+
 // HistoryItem is one structured push record. The file uses JSON Lines so
 // summaries can contain newlines without corrupting the history.
 type HistoryItem struct {
@@ -22,6 +31,8 @@ type HistoryItem struct {
 	Summary   string `json:"summary,omitempty"`
 	Status    string `json:"status"`
 	Error     string `json:"error,omitempty"`
+	MessageID string `json:"messageID,omitempty"`
+	ClientID  string `json:"clientID,omitempty"`
 }
 
 func (h HistoryItem) LocalTime() time.Time {
@@ -62,7 +73,7 @@ func GetHistory(limit int, logPath string) ([]HistoryItem, error) {
 		logPath = config.GetPaths().PushLog
 	}
 	if limit <= 0 {
-		limit = 50
+		limit = defaultHistoryLimit
 	}
 
 	file, err := os.Open(logPath)
@@ -76,7 +87,7 @@ func GetHistory(limit int, logPath string) ([]HistoryItem, error) {
 
 	items := make([]HistoryItem, 0, limit)
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
+	scanner.Buffer(make([]byte, historyScanInitialBuffer), historyScanMaxLineBytes)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {

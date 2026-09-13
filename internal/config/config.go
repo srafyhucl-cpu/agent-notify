@@ -11,11 +11,17 @@ import (
 	"time"
 )
 
-const DefaultCooldownMin = 10
+const (
+	DefaultCooldownMin = 10
+	maxCooldownMinutes = 24 * 60
+	minClockHour       = 0
+	maxClockHour       = 23
+)
 
 type AppConfig struct {
-	QuietHours  string `json:"quietHours"`
-	CooldownMin int    `json:"cooldownMin"`
+	QuietHours   string `json:"quietHours"`
+	CooldownMin  int    `json:"cooldownMin"`
+	ReplyEnabled bool   `json:"replyEnabled"`
 }
 
 var quietHoursPattern = regexp.MustCompile(`^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$`)
@@ -24,6 +30,9 @@ func DefaultConfig() AppConfig {
 	cfg := AppConfig{
 		QuietHours:  strings.TrimSpace(os.Getenv("AGENT_NOTIFY_QUIET")),
 		CooldownMin: DefaultCooldownMin,
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_REPLY_ENABLED")); raw != "" {
+		cfg.ReplyEnabled = raw == "1" || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "on")
 	}
 	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_COOLDOWN_MIN")); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
@@ -50,8 +59,9 @@ func LoadConfig(configPath string) (AppConfig, error) {
 	}
 
 	var raw struct {
-		QuietHours  *string `json:"quietHours"`
-		CooldownMin *int    `json:"cooldownMin"`
+		QuietHours   *string `json:"quietHours"`
+		CooldownMin  *int    `json:"cooldownMin"`
+		ReplyEnabled *bool   `json:"replyEnabled"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return cfg, fmt.Errorf("decode config: %w", err)
@@ -61,6 +71,9 @@ func LoadConfig(configPath string) (AppConfig, error) {
 	}
 	if raw.CooldownMin != nil && *raw.CooldownMin > 0 {
 		cfg.CooldownMin = *raw.CooldownMin
+	}
+	if raw.ReplyEnabled != nil {
+		cfg.ReplyEnabled = *raw.ReplyEnabled
 	}
 	return NormalizeConfig(cfg), nil
 }
@@ -73,8 +86,8 @@ func NormalizeConfig(cfg AppConfig) AppConfig {
 	if cfg.CooldownMin <= 0 {
 		cfg.CooldownMin = DefaultCooldownMin
 	}
-	if cfg.CooldownMin > 1440 {
-		cfg.CooldownMin = 1440
+	if cfg.CooldownMin > maxCooldownMinutes {
+		cfg.CooldownMin = maxCooldownMinutes
 	}
 	return cfg
 }
@@ -119,7 +132,9 @@ func ValidQuietHours(raw string) bool {
 	}
 	start, errStart := strconv.Atoi(match[1])
 	end, errEnd := strconv.Atoi(match[2])
-	return errStart == nil && errEnd == nil && start >= 0 && start <= 23 && end >= 0 && end <= 23 && start != end
+	return errStart == nil && errEnd == nil &&
+		start >= minClockHour && start <= maxClockHour &&
+		end >= minClockHour && end <= maxClockHour && start != end
 }
 
 // IsInQuietHours reports whether t falls in the configured start-end window.
