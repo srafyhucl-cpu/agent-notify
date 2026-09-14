@@ -8,10 +8,12 @@ import (
 	"unsafe"
 )
 
-// ProcessStatus tracks the two supported local agents.
+// ProcessStatus tracks the supported local agents.
 type ProcessStatus struct {
-	OpenCodeRunning bool
-	CodexRunning    bool
+	OpenCodeRunning    bool
+	CodexRunning       bool
+	AntigravityRunning bool
+	DevinRunning       bool
 }
 
 // DetectProcesses scans running processes using CreateToolhelp32Snapshot.
@@ -38,6 +40,12 @@ func DetectProcesses() ProcessStatus {
 		}
 		if strings.Contains(nameLower, "codex") && !strings.Contains(nameLower, "codex-plus-plus") {
 			status.CodexRunning = true
+		}
+		if strings.Contains(nameLower, "antigravity") {
+			status.AntigravityRunning = true
+		}
+		if strings.Contains(nameLower, "devin") {
+			status.DevinRunning = true
 		}
 		ret, _, _ = pProcess32NextW.Call(hSnap, uintptr(unsafe.Pointer(&entry)))
 		if ret == 0 {

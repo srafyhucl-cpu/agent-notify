@@ -81,7 +81,9 @@ if (-not $SkipTypeScript) {
     $node = Get-Command node.exe -ErrorAction SilentlyContinue
     if (-not $node) { throw '找不到 node.exe，无法运行插件测试' }
     & $node.Source --test (Join-Path $RepoRoot 'tests\plugin-reply.test.cjs')
-    if ($LASTEXITCODE -ne 0) { throw "插件测试失败 exit=$LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "OpenCode 插件测试失败 exit=$LASTEXITCODE" }
+    & $node.Source --test (Join-Path $RepoRoot 'tests\devin-extension.test.cjs')
+    if ($LASTEXITCODE -ne 0) { throw "Devin 扩展测试失败 exit=$LASTEXITCODE" }
     Write-Output '[test] 插件状态机测试通过'
   } finally {
     Pop-Location

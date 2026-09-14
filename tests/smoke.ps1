@@ -70,7 +70,10 @@ $smokeRoot = Join-Path $driveRoot ('Temp\agent-notify-smoke-' + [guid]::NewGuid(
 $binDir = Join-Path $smokeRoot 'bin'
 $pluginDir = Join-Path $smokeRoot 'plugins'
 $configDir = Join-Path $smokeRoot 'config'
+$antigravityConfigDir = Join-Path $smokeRoot 'antigravity-config'
+$devinConfigDir = Join-Path $smokeRoot 'devin-config'
 New-Item -ItemType Directory -Force -Path $binDir, $pluginDir, $configDir | Out-Null
+New-Item -ItemType Directory -Force -Path $antigravityConfigDir, $devinConfigDir | Out-Null
 
 $exePath = Join-Path $binDir 'agent-notify.exe'
 & $goExe build -ldflags '-s -w' -trimpath -o $exePath '.\cmd\agent-notify\'
@@ -98,6 +101,8 @@ try {
   $statusJson = "$status" | ConvertFrom-Json
   Assert-True ($statusJson.openCodeEnabled -eq $true) 'status 初始 OpenCode 开关应为开启'
   Assert-True ($statusJson.codexEnabled -eq $true) 'status 初始 Codex 开关应为开启'
+  Assert-True ($statusJson.antigravityEnabled -eq $true) 'status 初始 Antigravity 开关应为开启'
+  Assert-True ($statusJson.devinEnabled -eq $true) 'status 初始 Devin 开关应为开启'
   Assert-True ($statusJson.replyEnabled -eq $false) 'status 初始引用回复开关应默认关闭'
   Assert-True (-not [string]::IsNullOrWhiteSpace($statusJson.replyRouteFile)) 'status 缺少引用路由文件路径'
   Write-Output '[ok] status json'
@@ -178,11 +183,17 @@ try {
   Assert-True ($LASTEXITCODE -eq 0) "toggle off exit=$LASTEXITCODE"
   Assert-True (Test-Path (Join-Path $configDir 'opencode.off')) 'toggle off 未建 OpenCode marker'
   Assert-True (Test-Path (Join-Path $configDir 'codex.off')) 'toggle off 未建 Codex marker'
+  Assert-True (Test-Path (Join-Path $configDir 'antigravity.off')) 'toggle off 未建 Antigravity marker'
+  Assert-True (Test-Path (Join-Path $configDir 'devin.off')) 'toggle off 未建 Devin marker'
   $offJson = "$(& $exePath status --json 2>&1)" | ConvertFrom-Json
   Assert-True ($offJson.openCodeEnabled -eq $false) 'toggle off 后 OpenCode 应为关闭'
+  Assert-True ($offJson.antigravityEnabled -eq $false) 'toggle off 后 Antigravity 应为关闭'
+  Assert-True ($offJson.devinEnabled -eq $false) 'toggle off 后 Devin 应为关闭'
   & $exePath toggle --agent all --on 2>&1 | Out-Null
   Assert-True (-not (Test-Path (Join-Path $configDir 'opencode.off'))) 'toggle on 未删 OpenCode marker'
   Assert-True (-not (Test-Path (Join-Path $configDir 'codex.off'))) 'toggle on 未删 Codex marker'
+  Assert-True (-not (Test-Path (Join-Path $configDir 'antigravity.off'))) 'toggle on 未删 Antigravity marker'
+  Assert-True (-not (Test-Path (Join-Path $configDir 'devin.off'))) 'toggle on 未删 Devin marker'
   Write-Output '[ok] toggle markers'
 
   # 6. Codex 事件解析（DryRun，不发送）
@@ -196,25 +207,81 @@ try {
   Assert-True ($codexJson.title -match '【codex】帮我写个脚本测试一下') "codex 标题解析失败：$codexText"
   Assert-True ($codexJson.message -match 'hello world smoke') "codex 摘要未透传：$codexText"
 
+  # 6b. Antigravity / Devin Stop hook 契约（DryRun，不发送）
+  $env:AGENT_NOTIFY_ANTIGRAVITY_DRYRUN = '1'
+  $antiPayload = '{"conversationId":"anti-smoke","fullyIdle":true}'
+  $antiDry = (($antiPayload | & $exePath antigravity stop 2>&1) -join "`n").Trim()
+  Assert-True ($LASTEXITCODE -eq 0) "antigravity dry-run exit=$LASTEXITCODE：$antiDry"
+  Assert-True ($antiDry -eq '{}') "antigravity hook 必须静默返回空 JSON：$antiDry"
+  $env:AGENT_NOTIFY_DEVIN_DRYRUN = '1'
+  $devinPayload = '{"session_id":"devin-smoke","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"devin smoke"}'
+  $devinDry = (($devinPayload | & $exePath devin stop 2>&1) -join "`n").Trim()
+  Assert-True ($LASTEXITCODE -eq 0) "devin dry-run exit=$LASTEXITCODE：$devinDry"
+  Assert-True ($devinDry -eq '{}') "devin hook 必须静默返回空 JSON：$devinDry"
+  Write-Output '[ok] antigravity/devin stop hooks'
+
   # 7. 沙箱安装/卸载：只应落盘 exe + 插件 + 安装记录
   $repoBin = Join-Path $RepoRoot 'bin'
   New-Item -ItemType Directory -Force -Path $repoBin | Out-Null
   Copy-Item $exePath (Join-Path $repoBin 'agent-notify.exe') -Force
 
-  $sandboxInstall = Join-Path $smokeRoot 'install-bin'
-  $sandboxPlugins = Join-Path $smokeRoot 'install-plugins'
-  New-Item -ItemType Directory -Force -Path $sandboxInstall, $sandboxPlugins | Out-Null
-  [IO.File]::WriteAllText((Join-Path $sandboxInstall 'agent-notify.exe'), 'old-install')
-  [IO.File]::WriteAllText((Join-Path $sandboxPlugins 'agent-notify.ts'), 'old-plugin')
-  Write-Output '[ok] install upgrade fixtures'
+$sandboxInstall = Join-Path $smokeRoot 'install-bin'
+$sandboxPlugins = Join-Path $smokeRoot 'install-plugins'
+$sandboxDevinExtension = Join-Path $smokeRoot 'devin-extension'
+$antigravityHooks = Join-Path $antigravityConfigDir 'hooks.json'
+$devinConfig = Join-Path $devinConfigDir 'config.json'
+New-Item -ItemType Directory -Force -Path $sandboxInstall, $sandboxPlugins | Out-Null
+  $antigravityFixture = [ordered]@{
+    'linkweixin-notify' = [ordered]@{
+      Stop = [ordered]@{ type = 'command'; command = 'other.exe antigravity' }
+    }
+    hooks = [ordered]@{
+      Stop = [ordered]@{ type = 'command'; command = 'legacy.exe antigravity'; timeout = 30 }
+    }
+    keep = [ordered]@{ value = 42 }
+    'agent-notify' = [ordered]@{
+      Stop = [ordered]@{ type = 'command'; command = '"C:\old\agent-notify.exe" antigravity stop'; timeout = 1 }
+    }
+  }
+  $devinFixture = [ordered]@{
+    version = 1
+    permissions = [ordered]@{ allow = @('Exec(ls)') }
+    hooks = [ordered]@{
+      Stop = @(
+        [ordered]@{ matcher = ''; hooks = @([ordered]@{ type = 'command'; command = 'other.exe devin'; timeout = 10 }) },
+        [ordered]@{
+          matcher = ''
+          hooks = @(
+            [ordered]@{ type = 'command'; command = '"C:\old\agent-notify.exe" devin stop'; timeout = 1 },
+            [ordered]@{ type = 'command'; command = 'keep.exe' }
+          )
+        }
+      )
+      SessionStart = @([ordered]@{ matcher = ''; hooks = @([ordered]@{ type = 'command'; command = 'session-start.exe' }) })
+    }
+  }
+  [IO.File]::WriteAllText($antigravityHooks, ($antigravityFixture | ConvertTo-Json -Depth 20), $utf8NoBom)
+  [IO.File]::WriteAllText($devinConfig, ($devinFixture | ConvertTo-Json -Depth 20), $utf8NoBom)
+[IO.File]::WriteAllText((Join-Path $sandboxInstall 'agent-notify.exe'), 'old-install')
+[IO.File]::WriteAllText((Join-Path $sandboxPlugins 'agent-notify.ts'), 'old-plugin')
+New-Item -ItemType Directory -Force -Path $sandboxDevinExtension | Out-Null
+[IO.File]::WriteAllText((Join-Path $sandboxDevinExtension 'keep.txt'), 'keep-extension-data')
+Write-Output '[ok] install upgrade fixtures'
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'install.ps1') `
-    -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
+    -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -AntigravityHooks $antigravityHooks -DevinConfig $devinConfig `
+    -DevinExtensionDir $sandboxDevinExtension `
+    -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "沙箱安装 exit=$LASTEXITCODE"
   Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe')) '沙箱安装缺 exe'
   Assert-True ((Get-PESubsystem (Join-Path $sandboxInstall 'agent-notify.exe')) -eq 2) '安装后的 exe 不是 Windows GUI 子系统'
   Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json')) '沙箱安装缺安装记录'
   Assert-True ((Get-PESubsystem (Join-Path $RepoRoot 'bin\agent-notify.exe')) -eq 2) '安装器没有把 Console 构建重建为 Windows GUI 子系统'
   Assert-True (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts')) '沙箱安装缺插件'
+  Assert-True (Test-Path (Join-Path $sandboxDevinExtension 'package.json')) '沙箱安装缺 Devin 扩展 package.json'
+  Assert-True (Test-Path (Join-Path $sandboxDevinExtension 'extension.js')) '沙箱安装缺 Devin 扩展入口'
+  Assert-True (Test-Path (Join-Path $sandboxDevinExtension 'acp-bridge.js')) '沙箱安装缺 Devin ACP 通道模块'
+  $installedDevinManifest = Get-Content -LiteralPath (Join-Path $sandboxDevinExtension 'package.json') -Raw -Encoding utf8 | ConvertFrom-Json
+  Assert-True ($installedDevinManifest.name -eq 'agent-notify-reply' -and $installedDevinManifest.publisher -eq 'agent-notify') 'Devin 扩展归属信息异常'
   $atomicLeftovers = @(Get-ChildItem -Path $sandboxInstall, $sandboxPlugins -File | Where-Object { $_.Name -like '*.new-*' })
   Assert-True ($atomicLeftovers.Count -eq 0) '原子安装残留替换临时文件'
   $installedPluginText = [IO.File]::ReadAllText((Join-Path $sandboxPlugins 'agent-notify.ts'))
@@ -229,18 +296,80 @@ try {
   Assert-True (@($record.files) -contains 'agent-notify.exe') '安装记录缺 exe'
   Write-Output '[ok] install sandbox files + record'
 
+  # 8. Hook 安装只替换 Agent-notify 自己的 handler，保留其他配置。
+  $installedAntigravity = Get-Content -LiteralPath $antigravityHooks -Raw -Encoding utf8 | ConvertFrom-Json
+  $installedDevin = Get-Content -LiteralPath $devinConfig -Raw -Encoding utf8 | ConvertFrom-Json
+  $expectedAntigravityCommand = '.\agent-notify-hook.cmd antigravity stop'
+  $expectedAntigravityLauncher = Join-Path $antigravityConfigDir 'agent-notify-hook.cmd'
+  $expectedDevinCommand = '"' + (Join-Path $sandboxInstall 'agent-notify.exe') + '" devin stop'
+  Assert-True ($installedAntigravity.keep.value -eq 42) '安装后 Antigravity 丢失无关配置'
+  Assert-True (@($installedAntigravity.'linkweixin-notify'.Stop)[0].command -eq 'other.exe antigravity') '安装后 Antigravity 丢失其他 Hook'
+  Assert-True (@($installedAntigravity.'linkweixin-notify'.Stop).Count -eq 1) '安装后旧版 Antigravity Stop 未规范为数组'
+  Assert-True (@($installedAntigravity.hooks.Stop)[0].command -eq 'legacy.exe antigravity') '安装后 hooks.Stop 未规范为数组或丢失命令'
+  Assert-True (@($installedAntigravity.hooks.Stop).Count -eq 1) '安装后 hooks.Stop 数量异常'
+  Assert-True (@($installedAntigravity.'agent-notify'.Stop).Count -eq 1) 'Antigravity Agent-notify Stop 数量异常'
+  Assert-True ($installedAntigravity.'agent-notify'.Stop[0].command -eq $expectedAntigravityCommand) 'Antigravity Hook 未指向沙箱 exe'
+  Assert-True ($installedAntigravity.'agent-notify'.Stop[0].timeout -eq 60) 'Antigravity Hook timeout 应为 60 秒'
+  Assert-True (Test-Path -LiteralPath $expectedAntigravityLauncher -PathType Leaf) 'Antigravity Hook 启动器缺失'
+  $launcherText = [IO.File]::ReadAllText($expectedAntigravityLauncher)
+  Assert-True ($launcherText.Contains('@rem agent-notify-antigravity-launcher')) 'Antigravity Hook 启动器缺少归属标记'
+  Assert-True ($launcherText.Contains('"' + (Join-Path $sandboxInstall 'agent-notify.exe') + '" antigravity stop')) 'Antigravity Hook 启动器未指向沙箱 exe'
+  $previousLocation = (Get-Location).Path
+  try {
+    Set-Location -LiteralPath $antigravityConfigDir
+    $env:AGENT_NOTIFY_ANTIGRAVITY_DRYRUN = '1'
+    $launcherOutput = (($antiPayload | & cmd.exe /d /c $expectedAntigravityCommand 2>&1) -join "`n").Trim()
+    Assert-True ($LASTEXITCODE -eq 0) "Antigravity 启动器执行失败 exit=$LASTEXITCODE：$launcherOutput"
+    Assert-True ($launcherOutput -eq '{}') "Antigravity 启动器输出异常：$launcherOutput"
+  } finally {
+    Set-Location -LiteralPath $previousLocation
+  }
+  Assert-True (@($installedDevin.hooks.Stop).Count -eq 3) 'Devin Stop 组数量异常'
+  $devinCommands = @($installedDevin.hooks.Stop | ForEach-Object { @($_.hooks) | ForEach-Object { [string]$_.command } })
+  Assert-True (@($devinCommands | Where-Object { $_ -eq $expectedDevinCommand }).Count -eq 1) 'Devin Hook 未指向沙箱 exe'
+  Assert-True ($devinCommands -contains 'other.exe devin') '安装后 Devin 丢失其他 Stop Hook'
+  Assert-True ($devinCommands -contains 'keep.exe') '安装后 Devin 丢失同组其他 handler'
+  Assert-True (@($installedDevin.hooks.SessionStart).Count -eq 1) '安装后 Devin 丢失其他事件 Hook'
+  Assert-True (@($installedDevin.permissions.allow) -contains 'Exec(ls)') '安装后 Devin 丢失权限配置'
+  $hookAtomicLeftovers = @(Get-ChildItem -Path $antigravityConfigDir, $devinConfigDir -File | Where-Object { $_.Name -like '*.new-*' })
+  Assert-True ($hookAtomicLeftovers.Count -eq 0) 'Hook 配置残留原子替换临时文件'
+  Write-Output '[ok] install preserves hook config'
+
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
-    -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -SkipCodexConfig -SkipShortcuts -SkipProcessStop | Out-Null
+    -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -AntigravityHooks $antigravityHooks -DevinConfig $devinConfig `
+    -DevinExtensionDir $sandboxDevinExtension `
+    -SkipCodexConfig -SkipShortcuts -SkipProcessStop | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "沙箱卸载 exit=$LASTEXITCODE"
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe'))) '沙箱卸载残留 exe'
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json'))) '沙箱卸载残留安装记录'
   Assert-True (-not (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts'))) '沙箱卸载残留插件'
+  Assert-True (-not (Test-Path (Join-Path $sandboxDevinExtension 'package.json'))) '沙箱卸载残留 Devin 扩展 package.json'
+  Assert-True (-not (Test-Path (Join-Path $sandboxDevinExtension 'extension.js'))) '沙箱卸载残留 Devin 扩展入口'
+  Assert-True (-not (Test-Path (Join-Path $sandboxDevinExtension 'acp-bridge.js'))) '沙箱卸载残留 Devin ACP 通道模块'
+  Assert-True (Test-Path (Join-Path $sandboxDevinExtension 'keep.txt')) '卸载误删 Devin 扩展目录中的其他文件'
+  $uninstalledAntigravity = Get-Content -LiteralPath $antigravityHooks -Raw -Encoding utf8 | ConvertFrom-Json
+  $uninstalledDevin = Get-Content -LiteralPath $devinConfig -Raw -Encoding utf8 | ConvertFrom-Json
+  Assert-True ($null -eq $uninstalledAntigravity.PSObject.Properties['agent-notify']) '卸载后残留 Antigravity Hook'
+  Assert-True (-not (Test-Path -LiteralPath $expectedAntigravityLauncher)) '卸载后残留 Antigravity Hook 启动器'
+  Assert-True ($uninstalledAntigravity.keep.value -eq 42) '卸载后 Antigravity 丢失无关配置'
+  Assert-True (@($uninstalledAntigravity.'linkweixin-notify'.Stop)[0].command -eq 'other.exe antigravity') '卸载后 Antigravity 丢失其他 Hook'
+  Assert-True (@($uninstalledAntigravity.'linkweixin-notify'.Stop).Count -eq 1) '卸载后旧版 Antigravity Stop 未保持数组'
+  Assert-True (@($uninstalledAntigravity.hooks.Stop)[0].command -eq 'legacy.exe antigravity') '卸载后 hooks.Stop 未保持数组或丢失命令'
+  $devinCommandsAfter = @($uninstalledDevin.hooks.Stop | ForEach-Object { @($_.hooks) | ForEach-Object { [string]$_.command } })
+  Assert-True (@($devinCommandsAfter | Where-Object { $_ -match 'agent-notify.*devin stop' }).Count -eq 0) '卸载后残留 Devin Hook'
+  Assert-True ($devinCommandsAfter -contains 'other.exe devin') '卸载后 Devin 丢失其他 Stop Hook'
+  Assert-True ($devinCommandsAfter -contains 'keep.exe') '卸载后 Devin 丢失同组其他 handler'
+  Assert-True (@($uninstalledDevin.hooks.SessionStart).Count -eq 1) '卸载后 Devin 丢失其他事件 Hook'
+  Assert-True (@($uninstalledDevin.permissions.allow) -contains 'Exec(ls)') '卸载后 Devin 丢失权限配置'
+  Write-Output '[ok] uninstall preserves hook config'
   Write-Output '[ok] uninstall sandbox clean'
 } finally {
   $env:AGENT_NOTIFY_CONFIG_DIR = $null
   $env:AGENT_NOTIFY_TEMP_DIR = $null
   $env:AGENT_NOTIFY_CONFIG_FILE = $null
   $env:AGENT_NOTIFY_CREDENTIAL_FILE = $null
+  $env:AGENT_NOTIFY_ANTIGRAVITY_DRYRUN = $null
+  $env:AGENT_NOTIFY_DEVIN_DRYRUN = $null
 
   # 清理沙箱：只逐个删除明确的文件路径，再逐个删除已空目录
   $explicitFiles = @(
@@ -251,9 +380,17 @@ try {
     (Join-Path $configDir 'reply-routes.jsonl'),
     (Join-Path $configDir 'opencode.off'),
     (Join-Path $configDir 'codex.off'),
+    (Join-Path $configDir 'antigravity.off'),
+    (Join-Path $configDir 'devin.off'),
     (Join-Path $smokeRoot 'install-bin\agent-notify.exe'),
     (Join-Path $smokeRoot 'install-bin\agent-notify-install.json'),
     (Join-Path $smokeRoot 'install-plugins\agent-notify.ts'),
+    (Join-Path $smokeRoot 'devin-extension\package.json'),
+    (Join-Path $smokeRoot 'devin-extension\extension.js'),
+    (Join-Path $smokeRoot 'devin-extension\acp-bridge.js'),
+    (Join-Path $smokeRoot 'devin-extension\keep.txt'),
+    (Join-Path $smokeRoot 'antigravity-config\hooks.json'),
+    (Join-Path $smokeRoot 'devin-config\config.json'),
     (Join-Path $smokeRoot 'state\push.log'),
     (Join-Path $smokeRoot 'state\codex-notify-debug.log'),
     (Join-Path $smokeRoot 'state\opencode-sent.json'),
@@ -265,10 +402,13 @@ try {
   foreach ($dir in @(
       (Join-Path $smokeRoot 'state'),
       $configDir,
+      $antigravityConfigDir,
+      $devinConfigDir,
       $pluginDir,
       $binDir,
       (Join-Path $smokeRoot 'install-bin'),
       (Join-Path $smokeRoot 'install-plugins'),
+      $sandboxDevinExtension,
       $smokeRoot
     )) {
     if (Test-Path -LiteralPath $dir) {

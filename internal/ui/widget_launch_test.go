@@ -12,10 +12,10 @@ func TestResolveWidgetPosition(t *testing.T) {
 		wantY int32
 	}{
 		{"valid", "120,130", 120, 130},
-		{"negative", "-32000,-32000", 1030, 390},
-		{"off screen", "5000,5000", 1030, 390},
-		{"invalid", "abc,def", 1030, 390},
-		{"empty", "", 1030, 390},
+		{"negative", "-32000,-32000", 1030, 345},
+		{"off screen", "5000,5000", 1030, 345},
+		{"invalid", "abc,def", 1030, 345},
+		{"empty", "", 1030, 345},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -35,6 +35,8 @@ func TestWidgetLayoutHitTargetsDoNotOverlap(t *testing.T) {
 	}{
 		{"opencode", layout.openCode},
 		{"codex", layout.codex},
+		{"antigravity", layout.antigravity},
+		{"devin", layout.devin},
 		{"connection", layout.connection},
 		{"recent", layout.recent},
 		{"test", layout.test},

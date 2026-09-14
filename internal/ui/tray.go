@@ -5,6 +5,8 @@ package ui
 import (
 	"syscall"
 	"unsafe"
+
+	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
 )
 
 type TrayManager struct {
@@ -18,13 +20,15 @@ type TrayManager struct {
 const (
 	WM_TRAYICON = WM_USER + 100
 
-	IDM_TOGGLE_SHOW     = 3001
-	IDM_TOGGLE_OPENCODE = 3002
-	IDM_TOGGLE_CODEX    = 3003
-	IDM_HISTORY         = 3004
-	IDM_SETTINGS        = 3005
-	IDM_TEST_PUSH       = 3006
-	IDM_EXIT            = 3007
+	IDM_TOGGLE_SHOW        = 3001
+	IDM_TOGGLE_OPENCODE    = 3002
+	IDM_TOGGLE_CODEX       = 3003
+	IDM_TOGGLE_ANTIGRAVITY = 3004
+	IDM_TOGGLE_DEVIN       = 3005
+	IDM_HISTORY            = 3006
+	IDM_SETTINGS           = 3007
+	IDM_TEST_PUSH          = 3008
+	IDM_EXIT               = 3009
 )
 
 // CreateDotIcon creates a 16x16 colored tray status icon.
@@ -142,7 +146,7 @@ func (manager *TrayManager) Destroy() {
 	}
 }
 
-func (manager *TrayManager) ShowContextMenu(windowVisible bool, openCodeEnabled, codexEnabled bool) {
+func (manager *TrayManager) ShowContextMenu(windowVisible bool, agentEnabled map[string]bool) {
 	menu, _, _ := pCreatePopupMenu.Call()
 	if menu == 0 {
 		return
@@ -155,17 +159,17 @@ func (manager *TrayManager) ShowContextMenu(windowVisible bool, openCodeEnabled,
 	}
 	pAppendMenuW.Call(menu, MF_STRING, IDM_TOGGLE_SHOW, uintptr(unsafe.Pointer(StringToUTF16Ptr(showText))))
 
-	openCodeText := "开启 OpenCode 推送"
-	if openCodeEnabled {
-		openCodeText = "暂停 OpenCode 推送"
+	for _, descriptor := range agentmeta.All() {
+		commandID, ok := trayCommandForAgent(descriptor.ID)
+		if !ok {
+			continue
+		}
+		label := "开启 " + descriptor.DisplayName + " 推送"
+		if agentEnabled[descriptor.ID] {
+			label = "暂停 " + descriptor.DisplayName + " 推送"
+		}
+		pAppendMenuW.Call(menu, MF_STRING, commandID, uintptr(unsafe.Pointer(StringToUTF16Ptr(label))))
 	}
-	pAppendMenuW.Call(menu, MF_STRING, IDM_TOGGLE_OPENCODE, uintptr(unsafe.Pointer(StringToUTF16Ptr(openCodeText))))
-
-	codexText := "开启 Codex 推送"
-	if codexEnabled {
-		codexText = "暂停 Codex 推送"
-	}
-	pAppendMenuW.Call(menu, MF_STRING, IDM_TOGGLE_CODEX, uintptr(unsafe.Pointer(StringToUTF16Ptr(codexText))))
 
 	pAppendMenuW.Call(menu, MF_SEPARATOR, 0, 0)
 	pAppendMenuW.Call(menu, MF_STRING, IDM_HISTORY, uintptr(unsafe.Pointer(StringToUTF16Ptr("推送历史"))))
@@ -178,4 +182,34 @@ func (manager *TrayManager) ShowContextMenu(windowVisible bool, openCodeEnabled,
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))
 	pSetForegroundWindow.Call(manager.hwnd)
 	pTrackPopupMenu.Call(menu, TPM_RIGHTBUTTON, uintptr(point.X), uintptr(point.Y), 0, manager.hwnd, 0)
+}
+
+type trayAgentCommand struct {
+	ID      uintptr
+	AgentID string
+}
+
+var trayAgentCommands = []trayAgentCommand{
+	{ID: IDM_TOGGLE_OPENCODE, AgentID: agentmeta.OpenCode},
+	{ID: IDM_TOGGLE_CODEX, AgentID: agentmeta.Codex},
+	{ID: IDM_TOGGLE_ANTIGRAVITY, AgentID: agentmeta.Antigravity},
+	{ID: IDM_TOGGLE_DEVIN, AgentID: agentmeta.Devin},
+}
+
+func trayAgentIDForCommand(commandID int) (string, bool) {
+	for _, command := range trayAgentCommands {
+		if command.ID == uintptr(commandID) {
+			return command.AgentID, true
+		}
+	}
+	return "", false
+}
+
+func trayCommandForAgent(agentID string) (uintptr, bool) {
+	for _, command := range trayAgentCommands {
+		if command.AgentID == agentID {
+			return command.ID, true
+		}
+	}
+	return 0, false
 }

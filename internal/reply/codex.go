@@ -29,6 +29,7 @@ type hiddenProcessRunner struct{}
 func (hiddenProcessRunner) Run(ctx context.Context, binary string, args ...string) ([]byte, error) {
 	command := exec.CommandContext(ctx, binary, args...)
 	configureHiddenProcess(command)
+	applyProcessEnv(command, ctx)
 	return command.CombinedOutput()
 }
 

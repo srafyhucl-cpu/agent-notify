@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
+
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 )
 
@@ -45,16 +47,16 @@ func historyTime(item notify.HistoryItem) string {
 }
 
 func historyAgent(item notify.HistoryItem) string {
-	switch item.Agent {
-	case "opencode":
-		return "OpenCode"
-	case "codex":
-		return "Codex"
-	case "test":
+	if item.Agent == "test" {
 		return "测试"
-	default:
+	}
+	if descriptor, ok := agentmeta.Lookup(item.Agent); ok {
+		return descriptor.DisplayName
+	}
+	if strings.TrimSpace(item.Agent) == "" {
 		return "通用"
 	}
+	return item.Agent
 }
 
 const (

@@ -17,14 +17,13 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/app"
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
-	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
 )
 
 const (
 	widgetWidth  = int32(400)
-	widgetHeight = int32(360)
+	widgetHeight = int32(450)
 
 	WM_USER_REFRESH = WM_USER + 1
 )
@@ -54,6 +53,8 @@ type WidgetApp struct {
 	paths               config.Paths
 	onOpenCode          bool
 	onCodex             bool
+	onAntigravity       bool
+	onDevin             bool
 	clawbotLoggedIn     bool
 	clawbotSessionReady bool
 	clawbotStale        bool
@@ -69,65 +70,73 @@ type WidgetApp struct {
 }
 
 type widgetLayout struct {
-	drag       RECT
-	minimize   RECT
-	close      RECT
-	connection RECT
-	openCode   RECT
-	codex      RECT
-	recent     RECT
-	test       RECT
-	settings   RECT
-	history    RECT
-	hide       RECT
+	drag        RECT
+	minimize    RECT
+	close       RECT
+	connection  RECT
+	openCode    RECT
+	codex       RECT
+	antigravity RECT
+	devin       RECT
+	recent      RECT
+	test        RECT
+	settings    RECT
+	history     RECT
+	hide        RECT
 }
 
 type widgetHoverState struct {
-	openCode   bool
-	codex      bool
-	minimize   bool
-	close      bool
-	connection bool
-	recent     bool
-	history    bool
-	settings   bool
-	test       bool
-	hide       bool
+	openCode    bool
+	codex       bool
+	antigravity bool
+	devin       bool
+	minimize    bool
+	close       bool
+	connection  bool
+	recent      bool
+	history     bool
+	settings    bool
+	test        bool
+	hide        bool
 }
 
 func (s widgetHoverState) any() bool {
-	return s.openCode || s.codex || s.minimize || s.close || s.connection ||
+	return s.openCode || s.codex || s.antigravity || s.devin || s.minimize || s.close || s.connection ||
 		s.recent || s.history || s.settings || s.test || s.hide
 }
 
 func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
 	return widgetHoverState{
-		openCode:   pointInRect(x, y, layout.openCode),
-		codex:      pointInRect(x, y, layout.codex),
-		minimize:   pointInRect(x, y, layout.minimize),
-		close:      pointInRect(x, y, layout.close),
-		connection: pointInRect(x, y, layout.connection),
-		recent:     pointInRect(x, y, layout.recent),
-		history:    pointInRect(x, y, layout.history),
-		settings:   pointInRect(x, y, layout.settings),
-		test:       pointInRect(x, y, layout.test),
-		hide:       pointInRect(x, y, layout.hide),
+		openCode:    pointInRect(x, y, layout.openCode),
+		codex:       pointInRect(x, y, layout.codex),
+		antigravity: pointInRect(x, y, layout.antigravity),
+		devin:       pointInRect(x, y, layout.devin),
+		minimize:    pointInRect(x, y, layout.minimize),
+		close:       pointInRect(x, y, layout.close),
+		connection:  pointInRect(x, y, layout.connection),
+		recent:      pointInRect(x, y, layout.recent),
+		history:     pointInRect(x, y, layout.history),
+		settings:    pointInRect(x, y, layout.settings),
+		test:        pointInRect(x, y, layout.test),
+		hide:        pointInRect(x, y, layout.hide),
 	}
 }
 
 func widgetLayoutRects() widgetLayout {
 	return widgetLayout{
-		drag:       RECT{0, 0, 240, 48},
-		minimize:   RECT{344, 4, 372, 36},
-		close:      RECT{372, 4, 400, 36},
-		connection: RECT{14, 56, 386, 112},
-		openCode:   RECT{14, 136, 193, 212},
-		codex:      RECT{207, 136, 386, 212},
-		recent:     RECT{14, 224, 386, 286},
-		test:       RECT{14, 300, 132, 340},
-		settings:   RECT{140, 300, 238, 340},
-		history:    RECT{246, 300, 314, 340},
-		hide:       RECT{322, 300, 386, 340},
+		drag:        RECT{0, 0, 240, 48},
+		minimize:    RECT{344, 4, 372, 36},
+		close:       RECT{372, 4, 400, 36},
+		connection:  RECT{14, 56, 386, 112},
+		openCode:    RECT{14, 136, 193, 212},
+		codex:       RECT{207, 136, 386, 212},
+		antigravity: RECT{14, 218, 193, 294},
+		devin:       RECT{207, 218, 386, 294},
+		recent:      RECT{14, 304, 386, 366},
+		test:        RECT{14, 380, 132, 420},
+		settings:    RECT{140, 380, 238, 420},
+		history:     RECT{246, 380, 314, 420},
+		hide:        RECT{322, 380, 386, 420},
 	}
 }
 
@@ -152,11 +161,11 @@ func widgetTextRects() widgetTextLayout {
 		connectionTitle:  RECT{46, 62, 286, 84},
 		connectionDetail: RECT{46, 84, 300, 103},
 		quiet:            RECT{286, 74, 372, 94},
-		recentLabel:      RECT{28, 232, 110, 250},
-		recentMeta:       RECT{120, 231, 370, 250},
-		recentTitle:      RECT{28, 252, 370, 276},
-		footerVersion:    RECT{14, 342, 100, 358},
-		footerHint:       RECT{180, 342, 386, 358},
+		recentLabel:      RECT{28, 312, 110, 330},
+		recentMeta:       RECT{120, 311, 370, 330},
+		recentTitle:      RECT{28, 332, 370, 356},
+		footerVersion:    RECT{14, 432, 100, 448},
+		footerHint:       RECT{170, 432, 386, 448},
 	}
 }
 
@@ -452,14 +461,7 @@ func RunWidget() {
 				pInvalidateRect.Call(hwnd, 0, 0)
 				return 0
 			}
-			if pointInRect(x, y, layout.openCode) {
-				_, _ = marker.SetMarker(paths.OpenCodeMarker, "Flip")
-				instance.refreshState()
-				pInvalidateRect.Call(hwnd, 0, 0)
-				return 0
-			}
-			if pointInRect(x, y, layout.codex) {
-				_, _ = marker.SetMarker(paths.CodexMarker, "Flip")
+			if instance.toggleAgentAt(x, y, layout) {
 				instance.refreshState()
 				pInvalidateRect.Call(hwnd, 0, 0)
 				return 0
@@ -504,7 +506,7 @@ func RunWidget() {
 				restoreAndBringToFront(hwnd)
 			case WM_RBUTTONUP:
 				visible, _, _ := user32.NewProc("IsWindowVisible").Call(hwnd)
-				instance.tray.ShowContextMenu(visible != 0, instance.onOpenCode, instance.onCodex)
+				instance.tray.ShowContextMenu(visible != 0, instance.enabledAgentStates())
 			}
 			return 0
 
@@ -518,14 +520,11 @@ func RunWidget() {
 				} else {
 					restoreAndBringToFront(hwnd)
 				}
-			case IDM_TOGGLE_OPENCODE:
-				_, _ = marker.SetMarker(paths.OpenCodeMarker, "Flip")
-				instance.refreshState()
-				pInvalidateRect.Call(hwnd, 0, 0)
-			case IDM_TOGGLE_CODEX:
-				_, _ = marker.SetMarker(paths.CodexMarker, "Flip")
-				instance.refreshState()
-				pInvalidateRect.Call(hwnd, 0, 0)
+			case IDM_TOGGLE_OPENCODE, IDM_TOGGLE_CODEX, IDM_TOGGLE_ANTIGRAVITY, IDM_TOGGLE_DEVIN:
+				if agentID, ok := trayAgentIDForCommand(int(wParam & 0xFFFF)); ok && instance.toggleAgent(agentID) {
+					instance.refreshState()
+					pInvalidateRect.Call(hwnd, 0, 0)
+				}
 			case IDM_HISTORY:
 				ShowHistoryDialog(hwnd)
 			case IDM_SETTINGS:
@@ -624,8 +623,7 @@ func RunWidget() {
 }
 
 func (app *WidgetApp) refreshState() {
-	app.onOpenCode = !marker.IsOff(app.paths.OpenCodeMarker)
-	app.onCodex = !marker.IsOff(app.paths.CodexMarker)
+	app.refreshAgentSwitches()
 	clawbotStatus := clawbot.GetStatus()
 	app.clawbotLoggedIn = clawbotStatus.LoggedIn
 	app.clawbotSessionReady = clawbotStatus.SessionReady
@@ -651,9 +649,9 @@ func (app *WidgetApp) refreshState() {
 
 	state := widgetTrayStateStopped
 	ready := app.clawbotLoggedIn && app.clawbotSessionReady
-	if ready && app.onOpenCode && app.onCodex {
+	if ready && app.allAgentsEnabled() {
 		state = widgetTrayStateReady
-	} else if ready && (app.onOpenCode || app.onCodex) {
+	} else if ready && app.anyAgentEnabled() {
 		state = widgetTrayStatePartial
 	}
 	if app.tray != nil {
@@ -671,10 +669,10 @@ func (app *WidgetApp) health() (uint32, string) {
 	if !app.clawbotSessionReady {
 		return RGB(224, 165, 70), "等待微信消息"
 	}
-	if app.onOpenCode && app.onCodex {
+	if app.allAgentsEnabled() {
 		return RGB(54, 190, 144), "正常"
 	}
-	if app.onOpenCode || app.onCodex {
+	if app.anyAgentEnabled() {
 		return RGB(224, 165, 70), "部分暂停"
 	}
 	return RGB(220, 92, 92), "全部暂停"

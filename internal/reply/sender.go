@@ -17,6 +17,11 @@ type OpenCodeQueue interface {
 	Queue(ctx context.Context, sessionID, text string) error
 }
 
+// DevinQueue submits text to an existing Devin Cascade through the desktop extension.
+type DevinQueue interface {
+	Queue(ctx context.Context, sessionID, text string) error
+}
+
 // ReplySender submits one user reply to a specific agent conversation.
 type ReplySender interface {
 	Send(ctx context.Context, sessionID, text string) error
@@ -42,6 +47,18 @@ type OpenCodeReplySender struct {
 func (s OpenCodeReplySender) Send(ctx context.Context, sessionID, text string) error {
 	if s.Queue == nil {
 		return errors.New("opencode reply: queue is not configured")
+	}
+	return s.Queue.Queue(ctx, sessionID, text)
+}
+
+// DevinReplySender adapts a Devin queue implementation to ReplySender.
+type DevinReplySender struct {
+	Queue DevinQueue
+}
+
+func (s DevinReplySender) Send(ctx context.Context, sessionID, text string) error {
+	if s.Queue == nil {
+		return errors.New("devin reply: queue is not configured")
 	}
 	return s.Queue.Queue(ctx, sessionID, text)
 }

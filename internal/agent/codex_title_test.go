@@ -361,7 +361,7 @@ func execTestSQLite(t *testing.T, db uintptr, statement string) {
 	if int(code) == sqliteOK {
 		return
 	}
-	detail := cString(errorMessage)
+	detail := testSQLiteCString(errorMessage)
 	if errorMessage != 0 {
 		testSQLiteDLL.NewProc("sqlite3_free").Call(errorMessage)
 	}
@@ -376,4 +376,21 @@ func closeTestSQLite(t *testing.T, db uintptr) {
 	if code, _, _ := testSQLiteDLL.NewProc("sqlite3_close").Call(db); int(code) != sqliteOK {
 		t.Fatalf("sqlite3_close code=%d", code)
 	}
+}
+
+func testSQLiteCString(pointer uintptr) string {
+	if pointer == 0 {
+		return ""
+	}
+	move := syscall.NewLazyDLL("kernel32.dll").NewProc("RtlMoveMemory")
+	data := make([]byte, 0, 64)
+	for len(data) < 4096 {
+		var value byte
+		move.Call(uintptr(unsafe.Pointer(&value)), pointer+uintptr(len(data)), 1)
+		if value == 0 {
+			return string(data)
+		}
+		data = append(data, value)
+	}
+	return "sqlite error message exceeds diagnostic limit"
 }

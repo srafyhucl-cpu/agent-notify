@@ -39,3 +39,12 @@ func HandleNotify(agentName, title, summary, sessionID string, maxChars int, dry
 	}
 	return result
 }
+
+func appendPipedSummary(opts *notify.NotifyOptions, noStdin bool) {
+	if noStdin || opts == nil || strings.TrimSpace(opts.Summary) != "" {
+		return
+	}
+	if data := ReadPipedStdinNonBlocking(); len(data) > 0 {
+		opts.Summary = DecodeConsoleBytes(data)
+	}
+}

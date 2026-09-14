@@ -177,7 +177,7 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	DrawText(hdc, "Agent-notify", &text.title, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(131, 143, 154)))
-	DrawText(hdc, "OpenCode + Codex  ·  ClawBot 微信通知", &text.subtitle, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, "4 个 Agent · ClawBot 微信通知", &text.subtitle, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 	drawPill(hdc, RECT{244, 10, 338, 34}, healthText, healthColor, smallFont)
 	drawWindowButton(hdc, layout.minimize, "\uE921", app.hover.minimize, false, iconFont)
@@ -209,8 +209,9 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(119, 131, 142)))
 	DrawText(hdc, "通知代理", &RECT{15, 119, 150, 134}, DT_SINGLELINE|DT_NOPREFIX)
-	drawAgentCard(hdc, layout.openCode, "OpenCode", app.onOpenCode, app.procStatus.OpenCodeRunning, app.hover.openCode, strongFont, smallFont)
-	drawAgentCard(hdc, layout.codex, "Codex", app.onCodex, app.procStatus.CodexRunning, app.hover.codex, strongFont, smallFont)
+	for _, card := range app.agentCards(layout) {
+		drawAgentCard(hdc, card.Rect, card.Name, card.Enabled, card.Running, card.Hover, strongFont, smallFont)
+	}
 
 	recentFill := uintptr(RGB(22, 28, 34))
 	border := uintptr(RGB(41, 50, 59))

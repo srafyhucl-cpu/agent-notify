@@ -60,8 +60,8 @@ func TestScaleFloatAndUnscalePoint(t *testing.T) {
 	if x, y := unscalePoint(600, 540); x != 400 || y != 360 {
 		t.Fatalf("unscalePoint at 144 DPI = (%d,%d), want (400,360)", x, y)
 	}
-	if width, height := logicalSize(widgetWidth, widgetHeight); width != 600 || height != 540 {
-		t.Fatalf("logicalSize at 144 DPI = (%d,%d), want (600,540)", width, height)
+	if width, height := logicalSize(widgetWidth, widgetHeight); width != 600 || height != 675 {
+		t.Fatalf("logicalSize at 144 DPI = (%d,%d), want (600,675)", width, height)
 	}
 }
 
@@ -176,7 +176,7 @@ func TestWidgetTextFitsItsRects(t *testing.T) {
 		rect RECT
 	}{
 		{"标题", newTitleFont, "Agent-notify", text.title},
-		{"副标题", newSmallFont, "OpenCode + Codex  ·  ClawBot 微信通知", text.subtitle},
+		{"副标题", newSmallFont, "4 个 Agent · ClawBot 微信通知", text.subtitle},
 		{"连接标题", newStrongFont, "ClawBot 登录已失效", text.connectionTitle},
 		{"连接说明", newSmallFont, "请先给 ClawBot 发送一条微信消息", text.connectionDetail},
 		{"勿扰状态", newSmallFont, "勿扰 23:00-08:00", text.quiet},
@@ -402,8 +402,8 @@ func TestResizeForCurrentDPIAt96And144(t *testing.T) {
 		wantWidth  int32
 		wantHeight int32
 	}{
-		{96, 400, 360},
-		{144, 600, 540},
+		{96, 400, 450},
+		{144, 600, 675},
 	}
 	for _, tt := range tests {
 		setUIDPI(tt.dpi)

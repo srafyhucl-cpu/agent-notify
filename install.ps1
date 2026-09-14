@@ -7,7 +7,10 @@
   默认安装位置（可用参数覆盖）：
   - 运行程序：%USERPROFILE%\bin\agent-notify.exe
   - opencode 插件：%USERPROFILE%\.config\opencode\plugins\agent-notify.ts
+  - Devin 回复扩展：%USERPROFILE%\.devin\extensions\agent-notify
   - Codex 配置：%USERPROFILE%\.codex\config.toml（只改写指向 codex-computer-use.exe 的 notify 行）
+  - Antigravity Hook：%USERPROFILE%\.gemini\config\hooks.json（只维护顶层 agent-notify Hook）
+  - Devin Hook：%APPDATA%\devin\config.json（只维护 hooks.Stop 中的 Agent-notify handler）
   安装记录 agent-notify-install.json 记录本次落盘文件，卸载按它精确清理。
   安装时会把 $InstallDir 里的绝对路径写进插件副本，插件不依赖默认安装目录。
 
@@ -18,8 +21,14 @@
 param(
   [string]$InstallDir = (Join-Path $env:USERPROFILE 'bin'),
   [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugins'),
+  [string]$DevinExtensionDir = (Join-Path $env:USERPROFILE '.devin\extensions\agent-notify'),
   [string]$CodexConfig = (Join-Path $env:USERPROFILE '.codex\config.toml'),
+  [string]$AntigravityHooks = (Join-Path $env:USERPROFILE '.gemini\config\hooks.json'),
+  [string]$DevinConfig = (Join-Path $env:APPDATA 'devin\config.json'),
   [switch]$SkipCodexConfig,
+  [switch]$SkipAntigravityConfig,
+  [switch]$SkipDevinConfig,
+  [switch]$SkipDevinExtension,
   [switch]$SkipShortcuts,
   [switch]$SkipWidgetLaunch
 )
@@ -31,7 +40,13 @@ $PluginName = 'agent-notify.ts'
 $RecordName = 'agent-notify-install.json'
 
 $HasSource = Test-Path (Join-Path $RepoRoot 'go.mod')
-$HasPackage = (Test-Path (Join-Path $RepoRoot "bin\$ExeName")) -and (Test-Path (Join-Path $RepoRoot "plugin\$PluginName"))
+$HasDevinExtension = (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\package.json')) -and
+  (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\extension.js'))
+$HasDevinExtension = $HasDevinExtension -and
+  (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\acp-bridge.js'))
+$HasPackage = (Test-Path (Join-Path $RepoRoot "bin\$ExeName")) -and
+  (Test-Path (Join-Path $RepoRoot "plugin\$PluginName")) -and
+  $HasDevinExtension
 
 # 在线/远程运行模式：仓库不在本地时下载新名称的 main 分支压缩包。
 if ([string]::IsNullOrWhiteSpace($RepoRoot) -or (-not $HasSource -and -not $HasPackage)) {
@@ -45,6 +60,12 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot) -or (-not $HasSource -and -not $HasP
   $RepoRoot = Join-Path $stageRoot 'agent-notify-main'
   $HasSource = $true
 }
+
+$hookConfigModule = Join-Path $RepoRoot 'tools\hook-config.ps1'
+if (-not (Test-Path -LiteralPath $hookConfigModule -PathType Leaf)) {
+  throw "安装包缺少 Hook 配置模块：$hookConfigModule"
+}
+. $hookConfigModule
 
 # 源码安装读取 internal/app/version.go；发布包读取 VERSION。
 function Get-RepoVersion {
@@ -136,13 +157,20 @@ function Test-WindowsGuiSubsystem {
 try {
   # 0. 自检：仓库文件齐全
   if ($HasSource) {
-    foreach ($required in @('go.mod', 'cmd\agent-notify\main.go', 'plugin\agent-notify.ts')) {
+    foreach ($required in @(
+        'go.mod',
+        'cmd\agent-notify\main.go',
+        'plugin\agent-notify.ts',
+        'plugin\devin-extension\package.json',
+        'plugin\devin-extension\extension.js',
+        'plugin\devin-extension\acp-bridge.js'
+      )) {
       if (-not (Test-Path (Join-Path $RepoRoot $required))) {
         throw "仓库缺文件：$required"
       }
     }
   } elseif (-not $HasPackage) {
-    throw '安装包缺预编译运行程序或 OpenCode 插件。'
+    throw '安装包缺预编译运行程序、OpenCode 插件或 Devin 回复扩展。'
   }
 
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
@@ -217,6 +245,22 @@ try {
   Write-Output "[install] 已安装运行程序：$installedExe"
   Write-Output "[install] 已安装 opencode 插件：$installedPlugin"
 
+  if (-not $SkipDevinExtension) {
+    $devinExtensionSource = Join-Path $RepoRoot 'plugin\devin-extension'
+    if (-not (Test-Path (Join-Path $devinExtensionSource 'package.json')) -or
+        -not (Test-Path (Join-Path $devinExtensionSource 'extension.js'))) {
+      throw "Devin 回复扩展源文件不完整：$devinExtensionSource"
+    }
+    if (-not (Test-Path (Join-Path $devinExtensionSource 'acp-bridge.js'))) {
+      throw "Devin 回复扩展缺少 ACP 通道模块：$devinExtensionSource"
+    }
+    New-Item -ItemType Directory -Force -Path $DevinExtensionDir | Out-Null
+    Install-FileAtomically -Source (Join-Path $devinExtensionSource 'package.json') -Destination (Join-Path $DevinExtensionDir 'package.json')
+    Install-FileAtomically -Source (Join-Path $devinExtensionSource 'extension.js') -Destination (Join-Path $DevinExtensionDir 'extension.js')
+    Install-FileAtomically -Source (Join-Path $devinExtensionSource 'acp-bridge.js') -Destination (Join-Path $DevinExtensionDir 'acp-bridge.js')
+    Write-Output "[install] 已安装 Devin 回复扩展：$DevinExtensionDir"
+  }
+
   # 4. 写安装记录（卸载按它精确清理；files 为相对 InstallDir 的正斜杠路径）
   $newFiles = @($ExeName)
   $record = [ordered]@{
@@ -237,7 +281,32 @@ try {
     if (Test-Path $full) { Remove-Item $full -Force; Write-Output "[install] 清理旧版本文件：$rel" }
   }
 
-  # 6. 接管 Codex notify：只动指向 codex-computer-use.exe 的行，自定义配置不覆盖
+  # 6. 接入 Antigravity / Devin Stop hook，只维护 Agent-notify 自己的配置。
+  if (-not $SkipAntigravityConfig) {
+    $antigravityParent = Split-Path -Parent $AntigravityHooks
+    if ((Test-Path -LiteralPath $AntigravityHooks -PathType Leaf) -or (Test-Path -LiteralPath $antigravityParent -PathType Container)) {
+      $antigravityLauncher = Set-AntigravityAgentLauncher -HooksPath $AntigravityHooks -Executable $installedExe
+      $antigravityCommand = Get-AntigravityHookCommand
+      Set-AntigravityAgentHook -Path $AntigravityHooks -Command $antigravityCommand
+      Write-Output "[install] 已写入 Antigravity 启动器：$antigravityLauncher"
+      Write-Output "[install] 已接入 Antigravity Stop hook：$AntigravityHooks"
+    } else {
+      Write-Output "[install] 跳过 Antigravity 配置：未发现 $AntigravityHooks"
+    }
+  }
+
+  if (-not $SkipDevinConfig) {
+    $devinParent = Split-Path -Parent $DevinConfig
+    if ((Test-Path -LiteralPath $DevinConfig -PathType Leaf) -or (Test-Path -LiteralPath $devinParent -PathType Container)) {
+      $devinCommand = '"' + $installedExe + '" devin stop'
+      Set-DevinAgentHook -Path $DevinConfig -Command $devinCommand
+      Write-Output "[install] 已接入 Devin Stop hook：$DevinConfig"
+    } else {
+      Write-Output "[install] 跳过 Devin 配置：未发现 $DevinConfig"
+    }
+  }
+
+  # 7. 接管 Codex notify：只动指向 codex-computer-use.exe 的行，自定义配置不覆盖
   if (-not $SkipCodexConfig) {
     if (-not (Test-Path $CodexConfig)) {
       Write-Output "[install] 跳过 Codex 配置：找不到 $CodexConfig"
@@ -264,7 +333,7 @@ try {
     }
   }
 
-  # 7. 快捷方式（开机自启 + 桌面），目标就是 exe 的 widget 子命令
+  # 8. 快捷方式（开机自启 + 桌面），目标就是 exe 的 widget 子命令
   if (-not $SkipShortcuts) {
     try {
       $ws = New-Object -ComObject WScript.Shell
@@ -283,7 +352,7 @@ try {
     }
   }
 
-  # 8. 启动悬浮窗
+  # 9. 启动悬浮窗
   if (-not $SkipWidgetLaunch) {
     try {
       Start-Process $installedExe -ArgumentList @('widget') -WindowStyle Hidden
@@ -300,7 +369,7 @@ try {
   Write-Output '[install] 下一步：'
   Write-Output "  1. 微信扫码登录：& `"$installedExe`" login"
   Write-Output "  2. 发送测试通知：& `"$installedExe`" test"
-  Write-Output '  3. 重启 opencode / Codex 桌面端，使插件与配置生效。'
+  Write-Output '  3. 重启 opencode / Codex / Antigravity / Devin，使插件与 Hook 配置生效。'
 } catch {
   [Console]::Error.WriteLine('[install] 失败：' + $_.Exception.Message)
   exit 1

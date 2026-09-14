@@ -6,6 +6,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增 Antigravity 全局 `Stop` Hook：仅在 `fullyIdle=true` 且存在 `conversationId` 时发送通知，并从 transcript 尾部提取摘要；Hook 始终返回 `{}`，通知失败不会阻塞 Antigravity。
+- 新增 Devin 用户级 `Stop` Hook：使用 `session_id` 和 `last_assistant_message`，跳过 `stop_hook_active=true` 的重入事件；Hook 失败不会改变 Devin 的停止决策。
+- 新增 Antigravity / Devin 微信引用回复：Antigravity 使用桌面端官方 `language_server.exe agentapi`；Devin 使用随 Agent-notify 安装的桌面扩展，直接向桌面端 `devin.exe acp` 子进程写入 `session/prompt` 续写原会话；两者都不依赖对应 CLI 登录。
+- `status`、`doctor`、`toggle` 和悬浮窗统一支持四个 Agent；新增 `antigravity.off` / `devin.off` marker 与对应环境变量覆盖。
+- 安装和卸载脚本新增共享 `tools/hook-config.ps1`，以原子替换方式只维护 Agent-notify 自己的 Hook，保留其他 JSON 配置和 handler。
+
+### Changed
+
+- Agent 标识、标题、页脚、推送开关和可回复判定统一收敛到 `internal/agentmeta`，避免四套重复定义。
+- OpenCode 与 Devin 复用通用本地 spool 队列，共享原子写入、心跳校验、同步结果等待、异步失败观察和禁止自动重放语义。
+- Devin 回复不再启动第二个 Agent 进程：ACP 会话复用桌面端自己拉起的 ACP 子进程，因此不受会话锁、工作区信任和 CLI 登录状态影响。
+- Devin 回复扩展安装与卸载纳入正式安装器、发布包和冒烟测试；卸载只删除归属校验通过的扩展文件。
+- Antigravity / Devin 安装器只在已有配置或父目录存在时写入 Hook，不会为未安装的客户端创建配置目录。
+
+### Fixed
+
+- Antigravity Hook 改为调用同目录无空格启动器，避免 Windows `cmd /c` 对 exe 外层引号的转义导致 Stop Hook 实际未执行。
+- Antigravity 推送优先读取真实会话标题；首次通知时标题文件尚未生成，则从 transcript 首条用户请求生成可识别标题，不再退回“跑完了”。
+
+- Devin 引用回复改为直接写桌面端常驻的 `devin.exe acp` 子进程 stdin（NDJSON `session/prompt`），不再经聊天面板提交，修掉引用回复新开对话、落入 Ask 模式以及误报 CLI 未登录的问题；目标通道缺失、存在多个候选或写入失败都会返回微信可读错误，不向 CLI 或新会话回退。
+- Devin 引用回复改用桌面端内部 Cascade 标识：Go 侧按 `session_id` 从 `%APPDATA%\devin\User\globalStorage\state.vscdb` 精确解析后随作业下发，修掉直接把 CLI 会话号当作桌面端标识导致的“目标 Devin 会话不存在”。
+- Antigravity 回复只使用当前语言服务实际监听的 HTTP 端口和本次启动的 CSRF token，并在发送前验证目标会话存在。
+- release 校验新增 `antigravity.off` / `devin.off`，并对 `tools/hook-config.ps1` 进行打包检查。
+
 ## [1.1.0] - 2026-09-13
 
 ### Added

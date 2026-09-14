@@ -8,40 +8,50 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 )
 
-// HandleToggle changes the marker for one agent or both agents.
+// HandleToggle changes the marker for one agent or all supported agents.
 func HandleToggle(agentName, mode string) error {
 	paths := config.GetPaths()
 	if mode == "" {
 		mode = "Flip"
 	}
 	agentName = strings.ToLower(strings.TrimSpace(agentName))
-	if agentName == "" || agentName == "all" {
-		openCode, err := marker.SetMarker(paths.OpenCodeMarker, mode)
-		if err != nil {
-			return err
-		}
-		codex, err := marker.SetMarker(paths.CodexMarker, mode)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("opencode: %s\n", openCode)
-		fmt.Printf("codex: %s\n", codex)
-		return nil
+	targets := []struct {
+		name string
+		path string
+	}{
+		{name: "opencode", path: paths.OpenCodeMarker},
+		{name: "codex", path: paths.CodexMarker},
+		{name: "antigravity", path: paths.AntigravityMarker},
+		{name: "devin", path: paths.DevinMarker},
 	}
 
-	var markerPath string
-	switch agentName {
-	case "opencode":
-		markerPath = paths.OpenCodeMarker
-	case "codex":
-		markerPath = paths.CodexMarker
-	default:
-		return fmt.Errorf("unknown agent: %s", agentName)
+	selected := targets
+	if agentName != "" && agentName != "all" {
+		selected = nil
+		for _, target := range targets {
+			if target.name == agentName {
+				selected = []struct {
+					name string
+					path string
+				}{target}
+				break
+			}
+		}
+		if len(selected) == 0 {
+			return fmt.Errorf("unknown agent: %s", agentName)
+		}
 	}
-	result, err := marker.SetMarker(markerPath, mode)
-	if err != nil {
-		return err
+
+	for _, target := range selected {
+		result, err := marker.SetMarker(target.path, mode)
+		if err != nil {
+			return err
+		}
+		if len(selected) == 1 {
+			fmt.Println(result)
+			continue
+		}
+		fmt.Printf("%s: %s\n", target.name, result)
 	}
-	fmt.Println(result)
 	return nil
 }

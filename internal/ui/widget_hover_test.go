@@ -13,6 +13,8 @@ func TestWidgetHoverAtMapsEveryInteractiveRegion(t *testing.T) {
 	}{
 		{"opencode", layout.openCode, func(h widgetHoverState) bool { return h.openCode }},
 		{"codex", layout.codex, func(h widgetHoverState) bool { return h.codex }},
+		{"antigravity", layout.antigravity, func(h widgetHoverState) bool { return h.antigravity }},
+		{"devin", layout.devin, func(h widgetHoverState) bool { return h.devin }},
 		{"minimize", layout.minimize, func(h widgetHoverState) bool { return h.minimize }},
 		{"close", layout.close, func(h widgetHoverState) bool { return h.close }},
 		{"connection", layout.connection, func(h widgetHoverState) bool { return h.connection }},
@@ -50,6 +52,8 @@ func countWidgetHoverFields(hover widgetHoverState) int {
 	for _, active := range []bool{
 		hover.openCode,
 		hover.codex,
+		hover.antigravity,
+		hover.devin,
 		hover.minimize,
 		hover.close,
 		hover.connection,

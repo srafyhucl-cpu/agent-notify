@@ -3,21 +3,16 @@ package notify
 import (
 	"strings"
 	"time"
+
+	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
 )
 
 const (
 	notificationSeparator = "\n\n"
-
-	codexTitlePrefix    = "【codex】"
-	openCodeTitlePrefix = "【opencode】"
-	genericTitlePrefix  = "【通知】"
-
-	codexDefaultTitle    = "跑完了"
-	openCodeDefaultTitle = "opencode会话"
-	genericDefaultTitle  = "任务完成"
-	defaultBody          = "任务已完成。"
-
-	footerTimeLayout = "2006/01/02 15:04"
+	genericTitlePrefix    = "【通知】"
+	genericDefaultTitle   = "任务完成"
+	defaultBody           = "任务已完成。"
+	footerTimeLayout      = "2006/01/02 15:04"
 )
 
 type renderedNotification struct {
@@ -46,41 +41,31 @@ func renderNotification(opts NotifyOptions, now time.Time) renderedNotification 
 
 func normalizeNotificationTitle(agentName, rawTitle string) string {
 	title := strings.TrimSpace(strings.ReplaceAll(rawTitle, "\n", " "))
-	switch strings.ToLower(strings.TrimSpace(agentName)) {
-	case "codex":
+	if descriptor, ok := agentmeta.Lookup(agentName); ok {
 		if title == "" {
-			title = codexDefaultTitle
+			title = descriptor.DefaultTitle
 		}
-		if !strings.HasPrefix(title, codexTitlePrefix) {
-			title = codexTitlePrefix + title
+		if !strings.HasPrefix(title, descriptor.TitlePrefix) {
+			title = descriptor.TitlePrefix + title
 		}
-	case "opencode":
-		if title == "" {
-			title = openCodeDefaultTitle
-		}
-		if !strings.HasPrefix(title, openCodeTitlePrefix) {
-			title = openCodeTitlePrefix + title
-		}
-	default:
-		if title == "" {
-			title = genericDefaultTitle
-		}
-		if !strings.HasPrefix(title, "【") {
-			title = genericTitlePrefix + title
-		}
+		return title
+	}
+
+	if title == "" {
+		title = genericDefaultTitle
+	}
+	if !strings.HasPrefix(title, "【") {
+		title = genericTitlePrefix + title
 	}
 	return title
 }
 
 func notificationFooter(agentName string, now time.Time) string {
-	switch strings.ToLower(strings.TrimSpace(agentName)) {
-	case "codex":
-		return "Codex · " + now.Format(footerTimeLayout)
-	case "opencode":
-		return "OpenCode · " + now.Format(footerTimeLayout)
-	default:
+	descriptor, ok := agentmeta.Lookup(agentName)
+	if !ok || descriptor.FooterLabel == "" {
 		return ""
 	}
+	return descriptor.FooterLabel + " · " + now.Format(footerTimeLayout)
 }
 
 func composeNotification(title, summary, footer string) string {

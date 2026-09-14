@@ -107,6 +107,9 @@ try {
   try {
     Add-ReleaseFile $archive $tempExe 'Agent-notify/bin/agent-notify.exe'
     Add-ReleaseFile $archive $pluginSource 'Agent-notify/plugin/agent-notify.ts'
+    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\package.json') 'Agent-notify/plugin/devin-extension/package.json'
+    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\extension.js') 'Agent-notify/plugin/devin-extension/extension.js'
+    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\acp-bridge.js') 'Agent-notify/plugin/devin-extension/acp-bridge.js'
     # VERSION is generated from the resolved --Version so packaged metadata can
     # never drift from the executable that was just built.
     $versionEntry = $archive.CreateEntry('Agent-notify/VERSION', [IO.Compression.CompressionLevel]::Optimal)
@@ -119,6 +122,7 @@ try {
     foreach ($name in @('install.ps1', 'uninstall.ps1', 'README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'LICENSE', '.env.example')) {
       Add-ReleaseFile $archive (Join-Path $RepoRoot $name) "Agent-notify/$name"
     }
+    Add-ReleaseFile $archive (Join-Path $RepoRoot 'tools\hook-config.ps1') 'Agent-notify/tools/hook-config.ps1'
     foreach ($name in @('ARCHITECTURE.md', 'TROUBLESHOOTING.md')) {
       Add-ReleaseFile $archive (Join-Path $RepoRoot "docs\$name") "Agent-notify/docs/$name"
     }
@@ -131,6 +135,8 @@ try {
     'config.json',
     'opencode.off',
     'codex.off',
+    'antigravity.off',
+    'devin.off',
     'push.log',
     'opencode-sent.json',
     'agent-notify-install.json'

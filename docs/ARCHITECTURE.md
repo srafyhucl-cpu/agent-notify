@@ -15,6 +15,18 @@ Codex
               ├─ 透传 codex-computer-use.exe
               └─ 发送 ClawBot 消息
 
+Antigravity
+  └─ ~/.gemini/config/hooks.json
+        └─ .\agent-notify-hook.cmd antigravity stop
+              ├─ 仅 fullyIdle=true 时运行
+              └─ transcript 尾部提取摘要
+
+Devin
+  └─ %APPDATA%/devin/config.json hooks.Stop
+        └─ agent-notify.exe devin stop
+              ├─ 跳过 stop_hook_active
+              └─ last_assistant_message 提取摘要
+
 命令行 / 脚本
   └─ agent-notify.exe notify
 
@@ -25,6 +37,8 @@ Codex
   └─ widget → clawbot session poll → internal/reply
         ├─ Codex 持久线程: codex queue --thread=<thread-id> --message=<text>
         └─ OpenCode: local spool → session prompt
+        ├─ Antigravity: language_server agentapi send-message
+        └─ Devin: local spool → Devin extension → 桌面端 ACP stdin（旧 Cascade 走聊天动作）
 ```
 
 常驻与运维命令：
@@ -33,7 +47,7 @@ Codex
 - `agent-notify.exe login`：ClawBot 扫码登录，默认继续等待首条微信消息。
 - `agent-notify.exe sync`：等待首条微信消息，建立主动推送会话。
 - `agent-notify.exe doctor`：配置、凭据、会话、网络和接入自检。
-- `agent-notify.exe status`：显示引用回复开关和路由文件位置；`doctor` 同时检查 `codex queue` 能力。
+- `agent-notify.exe status`：显示四类推送开关和路由文件位置；`doctor` 同时检查各 Agent 接入与 Codex queue 能力。
 - `agent-notify.exe watch`：仅在 Codex notify 指向 `codex-computer-use.exe` 时恢复 Agent-notify。
 - `install.ps1` / `uninstall.ps1`：部署和清理，不携带运行时业务逻辑。
 
@@ -42,15 +56,16 @@ Codex
 | 路径 | 职责 | 关键约束 |
 |---|---|---|
 | `cmd/agent-notify/main.go` | CLI 命令、控制台处理、交互输出 | 发布版使用 GUI 子系统；仅在实际无可用 stdout 时绑定控制台 |
-| `internal/agent` | OpenCode、Codex、toggle、Codex 配置恢复 | hook 路径避免阻塞；Codex 先透传再推送；只读解析真实会话名 |
+| `internal/agent` | OpenCode、Codex、Antigravity、Devin、toggle、Codex 配置恢复 | Hook 路径避免阻塞；每个 Stop Hook 都输出兼容的继续语义；Codex 先透传再推送 |
 | `internal/clawbot` | 二维码登录、凭据与会话状态、消息轮询、ClawBot API | 账号隔离；context token 持久化；`-14` 停止重试 |
 | `internal/notify` | 协议块解析、消息渲染、发送、JSONL 历史 | 默认不限长；显式 `MaxChars` 计入标题、正文和页脚 |
-| `internal/reply` | 引用路由、入站去重、按 Agent 注册的 `ReplySender` 分发 | 精确消息 ID、账号隔离、至多一次 Claim、无最近会话回退 |
+| `internal/reply` | 引用路由、入站去重、按 Agent 注册的 `ReplySender` 分发 | 精确消息 ID、账号隔离、至多一次 Claim、无最近会话回退；Antigravity 调用官方 agentapi，OpenCode / Devin 复用本地 spool |
 | `internal/config` | 配置默认值、校验、原子保存、路径解析 | 所有路径可由 `AGENT_NOTIFY_*` 隔离 |
-| `internal/marker` | `opencode.off` / `codex.off` 开关 | 文件存在即暂停；不读取旧 marker |
+| `internal/marker` | 四个 Agent 的 `.off` 开关 | 文件存在即暂停；不读取旧 marker |
 | `internal/ui` | 原生 Win32 悬浮窗、设置、登录、历史、托盘 | 单实例、DPI 感知、双缓冲、会话状态实时刷新、`windowsgui` 发布模式 |
 | `plugin/agent-notify.ts` | OpenCode V2 插件 | 安装器写入 `BAKED_BIN`；发送通知并维护引用回复心跳、收件箱和 `session.prompt` / `promptAsync` 兼容投递 |
-| `install.ps1` / `uninstall.ps1` | 文件分发、安装记录、快捷方式、Codex 接管 | 不安装业务运行时；卸载按安装记录清理 |
+| `plugin/devin-extension` | Devin 桌面端回复扩展 | ACP 会话直接向桌面端 `devin.exe acp` 子进程写 `session/prompt`（旧 Cascade 保留精确直发/聊天面板回退），维护心跳、持久收件箱、至多一次认领与结果回写 |
+| `install.ps1` / `uninstall.ps1` | 文件分发、安装记录、快捷方式，以及 Codex / Antigravity / Devin 接入 | 共享 `tools/hook-config.ps1`；只改 Agent-notify 自己的 Hook，保留其他 JSON 配置 |
 
 ## OpenCode 数据流
 
@@ -83,6 +98,28 @@ Codex
 7. 渲染 `【codex】会话名`、正文和 `Codex · yyyy/MM/dd HH:mm` 页脚后发送并写入结构化历史；引用回复命中路由后执行 `codex queue`，消息可写入尚未在前台打开的持久化线程。
 
 `agent-notify watch` 与悬浮窗只会在 notify 行仍指向 `codex-computer-use.exe` 时恢复配置；自定义 notify 程序始终保留。
+
+## Antigravity 数据流
+
+1. Antigravity 在 execution loop 停止时向 `antigravity stop` 写入 JSON stdin。
+2. `HandleAntigravityStop` 只接受 `fullyIdle=true` 且 `conversationId` 非空的事件。
+3. `readAntigravityTranscriptSummary` 读取 `transcriptPath` 最后 512 KiB，容忍逐行 JSON schema 差异，并优先选择 assistant 文本；读取失败时退化为空摘要。
+4. `resolveAntigravityTitle` 优先读取 `%USERPROFILE%\.gemini\antigravity\annotations\<conversationId>.pbtxt`；文件尚未生成时降级到 transcript 的首条用户请求，仍不可用时使用默认标题。
+5. 共享 `sendWithAgentPolicy` 统一处理 marker、勿扰时段、勿扰标题和 DryRun，再写入引用路由。
+6. CLI wrapper 无论解析或发送结果如何都只输出 `{}`，不让通知故障阻塞 Antigravity。
+
+## Devin 数据流
+
+1. Devin 在 Stop 事件向 `devin stop` 写入 JSON stdin。
+2. `HandleDevinStop` 跳过 `stop_hook_active=true`，并在 `hook_event_name` 存在时要求其为 `Stop`。
+3. 通知正文取 `last_assistant_message`，引用目标取稳定字段 `session_id`；不使用当前工作目录或会话列表。
+4. 共享策略和 GUI wrapper 与 Antigravity 相同，Hook 失败始终以 `{}` 继续。
+
+Antigravity 回复由 `agentAPIProcess` 调用当前运行语言服务的官方 `agentapi`。发现顺序覆盖 LocalAppData 与 AppData 下的 Antigravity 安装，按进程安装目录和 PID 过滤，再从命令行读取本次启动的 CSRF token、从该 PID 的监听端口构造候选端点；先用 `get-conversation-metadata` 精确确认 `conversationId`，确认后才调用 `send-message`，且只尝试 HTTP 端口。
+
+Devin 回复通过 `devin-reply-inbox/{pending,processing,results}` 单向投递，扩展在 Devin 桌面端提供 `devin.sendChatActionMessage` 或本窗口存在 ACP 通道时写入就绪心跳。Go 侧先用 `session_id` 从桌面端状态库（`%APPDATA%\devin\User\globalStorage\state.vscdb`）读出桌面端内部 Cascade 标识 `acp/devin-cli/<session_id>`，作业随正文一起下发该标识；扩展对 `acp/` 前缀的会话直接向该窗口的 `devin.exe acp` 子进程写 `session/prompt` NDJSON，聊天面板只做尽力激活，避免新开对话或落入 Ask 模式；旧 Cascade 会话仍走 `openCascadeIdInChatPanel` + `sendCascadeInput`。查不到登记记录时直接报错，不回退到 CLI 会话号或最近会话。成功后由 `Stop` Hook 推送本轮结果。Go 侧最多等待 10 秒同步结果，超时后按持久队列已接收处理并继续观察，任务过期或处理中断都不会自动重放。
+
+Antigravity 的 CSRF token 和端口每次启动都会变化，因此不做缓存；Devin 回复全程由桌面端自己处理，不读取 CLI 登录状态、不检查会话锁、也不启动第二个 Agent 进程。
 
 ## ClawBot 2.4.6 契约
 
@@ -162,6 +199,8 @@ OpenCode 使用 `opencode-reply-inbox/{pending,processing,results}` 单向投递
 
 Dispatcher 只负责校验、去重和精确路由查找，实际投递统一交给按 Agent 注册的 `ReplySender`；新增 Agent 时无需修改分发分支。
 
+Antigravity 与 Devin 都只把 `Route.SessionID` 作为目标参数。Antigravity 通过官方 agentapi 先验会话再发送；Devin 先按该 ID 解析桌面端 Cascade 标识，再由扩展向桌面端 ACP 子进程写 `session/prompt`（旧 Cascade 会话回退到聊天面板提交）。两者的明确失败都会同步回写微信，超过同步窗口则按持久队列已接收处理并异步观察，避免 dispatcher 超时诱发重复发送。
+
 本机 Codex CLI 的 `queue` 会把消息写入目标线程的本地持久队列，因此已保存但未在前台打开的线程也能精确接收回复；恢复该线程后，Codex 消费队列中的消息。归档线程会拒绝入队并提示先运行 `codex unarchive`，已删除或不存在的线程同样返回可见错误。`codex exec resume` 会直接运行一个完整新回合，不能在 30 秒内确认“已入队”并在超时时安全退出，因此不作为静默回退。
 
 OpenCode 每个插件实例在 `opencode-reply-inbox/heartbeats` 下维护独立心跳租约；正常退出只删除自己的租约，异常退出的租约最多在 30 秒后失效，不会因一个实例退出而误判其他 location 实例离线。
@@ -176,17 +215,23 @@ OpenCode 的 Go 侧最多等待 10 秒同步结果；窗口内拿到失败会立
 |---|---|
 | 配置 | `%USERPROFILE%\.config\agent-notify\config.json` |
 | 凭据与会话 | `%USERPROFILE%\.config\agent-notify\clawbot.json` |
-| marker | `%USERPROFILE%\.config\agent-notify\{opencode,codex}.off` |
+| marker | `%USERPROFILE%\.config\agent-notify\{opencode,codex,antigravity,devin}.off` |
 | 历史 | `%TEMP%\agent-notify\push.log` |
 | 引用路由与去重 | `%USERPROFILE%\.config\agent-notify\reply-{routes,state}.jsonl` |
 | OpenCode 回复收件箱 | `%USERPROFILE%\.config\agent-notify\opencode-reply-inbox` |
+| Devin 回复收件箱 | `%USERPROFILE%\.config\agent-notify\devin-reply-inbox` |
 | 运行日志 | `%TEMP%\agent-notify\*.log` |
 | Codex 标题诊断 | `%TEMP%\agent-notify\codex-title.log` |
 | OpenCode 插件 | `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts` |
+| Devin 回复扩展 | `%USERPROFILE%\.devin\extensions\agent-notify` |
+| Antigravity Hook | `%USERPROFILE%\.gemini\config\hooks.json` |
+| Antigravity 会话标题 | `%USERPROFILE%\.gemini\antigravity\annotations\<conversationId>.pbtxt` |
+| Devin Hook | `%APPDATA%\devin\config.json` |
+| Devin 桌面端会话元数据（只读） | `%APPDATA%\devin\User\globalStorage\state.vscdb` |
 
 插件副本的 `BAKED_BIN` 指向安装目录里的 exe，安装到自定义目录时不需要额外环境变量。手动移动 exe 后需重跑 `install.ps1`，或用 `AGENT_NOTIFY_BIN` 覆盖。
 
-测试与便携部署可覆盖 `AGENT_NOTIFY_CONFIG_DIR`、`AGENT_NOTIFY_TEMP_DIR`、`AGENT_NOTIFY_CONFIG_FILE`、`AGENT_NOTIFY_CREDENTIAL_FILE`、`AGENT_NOTIFY_LOG_FILE` 和相关 marker 路径。
+测试与便携部署可覆盖 `AGENT_NOTIFY_CONFIG_DIR`、`AGENT_NOTIFY_TEMP_DIR`、`AGENT_NOTIFY_CONFIG_FILE`、`AGENT_NOTIFY_CREDENTIAL_FILE`、`AGENT_NOTIFY_LOG_FILE`、`AGENT_NOTIFY_ANTIGRAVITY_HOOKS`、`AGENT_NOTIFY_ANTIGRAVITY_BIN`、`AGENT_NOTIFY_ANTIGRAVITY_ANNOTATIONS_DIR`、`AGENT_NOTIFY_DEVIN_CONFIG`、`AGENT_NOTIFY_DEVIN_REPLY_DIR`、`AGENT_NOTIFY_DEVIN_DESKTOP_DB` 和相关 marker 路径。
 
 ## 安装模型
 
@@ -196,9 +241,13 @@ OpenCode 的 Go 侧最多等待 10 秒同步结果；窗口内拿到失败会立
 Agent-notify/
 ├── bin/agent-notify.exe
 ├── plugin/agent-notify.ts
+├── plugin/devin-extension/package.json
+├── plugin/devin-extension/extension.js
+├── plugin/devin-extension/acp-bridge.js
 ├── VERSION
 ├── install.ps1
 ├── uninstall.ps1
+├── tools/hook-config.ps1
 ├── README.md
 ├── CHANGELOG.md
 ├── LICENSE
@@ -210,12 +259,15 @@ Agent-notify/
 1. 停止安装目录内的 Agent-notify 进程。
 2. 复制或构建 `agent-notify.exe`。
 3. 复制 `plugin/agent-notify.ts`。
-4. 写入 `agent-notify-install.json`，记录版本和安装目录内文件。
-5. 按安装记录清理已不再分发的旧文件。
-6. 在安全条件下接管 Codex notify。
-7. 创建开机启动和桌面快捷方式，并启动悬浮窗。
+4. 复制 `plugin/devin-extension` 到 Devin 用户扩展目录。
+5. 写入 `agent-notify-install.json`，记录版本和安装目录内文件。
+6. 按安装记录清理已不再分发的旧文件。
+7. 使用共享 `tools/hook-config.ps1` 写入/替换 Antigravity 顶层 `agent-notify` Hook，并合并 Devin `hooks.Stop` handler。
+8. 在安全条件下接管 Codex notify。
+9. 创建开机启动和桌面快捷方式，并启动悬浮窗。
 
-`uninstall.ps1` 只删除安装记录中的文件、固定插件和 Agent-notify 快捷方式，保留用户配置与凭据。
+`uninstall.ps1` 只删除安装记录中的文件、固定插件和 Agent-notify 快捷方式，移除 Agent-notify 自己写入的 Antigravity / Devin Hook，并保留其他 Hook、用户配置与凭据。
+卸载 Devin 扩展前会校验 `package.json` 的 `name` 与 `publisher`；只删除明确的扩展文件，目录中其他内容不会被递归清理。
 
 ## 无窗口与终端行为
 
@@ -267,7 +319,7 @@ Agent-notify/
 
 1. 安装入口名与位置：`agent-notify.exe`、`agent-notify.ts`、`agent-notify-install.json`。
 2. 所有用户可覆盖项统一使用 `AGENT_NOTIFY_*`。
-3. marker 文件名为 `opencode.off` 与 `codex.off`，存在即暂停。
+3. marker 文件名为 `opencode.off`、`codex.off`、`antigravity.off` 与 `devin.off`，存在即暂停。
 4. ClawBot 登录、`context_token` 建立、凭据字段和发送消息结构。
 5. Codex notify 透传顺序：先上游，后推送；推送失败不得影响透传。
 6. `push.log` 保持稳定的 JSON Lines 结构。
@@ -275,3 +327,7 @@ Agent-notify/
 8. v1.0.0 不读取旧品牌名称、旧模块、旧脚本、旧环境变量或命令别名。
 9. 引用回复只允许精确消息 ID 路由；禁止标题、正文、最近会话或跨账号回退。
 10. 引用回复默认关闭；OpenCode 插件不支持 `session.prompt` 或 `promptAsync` 时必须拒绝任务并返回可见错误。
+11. Antigravity Hook 使用独立顶层键 `agent-notify`；Devin 只修改 `hooks.Stop` 中的 Agent-notify handler，安装与卸载不得覆盖其他 JSON 配置。
+12. Antigravity 使用同目录无空格启动器调用安装目录中的 exe，避免其 Windows `cmd /c` 参数转义破坏带引号和空格的命令。
+13. Antigravity / Devin Stop wrapper 必须始终输出 `{}`，通知故障不得阻塞 agent。
+14. Antigravity / Devin 回复只允许使用通知携带的稳定会话 ID；禁止工作目录、最近会话或标题回退。

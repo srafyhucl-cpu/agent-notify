@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/agent"
+	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
 	"github.com/srafyhucl-cpu/agent-notify/internal/app"
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
@@ -105,7 +107,7 @@ func ensureConsole() {
 }
 
 func printHelp() {
-	fmt.Printf("Agent-notify v%s - OpenCode / Codex 微信任务通知\n\n", app.Version)
+	fmt.Printf("Agent-notify v%s - OpenCode / Codex / Antigravity / Devin 微信任务通知\n\n", app.Version)
 	fmt.Println("用法:")
 	fmt.Println("  agent-notify [命令] [选项]")
 	fmt.Println()
@@ -118,7 +120,7 @@ func printHelp() {
 	fmt.Println("  test        发送测试通知并验证完整链路")
 	fmt.Println("  doctor      检查配置、凭据、会话、网络和 Codex 接入")
 	fmt.Println("  reply-check 只读校验微信引用 ID 与通知发送记录是否精确对应")
-	fmt.Println("  toggle      开启或暂停 OpenCode / Codex 推送")
+	fmt.Println("  toggle      开启或暂停 OpenCode / Codex / Antigravity / Devin 推送")
 	fmt.Println("  watch       检查并恢复 Codex notify 配置")
 	fmt.Println("  history     查看最近推送记录（--json 供脚本消费）")
 	fmt.Println("  widget      启动桌面悬浮窗（无参数时默认）")
@@ -188,6 +190,12 @@ func main() {
 		if result.DryRunPayload != "" {
 			fmt.Println(result.DryRunPayload)
 		}
+	case "antigravity":
+		attachConsole()
+		runStopHook(args, agent.HandleAntigravityStop)
+	case "devin":
+		attachConsole()
+		runStopHook(args, agent.HandleDevinStop)
 	case "watch":
 		ensureConsole()
 		if runWatch(args) != 0 {
@@ -217,6 +225,16 @@ func main() {
 func stdinAvailable() bool {
 	info, err := os.Stdin.Stat()
 	return err == nil && (info.Mode()&os.ModeCharDevice) == 0
+}
+
+func runStopHook(args []string, handle func(io.Reader) notify.NotifyResult) {
+	// Stop hooks are synchronous in both agents. Always emit the accepted
+	// empty JSON object even when parsing, policy, or delivery fails.
+	defer fmt.Println("{}")
+	if len(args) == 0 || !strings.EqualFold(strings.TrimSpace(args[0]), "stop") {
+		return
+	}
+	_ = handle(os.Stdin)
 }
 
 func runLogin(args []string) {
@@ -372,25 +390,31 @@ func runStatus(args []string) {
 	status := clawbot.GetStatus()
 	openCodeOn := !marker.IsOff(paths.OpenCodeMarker)
 	codexOn := !marker.IsOff(paths.CodexMarker)
+	antigravityOn := !marker.IsOff(paths.AntigravityMarker)
+	devinOn := !marker.IsOff(paths.DevinMarker)
 	history, _ := notify.GetHistory(1, paths.PushLog)
 
 	output := map[string]interface{}{
-		"version":         app.Version,
-		"commit":          app.Commit,
-		"configFile":      paths.ConfigFile,
-		"credentialFile":  paths.CredentialFile,
-		"clawbot":         status,
-		"quietHours":      cfg.QuietHours,
-		"cooldownMinutes": cfg.CooldownMin,
-		"replyEnabled":    cfg.ReplyEnabled,
-		"openCodeEnabled": openCodeOn,
-		"codexEnabled":    codexOn,
-		"pushLog":         paths.PushLog,
-		"lastPush":        firstHistory(history),
-		"pluginFile":      paths.PluginFile,
-		"pluginInstalled": fileExists(paths.PluginFile),
-		"replyRouteFile":  paths.ReplyRouteFile,
-		"codexTitleLog":   paths.CodexTitleLog,
+		"version":            app.Version,
+		"commit":             app.Commit,
+		"configFile":         paths.ConfigFile,
+		"credentialFile":     paths.CredentialFile,
+		"clawbot":            status,
+		"quietHours":         cfg.QuietHours,
+		"cooldownMinutes":    cfg.CooldownMin,
+		"replyEnabled":       cfg.ReplyEnabled,
+		"openCodeEnabled":    openCodeOn,
+		"codexEnabled":       codexOn,
+		"antigravityEnabled": antigravityOn,
+		"devinEnabled":       devinOn,
+		"pushLog":            paths.PushLog,
+		"lastPush":           firstHistory(history),
+		"pluginFile":         paths.PluginFile,
+		"pluginInstalled":    fileExists(paths.PluginFile),
+		"replyRouteFile":     paths.ReplyRouteFile,
+		"codexTitleLog":      paths.CodexTitleLog,
+		"antigravityHooks":   paths.AntigravityHooks,
+		"devinConfig":        paths.DevinConfig,
 	}
 	if cfgErr != nil {
 		output["configError"] = cfgErr.Error()
@@ -407,12 +431,16 @@ func runStatus(args []string) {
 	fmt.Printf("主动推送会话: %s\n", sessionStatus(status))
 	fmt.Printf("OpenCode 推送: %s\n", onOff(openCodeOn))
 	fmt.Printf("Codex 推送: %s\n", onOff(codexOn))
+	fmt.Printf("Antigravity 推送: %s\n", onOff(antigravityOn))
+	fmt.Printf("Devin 推送: %s\n", onOff(devinOn))
 	fmt.Printf("引用回复: %s\n", onOff(cfg.ReplyEnabled))
 	fmt.Printf("勿扰时段: %s\n", emptyAs(cfg.QuietHours, "关闭"))
 	fmt.Printf("会话冷却: %d 分钟\n", cfg.CooldownMin)
 	fmt.Printf("配置文件: %s\n", paths.ConfigFile)
 	fmt.Printf("凭据文件: %s\n", paths.CredentialFile)
 	fmt.Printf("OpenCode 插件: %s\n", installedStatus(fileExists(paths.PluginFile)))
+	fmt.Printf("Antigravity Hook: %s\n", paths.AntigravityHooks)
+	fmt.Printf("Devin Hook: %s\n", paths.DevinConfig)
 	fmt.Printf("推送日志: %s\n", paths.PushLog)
 	fmt.Printf("引用路由文件: %s\n", paths.ReplyRouteFile)
 	fmt.Printf("Codex 标题诊断: %s\n", paths.CodexTitleLog)
@@ -527,6 +555,9 @@ func runDoctor() int {
 		failures++
 	}
 
+	reportHookIntegration("Antigravity 接入", paths.AntigravityHooks, "antigravity stop")
+	reportHookIntegration("Devin 接入", paths.DevinConfig, "devin stop")
+
 	codexConfig := codexConfigPath()
 	codexInUse := false
 	if data, err := os.ReadFile(codexConfig); err != nil {
@@ -572,7 +603,13 @@ func runDoctor() int {
 		failures++
 	}
 
-	reportCheck(true, "推送开关", fmt.Sprintf("opencode=%s codex=%s", onOff(!marker.IsOff(paths.OpenCodeMarker)), onOff(!marker.IsOff(paths.CodexMarker))))
+	reportCheck(true, "推送开关", fmt.Sprintf(
+		"opencode=%s codex=%s antigravity=%s devin=%s",
+		onOff(!marker.IsOff(paths.OpenCodeMarker)),
+		onOff(!marker.IsOff(paths.CodexMarker)),
+		onOff(!marker.IsOff(paths.AntigravityMarker)),
+		onOff(!marker.IsOff(paths.DevinMarker)),
+	))
 	if _, err := notify.GetHistory(1, paths.PushLog); err != nil {
 		reportCheck(false, "推送日志可读", err.Error())
 		failures++
@@ -627,9 +664,27 @@ func reportWarning(name, detail string) {
 	fmt.Println()
 }
 
+func reportHookIntegration(name, path, commandSuffix string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			reportWarning(name, "未发现配置文件，按未使用处理")
+		} else {
+			reportWarning(name, err.Error())
+		}
+		return
+	}
+	content := strings.ToLower(string(data))
+	if strings.Contains(content, "agent-notify") && strings.Contains(content, strings.ToLower(commandSuffix)) {
+		reportCheck(true, name, path)
+		return
+	}
+	reportWarning(name, "未发现 Agent-notify hook，请重新运行 install.ps1")
+}
+
 func runToggle(args []string) int {
 	flags := flag.NewFlagSet("toggle", flag.ContinueOnError)
-	agentName := flags.String("agent", "all", "all、opencode 或 codex")
+	agentName := flags.String("agent", "all", "all、opencode、codex、antigravity 或 devin")
 	on := flags.Bool("on", false, "开启")
 	off := flags.Bool("off", false, "关闭")
 	if err := flags.Parse(args); err != nil {
@@ -710,6 +765,9 @@ func historyTime(item notify.HistoryItem) string {
 func historyAgent(item notify.HistoryItem) string {
 	if item.Agent == "" {
 		return "通用"
+	}
+	if descriptor, ok := agentmeta.Lookup(item.Agent); ok {
+		return descriptor.DisplayName
 	}
 	return item.Agent
 }

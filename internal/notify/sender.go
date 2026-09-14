@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
 	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
@@ -28,7 +29,7 @@ const (
 // NotifyOptions holds arguments for sending one notification.
 type NotifyOptions struct {
 	Agent string
-	// SessionID is the OpenCode session ID or authoritative Codex thread ID.
+	// SessionID is the agent's authoritative conversation or thread ID.
 	SessionID string
 	Title     string
 	Summary   string
@@ -180,11 +181,7 @@ func prepareNotification(opts NotifyOptions) (NotifyOptions, ProtocolResult) {
 }
 
 func isRouteable(opts NotifyOptions, result clawbot.SendResult) bool {
-	agent := strings.ToLower(strings.TrimSpace(opts.Agent))
-	if agent != "codex" && agent != "opencode" {
-		return false
-	}
-	if strings.TrimSpace(opts.SessionID) == "" {
+	if !agentmeta.IsReplyable(opts.Agent) || strings.TrimSpace(opts.SessionID) == "" {
 		return false
 	}
 	return strings.TrimSpace(result.MessageID) != "" || strings.TrimSpace(result.ClientID) != ""

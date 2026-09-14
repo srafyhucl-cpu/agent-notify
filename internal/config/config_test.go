@@ -139,6 +139,7 @@ func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
 		"AGENT_NOTIFY_PLUGIN_FILE",
 		"AGENT_NOTIFY_OPENCODE_MARKER_FILE",
 		"AGENT_NOTIFY_CODEX_MARKER_FILE",
+		"AGENT_NOTIFY_DEVIN_REPLY_DIR",
 		"AGENT_NOTIFY_LOG_FILE",
 	} {
 		t.Setenv(key, "")
@@ -160,6 +161,9 @@ func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
 	}
 	if paths.OpenCodeReplyDir != filepath.Join(configDir, "opencode-reply-inbox") {
 		t.Fatalf("OpenCodeReplyDir = %q", paths.OpenCodeReplyDir)
+	}
+	if paths.DevinReplyDir != filepath.Join(configDir, "devin-reply-inbox") {
+		t.Fatalf("DevinReplyDir = %q", paths.DevinReplyDir)
 	}
 	if paths.PluginFile != filepath.Join(home, ".config", "opencode", "plugins", "agent-notify.ts") {
 		t.Fatalf("PluginFile = %q", paths.PluginFile)

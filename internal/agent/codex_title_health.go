@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/srafyhucl-cpu/agent-notify/internal/winsqlite"
 )
 
 const (
@@ -20,7 +22,7 @@ type CodexTitleHealth struct {
 
 // CheckCodexTitleHealth performs a real read-only SQLite title probe.
 func CheckCodexTitleHealth() CodexTitleHealth {
-	if _, err := loadCodexSQLiteAPI(); err != nil {
+	if err := winsqlite.CheckAvailable(); err != nil {
 		return CodexTitleHealth{
 			Status: CodexTitleStatusFailed,
 			Detail: "winsqlite3.dll 或导出函数不可用: " + err.Error(),

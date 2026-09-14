@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
 )
@@ -58,8 +59,8 @@ type Dispatcher struct {
 	now      func() time.Time
 }
 
-// NewDispatcher builds a dispatcher with Codex and OpenCode senders available
-// by default. Callers may replace either sender or register additional Agents.
+// NewDispatcher builds a dispatcher with all supported agent senders available
+// by default. Callers may replace a sender or register additional agents.
 func NewDispatcher(options DispatcherOptions) *Dispatcher {
 	if options.Routes == nil {
 		options.Routes = NewRouteStore("")
@@ -99,6 +100,16 @@ func NewDispatcher(options DispatcherOptions) *Dispatcher {
 		dispatcher.senders["opencode"] = OpenCodeReplySender{Queue: OpenCodeQueueRunner{
 			OnAsyncFailure: func(_ string, _ string, err error) {
 				dispatcher.fail("", fmt.Sprintf("发送到 OpenCode 失败：%s", compactError(err)))
+			},
+		}}
+	}
+	if _, ok := dispatcher.senders[agentmeta.Antigravity]; !ok {
+		dispatcher.senders[agentmeta.Antigravity] = AntigravityAgentAPISender{}
+	}
+	if _, ok := dispatcher.senders[agentmeta.Devin]; !ok {
+		dispatcher.senders[agentmeta.Devin] = DevinReplySender{Queue: DevinQueueRunner{
+			OnAsyncFailure: func(_ string, _ string, err error) {
+				dispatcher.fail("", fmt.Sprintf("发送到 Devin 失败：%s", compactError(err)))
 			},
 		}}
 	}
@@ -258,14 +269,10 @@ func validateReplyPayload(referencedIDs []string, text string) (string, string) 
 }
 
 func agentLabel(agent string) string {
-	switch strings.ToLower(strings.TrimSpace(agent)) {
-	case "codex":
-		return "Codex"
-	case "opencode":
-		return "OpenCode"
-	default:
-		return strings.TrimSpace(agent)
+	if descriptor, ok := agentmeta.Lookup(agent); ok {
+		return descriptor.DisplayName
 	}
+	return strings.TrimSpace(agent)
 }
 
 func compactError(err error) string {
