@@ -234,27 +234,31 @@ func runWidget() {
 	executable, _ := os.Executable()
 	installDir := filepath.Dir(executable)
 	paths := config.GetPaths()
+	scriptPath := filepath.Join(installDir, "install.ps1")
 	setupError := setup.Ensure(context.Background(), setup.Options{
 		Version:    app.Version,
 		InstallDir: installDir,
-		ScriptPath: filepath.Join(installDir, "install.ps1"),
+		ScriptPath: scriptPath,
 		StateFile:  paths.SetupStateFile,
 		LogFile:    paths.SetupLogFile,
 	})
+	_, scriptErr := os.Stat(scriptPath)
 	if app.Version == "dev" {
-		if _, err := os.Stat(filepath.Join(installDir, "install.ps1")); os.IsNotExist(err) {
+		if os.IsNotExist(scriptErr) {
 			setupError = nil
 		}
 	}
 	ui.RunWidget(ui.WidgetOptions{
 		InitialSetupError: setupError,
+		ShowLoginOnStart:  setupError == nil && scriptErr == nil && !clawbot.HasCredentials(),
 		RepairSetup: func(ctx context.Context) error {
 			return setup.Ensure(ctx, setup.Options{
 				Version:    app.Version,
 				InstallDir: installDir,
-				ScriptPath: filepath.Join(installDir, "install.ps1"),
+				ScriptPath: scriptPath,
 				StateFile:  paths.SetupStateFile,
 				LogFile:    paths.SetupLogFile,
+				Force:      true,
 			})
 		},
 	})

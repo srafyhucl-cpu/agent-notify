@@ -57,7 +57,7 @@ Name: "{userdesktop}\Agent-notify"; Filename: "{app}\agent-notify.exe"; Paramete
 Name: "{userstartup}\Agent-notify"; Filename: "{app}\agent-notify.exe"; Parameters: "widget"; Tasks: startupicon
 
 [Run]
-Filename: "{app}\agent-notify.exe"; Parameters: "widget"; Description: "启动 Agent-notify"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\agent-notify.exe"; Parameters: "widget"; Description: "启动 Agent-notify"; Flags: nowait postinstall
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -InstallDir ""{app}"" -SkipProcessStop -SkipShortcuts"; Flags: runhidden; RunOnceId: "AgentNotifyCleanup"

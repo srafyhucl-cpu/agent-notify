@@ -33,6 +33,33 @@ func TestEnsureSkipsCompletedVersion(t *testing.T) {
 	}
 }
 
+func TestEnsureForceRunsCompletedVersion(t *testing.T) {
+	root := t.TempDir()
+	state := filepath.Join(root, "setup-state.json")
+	script := filepath.Join(root, "install.ps1")
+	if err := writeState(state, "1.4.2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("param()"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	err := ensure(context.Background(), Options{
+		Version:    "1.4.2",
+		InstallDir: root,
+		ScriptPath: script,
+		StateFile:  state,
+		LogFile:    filepath.Join(root, "setup.log"),
+		Force:      true,
+	}, func(context.Context, string, ...string) ([]byte, error) {
+		called = true
+		return nil, nil
+	})
+	if err != nil || !called {
+		t.Fatalf("Ensure force err=%v called=%v", err, called)
+	}
+}
+
 func TestEnsureBuildsConfigureOnlyCommand(t *testing.T) {
 	root := t.TempDir()
 	script := filepath.Join(root, "install.ps1")

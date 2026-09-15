@@ -78,6 +78,7 @@ type WidgetApp struct {
 type WidgetOptions struct {
 	InitialSetupError error
 	RepairSetup       func(context.Context) error
+	ShowLoginOnStart  bool
 }
 
 type widgetLayout struct {
@@ -649,6 +650,9 @@ func RunWidget(options WidgetOptions) {
 	pShowWindow.Call(hwnd, SW_SHOW)
 	pUpdateWindow.Call(hwnd)
 	ForceForegroundWindow(hwnd)
+	if options.ShowLoginOnStart && !clawbot.HasCredentials() {
+		ShowLoginDialog(hwnd)
+	}
 
 	var message MSG
 	for {

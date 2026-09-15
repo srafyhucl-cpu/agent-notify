@@ -140,6 +140,8 @@ func drawPill(hdc uintptr, rect RECT, text string, color uint32, font uintptr) {
 // connectionText returns the headline and supporting line for the ClawBot card.
 func (app *WidgetApp) connectionText() (string, string, uint32) {
 	switch {
+	case app.setupError != "":
+		return "首次接入失败", app.setupError, RGB(224, 165, 70)
 	case !app.clawbotLoggedIn:
 		return "ClawBot 未连接", "点击设置微信推送", RGB(224, 104, 104)
 	case app.clawbotStale:

@@ -393,7 +393,7 @@ func TestInstallerCommandArgs(t *testing.T) {
 	if command.Path != `D:\Temp\Agent-notify-Setup-v1.4.0.exe` {
 		t.Fatalf("command path = %q", command.Path)
 	}
-	want := []string{`D:\Temp\Agent-notify-Setup-v1.4.0.exe`, "/NORESTART", "-SkipLoginLaunch", "-InstallDir", `D:\Agent's Files`}
+	want := []string{`D:\Temp\Agent-notify-Setup-v1.4.0.exe`, "/SILENT", "/NORESTART", "-SkipLoginLaunch", "-InstallDir", `D:\Agent's Files`}
 	if fmt.Sprint(command.Args) != fmt.Sprint(want) {
 		t.Fatalf("command args = %#v, want %#v", command.Args, want)
 	}

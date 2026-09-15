@@ -62,6 +62,14 @@ func TestHealthReportsSetupFailure(t *testing.T) {
 	}
 }
 
+func TestConnectionTextReportsSetupFailure(t *testing.T) {
+	app := WidgetApp{setupError: "首次接入失败：hook 被占用"}
+	title, detail, _ := app.connectionText()
+	if title != "首次接入失败" || detail != app.setupError {
+		t.Fatalf("connection text = (%q, %q)", title, detail)
+	}
+}
+
 func TestHealthReadyOnlyWhenRelevantIntegrationsAreConnected(t *testing.T) {
 	app := WidgetApp{
 		clawbotLoggedIn:     true,

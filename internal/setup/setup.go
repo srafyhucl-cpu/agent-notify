@@ -17,6 +17,7 @@ type Options struct {
 	ScriptPath string
 	StateFile  string
 	LogFile    string
+	Force      bool
 }
 
 type commandRunner func(context.Context, string, ...string) ([]byte, error)
@@ -31,7 +32,7 @@ func Ensure(ctx context.Context, options Options) error {
 }
 
 func ensure(ctx context.Context, options Options, runner commandRunner) error {
-	if IsComplete(options.StateFile, options.Version) {
+	if !options.Force && IsComplete(options.StateFile, options.Version) {
 		return nil
 	}
 	if strings.TrimSpace(options.InstallDir) == "" {

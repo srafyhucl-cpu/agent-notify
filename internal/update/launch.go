@@ -62,8 +62,8 @@ func (prepared PreparedUpdate) Launch(logPath string, installerArgs ...string) e
 }
 
 func installerCommand(installerPath string, installerArgs []string) *exec.Cmd {
-	args := make([]string, 0, len(installerArgs)+1)
-	args = append(args, "/NORESTART")
+	args := make([]string, 0, len(installerArgs)+2)
+	args = append(args, "/SILENT", "/NORESTART")
 	args = append(args, installerArgs...)
 	command := exec.Command(installerPath, args...)
 	command.Dir = filepath.Dir(installerPath)

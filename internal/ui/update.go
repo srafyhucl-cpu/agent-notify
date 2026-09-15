@@ -116,17 +116,15 @@ func (app *WidgetApp) startUpdateInstall(hwnd uintptr, release update.Release) {
 		prepared, err := update.NewClient().Prepare(ctx, release, root)
 		if err == nil {
 			logPath := filepath.Join(root, "last-update.log")
-			err = prepared.Launch(logPath, app.updateInstallerArgs()...)
+			if prepared.Kind == update.ArtifactInstaller {
+				err = prepared.Launch(logPath)
+			} else {
+				err = prepared.Launch(logPath, app.updateInstallerArgs()...)
+			}
 		}
 		if err != nil {
 			app.finishUpdateInstall(err.Error())
 			pPostMessageW.Call(hwnd, WM_USER_UPDATE_ERROR, 0, 0)
-			return
-		}
-		if prepared.Kind == update.ArtifactInstaller {
-			// 安装器会负责关闭并重启当前程序，这里不能提前退出。
-			app.finishUpdateInstall("")
-			pInvalidateRect.Call(hwnd, 0, 0)
 			return
 		}
 		pPostMessageW.Call(hwnd, WM_USER_UPDATE_RESTART, 0, 0)
@@ -164,9 +162,6 @@ func (app *WidgetApp) updateButtonState() (string, bool) {
 	case "checking":
 		return "检查中", false
 	case "installing":
-		if app.updateState.release != nil && app.updateState.release.ArtifactKind == update.ArtifactInstaller {
-			return "准备安装", false
-		}
 		return "升级中", false
 	}
 	if app.updateState.release != nil {
