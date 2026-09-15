@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -78,6 +79,19 @@ func TestUpdateInstallerArgsPreserveConfiguredPaths(t *testing.T) {
 	}
 	if !containsString(arguments, "-InstallDir") || !containsString(arguments, "-SkipLoginLaunch") {
 		t.Fatalf("arguments = %#v, missing install dir or login suppression", arguments)
+	}
+}
+
+func TestUpdateSetupArgsLockInstallDir(t *testing.T) {
+	app := &WidgetApp{}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/DIR=" + filepath.Dir(executable)
+	arguments := app.updateSetupArgs()
+	if len(arguments) != 1 || arguments[0] != want {
+		t.Fatalf("updateSetupArgs = %#v, want %q", arguments, want)
 	}
 }
 

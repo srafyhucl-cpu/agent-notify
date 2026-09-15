@@ -117,7 +117,7 @@ func (app *WidgetApp) startUpdateInstall(hwnd uintptr, release update.Release) {
 		if err == nil {
 			logPath := filepath.Join(root, "last-update.log")
 			if prepared.Kind == update.ArtifactInstaller {
-				err = prepared.Launch(logPath)
+				err = prepared.Launch(logPath, app.updateSetupArgs()...)
 			} else {
 				err = prepared.Launch(logPath, app.updateInstallerArgs()...)
 			}
@@ -132,9 +132,8 @@ func (app *WidgetApp) startUpdateInstall(hwnd uintptr, release update.Release) {
 }
 
 func (app *WidgetApp) updateInstallerArgs() []string {
-	executable, _ := os.Executable()
 	arguments := []string{"-SkipLoginLaunch"}
-	if installDir := strings.TrimSpace(filepath.Dir(executable)); installDir != "" && installDir != "." {
+	if installDir := currentInstallDir(); installDir != "" {
 		arguments = append(arguments, "-InstallDir", installDir)
 	}
 	if pluginDir := strings.TrimSpace(filepath.Dir(app.paths.PluginFile)); pluginDir != "" && pluginDir != "." {
@@ -153,6 +152,29 @@ func (app *WidgetApp) updateInstallerArgs() []string {
 		arguments = append(arguments, "-DevinConfig", path)
 	}
 	return arguments
+}
+
+// updateSetupArgs 把当前安装目录交给标准安装器：升级必须原地进行，
+// 不允许因为安装器的默认目录而搬到 %LOCALAPPDATA%\Programs\Agent-notify。
+func (app *WidgetApp) updateSetupArgs() []string {
+	installDir := currentInstallDir()
+	if installDir == "" {
+		return nil
+	}
+	return []string{"/DIR=" + installDir}
+}
+
+// currentInstallDir 返回正在运行的 exe 所在目录，升级时用它锁定安装位置。
+func currentInstallDir() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	installDir := strings.TrimSpace(filepath.Dir(executable))
+	if installDir == "" || installDir == "." {
+		return ""
+	}
+	return installDir
 }
 
 func (app *WidgetApp) updateButtonState() (string, bool) {
