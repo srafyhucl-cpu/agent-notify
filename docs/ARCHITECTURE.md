@@ -55,7 +55,9 @@ Devin
 
 | 路径 | 职责 | 关键约束 |
 |---|---|---|
+| `installer/agent-notify.iss` | Inno Setup 当前用户安装器、快捷方式、标准卸载与启动项 | 默认安装到 `%LOCALAPPDATA%\Programs\Agent-notify`；不要求管理员权限；升级复用固定 AppId |
 | `cmd/agent-notify/main.go` | CLI 命令、控制台处理、交互输出 | 发布版使用 GUI 子系统；仅在实际无可用 stdout 时绑定控制台 |
+| `internal/setup` | 首次启动状态检查、隐藏 PowerShell 配置和失败重试 | 不重复执行已完成版本；失败不写完成状态；CLI 子命令不触发 |
 | `internal/agent` | OpenCode、Codex、Antigravity、Devin、toggle、Codex 配置恢复 | Hook 路径避免阻塞；每个 Stop Hook 都输出兼容的继续语义；Codex 先透传再推送 |
 | `internal/clawbot` | 二维码登录、凭据与会话状态、消息轮询、ClawBot API | 账号隔离；context token 持久化；`-14` 停止重试 |
 | `internal/notify` | 协议块解析、消息渲染、发送、JSONL 历史 | 默认不限长；显式 `MaxChars` 计入标题、正文和页脚 |
@@ -221,6 +223,8 @@ OpenCode 的 Go 侧最多等待 10 秒同步结果；窗口内拿到失败会立
 | OpenCode 回复收件箱 | `%USERPROFILE%\.config\agent-notify\opencode-reply-inbox` |
 | Devin 回复收件箱 | `%USERPROFILE%\.config\agent-notify\devin-reply-inbox` |
 | 运行日志 | `%TEMP%\agent-notify\*.log` |
+| 首次接入状态 | `%USERPROFILE%\.config\agent-notify\setup-state.json` |
+| 首次接入失败日志 | `%TEMP%\agent-notify\setup.log` |
 | Codex 标题诊断 | `%TEMP%\agent-notify\codex-title.log` |
 | OpenCode 插件 | `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts` |
 | Devin 回复扩展 | `%USERPROFILE%\.devin\extensions\agent-notify` |
@@ -231,30 +235,43 @@ OpenCode 的 Go 侧最多等待 10 秒同步结果；窗口内拿到失败会立
 
 插件副本的 `BAKED_BIN` 指向安装目录里的 exe，安装到自定义目录时不需要额外环境变量。手动移动 exe 后需重跑 `install.ps1`，或用 `AGENT_NOTIFY_BIN` 覆盖。
 
-测试与便携部署可覆盖 `AGENT_NOTIFY_CONFIG_DIR`、`AGENT_NOTIFY_TEMP_DIR`、`AGENT_NOTIFY_CONFIG_FILE`、`AGENT_NOTIFY_CREDENTIAL_FILE`、`AGENT_NOTIFY_LOG_FILE`、`AGENT_NOTIFY_ANTIGRAVITY_HOOKS`、`AGENT_NOTIFY_ANTIGRAVITY_BIN`、`AGENT_NOTIFY_ANTIGRAVITY_ANNOTATIONS_DIR`、`AGENT_NOTIFY_DEVIN_CONFIG`、`AGENT_NOTIFY_DEVIN_REPLY_DIR`、`AGENT_NOTIFY_DEVIN_DESKTOP_DB` 和相关 marker 路径。
+测试与便携部署可覆盖 `AGENT_NOTIFY_CONFIG_DIR`、`AGENT_NOTIFY_TEMP_DIR`、`AGENT_NOTIFY_CONFIG_FILE`、`AGENT_NOTIFY_CREDENTIAL_FILE`、`AGENT_NOTIFY_LOG_FILE`、`AGENT_NOTIFY_SETUP_STATE_FILE`、`AGENT_NOTIFY_SETUP_LOG_FILE`、`AGENT_NOTIFY_ANTIGRAVITY_HOOKS`、`AGENT_NOTIFY_ANTIGRAVITY_BIN`、`AGENT_NOTIFY_ANTIGRAVITY_ANNOTATIONS_DIR`、`AGENT_NOTIFY_DEVIN_CONFIG`、`AGENT_NOTIFY_DEVIN_REPLY_DIR`、`AGENT_NOTIFY_DEVIN_DESKTOP_DB` 和相关 marker 路径。
 
-## 安装模型
+## 安装、首次接入与卸载
 
-发布包结构：
+标准发布同时提供安装器、ZIP 和校验文件：
+
+```text
+dist/
+├── Agent-notify-Setup-vX.Y.Z.exe
+├── Agent-notify-vX.Y.Z.zip
+└── SHA256SUMS.txt
+```
+
+`Agent-notify-Setup-vX.Y.Z.exe` 由 `installer/agent-notify.iss` 生成，是普通用户的主安装入口。它按当前用户安装到 `%LOCALAPPDATA%\Programs\Agent-notify`，复制运行程序、插件、扩展和配置脚本，创建开始菜单、可选桌面快捷方式和可选开机启动项，并注册标准卸载入口。安装完成页默认启动 `agent-notify.exe widget`。
+
+ZIP 保留给便携、开发和旧版更新兼容，内部结构仍为：
 
 ```text
 Agent-notify/
 ├── bin/agent-notify.exe
 ├── plugin/agent-notify.ts
-├── plugin/devin-extension/package.json
-├── plugin/devin-extension/extension.js
-├── plugin/devin-extension/acp-bridge.js
+├── plugin/devin-extension/{package.json,extension.js,acp-bridge.js}
 ├── VERSION
 ├── install.ps1
 ├── uninstall.ps1
-├── tools/hook-config.ps1
-├── README.md
-├── CHANGELOG.md
-├── LICENSE
-└── .env.example
+└── tools/hook-config.ps1
 ```
 
-`install.ps1`：
+标准安装版首次执行 `widget` 时，`internal/setup` 会在显示悬浮窗前做用户级配置：
+
+1. 读取 `%USERPROFILE%\.config\agent-notify\setup-state.json`。文件中的版本与当前版本一致时直接跳过；文件缺失、损坏或版本不一致时继续初始化。
+2. 通过隐藏窗口的 `powershell.exe` 调用安装目录中的 `install.ps1 -ConfigureOnly -InstallDir <安装目录> -SkipWidgetLaunch -SkipLoginLaunch -SkipShortcuts`，不显示命令行。
+3. `-ConfigureOnly` 不替换 exe、不创建快捷方式、不主动启动登录，只安装或更新 OpenCode 插件、Devin 扩展、Antigravity / Devin Hook 和 Codex notify，并写入安装记录。
+4. 成功后原子写入 `setup-state.json` 的版本与完成时间；失败时不写完成状态，把 PowerShell 输出写到 `%TEMP%\agent-notify\setup.log`。
+5. 失败时悬浮窗仍可打开，顶部连接卡和健康状态显示“首次接入失败”或“接入异常”。点击“检查修复”会强制重跑初始化，再执行现有可恢复的 Codex notify 检查。
+
+`install.ps1` 的完整模式：
 
 1. 停止安装目录内的 Agent-notify 进程。
 2. 复制或构建 `agent-notify.exe`。
@@ -266,7 +283,8 @@ Agent-notify/
 8. 在安全条件下接管 Codex notify。
 9. 创建开机启动和桌面快捷方式，并启动悬浮窗。
 
-`uninstall.ps1` 只删除安装记录中的文件、固定插件和 Agent-notify 快捷方式，移除 Agent-notify 自己写入的 Antigravity / Devin Hook，并保留其他 Hook、用户配置与凭据。
+标准安装版卸载入口由 Inno Setup 注册，卸载时隐藏调用 `uninstall.ps1`。卸载器只删除安装记录中的程序文件、固定插件和 Agent-notify 快捷方式，移除 Agent-notify 自己写入的 Antigravity / Devin Hook 与 Codex notify 配置，并保留其他 Hook、用户配置和凭据。ClawBot 登录凭据、`config.json`、推送历史和引用路由默认保留在 `%USERPROFILE%\.config\agent-notify`。
+
 卸载 Devin 扩展前会校验 `package.json` 的 `name` 与 `publisher`；只删除明确的扩展文件，目录中其他内容不会被递归清理。
 
 ## 无窗口与终端行为
@@ -311,22 +329,24 @@ Agent-notify/
 ## 版本与发布
 
 - 应用版本唯一来源：`internal/app/version.go` 的 `Version`。
-- 本地或 CI 使用 `tools/build-release.ps1` 生成 `Agent-notify-v<版本>.zip` 和 `SHA256SUMS.txt`。
+- 本地或 CI 使用 `tools/build-release.ps1` 生成 `Agent-notify-Setup-vX.Y.Z.exe`、`Agent-notify-vX.Y.Z.zip` 和同时包含两者哈希的 `SHA256SUMS.txt`。
 - Release workflow 校验 tag `v<版本>` 与 Go 源码版本一致。
 - 发布同步使用 `tools/publish-release.ps1` 将构建产物上传到公开的 `agent-notify-releases` 仓库，源码仓库无需公开。
-- 发布包解压后包含 `bin/agent-notify.exe`，最终用户不需要安装 Go。
+- `tools/build-installer.ps1` 校验 `VERSION` 与 Go 源码版本一致，再调用 Inno Setup 生成安装器。
+- 最终用户不需要安装 Go；ZIP 解压后包含 `bin/agent-notify.exe`，标准安装器直接复制已构建的程序。
 
 ## 自动更新
 
 悬浮窗的“升级”按钮调用 `internal/update`：
 
 1. 从 GitHub `releases/latest` 读取稳定版本，要求版本严格高于当前 SemVer。
-2. 只接受与版本对应的 `Agent-notify-v<版本>.zip` 和 `SHA256SUMS.txt`，不接受模糊文件名或旁路下载地址。
+2. 优先接受与版本对应的 `Agent-notify-Setup-vX.Y.Z.exe`；Release 缺少安装器时回退到 `Agent-notify-vX.Y.Z.zip`，两种情况都要求同名 `SHA256SUMS.txt`，不接受模糊文件名或旁路下载地址。
 3. 默认更新源是只分发编译产物的公开仓库 `srafyhucl-cpu/agent-notify-releases`，源码仓库保持私有。
-4. 下载后先校验 SHA256，再拒绝越界 ZIP 路径、符号链接、超限文件、版本不一致或缺少安装器的包。
-5. 校验通过后，由独立 PowerShell 进程调用新版本自带的 `install.ps1`；当前 exe 不覆写自身。
-6. 安装器继承当前安装目录、插件目录、Devin 扩展、Codex notify、Antigravity Hook 和 Devin Hook 的实际路径，并保留 ClawBot 凭据、配置、历史和路由。
-7. 更新只重启 Agent-notify 悬浮窗，不启动、关闭或重启任何 Agent。
+4. 安装器和校验文件先下载到 `%TEMP%\agent-notify\updates`；下载后校验 SHA256，并检查安装器是否为 Windows PE 文件。
+5. 安装器校验通过后以 `/SILENT /NORESTART` 直接启动，由 Inno Setup 原地覆盖现有安装并重新启动悬浮窗。校验失败时删除下载内容，不启动安装程序。
+6. ZIP 兼容路径继续校验 SHA256，并拒绝越界路径、符号链接、超限文件、版本不一致或缺少安装脚本的包；校验通过后由隐藏 PowerShell 进程调用新版本自带的 `install.ps1`。
+7. 两种路径都继承用户当前的安装目录与 Agent 配置路径，并保留 ClawBot 凭据、配置、历史和引用路由。
+8. 更新只重启 Agent-notify 悬浮窗，不启动、关闭或重启任何 Agent。
 
 ## 不可破坏的契约
 

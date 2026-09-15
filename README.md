@@ -26,7 +26,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 - 微信引用 Agent-notify 通知后可继续对应的 OpenCode、Codex、Antigravity 或 Devin 会话；目标只按原始平台消息 ID 和稳定会话 ID 精确匹配，不回退到最近会话。
 - 通用 CLI，可在编译、测试、训练或爬虫结束后主动推送。
 - 原生 Windows 悬浮窗：四个 Agent 的开关与运行状态、勿扰设置、推送历史、测试推送和托盘。
-- 悬浮窗内置一键升级：检查最新 GitHub Release、校验 `SHA256SUMS.txt`，安装完成后自动重启悬浮窗。
+- 悬浮窗内置一键升级：检查最新 GitHub Release，静默下载并校验 `SHA256SUMS.txt`，优先直接运行新版 `Agent-notify-Setup-vX.Y.Z.exe`。
 - 设置窗内置 ClawBot 扫码登录、重新登录和退出登录，不再切换到独立控制台。
 - 悬浮窗、设置、登录和历史窗口均按 DPI 缩放并使用双缓冲绘制，支持多显示器 DPI 变化。
 - 悬浮窗是托盘型工具窗，不占用任务栏按钮，也不进入 Alt+Tab；隐藏后从托盘图标恢复。
@@ -35,24 +35,24 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 
 ## 安装
 
-从[公开 Release](https://github.com/srafyhucl-cpu/agent-notify-releases/releases/latest)下载 `Agent-notify-v1.4.1.zip`，解压后运行：
+普通用户从[公开 Release](https://github.com/srafyhucl-cpu/agent-notify-releases/releases/latest)下载 `Agent-notify-Setup-vX.Y.Z.exe`，双击后按向导完成安装。安装器默认按当前用户安装到 `%LOCALAPPDATA%\Programs\Agent-notify`，不要求管理员权限，也不会打开命令行窗口。
 
-发布包不包含任何账号凭据或绝对安装路径。安装器会在每台机器上按当前用户目录写入插件所需的实际可执行文件路径。
+安装完成页默认勾选“启动 Agent-notify”。标准安装版首次启动时会在后台静默完成 OpenCode、Codex、Antigravity、Devin 接入；本机没有 ClawBot 凭据时，随后打开微信扫码窗口。
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-```
+如果首次接入失败，悬浮窗会显示“首次接入失败”或“接入异常”。点击右下角“检查修复”可重新执行接入并查看失败原因；详细输出位于 `%TEMP%\agent-notify\setup.log`。状态文件 `%USERPROFILE%\.config\agent-notify\setup-state.json` 记录已完成接入的版本，版本升级或删除该文件后会在下次启动重新执行。
 
-默认安装结果：
+标准安装默认结果：
 
 | 内容 | 默认路径 |
 |---|---|
-| 运行程序 | `%USERPROFILE%\bin\agent-notify.exe` |
+| 运行程序 | `%LOCALAPPDATA%\Programs\Agent-notify\agent-notify.exe` |
 | OpenCode 插件 | `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts` |
 | Devin 回复扩展 | `%USERPROFILE%\.devin\extensions\agent-notify` |
 | Antigravity Hook | `%USERPROFILE%\.gemini\config\hooks.json` |
 | Devin Hook | `%APPDATA%\devin\config.json` |
-| 安装记录 | `%USERPROFILE%\bin\agent-notify-install.json` |
+| 安装记录 | `%LOCALAPPDATA%\Programs\Agent-notify\agent-notify-install.json` |
+| 首次接入状态 | `%USERPROFILE%\.config\agent-notify\setup-state.json` |
+| 首次接入失败日志 | `%TEMP%\agent-notify\setup.log` |
 
 Antigravity 配置使用独立顶层 `agent-notify` Hook；Devin 只向 `hooks.Stop` 追加独立的 Agent-notify 组。安装和卸载都会保留其他顶层配置、事件和 handler，并采用同目录原子替换。
 
@@ -60,13 +60,18 @@ Antigravity 配置使用独立顶层 `agent-notify` Hook；Devin 只向 `hooks.S
 
 仅当 Antigravity 的 `hooks.json` 或 Devin 的 `config.json` 已存在（或其父目录已存在）时，安装器才写入对应 Hook；未安装这两个客户端的机器不会凭空创建配置目录。
 
-自定义安装目录（例如 `-InstallDir D:\Tools\Agent-notify`）时，安装器会把该绝对路径写进插件副本的 `BAKED_BIN`，OpenCode 插件无需额外环境变量就能找到运行程序。若把 exe 手动挪到别处，需要用 `AGENT_NOTIFY_BIN` 覆盖或重跑 `install.ps1`。
+自定义安装目录（例如 `D:\Tools\Agent-notify`）时，接入过程会把该绝对路径写进插件副本的 `BAKED_BIN`，OpenCode 插件无需额外环境变量就能找到运行程序。若把 exe 手动挪到别处，需要重新运行“检查修复”或安装流程，也可以用 `AGENT_NOTIFY_BIN` 临时覆盖。
 
-首次安装且本机尚无微信凭据时，安装器会自动打开扫码登录窗口；扫码后给 ClawBot 发送一条消息即可完成会话绑定。安装结束会逐项打印 OpenCode、Codex、Antigravity、Devin 的真实接入状态，并明确提示需要重启的客户端。自动扫码可用 `-SkipLoginLaunch` 关闭。
+首次启动且本机尚无微信凭据时会自动打开扫码登录窗口；扫码后给 ClawBot 发送一条消息即可完成会话绑定。接入成功后悬浮窗显示各 Agent 的真实状态，并提示需要重启的客户端。
 
-也可以从源码安装：
+ZIP 包 `Agent-notify-vX.Y.Z.zip` 继续用于便携运行、开发和旧版客户端过渡，不再作为普通用户的主安装入口。便携或源码环境仍可手动运行安装脚本：
 
 ```powershell
+Expand-Archive .\Agent-notify-vX.Y.Z.zip -DestinationPath .
+cd .\Agent-notify
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+
+# 或从源码安装
 git clone https://github.com/srafyhucl-cpu/agent-notify.git
 cd agent-notify
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
@@ -79,7 +84,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 `agent-notify.exe` 使用 Windows GUI 子系统，以避免 agent hook 调用时闪出控制台。PowerShell 中执行交互命令时使用 `Start-Process -Wait`：
 
 ```powershell
-$exe = "$env:USERPROFILE\bin\agent-notify.exe"
+$exe = "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe"
 
 # 扫码登录；登录后默认等待微信首条消息建立主动推送会话
 Start-Process $exe -ArgumentList "login" -Wait
@@ -101,7 +106,7 @@ Start-Process $exe -ArgumentList "status" -Wait
 
 `login` 默认会等待首条消息。若选择 `agent-notify login --wait=false`，稍后运行 `agent-notify sync` 即可继续等待。悬浮窗运行时会自动维持会话轮询，因此扫码后在设置页保持悬浮窗运行也能完成第二步。
 
-悬浮窗中的 Agent 卡片不再只表示开关：`已接入` 表示配置、程序路径和可用的加载心跳均已通过；`待重启` 表示插件或扩展已安装但对应客户端尚未加载；`接入异常` 表示配置或路径有明确问题；`未接入` 表示尚未检测到有效配置。点击右下角“检查接入”会重新检查，并安全修复可直接恢复的 Codex notify；该操作不会启动、关闭或重启任何 Agent。
+悬浮窗中的 Agent 卡片不再只表示开关：`已接入` 表示配置、程序路径和可用的加载心跳均已通过；`待重启` 表示插件或扩展已安装但对应客户端尚未加载；`接入异常` 表示配置或路径有明确问题；`未接入` 表示尚未检测到有效配置。点击右下角“检查修复”会重新执行首次接入、重新检查状态，并安全修复可直接恢复的 Codex notify；该操作不会启动、关闭或重启任何 Agent。
 
 安装完成后也可以双击桌面上的 `Agent-notify 悬浮窗`，在“设置”里完成上述流程。悬浮窗的推荐首次流程：
 
@@ -115,7 +120,9 @@ Start-Process $exe -ArgumentList "status" -Wait
 
 悬浮窗底部提供“升级”按钮。点击后会读取官方仓库的最新稳定 Release；发现更高版本时，再确认下载并安装。
 
-更新流程始终校验 Release 中 `SHA256SUMS.txt` 对更新包计算的 SHA256。校验通过后，更新器会调用新版本自带的 `install.ps1` 更新程序、OpenCode 插件和桌面端扩展，保留本机 ClawBot 凭据、配置、历史与引用路由，并自动重启悬浮窗。更新不会自动启动、关闭或重启 OpenCode、Codex、Antigravity、Devin。
+更新流程优先静默下载 `Agent-notify-Setup-vX.Y.Z.exe`，并读取 Release 中 `SHA256SUMS.txt` 校验 SHA256；校验失败时立即终止，不启动安装程序。校验通过后直接启动安装器进行原地升级，安装过程保留本机 ClawBot 凭据、配置、历史与引用路由，并重新启动新版悬浮窗。更新不会自动启动、关闭或重启 OpenCode、Codex、Antigravity、Devin。
+
+如果旧 Release 没有提供安装器，更新器会兼容回退到 `Agent-notify-vX.Y.Z.zip`。当 GitHub API 不可用、只能通过公开跳转页确定版本时，也会使用 ZIP 兼容路径。
 
 默认更新源是 `https://github.com/srafyhucl-cpu/agent-notify-releases/releases`，该仓库只分发编译产物，不包含源码。需要切换测试或自建更新源时，可设置 `AGENT_NOTIFY_UPDATE_REPOSITORY` 与 `AGENT_NOTIFY_UPDATE_API_BASE`。
 
@@ -175,6 +182,8 @@ Codex 通知格式为 `【codex】会话名`，OpenCode 为 `【opencode】会�
 | 引用去重状态 | `%USERPROFILE%\.config\agent-notify\reply-state.jsonl` |
 | OpenCode 回复收件箱 | `%USERPROFILE%\.config\agent-notify\opencode-reply-inbox` |
 | 运行日志 | `%TEMP%\agent-notify\*.log` |
+| 首次接入状态 | `%USERPROFILE%\.config\agent-notify\setup-state.json` |
+| 首次接入失败日志 | `%TEMP%\agent-notify\setup.log` |
 | Codex 标题诊断 | `%TEMP%\agent-notify\codex-title.log` |
 
 `clawbot.json` 除登录 token 外，还保存账号绑定的 `context_token`、消息游标和失效标记；这些状态按 ClawBot 账号隔离，不会在切换账号时复用。文件不会写入日志或界面。
@@ -239,7 +248,7 @@ P0 只承认当前登录账号的 scoped 证据：诊断里的 `account_scope` �
 安装器会把 Codex `config.toml` 的 notify 行写成：
 
 ```toml
-notify = [ "C:/Users/<name>/bin/agent-notify.exe", "codex", "turn-ended" ]
+notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe", "codex", "turn-ended" ]
 ```
 
 调用流程：
@@ -295,11 +304,15 @@ notify = [ "C:/Users/<name>/bin/agent-notify.exe", "codex", "turn-ended" ]
 
 ## 卸载
 
+标准安装版请在 Windows“设置 → 应用 → 已安装的应用”中选择 Agent-notify 并卸载。安装器会删除程序文件和 Agent-notify 自己写入的 Hook、快捷方式及卸载项。
+
+便携或源码环境可手动运行卸载脚本：
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
-卸载器按 `agent-notify-install.json` 清理程序与插件，尝试恢复 Codex 配置，并只移除 Agent-notify 自己的 Antigravity / Devin Hook。其他 Hook 和用户配置保持不变；登录凭据和 Agent-notify 配置默认保留。如需彻底删除，请手动删除 `%USERPROFILE%\.config\agent-notify`。
+卸载器按 `agent-notify-install.json` 清理程序与插件，尝试恢复 Codex 配置，并只移除 Agent-notify 自己的 Antigravity / Devin Hook。其他 Hook 和用户配置保持不变；ClawBot 登录凭据、Agent-notify 配置、推送历史和引用路由默认保留。如需彻底清理，请先备份需要的数据，再手动删除 `%USERPROFILE%\.config\agent-notify`。
 Devin 回复扩展仅在 `package.json` 的 `name` 和 `publisher` 均属于 Agent-notify 时删除；目录中若还有其他文件会保留。
 
 ## 开发
@@ -310,6 +323,7 @@ Devin 回复扩展仅在 `package.json` 的 `name` 和 `publisher` 均属于 Age
 - Go 1.25+
 - Node.js 20+，仅用于 OpenCode 插件类型检查
 - Windows PowerShell 5.1+，用于安装器和 smoke 测试
+- Inno Setup 6，仅构建标准 Windows 安装器时需要
 
 ```powershell
 # 依赖缓存请留在当前项目盘，不要指向 C 盘

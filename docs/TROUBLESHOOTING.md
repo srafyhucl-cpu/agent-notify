@@ -5,10 +5,12 @@
 token、context token 等敏感字段不会进入日志。`AGENT_NOTIFY_CLAWBOT_DEBUG=1` 生成的协议诊断日志会保留消息 ID 和引用结构，但消息正文会替换为 `[REDACTED]`；排查完成后应删除或停用该开关。引用回复诊断也不会记录回复正文、token 或 Agent CLI 的原始 stdout/stderr。
 
 ```powershell
-$exe = "$env:USERPROFILE\bin\agent-notify.exe"
+$exe = "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe"
 Start-Process $exe -ArgumentList "status" -Wait
 Start-Process $exe -ArgumentList "doctor" -Wait
 ```
+
+标准安装版使用上面的默认路径；ZIP 便携或源码安装请改成实际安装目录。
 
 ## 日志位置
 
@@ -28,27 +30,48 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 | `widget-trace.log` | 悬浮窗 | 启动、窗口创建和退出追踪 |
 | `widget-alive.txt` | 悬浮窗 | 心跳时间 |
 | `widget-exit.txt` | 悬浮窗 | 用户主动退出标记 |
+| `setup.log` | 首次接入 | PowerShell 执行 `install.ps1 -ConfigureOnly` 失败时的完整输出，用于定位插件或 Hook 配置错误 |
+| `updates\last-update.log` | ZIP 兼容更新 | 旧版 ZIP 更新启动器输出；新版安装器直接启动，不写此日志 |
 
 用户配置、登录凭据和会话上下文在 `%USERPROFILE%\.config\agent-notify`。
+
+首次接入状态在 `%USERPROFILE%\.config\agent-notify\setup-state.json`。正常情况下它记录已成功接入的 `version` 和 `completedAt`；文件缺失、损坏或版本与当前程序不一致时，下次启动会重新接入。
+
+## 双击安装器后 Agent 仍未接入
+
+1. 确认安装完成页中的“启动 Agent-notify”已执行；如果窗口没有出现，从开始菜单或桌面快捷方式手动打开。
+2. 首次启动会短暂执行后台接入。等待窗口出现后查看 Agent 卡片；如果顶部显示“首次接入失败”，点击悬浮窗右下角“检查修复”。
+3. 查看 `%TEMP%\agent-notify\setup.log`。该文件保存最近一次失败时 `install.ps1 -ConfigureOnly` 的 PowerShell 输出；成功接入时不会删除旧日志，因此同时检查文件修改时间和 `%USERPROFILE%\.config\agent-notify\setup-state.json`。
+4. 如果 `setup-state.json` 中的 `version` 不是当前版本，完全退出 Agent-notify 后重新打开，或点击“检查修复”强制重跑接入。
+5. 如果安装目录缺少 `install.ps1`、插件目录不完整，或开始菜单中没有 Agent-notify，重新运行最新版 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装；不要只手动移动 exe。
+6. 如果 `setup.log` 明确提示 Hook 被占用或用户配置冲突，先按日志中的文件路径处理冲突项，再重新点击“检查修复”。程序不会覆盖无法安全接管的 Hook。
+
+## 升级按钮下载或安装失败
+
+1. 更新器先把 `Agent-notify-Setup-vX.Y.Z.exe` 和 `SHA256SUMS.txt` 下载到 `%TEMP%\agent-notify\updates`。下载失败时检查网络、代理以及 GitHub 与 Release 资产域名是否可访问。
+2. SHA256 不匹配、校验文件缺少对应文件名或安装器不是有效 Windows 程序时，更新会终止且不会运行下载内容。删除 `%TEMP%\agent-notify\updates` 后重试，确认磁盘或代理没有篡改下载文件。
+3. 校验通过后安装器以静默模式原地升级。若安装没有继续，确认 `%LOCALAPPDATA%\Programs\Agent-notify` 可写，并完全退出旧悬浮窗后重试。
+4. 旧 Release 没有安装器时，更新器会回退到 ZIP，并通过隐藏 PowerShell 执行包内 `install.ps1`。这时失败详情见 `%TEMP%\agent-notify\updates\last-update.log`。
+5. 升级不会改动 ClawBot 凭据、配置、历史或引用路由。不要为了更新删除 `%USERPROFILE%\.config\agent-notify`。
 
 ## 微信完全收不到
 
 1. 确认登录和主动推送会话都已就绪：
 
    ```powershell
-   Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "status" -Wait
+   Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" -ArgumentList "status" -Wait
    ```
 
 2. 未登录或提示登录失效时重新扫码：
 
    ```powershell
-   Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "login" -Wait
+   Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" -ArgumentList "login" -Wait
    ```
 
    扫码后按提示在微信中给 ClawBot 发送任意一条消息。`login` 默认会等待这条消息；也可以先使用 `login --wait=false`，再运行：
 
    ```powershell
-   Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "sync" -Wait
+   Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" -ArgumentList "sync" -Wait
    ```
 
 3. 若状态是“已登录 · 等待微信消息建立会话”，说明登录成功但还没有 `context_token`。保持悬浮窗运行，或运行一次 `agent-notify sync`，然后在微信中给 ClawBot 发消息。
@@ -56,7 +79,7 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 4. 会话就绪后发送测试：
 
    ```powershell
-   Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "test" -Wait
+   Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" -ArgumentList "test" -Wait
    ```
 
 5. 查看 `%TEMP%\agent-notify\push.log`。`未登录` 表示凭据缺失、损坏或登录失效；`会话未建立` 表示已登录但还没有收到微信消息；`失败` 表示网络、HTTP 或 ClawBot 业务返回错误。
@@ -128,8 +151,8 @@ Start-Process $exe -ArgumentList "doctor" -Wait
    - `skip: file-cooldown`：其他 OpenCode 实例已推送同一会话。
    - 没有 `session.execution.succeeded`：当前 OpenCode 版本可能改了事件名或插件未加载。
 4. 检查插件路径是否为 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`。
-5. 重新运行 `install.ps1` 并重启 OpenCode，确保插件是当前版本。
-6. 如果程序装在自定义目录，检查插件副本里的 `BAKED_BIN` 是否指向实际 exe；重跑 `install.ps1` 会刷新它，也可以用 `AGENT_NOTIFY_BIN` 临时覆盖。
+5. 点击悬浮窗“检查修复”，或重新运行最新版 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装；然后重启 OpenCode，确保插件是当前版本。ZIP 或源码环境改用对应的 `install.ps1`。
+6. 如果程序装在自定义目录，检查插件副本里的 `BAKED_BIN` 是否指向实际 exe；重新接入会刷新它，也可以用 `AGENT_NOTIFY_BIN` 临时覆盖。
 
 CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json` 中 `quietHours` 覆盖的时段。
 
@@ -140,7 +163,7 @@ CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json`
 3. 检查 `%USERPROFILE%\.codex\config.toml` 的 notify 行是否指向：
 
    ```toml
-   notify = [ "C:/Users/<name>/bin/agent-notify.exe", "codex", "turn-ended" ]
+   notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe", "codex", "turn-ended" ]
    ```
 
 4. 检查 `%USERPROFILE%\.config\agent-notify\codex.off` 是否存在。
@@ -175,7 +198,7 @@ CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json`
 
 ## Devin 引用回复不可用
 
-1. 重新运行当前 `install.ps1`，确认 `%USERPROFILE%\.devin\extensions\agent-notify` 下存在 `package.json`、`extension.js` 和 `acp-bridge.js`。
+1. 点击悬浮窗“检查修复”，或重新运行最新版 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装；确认 `%USERPROFILE%\.devin\extensions\agent-notify` 下存在 `package.json`、`extension.js` 和 `acp-bridge.js`。ZIP 或源码环境改用对应的 `install.ps1`。
 2. 完全退出并重启 Devin 桌面端。Devin 只会在启动时扫描用户扩展目录；重启后可在扩展日志中查看 `Agent-notify Devin Reply`。
 3. 如果微信提示“扩展未运行”或“扩展已离线”，检查 `%USERPROFILE%\.config\agent-notify\devin-reply-inbox\heartbeats` 是否有新心跳文件。
 4. 如果微信提示“未找到 Devin 桌面端 ACP 通道”，说明本窗口还没拉起常驻的 `devin.exe acp` 子进程（常见于 Devin 刚启动）；等 Devin 就绪或重启 Devin 后重试，系统不会把回复改投到新会话。
@@ -217,7 +240,7 @@ Agent-notify 应在发送前透传原始参数和 stdin。检查：
 2. 查看 `%TEMP%\agent-notify\widget-trace.log` 最后几行。
 3. 确认 `agent-notify.exe widget` 可以手动启动。
 4. 若二进制被安全软件隔离，重新解压 Release 并校验 `SHA256SUMS.txt`。
-5. 若安装目录内有旧进程占用文件，运行 `uninstall.ps1` 后重新安装。
+5. 若安装目录内仍有旧进程占用文件，从托盘完全退出 Agent-notify，再重新运行安装器；ZIP 或源码环境可运行对应的 `uninstall.ps1` 后重新安装。
 
 ## 开关关了仍在推送
 
@@ -241,13 +264,13 @@ Agent-notify 应在发送前透传原始参数和 stdin。检查：
 `agent-notify.exe` 是 GUI 子系统程序，避免在 hook 和开机启动时闪窗。不要用捕获表达式等待输出；对需要等待的命令使用：
 
 ```powershell
-Start-Process "$env:USERPROFILE\bin\agent-notify.exe" -ArgumentList "doctor" -Wait
+Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" -ArgumentList "doctor" -Wait
 ```
 
 需要机器可读输出时，显式重定向：
 
 ```powershell
-Start-Process "$env:USERPROFILE\bin\agent-notify.exe" `
+Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" `
   -ArgumentList "status --json" `
   -Wait -NoNewWindow `
   -RedirectStandardOutput "$env:TEMP\agent-notify-status.json"
@@ -255,15 +278,16 @@ Start-Process "$env:USERPROFILE\bin\agent-notify.exe" `
 
 ## 安装或卸载失败
 
-- 关闭正在运行的 Agent-notify 悬浮窗后重试。
-- 安装目录必须可写；默认是 `%USERPROFILE%\bin`。
-- 如果 `bin` 中没有 exe，安装器会尝试调用 Go 编译。安装 Go，或通过 `AGENT_NOTIFY_GO` 指定 `go.exe`。
-- 卸载保留 `%USERPROFILE%\.config\agent-notify`，这是避免误删登录凭据和用户配置。
-- 如需完全重置，先备份需要的配置，再手动删除上述目录并重新安装。
+- 从托盘完全退出 Agent-notify 后重试安装或升级。
+- 标准安装目录必须可写；默认是 `%LOCALAPPDATA%\Programs\Agent-notify`，当前用户通常不需要管理员权限。
+- 标准安装器包含已编译 exe，不需要 Go。ZIP 或源码安装缺少 `bin\agent-notify.exe` 时才会尝试调用 Go 编译，可通过 `AGENT_NOTIFY_GO` 指定 `go.exe`。
+- 标准卸载请使用 Windows“设置 → 应用 → 已安装的应用”。它会删除程序文件和 Agent-notify 自己写入的 Hook、快捷方式，但保留 `%USERPROFILE%\.config\agent-notify` 中的登录凭据、配置、历史和引用路由。
+- 如需完全重置，先备份需要的数据，再手动删除 `%USERPROFILE%\.config\agent-notify` 和 `%TEMP%\agent-notify`，然后重新安装。
 
 ## 提 Issue 前收集
 
-- `agent-notify-install.json` 的版本字段。
+- `%LOCALAPPDATA%\Programs\Agent-notify\agent-notify-install.json` 的版本字段，以及 `setup-state.json` 的 `version` / `completedAt`。
+- `%TEMP%\agent-notify\setup.log` 和对应更新日志（如有）。
 - `agent-notify doctor` 的文本输出。
 - 对应日志最后 30 行。
 - Windows 版本、Agent-notify 版本，以及相关 OpenCode、Codex、Antigravity 或 Devin 版本。

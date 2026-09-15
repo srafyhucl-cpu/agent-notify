@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增标准 Windows 安装器 `Agent-notify-Setup-vX.Y.Z.exe`，普通用户无需解压 ZIP 或运行 PowerShell。
+- 标准安装版首次启动自动静默完成 OpenCode、Codex、Antigravity、Devin 接入，失败后在悬浮窗显示错误并可通过“检查修复”重试。
+
+### Changed
+
+- 普通用户主安装入口切换为 `Agent-notify-Setup-vX.Y.Z.exe`，默认按当前用户安装到 `%LOCALAPPDATA%\Programs\Agent-notify`，并提供标准开始菜单、快捷方式和卸载入口。
+- 应用内升级优先静默下载并校验新版安装器，校验通过后直接进入安装流程；旧 Release 缺少安装器时继续兼容 ZIP。
+- ZIP 包保留给便携运行、开发和旧版客户端过渡，不再作为普通用户的默认安装方式。
+
 ## [1.4.1] - 2026-09-15
 
 ### Fixed
