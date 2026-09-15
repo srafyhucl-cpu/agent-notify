@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Build Agent-notify-v<version>.zip without a directory staging tree.
@@ -153,15 +153,23 @@ try {
     $verificationArchive.Dispose()
   }
 
-  $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLower()
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tools\build-installer.ps1') `
+    -Version $Version `
+    -OutDir $OutDir `
+    -ExePath $tempExe
+  if ($LASTEXITCODE -ne 0) { throw "安装器构建失败 exit=$LASTEXITCODE" }
+
+  $zipArtifact = Get-Item -LiteralPath $zipPath -ErrorAction Stop
+  $setupArtifact = Get-Item -LiteralPath (Join-Path $OutDir "Agent-notify-Setup-v$Version.exe") -ErrorAction Stop
+  $artifacts = @($zipArtifact, $setupArtifact)
+  $lines = foreach ($artifact in $artifacts) {
+    $hash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLower()
+    "$hash  $($artifact.Name)"
+  }
   $sumPath = Join-Path $OutDir 'SHA256SUMS.txt'
-  [IO.File]::WriteAllText(
-    $sumPath,
-    "$hash  $zipName`r`n",
-    [Text.Encoding]::ASCII
-  )
+  [IO.File]::WriteAllLines($sumPath, $lines, [Text.Encoding]::ASCII)
   Write-Output "[release] archive: $zipPath"
-  Write-Output "[release] sha256:  $hash"
+  Write-Output "[release] installer: $($setupArtifact.FullName)"
   Write-Output "[release] sums:    $sumPath"
 } finally {
   if (Test-Path -LiteralPath $tempExe) { [IO.File]::Delete($tempExe) }

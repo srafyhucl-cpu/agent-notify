@@ -30,8 +30,26 @@ jobs:
           if ($tag -ne $version) { throw "tag v$tag does not match application version $version" }
           Write-Output "Version verified: $version"
 
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'InnoSetup'
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $installer -UseBasicParsing
+          $process = Start-Process $installer -ArgumentList @(
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART',
+            '/SP-',
+            "/DIR=$dir"
+          ) -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed: exit=$($process.ExitCode)" }
+          "AGENT_NOTIFY_ISCC=$dir\ISCC.exe" | Out-File $env:GITHUB_ENV -Append -Encoding ascii
+
       - name: Build release archive
         shell: powershell
+        env:
+          AGENT_NOTIFY_SIGNTOOL: ${{ secrets.AGENT_NOTIFY_SIGNTOOL }}
         run: ./tools/build-release.ps1
 
       - name: Extract release notes
@@ -69,9 +87,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = '${{ github.ref_name }}'
-          $zip = (Get-ChildItem dist\Agent-notify-v*.zip | Select-Object -First 1).FullName
+          $zipItem = Get-ChildItem dist\Agent-notify-v*.zip | Select-Object -First 1
+          $setupItem = Get-ChildItem dist\Agent-notify-Setup-v*.exe | Select-Object -First 1
+          if (-not $zipItem) { throw 'Release ZIP was not generated' }
+          if (-not $setupItem) { throw 'Release installer was not generated' }
+          $zip = $zipItem.FullName
+          $setup = $setupItem.FullName
           if ('${{ steps.notes.outputs.has_notes }}' -eq 'true') {
-            gh release create $tag "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --notes-file release-notes.md
+            gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --notes-file release-notes.md
           } else {
-            gh release create $tag "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --generate-notes
+            gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --generate-notes
           }
