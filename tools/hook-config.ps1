@@ -1,4 +1,4 @@
-# Shared JSON Hook editing for install.ps1 and uninstall.ps1.
+﻿# Shared JSON Hook editing for install.ps1 and uninstall.ps1.
 
 $script:AntigravityLauncherName = 'agent-notify-hook.cmd'
 $script:AntigravityLauncherMarker = '@rem agent-notify-antigravity-launcher'
