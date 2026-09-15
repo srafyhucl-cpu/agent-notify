@@ -59,8 +59,12 @@ try {
   if ([string]::IsNullOrWhiteSpace($notes)) { throw "CHANGELOG.md version $Version has no release notes" }
   [IO.File]::WriteAllText($notesPath, $notes, (New-Object Text.UTF8Encoding($false)))
 
+  $previousErrorAction = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
   & $gh.Source release view $tag --repo $Repository *> $null
-  if ($LASTEXITCODE -eq 0) {
+  $releaseExists = $LASTEXITCODE -eq 0
+  $ErrorActionPreference = $previousErrorAction
+  if ($releaseExists) {
     & $gh.Source release upload $tag $zipPath $sumsPath --repo $Repository --clobber
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed: exit=$LASTEXITCODE" }
     & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath
