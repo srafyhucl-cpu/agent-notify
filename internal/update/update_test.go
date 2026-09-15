@@ -106,6 +106,39 @@ func TestCheckReportsMissingPublicRelease(t *testing.T) {
 	}
 }
 
+func TestCheckFallsBackToReleaseRedirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases/latest":
+			http.Error(w, "rate limited", http.StatusForbidden)
+		case "/owner/repo/releases/latest":
+			http.Redirect(w, r, "/owner/repo/releases/tag/v1.4.0", http.StatusFound)
+		case "/owner/repo/releases/tag/v1.4.0":
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{
+		HTTPClient: server.Client(),
+		Repository: "owner/repo",
+		APIBaseURL: server.URL,
+	}
+	release, available, err := client.Check(context.Background(), "1.3.0")
+	if err != nil {
+		t.Fatalf("Check fallback: %v", err)
+	}
+	if !available || release.Version != "1.4.0" {
+		t.Fatalf("fallback release = %+v available=%v", release, available)
+	}
+	wantArchive := server.URL + "/owner/repo/releases/download/v1.4.0/Agent-notify-v1.4.0.zip"
+	if release.ArchiveURL != wantArchive {
+		t.Fatalf("fallback archive URL = %q, want %q", release.ArchiveURL, wantArchive)
+	}
+}
+
 func TestPrepareVerifiesAndExtractsRelease(t *testing.T) {
 	archive := releaseArchive(t, []zipTestFile{
 		{Name: "Agent-notify/VERSION", Body: "1.4.0"},

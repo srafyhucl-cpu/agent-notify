@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 const (
 	defaultRepository = "srafyhucl-cpu/agent-notify-releases"
 	defaultAPIBaseURL = "https://api.github.com"
+	defaultWebBaseURL = "https://github.com"
 
 	downloadTimeout = 3 * time.Minute
 
@@ -94,6 +96,10 @@ func (client *Client) Check(ctx context.Context, currentVersion string) (Release
 	requestURL := apiBaseURL + "/repos/" + escapeRepository(repository) + "/releases/latest"
 	body, err := client.readURL(ctx, requestURL, maxChecksumsBytes, "application/vnd.github+json")
 	if err != nil {
+		fallback, available, fallbackErr := client.checkViaRedirect(ctx, repository, apiBaseURL, currentVersion)
+		if fallbackErr == nil {
+			return fallback, available, nil
+		}
 		return Release{}, false, fmt.Errorf("检查更新失败：%w", err)
 	}
 
@@ -143,6 +149,55 @@ func (client *Client) Check(ctx context.Context, currentVersion string) (Release
 		Notes:       strings.TrimSpace(latest.Body),
 		ArchiveURL:  archiveURL,
 		ChecksumURL: checksumURL,
+	}, true, nil
+}
+
+func (client *Client) checkViaRedirect(ctx context.Context, repository, apiBaseURL, currentVersion string) (Release, bool, error) {
+	webBaseURL := defaultWebBaseURL
+	if strings.TrimRight(apiBaseURL, "/") != defaultAPIBaseURL {
+		webBaseURL = strings.TrimRight(apiBaseURL, "/")
+	}
+	requestURL := webBaseURL + "/" + escapeRepository(repository) + "/releases/latest"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return Release{}, false, err
+	}
+	setRequestHeaders(request, client.Token, "text/html")
+	response, err := client.httpClient().Do(request)
+	if err != nil {
+		return Release{}, false, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return Release{}, false, responseError(response)
+	}
+	finalURL := response.Request.URL
+	index := strings.LastIndex(finalURL.Path, "/releases/tag/")
+	if index < 0 {
+		return Release{}, false, errors.New("最新 Release 地址无法解析")
+	}
+	tagName, err := url.PathUnescape(strings.TrimPrefix(finalURL.Path[index:], "/releases/tag/"))
+	if err != nil {
+		return Release{}, false, err
+	}
+	version, ok := normalizeVersion(tagName)
+	if !ok {
+		return Release{}, false, fmt.Errorf("Release 标签版本无效：%q", tagName)
+	}
+	newer, err := isNewerVersion(version, currentVersion)
+	if err != nil {
+		return Release{}, false, err
+	}
+	if !newer {
+		return Release{}, false, nil
+	}
+	archiveName := fmt.Sprintf("Agent-notify-v%s.zip", version)
+	downloadBase := webBaseURL + "/" + escapeRepository(repository) + "/releases/download/" + url.PathEscape(tagName) + "/"
+	return Release{
+		Version:     version,
+		TagName:     tagName,
+		ArchiveURL:  downloadBase + url.PathEscape(archiveName),
+		ChecksumURL: downloadBase + url.PathEscape(checksumName),
 	}, true, nil
 }
 
