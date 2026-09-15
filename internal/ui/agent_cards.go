@@ -3,7 +3,11 @@
 package ui
 
 import (
+	"os"
+	"time"
+
 	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
+	"github.com/srafyhucl-cpu/agent-notify/internal/integration"
 	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 )
 
@@ -12,44 +16,60 @@ type widgetAgentCard struct {
 	Name    string
 	Enabled bool
 	Running bool
+	State   integration.State
+	Label   string
+	Detail  string
 	Rect    RECT
 	Hover   bool
 }
 
 func (app *WidgetApp) agentCards(layout widgetLayout) []widgetAgentCard {
 	return []widgetAgentCard{
-		{
-			ID:      agentmeta.OpenCode,
-			Name:    "OpenCode",
-			Enabled: app.onOpenCode,
-			Running: app.procStatus.OpenCodeRunning,
-			Rect:    layout.openCode,
-			Hover:   app.hover.openCode,
-		},
-		{
-			ID:      agentmeta.Codex,
-			Name:    "Codex",
-			Enabled: app.onCodex,
-			Running: app.procStatus.CodexRunning,
-			Rect:    layout.codex,
-			Hover:   app.hover.codex,
-		},
-		{
-			ID:      agentmeta.Antigravity,
-			Name:    "Antigravity",
-			Enabled: app.onAntigravity,
-			Running: app.procStatus.AntigravityRunning,
-			Rect:    layout.antigravity,
-			Hover:   app.hover.antigravity,
-		},
-		{
-			ID:      agentmeta.Devin,
-			Name:    "Devin",
-			Enabled: app.onDevin,
-			Running: app.procStatus.DevinRunning,
-			Rect:    layout.devin,
-			Hover:   app.hover.devin,
-		},
+		app.agentCard(agentmeta.OpenCode, "OpenCode", app.onOpenCode, app.procStatus.OpenCodeRunning, layout.openCode, app.hover.openCode),
+		app.agentCard(agentmeta.Codex, "Codex", app.onCodex, app.procStatus.CodexRunning, layout.codex, app.hover.codex),
+		app.agentCard(agentmeta.Antigravity, "Antigravity", app.onAntigravity, app.procStatus.AntigravityRunning, layout.antigravity, app.hover.antigravity),
+		app.agentCard(agentmeta.Devin, "Devin", app.onDevin, app.procStatus.DevinRunning, layout.devin, app.hover.devin),
+	}
+}
+
+func (app *WidgetApp) agentCard(agentID, name string, enabled, running bool, rect RECT, hover bool) widgetAgentCard {
+	status := app.integrationStatus(agentID)
+	status.Enabled = enabled
+	return widgetAgentCard{
+		ID:      agentID,
+		Name:    name,
+		Enabled: enabled,
+		Running: running,
+		State:   status.State,
+		Label:   status.Label(),
+		Detail:  agentCardDetail(status, running),
+		Rect:    rect,
+		Hover:   hover,
+	}
+}
+
+func agentCardDetail(status integration.Status, running bool) string {
+	if !status.Enabled {
+		return "通知已暂停"
+	}
+	switch status.State {
+	case integration.StateConnected:
+		if running {
+			return "进程运行中，接入正常"
+		}
+		return "已接入，等待启动"
+	case integration.StatePendingRestart:
+		if status.Action != "" {
+			return status.Action
+		}
+		return status.Detail
+	case integration.StateError:
+		return status.Detail
+	default:
+		if running {
+			return "进程运行中但未接入"
+		}
+		return "未检测到有效配置"
 	}
 }
 
@@ -58,6 +78,108 @@ func (app *WidgetApp) refreshAgentSwitches() {
 	app.onCodex = !marker.IsOff(app.paths.CodexMarker)
 	app.onAntigravity = !marker.IsOff(app.paths.AntigravityMarker)
 	app.onDevin = !marker.IsOff(app.paths.DevinMarker)
+
+	executable, _ := os.Executable()
+	statuses := integration.CheckAll(integration.Options{
+		Paths:      app.paths,
+		Executable: executable,
+		Enabled: map[string]bool{
+			agentmeta.OpenCode:    app.onOpenCode,
+			agentmeta.Codex:       app.onCodex,
+			agentmeta.Antigravity: app.onAntigravity,
+			agentmeta.Devin:       app.onDevin,
+		},
+		Now: time.Now(),
+	})
+	app.integrations = make(map[string]integration.Status, len(statuses))
+	for _, status := range statuses {
+		app.integrations[status.Agent] = status
+	}
+}
+
+func (app *WidgetApp) integrationStatus(agentID string) integration.Status {
+	if status, ok := app.integrations[agentID]; ok {
+		return status
+	}
+	return integration.Status{
+		Agent:   agentID,
+		Enabled: app.agentEnabled(agentID),
+		State:   integration.StateNotDetected,
+		Detail:  "尚未完成接入检查",
+	}
+}
+
+func (app *WidgetApp) agentEnabled(agentID string) bool {
+	switch agentID {
+	case agentmeta.OpenCode:
+		return app.onOpenCode
+	case agentmeta.Codex:
+		return app.onCodex
+	case agentmeta.Antigravity:
+		return app.onAntigravity
+	case agentmeta.Devin:
+		return app.onDevin
+	default:
+		return false
+	}
+}
+
+func (app *WidgetApp) agentRunning(agentID string) bool {
+	switch agentID {
+	case agentmeta.OpenCode:
+		return app.procStatus.OpenCodeRunning
+	case agentmeta.Codex:
+		return app.procStatus.CodexRunning
+	case agentmeta.Antigravity:
+		return app.procStatus.AntigravityRunning
+	case agentmeta.Devin:
+		return app.procStatus.DevinRunning
+	default:
+		return false
+	}
+}
+
+func (app *WidgetApp) agentIntegrationIssues() int {
+	errors, restarts, missing := app.agentIntegrationCounts()
+	return errors + restarts + missing
+}
+
+func (app *WidgetApp) agentIntegrationCounts() (errors, restarts, missing int) {
+	for _, descriptor := range agentmeta.All() {
+		if !app.agentEnabled(descriptor.ID) {
+			continue
+		}
+		status := app.integrationStatus(descriptor.ID)
+		switch status.State {
+		case integration.StateError:
+			errors++
+		case integration.StatePendingRestart:
+			restarts++
+		case integration.StateNotDetected:
+			if app.agentRunning(descriptor.ID) {
+				missing++
+			}
+		}
+	}
+	return errors, restarts, missing
+}
+
+func (app *WidgetApp) enabledIntegrationsReady() bool {
+	sawRelevant := false
+	for _, descriptor := range agentmeta.All() {
+		if !app.agentEnabled(descriptor.ID) {
+			continue
+		}
+		status := app.integrationStatus(descriptor.ID)
+		if status.State == integration.StateNotDetected && !app.agentRunning(descriptor.ID) {
+			continue
+		}
+		sawRelevant = true
+		if status.State != integration.StateConnected {
+			return false
+		}
+	}
+	return sawRelevant
 }
 
 func (app *WidgetApp) agentMarkerPath(agentID string) (string, bool) {

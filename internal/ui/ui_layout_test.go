@@ -183,7 +183,7 @@ func TestWidgetTextFitsItsRects(t *testing.T) {
 		{"最近推送标签", newSmallFont, "最近推送", text.recentLabel},
 		{"最近推送元信息", newSmallFont, "OpenCode · 失败 · 12 分钟前", text.recentMeta},
 		{"最近推送标题", newStrongFont, "【codex】请你先了解这个项目。", text.recentTitle},
-		{"页脚提示", newSmallFont, "右键托盘图标可退出", text.footerHint},
+		{"页脚接入检查", newSmallFont, "检查修复", text.footerHint},
 	}
 
 	for _, dpi := range []uint32{96, 144, 192} {

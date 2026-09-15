@@ -30,7 +30,8 @@ param(
   [switch]$SkipDevinConfig,
   [switch]$SkipDevinExtension,
   [switch]$SkipShortcuts,
-  [switch]$SkipWidgetLaunch
+  [switch]$SkipWidgetLaunch,
+  [switch]$SkipLoginLaunch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,6 +83,49 @@ function Get-RepoVersion {
     }
   } catch { }
   return 'dev'
+}
+
+function Get-AgentNotifyIntegrationStatus {
+  param([Parameter(Mandatory = $true)][string]$Executable)
+  try {
+    # GUI 子系统程序不会把标准输出回传给 PowerShell 的调用运算符，必须显式重定向。
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $Executable
+    $startInfo.Arguments = 'integration-status --json'
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.CreateNoWindow = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+      return @()
+    }
+    $json = $process.StandardOutput.ReadToEnd()
+    $null = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($json)) {
+      return @()
+    }
+    $parsed = $json.Trim() | ConvertFrom-Json
+    return $parsed
+  } catch {
+    return @()
+  }
+}
+
+function Get-NotifyTargetPath {
+  param([string]$NotifyLine)
+  if ([string]::IsNullOrWhiteSpace($NotifyLine)) {
+    return ''
+  }
+  $match = [regex]::Match($NotifyLine, '"(?:\\.|[^"])*"')
+  if (-not $match.Success) {
+    return ''
+  }
+  $quoted = $match.Value
+  return [regex]::Unescape($quoted.Substring(1, $quoted.Length - 2))
 }
 
 # 路径必须在根目录内，防安装记录拼接越界删除。
@@ -315,9 +359,10 @@ try {
       $exeSlash = ($installedExe -replace '\\', '/')
       $want = "notify = [ `"$exeSlash`", `"codex`", `"turn-ended`" ]"
       $notifyLine = [regex]::Match($content, '(?m)^notify\s*=.*$').Value
-      if ($notifyLine -match 'agent-notify') {
+      $notifyTarget = Get-NotifyTargetPath $notifyLine
+      if ($notifyTarget -match '(?i)agent-notify\.exe') {
         Write-Output '[install] Codex notify 已指向 Agent-notify，无需改动。'
-      } elseif ($notifyLine -match 'codex-computer-use\.exe') {
+      } elseif ($notifyTarget -match '(?i)codex-computer-use\.exe') {
         Copy-Item $CodexConfig "$CodexConfig.bak-notify-wrapper" -Force
         $updated = [regex]::Replace($content, '(?m)^notify\s*=.*$', $want)
         [IO.File]::WriteAllText($CodexConfig, $updated)
@@ -362,14 +407,49 @@ try {
     }
   }
 
+  # 首次安装直接打开扫码登录，并在登录成功后等待微信发送首条消息建立会话。
+  if (-not $SkipLoginLaunch) {
+    $credentialPath = $env:AGENT_NOTIFY_CREDENTIAL_FILE
+    if ([string]::IsNullOrWhiteSpace($credentialPath)) {
+      $credentialPath = Join-Path $env:USERPROFILE '.config\agent-notify\clawbot.json'
+    }
+    if (Test-Path -LiteralPath $credentialPath -PathType Leaf) {
+      Write-Output '[install] 已检测到微信登录凭据，跳过自动扫码。'
+    } else {
+      try {
+        Start-Process $installedExe -ArgumentList @('login')
+        Write-Output '[install] 已打开微信扫码登录，扫码后请发送一条消息完成会话绑定。'
+      } catch {
+        Write-Output '[install] 自动打开扫码登录失败，请运行：& "' + $installedExe + '" login'
+      }
+    }
+  }
+
   Write-Output ''
   Write-Output '============================================================'
   Write-Output "  Agent-notify v$(Get-RepoVersion) 安装完成"
   Write-Output '============================================================'
   Write-Output '[install] 下一步：'
-  Write-Output "  1. 微信扫码登录：& `"$installedExe`" login"
-  Write-Output "  2. 发送测试通知：& `"$installedExe`" test"
-  Write-Output '  3. 重启 opencode / Codex / Antigravity / Devin，使插件与 Hook 配置生效。'
+  Write-Output "  1. 如未自动打开扫码窗口：& `"$installedExe`" login"
+  Write-Output "  2. 扫码后给 ClawBot 发送一条微信消息；可用 `& `"$installedExe`" test` 验证推送。"
+  $integrationStatus = @(Get-AgentNotifyIntegrationStatus -Executable $installedExe)
+  if ($integrationStatus.Count -gt 0) {
+    Write-Output '  3. 当前 Agent 接入状态：'
+    foreach ($item in $integrationStatus) {
+      $label = switch ($item.state) {
+        'connected' { '已接入' }
+        'pending_restart' { '待重启' }
+        'error' { '接入异常' }
+        default { '未接入' }
+      }
+      Write-Output ("     {0}: {1} - {2}" -f $item.name, $label, $item.detail)
+      if (-not [string]::IsNullOrWhiteSpace([string]$item.action)) {
+        Write-Output ("       {0}" -f $item.action)
+      }
+    }
+  } else {
+    Write-Output "  3. 检查接入状态：& `"$installedExe`" integration-status"
+  }
 } catch {
   [Console]::Error.WriteLine('[install] 失败：' + $_.Exception.Message)
   exit 1

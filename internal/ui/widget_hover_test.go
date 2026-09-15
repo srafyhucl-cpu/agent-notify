@@ -23,6 +23,7 @@ func TestWidgetHoverAtMapsEveryInteractiveRegion(t *testing.T) {
 		{"settings", layout.settings, func(h widgetHoverState) bool { return h.settings }},
 		{"test", layout.test, func(h widgetHoverState) bool { return h.test }},
 		{"hide", layout.hide, func(h widgetHoverState) bool { return h.hide }},
+		{"repair", layout.repair, func(h widgetHoverState) bool { return h.repair }},
 	}
 
 	for _, tt := range tests {
@@ -62,6 +63,7 @@ func countWidgetHoverFields(hover widgetHoverState) int {
 		hover.settings,
 		hover.test,
 		hover.hide,
+		hover.repair,
 	} {
 		if active {
 			count++

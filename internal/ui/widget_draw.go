@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/srafyhucl-cpu/agent-notify/internal/integration"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 )
 
@@ -72,10 +73,11 @@ func drawWindowButton(hdc uintptr, rect RECT, glyph string, hover, danger bool, 
 	DrawText(hdc, glyph, &rect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 }
 
-func drawAgentCard(hdc uintptr, rect RECT, name string, enabled, running, hover bool, baseFont, smallFont uintptr) {
+func drawAgentCard(hdc uintptr, card widgetAgentCard, baseFont, smallFont uintptr) {
+	rect := card.Rect
 	fillColor := uintptr(RGB(23, 29, 35))
 	borderColor := uintptr(RGB(41, 50, 59))
-	if hover {
+	if card.Hover {
 		fillColor = uintptr(RGB(29, 37, 44))
 		borderColor = uintptr(RGB(56, 68, 80))
 	}
@@ -83,10 +85,18 @@ func drawAgentCard(hdc uintptr, rect RECT, name string, enabled, running, hover 
 	strokeRoundRect(hdc, rect, 8, fillColor, borderColor, 1)
 
 	stateColor := uintptr(RGB(112, 124, 135))
-	stateText := "已暂停"
-	if enabled {
+	stateText := card.Label
+	switch {
+	case !card.Enabled:
+		stateText = "已暂停"
+	case card.State == integration.StateConnected:
 		stateColor = uintptr(RGB(56, 194, 151))
-		stateText = "监听中"
+	case card.State == integration.StatePendingRestart:
+		stateColor = uintptr(RGB(224, 165, 70))
+	case card.State == integration.StateError:
+		stateColor = uintptr(RGB(224, 104, 104))
+	default:
+		stateColor = uintptr(RGB(138, 150, 161))
 	}
 	badge := RECT{rect.Left + 14, rect.Top + 14, rect.Left + 44, rect.Top + 44}
 	fillRoundRect(hdc, badge, 7, uintptr(RGB(31, 40, 48)))
@@ -94,27 +104,27 @@ func drawAgentCard(hdc uintptr, rect RECT, name string, enabled, running, hover 
 
 	pSelectObject.Call(hdc, baseFont)
 	pSetTextColor.Call(hdc, uintptr(RGB(238, 242, 245)))
-	DrawText(hdc, name, &RECT{rect.Left + 54, rect.Top + 10, rect.Right - 12, rect.Top + 34}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, card.Name, &RECT{rect.Left + 54, rect.Top + 10, rect.Right - 12, rect.Top + 34}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, stateColor)
 	DrawText(hdc, stateText, &RECT{rect.Left + 54, rect.Top + 34, rect.Right - 12, rect.Top + 54}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
-	processText := "进程未运行"
-	if running {
-		processText = "进程运行中"
+	detailText := card.Detail
+	if strings.TrimSpace(detailText) == "" {
+		detailText = "状态未知"
 	}
 	pSetTextColor.Call(hdc, uintptr(RGB(126, 137, 148)))
-	DrawText(hdc, processText, &RECT{rect.Left + 14, rect.Top + 53, rect.Right - 52, rect.Bottom - 5}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, detailText, &RECT{rect.Left + 14, rect.Top + 53, rect.Right - 52, rect.Bottom - 5}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
 
 	track := RECT{rect.Right - 48, rect.Bottom - 25, rect.Right - 12, rect.Bottom - 9}
 	trackColor := uintptr(RGB(62, 72, 82))
-	if enabled {
+	if card.Enabled {
 		trackColor = uintptr(RGB(39, 143, 113))
 	}
 	fillRoundRect(hdc, track, 8, trackColor)
 	knobX := track.Left + 3
-	if enabled {
+	if card.Enabled {
 		knobX = track.Right - 19
 	}
 	drawEllipseLogical(hdc, knobX, track.Top+3, knobX+16, track.Bottom-3, uintptr(RGB(244, 249, 248)), uintptr(RGB(244, 249, 248)))
@@ -210,7 +220,7 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	pSetTextColor.Call(hdc, uintptr(RGB(119, 131, 142)))
 	DrawText(hdc, "通知代理", &RECT{15, 119, 150, 134}, DT_SINGLELINE|DT_NOPREFIX)
 	for _, card := range app.agentCards(layout) {
-		drawAgentCard(hdc, card.Rect, card.Name, card.Enabled, card.Running, card.Hover, strongFont, smallFont)
+		drawAgentCard(hdc, card, strongFont, smallFont)
 	}
 
 	recentFill := uintptr(RGB(22, 28, 34))
@@ -241,9 +251,19 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	drawIconTextButton(hdc, layout.hide, "\uE8A7", "隐藏", app.hover.hide, false, false, baseFont, iconFont)
 
 	pSelectObject.Call(hdc, smallFont)
+	repairColor := uintptr(RGB(105, 117, 128))
+	repairText := "检查接入"
+	if app.agentIntegrationIssues() > 0 {
+		repairColor = uintptr(RGB(224, 165, 70))
+		repairText = "检查修复"
+	}
+	if app.hover.repair {
+		repairColor = uintptr(RGB(235, 239, 242))
+	}
+	pSetTextColor.Call(hdc, repairColor)
+	DrawText(hdc, repairText, &text.footerHint, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 	pSetTextColor.Call(hdc, uintptr(RGB(105, 117, 128)))
 	DrawText(hdc, "v"+app.Version(), &text.footerVersion, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
-	DrawText(hdc, "右键托盘图标可退出", &text.footerHint, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 }
 
 func (app *WidgetApp) recentStatusColor() uint32 {

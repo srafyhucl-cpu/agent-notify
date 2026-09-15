@@ -85,6 +85,14 @@ $env:AGENT_NOTIFY_CONFIG_DIR = $configDir
 $env:AGENT_NOTIFY_TEMP_DIR = (Join-Path $smokeRoot 'state')
 $env:AGENT_NOTIFY_CONFIG_FILE = Join-Path $configDir 'config.json'
 $env:AGENT_NOTIFY_CREDENTIAL_FILE = Join-Path $configDir 'clawbot.json'
+$env:AGENT_NOTIFY_PLUGIN_FILE = Join-Path $pluginDir 'agent-notify.ts'
+$env:AGENT_NOTIFY_CODEX_CONFIG = Join-Path $smokeRoot 'codex-config\config.toml'
+$env:AGENT_NOTIFY_OPENCODE_REPLY_DIR = Join-Path $smokeRoot 'opencode-reply'
+$env:AGENT_NOTIFY_ANTIGRAVITY_HOOKS = Join-Path $antigravityConfigDir 'hooks.json'
+$env:AGENT_NOTIFY_ANTIGRAVITY_LAUNCHER = Join-Path $antigravityConfigDir 'agent-notify-hook.cmd'
+$env:AGENT_NOTIFY_DEVIN_CONFIG = Join-Path $devinConfigDir 'config.json'
+$env:AGENT_NOTIFY_DEVIN_EXTENSION_DIR = Join-Path $smokeRoot 'devin-extension'
+$env:AGENT_NOTIFY_DEVIN_REPLY_DIR = Join-Path $smokeRoot 'devin-reply'
 
 try {
   # 3. notify DryRun 渲染
@@ -196,6 +204,11 @@ try {
   Assert-True (-not (Test-Path (Join-Path $configDir 'devin.off'))) 'toggle on 未删 Devin marker'
   Write-Output '[ok] toggle markers'
 
+  $integrationJson = "$(& $exePath integration-status --json 2>&1)" | ConvertFrom-Json
+  Assert-True ($LASTEXITCODE -eq 0) "integration-status exit=$LASTEXITCODE"
+  Assert-True ($integrationJson.Count -eq 4) "integration-status 应返回 4 个 Agent，实际 $($integrationJson.Count)"
+  Write-Output '[ok] integration status contract'
+
   # 6. Codex 事件解析（DryRun，不发送）
   $payload = '{"last-assistant-message":"hello **world** smoke","input-messages":["帮我写个脚本测试一下"]}'
   $codexDry = & $exePath codex turn-ended $payload -dry-run 2>&1
@@ -230,7 +243,8 @@ $sandboxPlugins = Join-Path $smokeRoot 'install-plugins'
 $sandboxDevinExtension = Join-Path $smokeRoot 'devin-extension'
 $antigravityHooks = Join-Path $antigravityConfigDir 'hooks.json'
 $devinConfig = Join-Path $devinConfigDir 'config.json'
-New-Item -ItemType Directory -Force -Path $sandboxInstall, $sandboxPlugins | Out-Null
+$sandboxCodexConfig = Join-Path $smokeRoot 'codex-config\config.toml'
+New-Item -ItemType Directory -Force -Path $sandboxInstall, $sandboxPlugins, (Split-Path $sandboxCodexConfig -Parent) | Out-Null
   $antigravityFixture = [ordered]@{
     'linkweixin-notify' = [ordered]@{
       Stop = [ordered]@{ type = 'command'; command = 'other.exe antigravity' }
@@ -262,16 +276,21 @@ New-Item -ItemType Directory -Force -Path $sandboxInstall, $sandboxPlugins | Out
   }
   [IO.File]::WriteAllText($antigravityHooks, ($antigravityFixture | ConvertTo-Json -Depth 20), $utf8NoBom)
   [IO.File]::WriteAllText($devinConfig, ($devinFixture | ConvertTo-Json -Depth 20), $utf8NoBom)
+  $codexFixture = 'notify = [ "C:\\old\\codex-computer-use.exe", "turn-ended", "--previous-notify", "[\"C:/old/agent-notify.exe\",\"codex\",\"turn-ended\"]" ]'
+  [IO.File]::WriteAllText($sandboxCodexConfig, $codexFixture, $utf8NoBom)
 [IO.File]::WriteAllText((Join-Path $sandboxInstall 'agent-notify.exe'), 'old-install')
 [IO.File]::WriteAllText((Join-Path $sandboxPlugins 'agent-notify.ts'), 'old-plugin')
 New-Item -ItemType Directory -Force -Path $sandboxDevinExtension | Out-Null
 [IO.File]::WriteAllText((Join-Path $sandboxDevinExtension 'keep.txt'), 'keep-extension-data')
 Write-Output '[ok] install upgrade fixtures'
-  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'install.ps1') `
+  $installOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'install.ps1') `
     -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -AntigravityHooks $antigravityHooks -DevinConfig $devinConfig `
-    -DevinExtensionDir $sandboxDevinExtension `
-    -SkipCodexConfig -SkipShortcuts -SkipWidgetLaunch | Out-Null
+    -DevinExtensionDir $sandboxDevinExtension -CodexConfig $sandboxCodexConfig `
+    -SkipShortcuts -SkipWidgetLaunch -SkipLoginLaunch 2>&1)
   Assert-True ($LASTEXITCODE -eq 0) "沙箱安装 exit=$LASTEXITCODE"
+  $installText = $installOutput -join "`n"
+  Assert-True ($installText -match '当前 Agent 接入状态') "安装器未输出 Agent 接入状态：$installText"
+  Assert-True ($installText -match 'Codex: 已接入') "安装器未正确解析并输出 Codex 接入状态：$installText"
   Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe')) '沙箱安装缺 exe'
   Assert-True ((Get-PESubsystem (Join-Path $sandboxInstall 'agent-notify.exe')) -eq 2) '安装后的 exe 不是 Windows GUI 子系统'
   Assert-True (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json')) '沙箱安装缺安装记录'
@@ -288,6 +307,11 @@ Write-Output '[ok] install upgrade fixtures'
   $expectedBaked = (Join-Path $sandboxInstall 'agent-notify.exe').Replace('\', '\\')
   Assert-True ($installedPluginText.Contains('const BAKED_BIN = "' + $expectedBaked + '"')) "安装后的插件没有指向沙箱 exe：$expectedBaked"
   Assert-True ($pluginRaw.Contains('const BAKED_BIN = ""')) '仓库内的插件副本应保持可移植的空 BAKED_BIN'
+  $installedCodexLine = [regex]::Match([IO.File]::ReadAllText($sandboxCodexConfig), '(?m)^notify\s*=.*$').Value
+  $installedCodexTargetMatch = [regex]::Match($installedCodexLine, '"(?:\\.|[^"])*"')
+  $installedCodexTarget = $installedCodexTargetMatch.Value.Trim('"').Replace('\', '/')
+  $expectedCodexTarget = (Join-Path $sandboxInstall 'agent-notify.exe').Replace('\', '/')
+  Assert-True ($installedCodexTarget -eq $expectedCodexTarget) "安装器未修复 Codex notify 第一项：$installedCodexLine"
   Write-Output '[ok] install baked plugin path'
   $installedFiles = @(Get-ChildItem $sandboxInstall -File | Select-Object -ExpandProperty Name | Sort-Object)
   Assert-True ($installedFiles.Count -eq 2 -and ($installedFiles -contains 'agent-notify.exe') -and ($installedFiles -contains 'agent-notify-install.json')) "安装目录文件意外：$($installedFiles -join ',')"
@@ -337,8 +361,8 @@ Write-Output '[ok] install upgrade fixtures'
 
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
     -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -AntigravityHooks $antigravityHooks -DevinConfig $devinConfig `
-    -DevinExtensionDir $sandboxDevinExtension `
-    -SkipCodexConfig -SkipShortcuts -SkipProcessStop | Out-Null
+    -DevinExtensionDir $sandboxDevinExtension -CodexConfig $sandboxCodexConfig `
+    -SkipShortcuts -SkipProcessStop | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "沙箱卸载 exit=$LASTEXITCODE"
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe'))) '沙箱卸载残留 exe'
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json'))) '沙箱卸载残留安装记录'
@@ -391,6 +415,8 @@ Write-Output '[ok] install upgrade fixtures'
     (Join-Path $smokeRoot 'devin-extension\keep.txt'),
     (Join-Path $smokeRoot 'antigravity-config\hooks.json'),
     (Join-Path $smokeRoot 'devin-config\config.json'),
+    (Join-Path $smokeRoot 'codex-config\config.toml'),
+    (Join-Path $smokeRoot 'codex-config\config.toml.bak-notify-wrapper'),
     (Join-Path $smokeRoot 'state\push.log'),
     (Join-Path $smokeRoot 'state\codex-notify-debug.log'),
     (Join-Path $smokeRoot 'state\opencode-sent.json'),
@@ -404,6 +430,7 @@ Write-Output '[ok] install upgrade fixtures'
       $configDir,
       $antigravityConfigDir,
       $devinConfigDir,
+      (Join-Path $smokeRoot 'codex-config'),
       $pluginDir,
       $binDir,
       (Join-Path $smokeRoot 'install-bin'),

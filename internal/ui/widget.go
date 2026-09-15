@@ -14,9 +14,11 @@ import (
 	"unsafe"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/agent"
+	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
 	"github.com/srafyhucl-cpu/agent-notify/internal/app"
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/integration"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
 )
@@ -64,6 +66,7 @@ type WidgetApp struct {
 	lastPushTitle       string
 	lastPushStatus      string
 	lastPushAgent       string
+	integrations        map[string]integration.Status
 	procStatus          ProcessStatus
 	hover               widgetHoverState
 	isTracking          bool
@@ -83,6 +86,7 @@ type widgetLayout struct {
 	settings    RECT
 	history     RECT
 	hide        RECT
+	repair      RECT
 }
 
 type widgetHoverState struct {
@@ -98,11 +102,12 @@ type widgetHoverState struct {
 	settings    bool
 	test        bool
 	hide        bool
+	repair      bool
 }
 
 func (s widgetHoverState) any() bool {
 	return s.openCode || s.codex || s.antigravity || s.devin || s.minimize || s.close || s.connection ||
-		s.recent || s.history || s.settings || s.test || s.hide
+		s.recent || s.history || s.settings || s.test || s.hide || s.repair
 }
 
 func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
@@ -119,6 +124,7 @@ func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
 		settings:    pointInRect(x, y, layout.settings),
 		test:        pointInRect(x, y, layout.test),
 		hide:        pointInRect(x, y, layout.hide),
+		repair:      pointInRect(x, y, layout.repair),
 	}
 }
 
@@ -137,6 +143,7 @@ func widgetLayoutRects() widgetLayout {
 		settings:    RECT{140, 380, 238, 420},
 		history:     RECT{246, 380, 314, 420},
 		hide:        RECT{322, 380, 386, 420},
+		repair:      RECT{258, 426, 386, 448},
 	}
 }
 
@@ -186,14 +193,13 @@ func debugLog(format string, args ...interface{}) {
 }
 
 func resolveWidgetPosition(raw string, screenWidth, screenHeight, winWidth, winHeight int32) (int32, int32) {
-	defaultX := screenWidth - winWidth - widgetScreenInset
-	defaultY := (screenHeight - winHeight) / 2
-	if defaultX < widgetMinimumMargin {
-		defaultX = widgetMinimumMargin
-	}
-	if defaultY < widgetMinimumMargin {
-		defaultY = widgetMinimumMargin
-	}
+	return resolveWidgetPositionInArea(raw, RECT{Right: screenWidth, Bottom: screenHeight}, winWidth, winHeight)
+}
+
+func resolveWidgetPositionInArea(raw string, workArea RECT, winWidth, winHeight int32) (int32, int32) {
+	defaultX := workArea.Right - winWidth - widgetScreenInset
+	defaultY := workArea.Top + (workArea.Bottom-workArea.Top-winHeight)/2
+	defaultX, defaultY = clampWidgetPosition(defaultX, defaultY, winWidth, winHeight, workArea)
 	parts := strings.Split(strings.TrimSpace(raw), ",")
 	if len(parts) != 2 {
 		return defaultX, defaultY
@@ -203,10 +209,11 @@ func resolveWidgetPosition(raw string, screenWidth, screenHeight, winWidth, winH
 	if errX != nil || errY != nil {
 		return defaultX, defaultY
 	}
-	if int32(x) < 0 || int32(y) < 0 || int32(x) > screenWidth-winWidth/2 || int32(y) > screenHeight-winHeight/2 {
+	if int32(x) < workArea.Left-winWidth/2 || int32(y) < workArea.Top-winHeight/2 ||
+		int32(x) > workArea.Right-winWidth/2 || int32(y) > workArea.Bottom-winHeight/2 {
 		return defaultX, defaultY
 	}
-	return int32(x), int32(y)
+	return clampWidgetPosition(int32(x), int32(y), winWidth, winHeight, workArea)
 }
 
 func savePosition(hwnd uintptr, posFile string) {
@@ -381,8 +388,7 @@ func RunWidget() {
 		switch message {
 		case WM_CREATE:
 			setUIDPI(windowDPI(hwnd))
-			winWidth, winHeight := logicalSize(widgetWidth, widgetHeight)
-			pSetWindowPos.Call(hwnd, 0, 0, 0, uintptr(winWidth), uintptr(winHeight), SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE)
+			resizeForCurrentDPI(hwnd, widgetWidth, widgetHeight)
 			instance.hwnd = hwnd
 			instance.tray = NewTrayManager(hwnd)
 			instance.refreshState()
@@ -493,6 +499,10 @@ func RunWidget() {
 				}()
 				return 0
 			}
+			if pointInRect(x, y, layout.repair) {
+				instance.repairIntegrations(hwnd)
+				return 0
+			}
 			if pointInRect(x, y, layout.hide) {
 				savePosition(hwnd, paths.WidgetPosFile)
 				pShowWindow.Call(hwnd, SW_HIDE)
@@ -580,15 +590,15 @@ func RunWidget() {
 	windowClass.LpszClassName = classNameWidget
 	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&windowClass)))
 
-	screenWidth, _, _ := pGetSystemMetrics.Call(0)
-	screenHeight, _, _ := pGetSystemMetrics.Call(1)
+	workArea := widgetWorkArea(0)
 	setUIDPI(systemDPI())
 	rawPosition := ""
 	if data, err := os.ReadFile(paths.WidgetPosFile); err == nil {
 		rawPosition = string(data)
 	}
 	winWidth, winHeight := logicalSize(widgetWidth, widgetHeight)
-	winX, winY := resolveWidgetPosition(rawPosition, int32(screenWidth), int32(screenHeight), winWidth, winHeight)
+	winX, winY := resolveWidgetPositionInArea(rawPosition, workArea, winWidth, winHeight)
+	debugLog("widget placement raw=%q work=(%d,%d,%d,%d) dpi=%d size=%dx%d pos=(%d,%d)", rawPosition, workArea.Left, workArea.Top, workArea.Right, workArea.Bottom, uiDPI, winWidth, winHeight, winX, winY)
 
 	hwnd, _, createErr := pCreateWindowExW.Call(
 		widgetExtendedStyle(),
@@ -649,7 +659,7 @@ func (app *WidgetApp) refreshState() {
 
 	state := widgetTrayStateStopped
 	ready := app.clawbotLoggedIn && app.clawbotSessionReady
-	if ready && app.allAgentsEnabled() {
+	if ready && app.enabledIntegrationsReady() {
 		state = widgetTrayStateReady
 	} else if ready && app.anyAgentEnabled() {
 		state = widgetTrayStatePartial
@@ -669,13 +679,51 @@ func (app *WidgetApp) health() (uint32, string) {
 	if !app.clawbotSessionReady {
 		return RGB(224, 165, 70), "等待微信消息"
 	}
-	if app.allAgentsEnabled() {
+	errors, restarts, missing := app.agentIntegrationCounts()
+	if errors > 0 || missing > 0 {
+		return RGB(224, 165, 70), "接入异常"
+	}
+	if restarts > 0 {
+		return RGB(224, 165, 70), "待重启"
+	}
+	if app.enabledIntegrationsReady() {
 		return RGB(54, 190, 144), "正常"
 	}
 	if app.anyAgentEnabled() {
-		return RGB(224, 165, 70), "部分暂停"
+		return RGB(224, 165, 70), "等待 Agent"
 	}
 	return RGB(220, 92, 92), "全部暂停"
+}
+
+func (app *WidgetApp) repairIntegrations(hwnd uintptr) {
+	executable, _ := os.Executable()
+	failures := make([]string, 0)
+	for _, status := range app.integrations {
+		if status.Fixable && status.Repair == integration.RepairCodexWatch {
+			if err := agent.HandleWatch(app.paths.CodexConfig, executable); err != nil {
+				failures = append(failures, status.Name+"："+err.Error())
+			}
+		}
+	}
+	app.refreshState()
+
+	lines := []string{"接入检查完成："}
+	for _, descriptor := range agentmeta.All() {
+		status := app.integrationStatus(descriptor.ID)
+		line := fmt.Sprintf("%s：%s", descriptor.DisplayName, status.Label())
+		if status.Detail != "" {
+			line += " - " + status.Detail
+		}
+		lines = append(lines, line)
+		if status.Action != "" && status.State != integration.StateConnected {
+			lines = append(lines, "  "+status.Action)
+		}
+	}
+	if len(failures) > 0 {
+		lines = append(lines, "", "修复失败：", strings.Join(failures, "\n"))
+	}
+	message := strings.Join(lines, "\n")
+	pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr(message))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify 接入检查"))), MB_OK|MB_ICONINFO)
 }
 
 func (app *WidgetApp) Version() string {

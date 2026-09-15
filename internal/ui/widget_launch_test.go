@@ -27,6 +27,26 @@ func TestResolveWidgetPosition(t *testing.T) {
 	}
 }
 
+func TestResolveWidgetPositionClampsRestoredWindowIntoWorkArea(t *testing.T) {
+	workArea := RECT{Left: 0, Top: 0, Right: 1707, Bottom: 1019}
+	x, y := resolveWidgetPositionInArea("1407,298", workArea, widgetWidth, widgetHeight)
+	if x != 1287 || y != 298 {
+		t.Fatalf("resolveWidgetPositionInArea() = (%d,%d), want (1287,298)", x, y)
+	}
+	if x+widgetWidth > workArea.Right-widgetMinimumMargin {
+		t.Fatalf("widget right edge %d exceeds work area margin %d", x+widgetWidth, workArea.Right-widgetMinimumMargin)
+	}
+}
+
+func TestResolveWidgetPositionUsesTaskbarExcludedWorkArea(t *testing.T) {
+	workArea := RECT{Left: 0, Top: 0, Right: 1920, Bottom: 1040}
+	_, y := resolveWidgetPositionInArea("", workArea, widgetWidth, widgetHeight)
+	wantY := workArea.Top + (workArea.Bottom-workArea.Top-widgetHeight)/2
+	if y != wantY {
+		t.Fatalf("default y = %d, want %d", y, wantY)
+	}
+}
+
 func TestWidgetLayoutHitTargetsDoNotOverlap(t *testing.T) {
 	layout := widgetLayoutRects()
 	targets := []struct {
@@ -43,6 +63,7 @@ func TestWidgetLayoutHitTargetsDoNotOverlap(t *testing.T) {
 		{"settings", layout.settings},
 		{"history", layout.history},
 		{"hide", layout.hide},
+		{"repair", layout.repair},
 	}
 	for i := 0; i < len(targets); i++ {
 		for j := i + 1; j < len(targets); j++ {

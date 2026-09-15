@@ -23,6 +23,7 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/app"
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/integration"
 	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
@@ -116,6 +117,7 @@ func printHelp() {
 	fmt.Println("  sync        等待首条微信消息，建立主动推送会话")
 	fmt.Println("  logout      删除本机 ClawBot 凭据")
 	fmt.Println("  status      查看登录、会话、开关、配置与运行状态")
+	fmt.Println("  integration-status  检查各 Agent 是否真正接入")
 	fmt.Println("  notify      发送一条通知（供脚本或插件调用）")
 	fmt.Println("  test        发送测试通知并验证完整链路")
 	fmt.Println("  doctor      检查配置、凭据、会话、网络和 Codex 接入")
@@ -163,6 +165,11 @@ func main() {
 	case "status":
 		ensureConsole()
 		runStatus(args)
+	case "integration-status", "integration":
+		ensureConsole()
+		if runIntegrationStatus(args) != 0 {
+			os.Exit(1)
+		}
 	case "notify":
 		attachConsole()
 		runNotify(args)
@@ -392,6 +399,7 @@ func runStatus(args []string) {
 	codexOn := !marker.IsOff(paths.CodexMarker)
 	antigravityOn := !marker.IsOff(paths.AntigravityMarker)
 	devinOn := !marker.IsOff(paths.DevinMarker)
+	integrations := collectIntegrationStatuses(paths)
 	history, _ := notify.GetHistory(1, paths.PushLog)
 
 	output := map[string]interface{}{
@@ -407,6 +415,7 @@ func runStatus(args []string) {
 		"codexEnabled":       codexOn,
 		"antigravityEnabled": antigravityOn,
 		"devinEnabled":       devinOn,
+		"integrations":       integrations,
 		"pushLog":            paths.PushLog,
 		"lastPush":           firstHistory(history),
 		"pluginFile":         paths.PluginFile,
@@ -433,6 +442,15 @@ func runStatus(args []string) {
 	fmt.Printf("Codex 推送: %s\n", onOff(codexOn))
 	fmt.Printf("Antigravity 推送: %s\n", onOff(antigravityOn))
 	fmt.Printf("Devin 推送: %s\n", onOff(devinOn))
+	for _, item := range integrations {
+		fmt.Printf("%s 接入: %s\n", item.Name, item.Label())
+		if item.Detail != "" {
+			fmt.Printf("  %s\n", item.Detail)
+		}
+		if item.Action != "" {
+			fmt.Printf("  %s\n", item.Action)
+		}
+	}
 	fmt.Printf("引用回复: %s\n", onOff(cfg.ReplyEnabled))
 	fmt.Printf("勿扰时段: %s\n", emptyAs(cfg.QuietHours, "关闭"))
 	fmt.Printf("会话冷却: %d 分钟\n", cfg.CooldownMin)
@@ -447,6 +465,49 @@ func runStatus(args []string) {
 	if cfgErr != nil {
 		fmt.Printf("配置错误: %v\n", cfgErr)
 	}
+}
+
+func collectIntegrationStatuses(paths config.Paths) []integration.Status {
+	executable, _ := os.Executable()
+	return integration.CheckAll(integration.Options{
+		Paths:      paths,
+		Executable: executable,
+		Enabled: map[string]bool{
+			agentmeta.OpenCode:    !marker.IsOff(paths.OpenCodeMarker),
+			agentmeta.Codex:       !marker.IsOff(paths.CodexMarker),
+			agentmeta.Antigravity: !marker.IsOff(paths.AntigravityMarker),
+			agentmeta.Devin:       !marker.IsOff(paths.DevinMarker),
+		},
+		Now: time.Now(),
+	})
+}
+
+func runIntegrationStatus(args []string) int {
+	flags := flag.NewFlagSet("integration-status", flag.ContinueOnError)
+	asJSON := flags.Bool("json", false, "以 JSON 输出")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	statuses := collectIntegrationStatuses(config.GetPaths())
+	if *asJSON {
+		payload, err := json.MarshalIndent(statuses, "", "  ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println(string(payload))
+		return 0
+	}
+	for _, status := range statuses {
+		fmt.Printf("%s: %s\n", status.Name, status.Label())
+		if status.Detail != "" {
+			fmt.Printf("  %s\n", status.Detail)
+		}
+		if status.Action != "" {
+			fmt.Printf("  %s\n", status.Action)
+		}
+	}
+	return 0
 }
 
 func runNotify(args []string) {
@@ -548,59 +609,49 @@ func runDoctor() int {
 		reportCheck(true, "ClawBot 网络", baseURL)
 	}
 
-	if fileExists(paths.PluginFile) {
-		reportCheck(true, "OpenCode 插件", paths.PluginFile)
-	} else {
-		reportCheck(false, "OpenCode 插件", "未安装，请重新运行 install.ps1")
-		failures++
-	}
-
-	reportHookIntegration("Antigravity 接入", paths.AntigravityHooks, "antigravity stop")
-	reportHookIntegration("Devin 接入", paths.DevinConfig, "devin stop")
-
-	codexConfig := codexConfigPath()
+	integrations := collectIntegrationStatuses(paths)
 	codexInUse := false
-	if data, err := os.ReadFile(codexConfig); err != nil {
-		if os.IsNotExist(err) {
-			reportCheck(true, "Codex 接入", "未发现 config.toml，按未使用处理")
-		} else {
-			reportCheck(false, "Codex 接入", err.Error())
-			failures++
+	for _, item := range integrations {
+		if item.Agent == agentmeta.Codex {
+			codexInUse = item.InUse
 		}
-	} else {
-		content := strings.ToLower(string(data))
-		switch {
-		case strings.Contains(content, "agent-notify"):
-			codexInUse = true
-			reportCheck(true, "Codex 接入", codexConfig)
-		case strings.Contains(content, "codex-computer-use.exe"):
-			codexInUse = true
-			reportCheck(false, "Codex 接入", "notify 仍直指上游程序，请运行 agent-notify watch")
+		detail := item.Detail
+		if item.Action != "" {
+			if detail != "" {
+				detail += "；"
+			}
+			detail += item.Action
+		}
+		switch item.State {
+		case integration.StateConnected:
+			reportCheck(true, item.Name+" 接入", detail)
+		case integration.StatePendingRestart:
+			reportWarning(item.Name+" 接入", item.Label()+" - "+detail)
+		case integration.StateError:
+			reportCheck(false, item.Name+" 接入", detail)
 			failures++
-		case strings.Contains(content, "notify"):
-			codexInUse = true
-			reportCheck(true, "Codex 接入", "自定义 notify 保持不变")
 		default:
-			reportCheck(false, "Codex 接入", "config.toml 未配置 notify")
-			failures++
+			reportWarning(item.Name+" 接入", item.Label()+" - "+detail)
 		}
 	}
 	failures += checkCodexReplySupport(cfg, codexInUse)
-	health := agent.CheckCodexTitleHealth()
-	switch health.Status {
-	case agent.CodexTitleStatusNormal:
-		reportCheck(true, "Codex 会话标题", "正常："+health.Detail)
-	case agent.CodexTitleStatusDegraded:
-		reportWarning("Codex 会话标题", "降级："+health.Detail)
-	default:
-		reportCheck(false, "Codex 会话标题", "故障："+health.Detail)
-		failures++
-	}
-	if upstream := agent.FindCodexComputerUseExe(); upstream != "" {
-		reportCheck(true, "Codex 上游程序", upstream)
-	} else {
-		reportCheck(false, "Codex 上游程序", "未找到 codex-computer-use.exe")
-		failures++
+	if codexInUse {
+		health := agent.CheckCodexTitleHealth()
+		switch health.Status {
+		case agent.CodexTitleStatusNormal:
+			reportCheck(true, "Codex 会话标题", "正常："+health.Detail)
+		case agent.CodexTitleStatusDegraded:
+			reportWarning("Codex 会话标题", "降级："+health.Detail)
+		default:
+			reportCheck(false, "Codex 会话标题", "故障："+health.Detail)
+			failures++
+		}
+		if upstream := agent.FindCodexComputerUseExe(); upstream != "" {
+			reportCheck(true, "Codex 上游程序", upstream)
+		} else {
+			reportCheck(false, "Codex 上游程序", "未找到 codex-computer-use.exe")
+			failures++
+		}
 	}
 
 	reportCheck(true, "推送开关", fmt.Sprintf(
@@ -662,24 +713,6 @@ func reportWarning(name, detail string) {
 		fmt.Printf(" - %s", detail)
 	}
 	fmt.Println()
-}
-
-func reportHookIntegration(name, path, commandSuffix string) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			reportWarning(name, "未发现配置文件，按未使用处理")
-		} else {
-			reportWarning(name, err.Error())
-		}
-		return
-	}
-	content := strings.ToLower(string(data))
-	if strings.Contains(content, "agent-notify") && strings.Contains(content, strings.ToLower(commandSuffix)) {
-		reportCheck(true, name, path)
-		return
-	}
-	reportWarning(name, "未发现 Agent-notify hook，请重新运行 install.ps1")
 }
 
 func runToggle(args []string) int {
@@ -825,19 +858,6 @@ func installedStatus(installed bool) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func codexConfigPath() string {
-	if value := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_CODEX_CONFIG")); value != "" {
-		return value
-	}
-	home := strings.TrimSpace(os.Getenv("USERPROFILE"))
-	if home == "" {
-		if value, err := os.UserHomeDir(); err == nil {
-			home = value
-		}
-	}
-	return filepath.Join(home, ".codex", "config.toml")
 }
 
 func firstHistory(items []notify.HistoryItem) interface{} {

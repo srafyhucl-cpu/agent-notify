@@ -90,8 +90,73 @@ func logicalSize(width, height int32) (int32, int32) {
 	return scaleFloat(width), scaleFloat(height)
 }
 
-// resizeForCurrentDPI resizes a window to its logical size at the active DPI,
-// keeping the current top-left corner so per-monitor moves stay predictable.
+// initializeWidgetWorkArea returns the work area for the window. New windows
+// use the primary work area during creation, then WM_CREATE and WM_DPICHANGED
+// re-clamp them against their own monitor.
+func widgetWorkArea(hwnd uintptr) RECT {
+	if hwnd != 0 && pMonitorFromWindow.Find() == nil && pGetMonitorInfoW.Find() == nil {
+		monitor, _, _ := pMonitorFromWindow.Call(hwnd, MONITOR_DEFAULTTONEAREST)
+		if monitor != 0 {
+			info := MONITORINFO{CbSize: uint32(unsafe.Sizeof(MONITORINFO{}))}
+			if result, _, _ := pGetMonitorInfoW.Call(monitor, uintptr(unsafe.Pointer(&info))); result != 0 && validWorkArea(info.RcWork) {
+				return info.RcWork
+			}
+		}
+	}
+
+	if pSystemParametersInfoW.Find() == nil {
+		var area RECT
+		if result, _, _ := pSystemParametersInfoW.Call(SPI_GETWORKAREA, 0, uintptr(unsafe.Pointer(&area)), 0); result != 0 && validWorkArea(area) {
+			return area
+		}
+	}
+
+	width, _, _ := pGetSystemMetrics.Call(0)
+	height, _, _ := pGetSystemMetrics.Call(1)
+	return RECT{Left: 0, Top: 0, Right: int32(width), Bottom: int32(height)}
+}
+
+func validWorkArea(area RECT) bool {
+	return area.Right > area.Left && area.Bottom > area.Top
+}
+
+func clampWidgetPosition(x, y, winWidth, winHeight int32, area RECT) (int32, int32) {
+	if !validWorkArea(area) {
+		return x, y
+	}
+	minX := area.Left + widgetMinimumMargin
+	minY := area.Top + widgetMinimumMargin
+	maxX := area.Right - winWidth - widgetMinimumMargin
+	maxY := area.Bottom - winHeight - widgetMinimumMargin
+	if maxX < minX {
+		x = area.Left
+	} else {
+		x = minInt32(maxInt32(x, minX), maxX)
+	}
+	if maxY < minY {
+		y = area.Top
+	} else {
+		y = minInt32(maxInt32(y, minY), maxY)
+	}
+	return x, y
+}
+
+func minInt32(a, b int32) int32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt32(a, b int32) int32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// resizeForCurrentDPI resizes a window to its logical size at the active DPI
+// and re-clamps it into the active monitor work area.
 func resizeForCurrentDPI(hwnd uintptr, width, height int32) {
 	if hwnd == 0 {
 		return
@@ -99,11 +164,12 @@ func resizeForCurrentDPI(hwnd uintptr, width, height int32) {
 	var rect RECT
 	pGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&rect)))
 	scaledWidth, scaledHeight := logicalSize(width, height)
+	x, y := clampWidgetPosition(rect.Left, rect.Top, scaledWidth, scaledHeight, widgetWorkArea(hwnd))
 	pSetWindowPos.Call(
 		hwnd,
 		0,
-		uintptr(rect.Left),
-		uintptr(rect.Top),
+		uintptr(x),
+		uintptr(y),
 		uintptr(scaledWidth),
 		uintptr(scaledHeight),
 		SWP_NOZORDER|SWP_NOACTIVATE,

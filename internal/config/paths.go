@@ -16,8 +16,11 @@ type Paths struct {
 	AntigravityMarker      string
 	DevinMarker            string
 	AntigravityHooks       string
+	AntigravityLauncher    string
 	AntigravityAnnotations string
+	CodexConfig            string
 	DevinConfig            string
+	DevinExtensionDir      string
 	PushLog                string
 	PluginFile             string
 	WidgetErrorLog         string
@@ -68,8 +71,11 @@ func GetPaths() Paths {
 	antigravityMarker := envOr("AGENT_NOTIFY_ANTIGRAVITY_MARKER_FILE", filepath.Join(configDir, "antigravity.off"))
 	devinMarker := envOr("AGENT_NOTIFY_DEVIN_MARKER_FILE", filepath.Join(configDir, "devin.off"))
 	antigravityHooks := envOr("AGENT_NOTIFY_ANTIGRAVITY_HOOKS", filepath.Join(home, ".gemini", "config", "hooks.json"))
+	antigravityLauncher := envOr("AGENT_NOTIFY_ANTIGRAVITY_LAUNCHER", filepath.Join(filepath.Dir(antigravityHooks), "agent-notify-hook.cmd"))
 	antigravityAnnotations := envOr("AGENT_NOTIFY_ANTIGRAVITY_ANNOTATIONS_DIR", filepath.Join(home, ".gemini", "antigravity", "annotations"))
+	codexConfig := envOr("AGENT_NOTIFY_CODEX_CONFIG", filepath.Join(home, ".codex", "config.toml"))
 	devinConfig := envOr("AGENT_NOTIFY_DEVIN_CONFIG", filepath.Join(os.Getenv("APPDATA"), "devin", "config.json"))
+	devinExtensionDir := envOr("AGENT_NOTIFY_DEVIN_EXTENSION_DIR", filepath.Join(home, ".devin", "extensions", "agent-notify"))
 	pushLog := envOr("AGENT_NOTIFY_LOG_FILE", filepath.Join(tempDir, "push.log"))
 	pluginFile := envOr("AGENT_NOTIFY_PLUGIN_FILE", filepath.Join(home, ".config", "opencode", "plugins", "agent-notify.ts"))
 	replyRouteFile := envOr("AGENT_NOTIFY_REPLY_ROUTE_FILE", filepath.Join(configDir, "reply-routes.jsonl"))
@@ -87,8 +93,11 @@ func GetPaths() Paths {
 		AntigravityMarker:      antigravityMarker,
 		DevinMarker:            devinMarker,
 		AntigravityHooks:       antigravityHooks,
+		AntigravityLauncher:    antigravityLauncher,
 		AntigravityAnnotations: antigravityAnnotations,
+		CodexConfig:            codexConfig,
 		DevinConfig:            devinConfig,
+		DevinExtensionDir:      devinExtensionDir,
 		PushLog:                pushLog,
 		PluginFile:             pluginFile,
 		ReplyRouteFile:         replyRouteFile,

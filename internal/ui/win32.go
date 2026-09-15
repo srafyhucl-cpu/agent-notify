@@ -66,6 +66,9 @@ var (
 	pRegisterWindowMessageW = user32.NewProc("RegisterWindowMessageW")
 	pSetWindowTextW         = user32.NewProc("SetWindowTextW")
 	pGetSystemMetrics       = user32.NewProc("GetSystemMetrics")
+	pSystemParametersInfoW  = user32.NewProc("SystemParametersInfoW")
+	pMonitorFromWindow      = user32.NewProc("MonitorFromWindow")
+	pGetMonitorInfoW        = user32.NewProc("GetMonitorInfoW")
 	pGetDpiForSystem        = user32.NewProc("GetDpiForSystem")
 	pGetDpiForWindow        = user32.NewProc("GetDpiForWindow")
 	pCreateIconIndirect     = user32.NewProc("CreateIconIndirect")
@@ -149,6 +152,9 @@ const (
 	SWP_SHOWWINDOW = 0x0040
 	HWND_TOPMOST   = ^uintptr(0) // -1
 
+	SPI_GETWORKAREA          = 0x0030
+	MONITOR_DEFAULTTONEAREST = 0x00000002
+
 	MF_STRING       = 0x00000000
 	MF_SEPARATOR    = 0x00000800
 	TPM_RIGHTBUTTON = 0x0002
@@ -208,6 +214,13 @@ type RECT struct {
 	Top    int32
 	Right  int32
 	Bottom int32
+}
+
+type MONITORINFO struct {
+	CbSize    uint32
+	RcMonitor RECT
+	RcWork    RECT
+	DwFlags   uint32
 }
 
 type MSG struct {
