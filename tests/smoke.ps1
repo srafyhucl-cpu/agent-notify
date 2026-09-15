@@ -320,6 +320,38 @@ Write-Output '[ok] install upgrade fixtures'
   Assert-True (@($record.files) -contains 'agent-notify.exe') '安装记录缺 exe'
   Write-Output '[ok] install sandbox files + record'
 
+  # 7b. 仅配置模式只更新用户级接入，不替换已安装 exe。
+  $configureOnlyInstall = Join-Path $smokeRoot 'configure-only-app'
+  $configureOnlyPlugins = Join-Path $smokeRoot 'configure-only-plugins'
+  $configureOnlyDevinExtension = Join-Path $smokeRoot 'configure-only-devin-extension'
+  $configureOnlySourcePlugin = Join-Path $configureOnlyInstall 'plugin'
+  $configureOnlyTools = Join-Path $configureOnlyInstall 'tools'
+  New-Item -ItemType Directory -Force -Path $configureOnlySourcePlugin, (Join-Path $configureOnlySourcePlugin 'devin-extension'), $configureOnlyTools | Out-Null
+  Copy-Item -LiteralPath $exePath -Destination (Join-Path $configureOnlyInstall 'agent-notify.exe') -Force
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'install.ps1') -Destination (Join-Path $configureOnlyInstall 'install.ps1') -Force
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'VERSION') -Destination (Join-Path $configureOnlyInstall 'VERSION') -Force
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools\hook-config.ps1') -Destination (Join-Path $configureOnlyTools 'hook-config.ps1') -Force
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'plugin\agent-notify.ts') -Destination (Join-Path $configureOnlySourcePlugin 'agent-notify.ts') -Force
+  foreach ($name in @('package.json', 'extension.js', 'acp-bridge.js')) {
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "plugin\devin-extension\$name") -Destination (Join-Path $configureOnlySourcePlugin "devin-extension\$name") -Force
+  }
+  $configureOnlyOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $configureOnlyInstall 'install.ps1') `
+    -ConfigureOnly `
+    -InstallDir $configureOnlyInstall `
+    -PluginDir $configureOnlyPlugins `
+    -DevinExtensionDir $configureOnlyDevinExtension `
+    -CodexConfig (Join-Path $smokeRoot 'configure-only-codex\config.toml') `
+    -AntigravityHooks (Join-Path $smokeRoot 'configure-only-antigravity\hooks.json') `
+    -DevinConfig (Join-Path $smokeRoot 'configure-only-devin\config.json') `
+    -SkipShortcuts `
+    -SkipWidgetLaunch `
+    -SkipLoginLaunch 2>&1)
+  Assert-True ($LASTEXITCODE -eq 0) "ConfigureOnly 安装失败：$($configureOnlyOutput -join [Environment]::NewLine)"
+  Assert-True (Test-Path -LiteralPath (Join-Path $configureOnlyPlugins 'agent-notify.ts')) 'ConfigureOnly 未安装 OpenCode 插件'
+  Assert-True (Test-Path -LiteralPath (Join-Path $configureOnlyDevinExtension 'package.json')) 'ConfigureOnly 未安装 Devin 扩展'
+  Assert-True (Test-Path -LiteralPath (Join-Path $configureOnlyInstall 'agent-notify-install.json')) 'ConfigureOnly 未写安装记录'
+  Write-Output '[ok] configure-only install'
+
   # 8. Hook 安装只替换 Agent-notify 自己的 handler，保留其他配置。
   $installedAntigravity = Get-Content -LiteralPath $antigravityHooks -Raw -Encoding utf8 | ConvertFrom-Json
   $installedDevin = Get-Content -LiteralPath $devinConfig -Raw -Encoding utf8 | ConvertFrom-Json
@@ -409,6 +441,19 @@ Write-Output '[ok] install upgrade fixtures'
     (Join-Path $smokeRoot 'install-bin\agent-notify.exe'),
     (Join-Path $smokeRoot 'install-bin\agent-notify-install.json'),
     (Join-Path $smokeRoot 'install-plugins\agent-notify.ts'),
+    (Join-Path $smokeRoot 'configure-only-app\agent-notify.exe'),
+    (Join-Path $smokeRoot 'configure-only-app\install.ps1'),
+    (Join-Path $smokeRoot 'configure-only-app\VERSION'),
+    (Join-Path $smokeRoot 'configure-only-app\agent-notify-install.json'),
+    (Join-Path $smokeRoot 'configure-only-app\plugin\agent-notify.ts'),
+    (Join-Path $smokeRoot 'configure-only-app\plugin\devin-extension\package.json'),
+    (Join-Path $smokeRoot 'configure-only-app\plugin\devin-extension\extension.js'),
+    (Join-Path $smokeRoot 'configure-only-app\plugin\devin-extension\acp-bridge.js'),
+    (Join-Path $smokeRoot 'configure-only-app\tools\hook-config.ps1'),
+    (Join-Path $smokeRoot 'configure-only-plugins\agent-notify.ts'),
+    (Join-Path $smokeRoot 'configure-only-devin-extension\package.json'),
+    (Join-Path $smokeRoot 'configure-only-devin-extension\extension.js'),
+    (Join-Path $smokeRoot 'configure-only-devin-extension\acp-bridge.js'),
     (Join-Path $smokeRoot 'devin-extension\package.json'),
     (Join-Path $smokeRoot 'devin-extension\extension.js'),
     (Join-Path $smokeRoot 'devin-extension\acp-bridge.js'),
@@ -435,6 +480,12 @@ Write-Output '[ok] install upgrade fixtures'
       $binDir,
       (Join-Path $smokeRoot 'install-bin'),
       (Join-Path $smokeRoot 'install-plugins'),
+      (Join-Path $smokeRoot 'configure-only-app\plugin\devin-extension'),
+      (Join-Path $smokeRoot 'configure-only-app\plugin'),
+      (Join-Path $smokeRoot 'configure-only-app\tools'),
+      (Join-Path $smokeRoot 'configure-only-app'),
+      (Join-Path $smokeRoot 'configure-only-plugins'),
+      (Join-Path $smokeRoot 'configure-only-devin-extension'),
       $sandboxDevinExtension,
       $smokeRoot
     )) {

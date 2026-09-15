@@ -31,7 +31,8 @@ param(
   [switch]$SkipDevinExtension,
   [switch]$SkipShortcuts,
   [switch]$SkipWidgetLaunch,
-  [switch]$SkipLoginLaunch
+  [switch]$SkipLoginLaunch,
+  [switch]$ConfigureOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,7 +46,8 @@ $HasDevinExtension = (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\pac
   (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\extension.js'))
 $HasDevinExtension = $HasDevinExtension -and
   (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\acp-bridge.js'))
-$HasPackage = (Test-Path (Join-Path $RepoRoot "bin\$ExeName")) -and
+$HasPackage = ((Test-Path (Join-Path $RepoRoot "bin\$ExeName")) -or
+  ($ConfigureOnly -and (Test-Path (Join-Path $RepoRoot $ExeName)))) -and
   (Test-Path (Join-Path $RepoRoot "plugin\$PluginName")) -and
   $HasDevinExtension
 
@@ -200,7 +202,19 @@ function Test-WindowsGuiSubsystem {
 
 try {
   # 0. 自检：仓库文件齐全
-  if ($HasSource) {
+  if ($ConfigureOnly) {
+    foreach ($required in @(
+        $ExeName,
+        'plugin\agent-notify.ts',
+        'plugin\devin-extension\package.json',
+        'plugin\devin-extension\extension.js',
+        'plugin\devin-extension\acp-bridge.js'
+      )) {
+      if (-not (Test-Path (Join-Path $RepoRoot $required))) {
+        throw "仅配置模式的安装目录缺文件：$required"
+      }
+    }
+  } elseif ($HasSource) {
     foreach ($required in @(
         'go.mod',
         'cmd\agent-notify\main.go',
@@ -228,51 +242,56 @@ try {
     } catch { $oldFiles = @() }
   }
 
-  # 2. 编译 Go 单文件运行程序；构建成功前保留正在运行的旧版本。
-  $repoExe = Join-Path $RepoRoot "bin\$ExeName"
-  $needsBuild = $HasSource -or -not (Test-Path $repoExe) -or -not (Test-WindowsGuiSubsystem $repoExe)
-  if ($needsBuild -and -not $HasSource) {
-    throw "发布包中的 $ExeName 不是 Windows GUI 子系统，请重新下载正确版本。"
-  }
-  if ($needsBuild) {
-    $goExe = Resolve-GoCommand
-    if (-not $goExe) {
-      throw "找不到 go.exe，无法编译 $ExeName。请安装 Go 或通过 AGENT_NOTIFY_GO 指定路径。"
-    }
-    Initialize-GoEnvironment
-    Write-Output "[install] 正在编译 $ExeName ..."
-    New-Item -ItemType Directory -Force -Path (Split-Path $repoExe -Parent) | Out-Null
-    Push-Location $RepoRoot
-    try {
-      $commit = 'unknown'
-      try {
-        $resolvedCommit = (& git rev-parse --short HEAD 2>$null).Trim()
-        if ($resolvedCommit) { $commit = $resolvedCommit }
-      } catch { }
-      $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-      $module = 'github.com/srafyhucl-cpu/agent-notify/internal/app'
-      $ldflags = "-H windowsgui -s -w -X $module.Version=$(Get-RepoVersion) -X $module.Commit=$commit -X $module.BuildTime=$buildTime"
-      & $goExe build -ldflags $ldflags -trimpath -o $repoExe '.\cmd\agent-notify\'
-      if ($LASTEXITCODE -ne 0) { throw "go build 失败 exit=$LASTEXITCODE" }
-    } finally {
-      Pop-Location
-    }
-    if (-not (Test-WindowsGuiSubsystem $repoExe)) {
-      throw "编译结果不是 Windows GUI 子系统：$repoExe"
-    }
-  }
-
-  # 3. 停掉正在运行的悬浮窗，释放二进制文件锁并替换文件。
-  try {
-    $escaped = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\'))
-    Get-CimInstance Win32_Process -Filter "Name='agent-notify.exe'" -ErrorAction SilentlyContinue |
-      Where-Object { $_.CommandLine -and ($_.CommandLine -match $escaped) -and ($_.ProcessId -ne $PID) } |
-      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Milliseconds 200
-  } catch { }
-
   $installedExe = Join-Path $InstallDir $ExeName
-  Install-FileAtomically -Source $repoExe -Destination $installedExe
+  if (-not $ConfigureOnly) {
+    # 2. 编译 Go 单文件运行程序；构建成功前保留正在运行的旧版本。
+    $repoExe = Join-Path $RepoRoot "bin\$ExeName"
+    $needsBuild = $HasSource -or -not (Test-Path $repoExe) -or -not (Test-WindowsGuiSubsystem $repoExe)
+    if ($needsBuild -and -not $HasSource) {
+      throw "发布包中的 $ExeName 不是 Windows GUI 子系统，请重新下载正确版本。"
+    }
+    if ($needsBuild) {
+      $goExe = Resolve-GoCommand
+      if (-not $goExe) {
+        throw "找不到 go.exe，无法编译 $ExeName。请安装 Go 或通过 AGENT_NOTIFY_GO 指定路径。"
+      }
+      Initialize-GoEnvironment
+      Write-Output "[install] 正在编译 $ExeName ..."
+      New-Item -ItemType Directory -Force -Path (Split-Path $repoExe -Parent) | Out-Null
+      Push-Location $RepoRoot
+      try {
+        $commit = 'unknown'
+        try {
+          $resolvedCommit = (& git rev-parse --short HEAD 2>$null).Trim()
+          if ($resolvedCommit) { $commit = $resolvedCommit }
+        } catch { }
+        $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        $module = 'github.com/srafyhucl-cpu/agent-notify/internal/app'
+        $ldflags = "-H windowsgui -s -w -X $module.Version=$(Get-RepoVersion) -X $module.Commit=$commit -X $module.BuildTime=$buildTime"
+        & $goExe build -ldflags $ldflags -trimpath -o $repoExe '.\cmd\agent-notify\'
+        if ($LASTEXITCODE -ne 0) { throw "go build 失败 exit=$LASTEXITCODE" }
+      } finally {
+        Pop-Location
+      }
+      if (-not (Test-WindowsGuiSubsystem $repoExe)) {
+        throw "编译结果不是 Windows GUI 子系统：$repoExe"
+      }
+    }
+
+    # 3. 停掉正在运行的悬浮窗，释放二进制文件锁并替换文件。
+    try {
+      $escaped = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\'))
+      Get-CimInstance Win32_Process -Filter "Name='agent-notify.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and ($_.CommandLine -match $escaped) -and ($_.ProcessId -ne $PID) } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+      Start-Sleep -Milliseconds 200
+    } catch { }
+
+    Install-FileAtomically -Source $repoExe -Destination $installedExe
+  } elseif (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
+    throw "仅配置模式找不到已安装程序：$installedExe"
+  }
+
   $installedPlugin = Join-Path $PluginDir $PluginName
   Install-FileAtomically -Source (Join-Path $RepoRoot "plugin\$PluginName") -Destination $installedPlugin
 
@@ -379,7 +398,7 @@ try {
   }
 
   # 8. 快捷方式（开机自启 + 桌面），目标就是 exe 的 widget 子命令
-  if (-not $SkipShortcuts) {
+  if (-not $SkipShortcuts -and -not $ConfigureOnly) {
     try {
       $ws = New-Object -ComObject WScript.Shell
       foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
@@ -398,7 +417,7 @@ try {
   }
 
   # 9. 启动悬浮窗
-  if (-not $SkipWidgetLaunch) {
+  if (-not $SkipWidgetLaunch -and -not $ConfigureOnly) {
     try {
       Start-Process $installedExe -ArgumentList @('widget') -WindowStyle Hidden
       Write-Output '[install] 悬浮窗已启动。'
@@ -408,7 +427,7 @@ try {
   }
 
   # 首次安装直接打开扫码登录，并在登录成功后等待微信发送首条消息建立会话。
-  if (-not $SkipLoginLaunch) {
+  if (-not $SkipLoginLaunch -and -not $ConfigureOnly) {
     $credentialPath = $env:AGENT_NOTIFY_CREDENTIAL_FILE
     if ([string]::IsNullOrWhiteSpace($credentialPath)) {
       $credentialPath = Join-Path $env:USERPROFILE '.config\agent-notify\clawbot.json'
