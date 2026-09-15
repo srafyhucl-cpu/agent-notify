@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-15
+
 ### Added
 
 - 新增 Antigravity 全局 `Stop` Hook：仅在 `fullyIdle=true` 且存在 `conversationId` 时发送通知，并从 transcript 尾部提取摘要；Hook 始终返回 `{}`，通知失败不会阻塞 Antigravity。

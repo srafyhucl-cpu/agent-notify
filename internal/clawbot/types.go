@@ -48,7 +48,7 @@ const (
 	AppID            = "bot"
 	AppClientVersion = "132102"
 	// BotAgent is attribution metadata carried in every business request.
-	BotAgent = "Agent-notify/1.1.0 (windows)"
+	BotAgent = "Agent-notify/1.2.0 (windows)"
 
 	MessageTypeBot = 2
 
