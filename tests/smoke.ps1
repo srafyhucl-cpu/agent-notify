@@ -308,16 +308,32 @@ Write-Output '[ok] install upgrade fixtures'
   Assert-True ($installedPluginText.Contains('const BAKED_BIN = "' + $expectedBaked + '"')) "安装后的插件没有指向沙箱 exe：$expectedBaked"
   Assert-True ($pluginRaw.Contains('const BAKED_BIN = ""')) '仓库内的插件副本应保持可移植的空 BAKED_BIN'
   $installedCodexLine = [regex]::Match([IO.File]::ReadAllText($sandboxCodexConfig), '(?m)^notify\s*=.*$').Value
-  $installedCodexTargetMatch = [regex]::Match($installedCodexLine, '"(?:\\.|[^"])*"')
-  $installedCodexTarget = $installedCodexTargetMatch.Value.Trim('"').Replace('\', '/')
   $expectedCodexTarget = (Join-Path $sandboxInstall 'agent-notify.exe').Replace('\', '/')
-  Assert-True ($installedCodexTarget -eq $expectedCodexTarget) "安装器未修复 Codex notify 第一项：$installedCodexLine"
+  Assert-True ($installedCodexLine -match '(?i)codex-computer-use\.exe') "安装器不应拆掉 Codex computer-use 包装链：$installedCodexLine"
+  Assert-True ($installedCodexLine.Contains($expectedCodexTarget)) "安装器未把链内 agent-notify 路径更新到沙箱 exe：$installedCodexLine"
+  Assert-True (Test-Path -LiteralPath "$sandboxCodexConfig.bak-notify-wrapper" -PathType Leaf) '更新 Codex notify 链前未备份 config.toml'
   Write-Output '[ok] install baked plugin path'
   $installedFiles = @(Get-ChildItem $sandboxInstall -File | Select-Object -ExpandProperty Name | Sort-Object)
-  Assert-True ($installedFiles.Count -eq 2 -and ($installedFiles -contains 'agent-notify.exe') -and ($installedFiles -contains 'agent-notify-install.json')) "安装目录文件意外：$($installedFiles -join ',')"
+  $expectedInstalledFiles = @('VERSION', 'agent-notify-install.json', 'agent-notify.exe', 'install.ps1', 'uninstall.ps1') | Sort-Object
+  Assert-True (($installedFiles -join ',') -eq ($expectedInstalledFiles -join ',')) "安装目录文件意外：$($installedFiles -join ',')"
+  foreach ($relative in @(
+      'install.ps1',
+      'uninstall.ps1',
+      'VERSION',
+      'tools\hook-config.ps1',
+      'plugin\agent-notify.ts',
+      'plugin\devin-extension\package.json',
+      'plugin\devin-extension\extension.js',
+      'plugin\devin-extension\acp-bridge.js'
+    )) {
+    Assert-True (Test-Path -LiteralPath (Join-Path $sandboxInstall $relative) -PathType Leaf) "安装目录缺自举文件：$relative"
+  }
   $record = Get-Content (Join-Path $sandboxInstall 'agent-notify-install.json') -Raw -Encoding utf8 | ConvertFrom-Json
   Assert-True ($record.name -eq 'Agent-notify') "安装记录 name 异常：$($record.name)"
   Assert-True (@($record.files) -contains 'agent-notify.exe') '安装记录缺 exe'
+  Assert-True (@($record.files) -contains 'install.ps1') '安装记录缺自举文件 install.ps1'
+  Assert-True (@($record.files) -contains 'tools/hook-config.ps1') '安装记录缺自举文件 tools/hook-config.ps1'
+  Assert-True (@($record.files).Count -eq 9) "安装记录 files 数量异常：$(@($record.files).Count)"
   Write-Output '[ok] install sandbox files + record'
 
   # 7b. 仅配置模式只更新用户级接入，不替换已安装 exe。
@@ -398,6 +414,9 @@ Write-Output '[ok] install upgrade fixtures'
   Assert-True ($LASTEXITCODE -eq 0) "沙箱卸载 exit=$LASTEXITCODE"
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe'))) '沙箱卸载残留 exe'
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify-install.json'))) '沙箱卸载残留安装记录'
+  Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'install.ps1'))) '沙箱卸载残留 install.ps1'
+  Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'plugin\agent-notify.ts'))) '沙箱卸载残留安装目录内的插件副本'
+  Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'tools\hook-config.ps1'))) '沙箱卸载残留 hook-config.ps1'
   Assert-True (-not (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts'))) '沙箱卸载残留插件'
   Assert-True (-not (Test-Path (Join-Path $sandboxDevinExtension 'package.json'))) '沙箱卸载残留 Devin 扩展 package.json'
   Assert-True (-not (Test-Path (Join-Path $sandboxDevinExtension 'extension.js'))) '沙箱卸载残留 Devin 扩展入口'
@@ -440,6 +459,14 @@ Write-Output '[ok] install upgrade fixtures'
     (Join-Path $configDir 'devin.off'),
     (Join-Path $smokeRoot 'install-bin\agent-notify.exe'),
     (Join-Path $smokeRoot 'install-bin\agent-notify-install.json'),
+    (Join-Path $smokeRoot 'install-bin\install.ps1'),
+    (Join-Path $smokeRoot 'install-bin\uninstall.ps1'),
+    (Join-Path $smokeRoot 'install-bin\VERSION'),
+    (Join-Path $smokeRoot 'install-bin\tools\hook-config.ps1'),
+    (Join-Path $smokeRoot 'install-bin\plugin\agent-notify.ts'),
+    (Join-Path $smokeRoot 'install-bin\plugin\devin-extension\package.json'),
+    (Join-Path $smokeRoot 'install-bin\plugin\devin-extension\extension.js'),
+    (Join-Path $smokeRoot 'install-bin\plugin\devin-extension\acp-bridge.js'),
     (Join-Path $smokeRoot 'install-plugins\agent-notify.ts'),
     (Join-Path $smokeRoot 'configure-only-app\agent-notify.exe'),
     (Join-Path $smokeRoot 'configure-only-app\install.ps1'),
@@ -478,6 +505,9 @@ Write-Output '[ok] install upgrade fixtures'
       (Join-Path $smokeRoot 'codex-config'),
       $pluginDir,
       $binDir,
+      (Join-Path $smokeRoot 'install-bin\plugin\devin-extension'),
+      (Join-Path $smokeRoot 'install-bin\plugin'),
+      (Join-Path $smokeRoot 'install-bin\tools'),
       (Join-Path $smokeRoot 'install-bin'),
       (Join-Path $smokeRoot 'install-plugins'),
       (Join-Path $smokeRoot 'configure-only-app\plugin\devin-extension'),

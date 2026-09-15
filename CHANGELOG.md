@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `install.ps1` 会把自身、`uninstall.ps1`、`VERSION`、`tools/hook-config.ps1` 与 `plugin/` 一并部署到安装目录；ZIP 与源码安装也能在悬浮窗首次启动时静默完成接入，不再报“首次配置程序不存在”。
+- Codex notify 被 codex-computer-use 用 `--previous-notify` 链式包装且链内指向有效 `agent-notify.exe` 时按已接入处理，不再误报接入异常；安装器只更新链内路径，不拆掉包装。
+- 首次接入失败时的提示改为可直接照做的中文说明（缺少 `install.ps1` 时提示重新运行安装器或安装脚本）。
+- 安装器替换 exe、插件时遇到客户端正在读取文件会短暂重试，避免首次接入偶发“无法删除要被替换的文件”。
+
 ## [1.5.0] - 2026-09-15
 
 ### Added

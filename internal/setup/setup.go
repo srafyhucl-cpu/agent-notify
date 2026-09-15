@@ -39,7 +39,11 @@ func ensure(ctx context.Context, options Options, runner commandRunner) error {
 		return errors.New("安装目录为空")
 	}
 	if _, err := os.Stat(options.ScriptPath); err != nil {
-		return fmt.Errorf("首次配置程序不存在：%w", err)
+		if os.IsNotExist(err) {
+			// 旧版 install.ps1/ZIP 安装只落盘了 exe，这里给用户可以照着做的提示。
+			return fmt.Errorf("安装目录缺少 install.ps1（%s）：请重新运行安装器或 install.ps1", options.ScriptPath)
+		}
+		return fmt.Errorf("无法读取首次配置程序 %s：%w", options.ScriptPath, err)
 	}
 	args := []string{
 		"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", options.ScriptPath,
@@ -52,7 +56,14 @@ func ensure(ctx context.Context, options Options, runner commandRunner) error {
 		_ = os.WriteFile(options.LogFile, output, 0600)
 		return fmt.Errorf("首次接入失败：%w", err)
 	}
-	return writeState(options.StateFile, options.Version)
+	if err := writeState(options.StateFile, options.Version); err != nil {
+		return err
+	}
+	// 接入成功后清掉上一次的失败日志，避免用户按 README 查看时看到过期报错。
+	if err := os.Remove(options.LogFile); err != nil && !os.IsNotExist(err) {
+		// 日志清理失败不影响接入结果
+	}
+	return nil
 }
 
 func IsComplete(stateFile, version string) bool {

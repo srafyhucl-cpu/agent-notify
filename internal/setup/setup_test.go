@@ -92,6 +92,33 @@ func TestEnsureBuildsConfigureOnlyCommand(t *testing.T) {
 	}
 }
 
+func TestEnsureRemovesStaleFailureLogOnSuccess(t *testing.T) {
+	root := t.TempDir()
+	script := filepath.Join(root, "install.ps1")
+	if err := os.WriteFile(script, []byte("param()"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	logFile := filepath.Join(root, "setup.log")
+	if err := os.WriteFile(logFile, []byte("上一次失败"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := ensure(context.Background(), Options{
+		Version:    "1.4.2",
+		InstallDir: root,
+		ScriptPath: script,
+		StateFile:  filepath.Join(root, "setup-state.json"),
+		LogFile:    logFile,
+	}, func(context.Context, string, ...string) ([]byte, error) {
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+		t.Fatalf("成功接入后残留失败日志：err=%v", err)
+	}
+}
+
 func TestEnsureDoesNotMarkFailureComplete(t *testing.T) {
 	root := t.TempDir()
 	script := filepath.Join(root, "install.ps1")

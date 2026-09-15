@@ -73,12 +73,24 @@ func TestCheckCodexIdentifiesSafeRepairAndCustomNotify(t *testing.T) {
 	}
 }
 
-func TestCheckCodexIgnoresAgentNotifyNestedInPreviousNotify(t *testing.T) {
+func TestCheckCodexAcceptsAgentNotifyChainedByPreviousNotify(t *testing.T) {
 	paths, binary := testPaths(t)
-	writeFile(t, paths.CodexConfig, `notify = [ "C:/tools/codex-computer-use.exe", "turn-ended", "--previous-notify", "[\"C:/tools/agent-notify.exe\",\"codex\"]" ]`)
+	writeFile(t, paths.CodexConfig, `notify = [ "C:/tools/codex-computer-use.exe", "turn-ended", "--previous-notify", "[\"`+slashPath(binary)+`\",\"codex\",\"turn-ended\"]" ]`)
 	status := findStatus(t, CheckAll(Options{Paths: paths, Executable: binary}), agentmeta.Codex)
-	if status.State != StateError || status.Repair != RepairCodexWatch {
-		t.Fatalf("nested previous notify status = %#v", status)
+	if status.State != StateConnected || !status.InUse {
+		t.Fatalf("chained previous notify status = %#v", status)
+	}
+	if !strings.Contains(status.Detail, "codex-computer-use") {
+		t.Fatalf("chained detail = %q", status.Detail)
+	}
+}
+
+func TestCheckCodexReportsMissingChainedAgentNotify(t *testing.T) {
+	paths, binary := testPaths(t)
+	writeFile(t, paths.CodexConfig, `notify = [ "C:/tools/codex-computer-use.exe", "turn-ended", "--previous-notify", "[\"C:/stale/agent-notify.exe\",\"codex\"]" ]`)
+	status := findStatus(t, CheckAll(Options{Paths: paths, Executable: binary}), agentmeta.Codex)
+	if status.State != StateError || status.Fixable || !strings.Contains(status.Detail, "链式转发") {
+		t.Fatalf("missing chained target status = %#v", status)
 	}
 }
 

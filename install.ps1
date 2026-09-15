@@ -40,6 +40,11 @@ $RepoRoot = $PSScriptRoot
 $ExeName = 'agent-notify.exe'
 $PluginName = 'agent-notify.ts'
 $RecordName = 'agent-notify-install.json'
+# notify 行里 agent-notify.exe 的路径，直连和被 --previous-notify 转义包装的写法都能匹配。
+$agentNotifyPathPattern = '(?<=["\\])[A-Za-z]:[^"]*?[\\/]+agent-notify\.exe(?=["\\])'
+# 客户端正在读取被替换文件时的有界重试次数与间隔。
+$InstallReplaceAttempts = 5
+$InstallReplaceDelayMs = 300
 
 $HasSource = Test-Path (Join-Path $RepoRoot 'go.mod')
 $HasDevinExtension = (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\package.json')) -and
@@ -141,6 +146,7 @@ function Test-InsideDir {
 }
 
 # 同目录写入再替换，避免安装中断留下半写入的 exe 或插件。
+# OpenCode / Devin 可能正在读取被替换的文件，遇到瞬时占用时有界重试。
 function Install-FileAtomically {
   param([string]$Source, [string]$Destination)
   $parent = Split-Path -Parent $Destination
@@ -148,10 +154,18 @@ function Install-FileAtomically {
   $temporary = Join-Path $parent ((Split-Path -Leaf $Destination) + '.new-' + [guid]::NewGuid().ToString('N'))
   try {
     Copy-Item -LiteralPath $Source -Destination $temporary -Force
-    if (Test-Path -LiteralPath $Destination) {
-      [IO.File]::Replace($temporary, $Destination, [NullString]::Value, $true)
-    } else {
-      [IO.File]::Move($temporary, $Destination)
+    for ($attempt = 1; ; $attempt++) {
+      try {
+        if (Test-Path -LiteralPath $Destination) {
+          [IO.File]::Replace($temporary, $Destination, [NullString]::Value, $true)
+        } else {
+          [IO.File]::Move($temporary, $Destination)
+        }
+        break
+      } catch {
+        if ($attempt -ge $InstallReplaceAttempts) { throw }
+        Start-Sleep -Milliseconds $InstallReplaceDelayMs
+      }
     }
   } finally {
     if (Test-Path -LiteralPath $temporary) {
@@ -292,6 +306,33 @@ try {
     throw "仅配置模式找不到已安装程序：$installedExe"
   }
 
+  # 3.5 把自身、卸载脚本与插件一并部署到安装目录：悬浮窗首次启动会在 exe 旁边
+  #     执行 install.ps1 -ConfigureOnly，缺这些文件就只会在启动时报“首次接入失败”。
+  $payloadFiles = [ordered]@{
+    'install.ps1'                          = (Join-Path $RepoRoot 'install.ps1')
+    'uninstall.ps1'                        = (Join-Path $RepoRoot 'uninstall.ps1')
+    'VERSION'                              = (Join-Path $RepoRoot 'VERSION')
+    'tools/hook-config.ps1'                = (Join-Path $RepoRoot 'tools\hook-config.ps1')
+    "plugin/$PluginName"                   = (Join-Path $RepoRoot "plugin\$PluginName")
+    'plugin/devin-extension/package.json'  = (Join-Path $RepoRoot 'plugin\devin-extension\package.json')
+    'plugin/devin-extension/extension.js'  = (Join-Path $RepoRoot 'plugin\devin-extension\extension.js')
+    'plugin/devin-extension/acp-bridge.js' = (Join-Path $RepoRoot 'plugin\devin-extension\acp-bridge.js')
+  }
+  $payloadInstalled = @()
+  foreach ($relative in $payloadFiles.Keys) {
+    $source = $payloadFiles[$relative]
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+      Write-Output "[install] 警告：安装包缺少 $relative，跳过部署。"
+      continue
+    }
+    $destination = Join-Path $InstallDir $relative
+    if ([IO.Path]::GetFullPath($source) -ne [IO.Path]::GetFullPath($destination)) {
+      Install-FileAtomically -Source $source -Destination $destination
+    }
+    $payloadInstalled += $relative
+  }
+  Write-Output "[install] 已部署运行文件到安装目录：$InstallDir"
+
   $installedPlugin = Join-Path $PluginDir $PluginName
   Install-FileAtomically -Source (Join-Path $RepoRoot "plugin\$PluginName") -Destination $installedPlugin
 
@@ -325,7 +366,7 @@ try {
   }
 
   # 4. 写安装记录（卸载按它精确清理；files 为相对 InstallDir 的正斜杠路径）
-  $newFiles = @($ExeName)
+  $newFiles = @($ExeName) + $payloadInstalled
   $record = [ordered]@{
     name        = 'Agent-notify'
     version     = (Get-RepoVersion)
@@ -379,8 +420,18 @@ try {
       $want = "notify = [ `"$exeSlash`", `"codex`", `"turn-ended`" ]"
       $notifyLine = [regex]::Match($content, '(?m)^notify\s*=.*$').Value
       $notifyTarget = Get-NotifyTargetPath $notifyLine
-      if ($notifyTarget -match '(?i)agent-notify\.exe') {
-        Write-Output '[install] Codex notify 已指向 Agent-notify，无需改动。'
+      if ($notifyLine -match '(?i)agent-notify\.exe') {
+        # 直连或 Codex computer-use 的链式包装：保留包装，只把链里的 agent-notify.exe 更新到当前安装目录。
+        $replacement = $exeSlash.Replace('$', '$$')
+        $updatedLine = [regex]::Replace($notifyLine, $agentNotifyPathPattern, $replacement)
+        if ($updatedLine -ne $notifyLine) {
+          Copy-Item $CodexConfig "$CodexConfig.bak-notify-wrapper" -Force
+          $updated = [regex]::Replace($content, '(?m)^notify\s*=.*$', $updatedLine.Replace('$', '$$'))
+          [IO.File]::WriteAllText($CodexConfig, $updated)
+          Write-Output "[install] Codex notify 已更新到当前 Agent-notify 路径（原文件备份到 $CodexConfig.bak-notify-wrapper）。"
+        } else {
+          Write-Output '[install] Codex notify 已指向 Agent-notify，无需改动。'
+        }
       } elseif ($notifyTarget -match '(?i)codex-computer-use\.exe') {
         Copy-Item $CodexConfig "$CodexConfig.bak-notify-wrapper" -Force
         $updated = [regex]::Replace($content, '(?m)^notify\s*=.*$', $want)

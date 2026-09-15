@@ -144,15 +144,25 @@ func checkCodex(paths config.Paths, enabled bool) Status {
 	if target == "" {
 		return status.failure("Codex notify 未包含有效的 agent-notify.exe 路径", "请运行 agent-notify watch")
 	}
+	status.InUse = true
 	lowerTarget := strings.ToLower(target)
 	if !strings.Contains(lowerTarget, "agent-notify") {
-		status.InUse = true
+		// Codex computer-use 会把 notify 包成链：上游程序收到事件后再调用 --previous-notify。
+		// 链里已经有可用的 agent-notify.exe 时保持原样，不再改写用户配置。
+		if chained := firstAgentNotifyTarget(notifyTargets(line)); chained != "" {
+			if !fileExists(chained) {
+				return status.failure("Codex notify 链式转发的 agent-notify.exe 不存在："+chained, "请重新运行 install.ps1")
+			}
+			if strings.Contains(lowerTarget, "codex-computer-use.exe") {
+				return status.connected("Codex notify 经 codex-computer-use 链式转发，任务完成通知可推送", "")
+			}
+			return status.connected("Codex notify 经上游程序链式转发，任务完成通知可推送", "")
+		}
 		if strings.Contains(lowerTarget, "codex-computer-use.exe") {
 			return status.failureWithRepair("Codex notify 仍指向 codex-computer-use.exe", "点击检查修复可安全恢复", RepairCodexWatch)
 		}
 		return status.notDetected("Codex notify 使用其他程序，未接入 Agent-notify", "如不再需要原 notify，请重新运行 install.ps1")
 	}
-	status.InUse = true
 	if !fileExists(target) {
 		return status.failure("Codex notify 指向的 agent-notify.exe 不存在："+target, "请重新运行 install.ps1")
 	}
@@ -348,12 +358,7 @@ func firstCommandPath(command string) string {
 		if match == "" {
 			continue
 		}
-		value, err := strconv.Unquote(match)
-		if err != nil {
-			// .cmd 中的 Windows 路径不是合法 Go/JSON 字符串，去掉外层引号即可。
-			value = strings.Trim(match, `"'`)
-		}
-		if strings.TrimSpace(value) != "" {
+		if value := unquotePathToken(match); value != "" {
 			return expandEnvironment(value)
 		}
 	}
@@ -362,6 +367,49 @@ func firstCommandPath(command string) string {
 		field = strings.Trim(field, `"`)
 		if strings.Contains(strings.ToLower(field), "agent-notify") {
 			return expandEnvironment(field)
+		}
+	}
+	return ""
+}
+
+func unquotePathToken(token string) string {
+	value, err := strconv.Unquote(token)
+	if err != nil {
+		// .cmd 中的 Windows 路径不是合法 Go/JSON 字符串，去掉外层引号即可。
+		value = strings.Trim(token, `"'`)
+	}
+	return strings.TrimSpace(value)
+}
+
+// notifyTargets 列出 notify 里可能被执行的程序。除了直接目标，还解析
+// Codex computer-use 用 --previous-notify 嵌入的 JSON 数组，避免把链式包装误判成未接入。
+func notifyTargets(line string) []string {
+	targets := make([]string, 0, 2)
+	for _, pattern := range []*regexp.Regexp{doubleQuotePath, singleQuotePath} {
+		for _, match := range pattern.FindAllString(line, -1) {
+			value := unquotePathToken(match)
+			if value == "" {
+				continue
+			}
+			var chained []string
+			if err := json.Unmarshal([]byte(value), &chained); err != nil || len(chained) == 0 {
+				targets = append(targets, value)
+				continue
+			}
+			for _, item := range chained {
+				if item = expandEnvironment(item); item != "" {
+					targets = append(targets, item)
+				}
+			}
+		}
+	}
+	return targets
+}
+
+func firstAgentNotifyTarget(targets []string) string {
+	for _, target := range targets {
+		if strings.Contains(strings.ToLower(target), "agent-notify") {
+			return target
 		}
 	}
 	return ""

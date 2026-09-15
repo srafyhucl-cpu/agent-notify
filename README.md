@@ -64,7 +64,7 @@ Antigravity 配置使用独立顶层 `agent-notify` Hook；Devin 只向 `hooks.S
 
 首次启动且本机尚无微信凭据时会自动打开扫码登录窗口；扫码后给 ClawBot 发送一条消息即可完成会话绑定。接入成功后悬浮窗显示各 Agent 的真实状态，并提示需要重启的客户端。
 
-ZIP 包 `Agent-notify-vX.Y.Z.zip` 继续用于便携运行、开发和旧版客户端过渡，不再作为普通用户的主安装入口。便携或源码环境仍可手动运行安装脚本：
+ZIP 包 `Agent-notify-vX.Y.Z.zip` 继续用于便携运行、开发和旧版客户端过渡，不再作为普通用户的主安装入口。`install.ps1` 会把自身、`uninstall.ps1`、`tools/hook-config.ps1`、`VERSION` 与 `plugin/` 一并部署到安装目录（默认 `%USERPROFILE%\bin`），悬浮窗首次启动才能在 exe 旁边静默完成接入。便携或源码环境仍可手动运行安装脚本：
 
 ```powershell
 Expand-Archive .\Agent-notify-vX.Y.Z.zip -DestinationPath .
@@ -259,7 +259,7 @@ notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe
 4. 从 `thread-id`（兼容 `thread_id`）提取权威线程 ID；只有该 ID 存在时，发送成功后才建立 30 天引用路由。
 5. 发送 `【codex】会话名`、正文和本地时间页脚并记录历史；引用回复命中已记录线程后按消息 ID 执行 `codex queue`。
 
-悬浮窗每两分钟检查一次 Codex 配置；如果 Codex 更新后把 notify 行改回直调 `codex-computer-use.exe`，会自动恢复为 Agent-notify。
+悬浮窗每两分钟检查一次 Codex 配置；如果 Codex 更新后把 notify 行改回直调 `codex-computer-use.exe`，会自动恢复为 Agent-notify。如果 Codex computer-use 把 notify 包成 `--previous-notify` 链、链里仍调用 `agent-notify.exe`，悬浮窗按已接入处理并保留原配置；安装器只把链内的 `agent-notify.exe` 路径更新到当前安装目录。
 
 标题读取失败不会阻断通知或清除 `thread-id`：原通知末尾会显示简短降级提示，引用回复仍精确路由到原线程。详细诊断写入 `%TEMP%\agent-notify\codex-title.log`。
 
