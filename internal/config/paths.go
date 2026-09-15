@@ -11,6 +11,8 @@ type Paths struct {
 	ConfigFile             string
 	CredentialFile         string
 	TempDir                string
+	SetupStateFile         string
+	SetupLogFile           string
 	OpenCodeMarker         string
 	CodexMarker            string
 	AntigravityMarker      string
@@ -66,6 +68,8 @@ func GetPaths() Paths {
 
 	configFile := envOr("AGENT_NOTIFY_CONFIG_FILE", filepath.Join(configDir, "config.json"))
 	credentialFile := envOr("AGENT_NOTIFY_CREDENTIAL_FILE", filepath.Join(configDir, "clawbot.json"))
+	setupStateFile := envOr("AGENT_NOTIFY_SETUP_STATE_FILE", filepath.Join(configDir, "setup-state.json"))
+	setupLogFile := envOr("AGENT_NOTIFY_SETUP_LOG_FILE", filepath.Join(tempDir, "setup.log"))
 	openCodeMarker := envOr("AGENT_NOTIFY_OPENCODE_MARKER_FILE", filepath.Join(configDir, "opencode.off"))
 	codexMarker := envOr("AGENT_NOTIFY_CODEX_MARKER_FILE", filepath.Join(configDir, "codex.off"))
 	antigravityMarker := envOr("AGENT_NOTIFY_ANTIGRAVITY_MARKER_FILE", filepath.Join(configDir, "antigravity.off"))
@@ -88,6 +92,8 @@ func GetPaths() Paths {
 		ConfigFile:             configFile,
 		CredentialFile:         credentialFile,
 		TempDir:                tempDir,
+		SetupStateFile:         setupStateFile,
+		SetupLogFile:           setupLogFile,
 		OpenCodeMarker:         openCodeMarker,
 		CodexMarker:            codexMarker,
 		AntigravityMarker:      antigravityMarker,

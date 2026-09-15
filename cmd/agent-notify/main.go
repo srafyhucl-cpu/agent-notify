@@ -27,6 +27,7 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
+	"github.com/srafyhucl-cpu/agent-notify/internal/setup"
 	"github.com/srafyhucl-cpu/agent-notify/internal/ui"
 )
 
@@ -146,7 +147,7 @@ func main() {
 			}
 			return
 		}
-		ui.RunWidget()
+		runWidget()
 		return
 	}
 
@@ -214,7 +215,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "widget":
-		ui.RunWidget()
+		runWidget()
 	case "version", "-v", "--version":
 		ensureConsole()
 		fmt.Printf("Agent-notify %s\ncommit: %s\nbuilt: %s\n", app.Version, app.Commit, app.BuildTime)
@@ -227,6 +228,36 @@ func main() {
 		printHelp()
 		os.Exit(1)
 	}
+}
+
+func runWidget() {
+	executable, _ := os.Executable()
+	installDir := filepath.Dir(executable)
+	paths := config.GetPaths()
+	setupError := setup.Ensure(context.Background(), setup.Options{
+		Version:    app.Version,
+		InstallDir: installDir,
+		ScriptPath: filepath.Join(installDir, "install.ps1"),
+		StateFile:  paths.SetupStateFile,
+		LogFile:    paths.SetupLogFile,
+	})
+	if app.Version == "dev" {
+		if _, err := os.Stat(filepath.Join(installDir, "install.ps1")); os.IsNotExist(err) {
+			setupError = nil
+		}
+	}
+	ui.RunWidget(ui.WidgetOptions{
+		InitialSetupError: setupError,
+		RepairSetup: func(ctx context.Context) error {
+			return setup.Ensure(ctx, setup.Options{
+				Version:    app.Version,
+				InstallDir: installDir,
+				ScriptPath: filepath.Join(installDir, "install.ps1"),
+				StateFile:  paths.SetupStateFile,
+				LogFile:    paths.SetupLogFile,
+			})
+		},
+	})
 }
 
 func stdinAvailable() bool {

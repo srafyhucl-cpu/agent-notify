@@ -121,6 +121,9 @@ func TestGetPathsHonorsOverrides(t *testing.T) {
 	if paths.CredentialFile != filepath.Join(dir, "clawbot.json") {
 		t.Fatalf("CredentialFile = %q", paths.CredentialFile)
 	}
+	if paths.SetupStateFile != filepath.Join(dir, "setup-state.json") {
+		t.Fatalf("SetupStateFile = %q", paths.SetupStateFile)
+	}
 }
 
 func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
