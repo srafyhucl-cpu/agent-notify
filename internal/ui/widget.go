@@ -71,6 +71,13 @@ type WidgetApp struct {
 	procStatus          ProcessStatus
 	hover               widgetHoverState
 	isTracking          bool
+	setupError          string
+	repairSetup         func(context.Context) error
+}
+
+type WidgetOptions struct {
+	InitialSetupError error
+	RepairSetup       func(context.Context) error
 }
 
 type widgetLayout struct {
@@ -300,7 +307,7 @@ func fillRoundRect(hdc uintptr, rect RECT, radius, color uintptr) {
 }
 
 // RunWidget starts the native Windows GUI widget.
-func RunWidget() {
+func RunWidget(options WidgetOptions) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	debugLog("RunWidget enter")
@@ -354,7 +361,13 @@ func RunWidget() {
 		}
 	}()
 
-	instance := &WidgetApp{paths: paths}
+	instance := &WidgetApp{
+		paths:       paths,
+		repairSetup: options.RepairSetup,
+	}
+	if options.InitialSetupError != nil {
+		instance.setupError = options.InitialSetupError.Error()
+	}
 
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	defer sessionCancel()
@@ -686,6 +699,9 @@ func (app *WidgetApp) refreshState() {
 }
 
 func (app *WidgetApp) health() (uint32, string) {
+	if app.setupError != "" {
+		return RGB(224, 165, 70), "接入异常"
+	}
 	if !app.clawbotLoggedIn {
 		return RGB(220, 92, 92), "未登录"
 	}
@@ -714,6 +730,16 @@ func (app *WidgetApp) health() (uint32, string) {
 func (app *WidgetApp) repairIntegrations(hwnd uintptr) {
 	executable, _ := os.Executable()
 	failures := make([]string, 0)
+	if app.repairSetup != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		err := app.repairSetup(ctx)
+		cancel()
+		if err != nil {
+			failures = append(failures, "首次接入："+err.Error())
+		} else {
+			app.setupError = ""
+		}
+	}
 	for _, status := range app.integrations {
 		if status.Fixable && status.Repair == integration.RepairCodexWatch {
 			if err := agent.HandleWatch(app.paths.CodexConfig, executable); err != nil {
@@ -723,7 +749,11 @@ func (app *WidgetApp) repairIntegrations(hwnd uintptr) {
 	}
 	app.refreshState()
 
-	lines := []string{"接入检查完成："}
+	lines := make([]string, 0)
+	if len(failures) > 0 {
+		lines = append(lines, "修复失败：", strings.Join(failures, "\n"), "")
+	}
+	lines = append(lines, "接入检查完成：")
 	for _, descriptor := range agentmeta.All() {
 		status := app.integrationStatus(descriptor.ID)
 		line := fmt.Sprintf("%s：%s", descriptor.DisplayName, status.Label())
@@ -734,9 +764,6 @@ func (app *WidgetApp) repairIntegrations(hwnd uintptr) {
 		if status.Action != "" && status.State != integration.StateConnected {
 			lines = append(lines, "  "+status.Action)
 		}
-	}
-	if len(failures) > 0 {
-		lines = append(lines, "", "修复失败：", strings.Join(failures, "\n"))
 	}
 	message := strings.Join(lines, "\n")
 	pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr(message))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify 接入检查"))), MB_OK|MB_ICONINFO)

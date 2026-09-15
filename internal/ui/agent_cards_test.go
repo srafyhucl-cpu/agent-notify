@@ -50,6 +50,18 @@ func TestHealthReportsPendingRestartInsteadOfNormal(t *testing.T) {
 	}
 }
 
+func TestHealthReportsSetupFailure(t *testing.T) {
+	app := WidgetApp{
+		clawbotLoggedIn:     true,
+		clawbotSessionReady: true,
+		setupError:          "首次接入失败：hook 被占用",
+	}
+	_, label := app.health()
+	if label != "接入异常" {
+		t.Fatalf("health label = %q", label)
+	}
+}
+
 func TestHealthReadyOnlyWhenRelevantIntegrationsAreConnected(t *testing.T) {
 	app := WidgetApp{
 		clawbotLoggedIn:     true,
