@@ -1,7 +1,7 @@
 # Agent-notify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.3.0-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.4.0-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
@@ -26,6 +26,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 - 微信引用 Agent-notify 通知后可继续对应的 OpenCode、Codex、Antigravity 或 Devin 会话；目标只按原始平台消息 ID 和稳定会话 ID 精确匹配，不回退到最近会话。
 - 通用 CLI，可在编译、测试、训练或爬虫结束后主动推送。
 - 原生 Windows 悬浮窗：四个 Agent 的开关与运行状态、勿扰设置、推送历史、测试推送和托盘。
+- 悬浮窗内置一键升级：检查最新 GitHub Release、校验 `SHA256SUMS.txt`，安装完成后自动重启悬浮窗。
 - 设置窗内置 ClawBot 扫码登录、重新登录和退出登录，不再切换到独立控制台。
 - 悬浮窗、设置、登录和历史窗口均按 DPI 缩放并使用双缓冲绘制，支持多显示器 DPI 变化。
 - 悬浮窗是托盘型工具窗，不占用任务栏按钮，也不进入 Alt+Tab；隐藏后从托盘图标恢复。
@@ -34,7 +35,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 
 ## 安装
 
-从 Release 下载 `Agent-notify-v1.3.0.zip`，解压后运行：
+从 Release 下载 `Agent-notify-v1.4.0.zip`，解压后运行：
 
 发布包不包含任何账号凭据或绝对安装路径。安装器会在每台机器上按当前用户目录写入插件所需的实际可执行文件路径。
 
@@ -109,6 +110,14 @@ Start-Process $exe -ArgumentList "status" -Wait
 3. 看到“等待微信消息”后，在微信中给 ClawBot 发送一条消息。
 4. 状态变为“ClawBot 已连接 · 主动推送会话已就绪”后，点击“发送测试”。
 5. 最小化和关闭按钮只会隐藏悬浮窗；完全退出请右键托盘图标并选择“退出”。
+
+## 自动更新
+
+悬浮窗底部提供“升级”按钮。点击后会读取官方仓库的最新稳定 Release；发现更高版本时，再确认下载并安装。
+
+更新流程始终校验 Release 中 `SHA256SUMS.txt` 对更新包计算的 SHA256。校验通过后，更新器会调用新版本自带的 `install.ps1` 更新程序、OpenCode 插件和桌面端扩展，保留本机 ClawBot 凭据、配置、历史与引用路由，并自动重启悬浮窗。更新不会自动启动、关闭或重启 OpenCode、Codex、Antigravity、Devin。
+
+默认更新源是 `https://github.com/srafyhucl-cpu/agent-notify/releases`，因此仓库与 Release 必须允许对应用户访问。私有仓库可临时通过 `AGENT_NOTIFY_GITHUB_TOKEN` 提供只读 GitHub token，但不适合作为普通用户的分发方式。
 
 ## 命令行
 

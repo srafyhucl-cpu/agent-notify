@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-15
+
+### Added
+
+- 悬浮窗新增“升级”按钮：自动检查官方 GitHub Release、下载 `Agent-notify-v<版本>.zip`、校验 `SHA256SUMS.txt`，随后调用新版本安装器更新程序并重启悬浮窗。
+
 ## [1.3.0] - 2026-09-15
 
 ### Added
