@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-09-15
+
+### Fixed
+
+- 一键升级走标准安装器时未指定安装目录，会把程序装到默认的 `%LOCALAPPDATA%\Programs\Agent-notify`；现在把当前 exe 所在目录通过 `/DIR` 交给安装器，升级始终原地进行，自定义目录（例如 `D:\app\Agent-notify`）不会失联。
+- README 的自动更新说明补充“升级保留当前安装目录”。
+
 ## [1.5.1] - 2026-09-15
 
 ### Fixed

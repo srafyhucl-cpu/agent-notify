@@ -1,7 +1,7 @@
 # Agent-notify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.5.1-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.5.2-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
@@ -120,9 +120,9 @@ Start-Process $exe -ArgumentList "status" -Wait
 
 悬浮窗底部提供“升级”按钮。点击后会读取官方仓库的最新稳定 Release；发现更高版本时，再确认下载并安装。
 
-更新流程优先静默下载 `Agent-notify-Setup-vX.Y.Z.exe`，并读取 Release 中 `SHA256SUMS.txt` 校验 SHA256；校验失败时立即终止，不启动安装程序。校验通过后直接启动安装器进行原地升级，安装过程保留本机 ClawBot 凭据、配置、历史与引用路由，并重新启动新版悬浮窗。更新不会自动启动、关闭或重启 OpenCode、Codex、Antigravity、Devin。
+更新流程优先静默下载 `Agent-notify-Setup-vX.Y.Z.exe`，并读取 Release 中 `SHA256SUMS.txt` 校验 SHA256；校验失败时立即终止，不启动安装程序。校验通过后直接启动安装器进行原地升级，安装器会收到当前悬浮窗所在目录（自定义安装目录不会被改回默认位置），安装过程保留本机 ClawBot 凭据、配置、历史与引用路由，并重新启动新版悬浮窗。更新不会自动启动、关闭或重启 OpenCode、Codex、Antigravity、Devin。
 
-如果旧 Release 没有提供安装器，更新器会兼容回退到 `Agent-notify-vX.Y.Z.zip`。当 GitHub API 不可用、只能通过公开跳转页确定版本时，也会使用 ZIP 兼容路径。
+如果旧 Release 没有提供安装器，更新器会兼容回退到 `Agent-notify-vX.Y.Z.zip`，并按当前 exe 所在目录原地升级。当 GitHub API 不可用、只能通过公开跳转页确定版本时，也会使用 ZIP 兼容路径。
 
 默认更新源是 `https://github.com/srafyhucl-cpu/agent-notify-releases/releases`，该仓库只分发编译产物，不包含源码。需要切换测试或自建更新源时，可设置 `AGENT_NOTIFY_UPDATE_REPOSITORY` 与 `AGENT_NOTIFY_UPDATE_API_BASE`。
 

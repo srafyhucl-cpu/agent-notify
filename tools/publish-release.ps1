@@ -5,7 +5,7 @@
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-release.ps1
-  powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-release.ps1 -Version 1.5.1
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-release.ps1 -Version 1.5.2
 #>
 param(
   [string]$Version,
