@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,20 +28,33 @@ const (
 	checksumName    = "SHA256SUMS.txt"
 )
 
+// ArtifactKind 表示 Release 中可用于升级的产物类型。
+type ArtifactKind string
+
+const (
+	ArtifactInstaller ArtifactKind = "installer"
+	ArtifactArchive   ArtifactKind = "archive"
+)
+
 // Release describes one installable GitHub Release.
 type Release struct {
-	Version     string `json:"version"`
-	TagName     string `json:"tagName"`
-	Notes       string `json:"notes,omitempty"`
-	ArchiveURL  string `json:"archiveURL"`
+	Version      string       `json:"version"`
+	TagName      string       `json:"tagName"`
+	Notes        string       `json:"notes,omitempty"`
+	ArtifactKind ArtifactKind `json:"artifactKind,omitempty"`
+	ArtifactURL  string       `json:"artifactURL,omitempty"`
+	// ArchiveURL 仅用于兼容旧调用，Check 返回的新结果统一使用 ArtifactURL。
+	ArchiveURL  string `json:"archiveURL,omitempty"`
 	ChecksumURL string `json:"checksumURL"`
 }
 
-// PreparedUpdate is a verified release extracted into an isolated staging directory.
+// PreparedUpdate is a verified installer or extracted archive in an isolated staging directory.
 type PreparedUpdate struct {
 	Version       string
 	StageDir      string
+	ArtifactPath  string
 	InstallerPath string
+	Kind          ArtifactKind
 }
 
 // Client checks GitHub Releases and prepares verified update archives.
@@ -122,34 +136,42 @@ func (client *Client) Check(ctx context.Context, currentVersion string) (Release
 		return Release{}, false, nil
 	}
 
-	archiveName := fmt.Sprintf("Agent-notify-v%s.zip", version)
-	archive, ok := findAsset(latest.Assets, archiveName)
+	installerName := installerAssetName(version)
+	artifactKind := ArtifactInstaller
+	artifact, ok := findAsset(latest.Assets, installerName)
 	if !ok {
-		return Release{}, false, fmt.Errorf("Release 缺少更新包：%s", archiveName)
+		archiveName := archiveAssetName(version)
+		artifact, ok = findAsset(latest.Assets, archiveName)
+		if !ok {
+			return Release{}, false, fmt.Errorf("Release 缺少更新包：%s", archiveName)
+		}
+		artifactKind = ArtifactArchive
 	}
 	checksums, ok := findAsset(latest.Assets, checksumName)
 	if !ok {
 		return Release{}, false, fmt.Errorf("Release 缺少校验文件：%s", checksumName)
 	}
-	archiveURL := strings.TrimSpace(archive.URL)
-	if archiveURL == "" {
-		archiveURL = strings.TrimSpace(archive.BrowserDownloadURL)
-	}
-	checksumURL := strings.TrimSpace(checksums.URL)
-	if checksumURL == "" {
-		checksumURL = strings.TrimSpace(checksums.BrowserDownloadURL)
-	}
-	if archiveURL == "" || checksumURL == "" {
+	artifactURL := assetDownloadURL(artifact)
+	checksumURL := assetDownloadURL(checksums)
+	if artifactURL == "" || checksumURL == "" {
 		return Release{}, false, errors.New("Release 下载地址不完整")
 	}
 
 	return Release{
-		Version:     version,
-		TagName:     strings.TrimSpace(latest.TagName),
-		Notes:       strings.TrimSpace(latest.Body),
-		ArchiveURL:  archiveURL,
-		ChecksumURL: checksumURL,
+		Version:      version,
+		TagName:      strings.TrimSpace(latest.TagName),
+		Notes:        strings.TrimSpace(latest.Body),
+		ArtifactKind: artifactKind,
+		ArtifactURL:  artifactURL,
+		ChecksumURL:  checksumURL,
 	}, true, nil
+}
+
+func assetDownloadURL(asset githubReleaseAsset) string {
+	if value := strings.TrimSpace(asset.URL); value != "" {
+		return value
+	}
+	return strings.TrimSpace(asset.BrowserDownloadURL)
 }
 
 func (client *Client) checkViaRedirect(ctx context.Context, repository, apiBaseURL, currentVersion string) (Release, bool, error) {
@@ -191,17 +213,18 @@ func (client *Client) checkViaRedirect(ctx context.Context, repository, apiBaseU
 	if !newer {
 		return Release{}, false, nil
 	}
-	archiveName := fmt.Sprintf("Agent-notify-v%s.zip", version)
+	archiveName := archiveAssetName(version)
 	downloadBase := webBaseURL + "/" + escapeRepository(repository) + "/releases/download/" + url.PathEscape(tagName) + "/"
 	return Release{
-		Version:     version,
-		TagName:     tagName,
-		ArchiveURL:  downloadBase + url.PathEscape(archiveName),
-		ChecksumURL: downloadBase + url.PathEscape(checksumName),
+		Version:      version,
+		TagName:      tagName,
+		ArtifactKind: ArtifactArchive,
+		ArtifactURL:  downloadBase + url.PathEscape(archiveName),
+		ChecksumURL:  downloadBase + url.PathEscape(checksumName),
 	}, true, nil
 }
 
-// Prepare downloads, verifies, and extracts one Release into root.
+// Prepare downloads and verifies one Release into root.
 func (client *Client) Prepare(ctx context.Context, release Release, root string) (PreparedUpdate, error) {
 	if client == nil {
 		client = NewClient()
@@ -214,7 +237,15 @@ func (client *Client) Prepare(ctx context.Context, release Release, root string)
 	if root == "" {
 		return PreparedUpdate{}, errors.New("更新临时目录为空")
 	}
-	if strings.TrimSpace(release.ArchiveURL) == "" || strings.TrimSpace(release.ChecksumURL) == "" {
+	artifactKind, artifactURL, err := releaseArtifact(release)
+	if err != nil {
+		return PreparedUpdate{}, err
+	}
+	artifactName, err := artifactFileName(version, artifactKind)
+	if err != nil {
+		return PreparedUpdate{}, err
+	}
+	if strings.TrimSpace(release.ChecksumURL) == "" {
 		return PreparedUpdate{}, errors.New("更新下载地址不完整")
 	}
 
@@ -229,24 +260,36 @@ func (client *Client) Prepare(ctx context.Context, release Release, root string)
 		return PreparedUpdate{}, fmt.Errorf("创建版本目录失败：%w", err)
 	}
 
-	archiveName := fmt.Sprintf("Agent-notify-v%s.zip", version)
-	archivePath := filepath.Join(stageDir, archiveName)
+	artifactPath := filepath.Join(stageDir, artifactName)
 	checksumsPath := filepath.Join(stageDir, checksumName)
 	if err := client.download(ctx, release.ChecksumURL, checksumsPath, maxChecksumsBytes); err != nil {
 		return PreparedUpdate{}, fmt.Errorf("下载校验文件失败：%w", err)
 	}
-	if err := client.download(ctx, release.ArchiveURL, archivePath, maxArchiveBytes); err != nil {
+	if err := client.download(ctx, artifactURL, artifactPath, maxArchiveBytes); err != nil {
 		return PreparedUpdate{}, fmt.Errorf("下载更新包失败：%w", err)
 	}
-	if err := verifyChecksum(checksumsPath, archiveName, archivePath); err != nil {
+	if err := verifyChecksum(checksumsPath, artifactName, artifactPath); err != nil {
 		return PreparedUpdate{}, err
+	}
+	if artifactKind == ArtifactInstaller {
+		if err := validateWindowsExecutable(artifactPath); err != nil {
+			return PreparedUpdate{}, err
+		}
+		_ = os.Remove(checksumsPath)
+		return PreparedUpdate{
+			Version:       version,
+			StageDir:      stageDir,
+			ArtifactPath:  artifactPath,
+			InstallerPath: artifactPath,
+			Kind:          ArtifactInstaller,
+		}, nil
 	}
 
 	extractDir := filepath.Join(stageDir, "extracted")
 	if err := os.MkdirAll(extractDir, 0700); err != nil {
 		return PreparedUpdate{}, fmt.Errorf("创建解压目录失败：%w", err)
 	}
-	if err := extractZip(archivePath, extractDir); err != nil {
+	if err := extractZip(artifactPath, extractDir); err != nil {
 		return PreparedUpdate{}, err
 	}
 
@@ -258,11 +301,66 @@ func (client *Client) Prepare(ctx context.Context, release Release, root string)
 		return PreparedUpdate{}, err
 	}
 
-	_ = os.Remove(archivePath)
 	_ = os.Remove(checksumsPath)
 	return PreparedUpdate{
 		Version:       version,
 		StageDir:      releaseDir,
+		ArtifactPath:  artifactPath,
 		InstallerPath: installerPath,
+		Kind:          ArtifactArchive,
 	}, nil
+}
+
+func releaseArtifact(release Release) (ArtifactKind, string, error) {
+	kind := release.ArtifactKind
+	artifactURL := strings.TrimSpace(release.ArtifactURL)
+	if artifactURL == "" {
+		artifactURL = strings.TrimSpace(release.ArchiveURL)
+		if kind == "" {
+			kind = ArtifactArchive
+		}
+	}
+	if kind == "" {
+		kind = ArtifactArchive
+	}
+	if kind != ArtifactInstaller && kind != ArtifactArchive {
+		return "", "", fmt.Errorf("更新产物类型无效：%q", kind)
+	}
+	if artifactURL == "" {
+		return "", "", errors.New("更新下载地址不完整")
+	}
+	return kind, artifactURL, nil
+}
+
+func artifactFileName(version string, kind ArtifactKind) (string, error) {
+	switch kind {
+	case ArtifactInstaller:
+		return installerAssetName(version), nil
+	case ArtifactArchive:
+		return archiveAssetName(version), nil
+	default:
+		return "", fmt.Errorf("更新产物类型无效：%q", kind)
+	}
+}
+
+func installerAssetName(version string) string {
+	return fmt.Sprintf("Agent-notify-Setup-v%s.exe", version)
+}
+
+func archiveAssetName(version string) string {
+	return fmt.Sprintf("Agent-notify-v%s.zip", version)
+}
+
+func validateWindowsExecutable(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(file, header); err != nil || header[0] != 'M' || header[1] != 'Z' {
+		return errors.New("更新安装器不是有效的 Windows 程序")
+	}
+	return nil
 }

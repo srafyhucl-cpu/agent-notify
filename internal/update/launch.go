@@ -13,8 +13,8 @@ import (
 
 const powershellUTF8BOM = "\xEF\xBB\xBF"
 
-// Launch starts the release installer in a detached hidden process. installerArgs
-// are appended verbatim after the installer path.
+// Launch starts a native installer visibly, or a legacy archive installer in a
+// detached hidden process. installerArgs are appended verbatim.
 func (prepared PreparedUpdate) Launch(logPath string, installerArgs ...string) error {
 	installerPath := strings.TrimSpace(prepared.InstallerPath)
 	if installerPath == "" {
@@ -23,6 +23,21 @@ func (prepared PreparedUpdate) Launch(logPath string, installerArgs ...string) e
 	if _, err := os.Stat(installerPath); err != nil {
 		return fmt.Errorf("更新安装器不可用：%w", err)
 	}
+	if prepared.Kind == ArtifactInstaller {
+		artifactPath := strings.TrimSpace(prepared.ArtifactPath)
+		if artifactPath == "" {
+			artifactPath = installerPath
+		}
+		if _, err := os.Stat(artifactPath); err != nil {
+			return fmt.Errorf("更新安装器不可用：%w", err)
+		}
+		command := installerCommand(artifactPath, installerArgs)
+		if err := command.Start(); err != nil {
+			return fmt.Errorf("启动更新安装器失败：%w", err)
+		}
+		return nil
+	}
+
 	logPath = strings.TrimSpace(logPath)
 	if logPath == "" {
 		return errors.New("更新日志路径为空")
@@ -44,6 +59,15 @@ func (prepared PreparedUpdate) Launch(logPath string, installerArgs ...string) e
 		return fmt.Errorf("启动更新安装器失败：%w", err)
 	}
 	return nil
+}
+
+func installerCommand(installerPath string, installerArgs []string) *exec.Cmd {
+	args := make([]string, 0, len(installerArgs)+1)
+	args = append(args, "/NORESTART")
+	args = append(args, installerArgs...)
+	command := exec.Command(installerPath, args...)
+	command.Dir = filepath.Dir(installerPath)
+	return command
 }
 
 func buildUpdaterScript(installerPath, logPath string, installerArgs []string) string {

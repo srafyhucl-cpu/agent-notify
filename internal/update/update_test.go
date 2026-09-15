@@ -62,6 +62,47 @@ func TestCheckFindsNewerRelease(t *testing.T) {
 			"tag_name":"v1.4.0",
 			"body":"release notes",
 			"assets":[
+				{"name":"Agent-notify-Setup-v1.4.0.exe","url":"%s/setup"},
+				{"name":"Agent-notify-v1.4.0.zip","url":"%s/archive"},
+				{"name":"SHA256SUMS.txt","url":"%s/checksums"}
+			]
+		}`, serverURL(r), serverURL(r), serverURL(r))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		HTTPClient: server.Client(),
+		Repository: "owner/repo",
+		APIBaseURL: server.URL,
+	}
+	release, available, err := client.Check(context.Background(), "1.3.0")
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !available || release.Version != "1.4.0" {
+		t.Fatalf("Check = %+v, available=%v", release, available)
+	}
+	if release.ArtifactKind != ArtifactInstaller || release.ArtifactURL != server.URL+"/setup" ||
+		release.ChecksumURL != server.URL+"/checksums" {
+		t.Fatalf("asset URLs = %+v", release)
+	}
+
+	_, available, err = client.Check(context.Background(), "1.4.0")
+	if err != nil || available {
+		t.Fatalf("same-version Check = available:%v err:%v", available, err)
+	}
+}
+
+func TestCheckFallsBackToZipWhenSetupMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/owner/repo/releases/latest" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{
+			"tag_name":"v1.4.0",
+			"assets":[
 				{"name":"Agent-notify-v1.4.0.zip","url":"%s/archive"},
 				{"name":"SHA256SUMS.txt","url":"%s/checksums"}
 			]
@@ -78,16 +119,8 @@ func TestCheckFindsNewerRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
-	if !available || release.Version != "1.4.0" {
-		t.Fatalf("Check = %+v, available=%v", release, available)
-	}
-	if release.ArchiveURL != server.URL+"/archive" || release.ChecksumURL != server.URL+"/checksums" {
-		t.Fatalf("asset URLs = %+v", release)
-	}
-
-	_, available, err = client.Check(context.Background(), "1.4.0")
-	if err != nil || available {
-		t.Fatalf("same-version Check = available:%v err:%v", available, err)
+	if !available || release.ArtifactKind != ArtifactArchive || release.ArtifactURL != server.URL+"/archive" {
+		t.Fatalf("fallback release = %+v available=%v", release, available)
 	}
 }
 
@@ -134,8 +167,8 @@ func TestCheckFallsBackToReleaseRedirect(t *testing.T) {
 		t.Fatalf("fallback release = %+v available=%v", release, available)
 	}
 	wantArchive := server.URL + "/owner/repo/releases/download/v1.4.0/Agent-notify-v1.4.0.zip"
-	if release.ArchiveURL != wantArchive {
-		t.Fatalf("fallback archive URL = %q, want %q", release.ArchiveURL, wantArchive)
+	if release.ArtifactKind != ArtifactArchive || release.ArtifactURL != wantArchive {
+		t.Fatalf("fallback archive = %+v, want URL %q", release, wantArchive)
 	}
 }
 
@@ -164,15 +197,19 @@ func TestPrepareVerifiesAndExtractsRelease(t *testing.T) {
 		APIBaseURL: server.URL,
 	}
 	prepared, err := client.Prepare(context.Background(), Release{
-		Version:     "1.4.0",
-		ArchiveURL:  server.URL + "/archive",
-		ChecksumURL: server.URL + "/checksums",
+		Version:      "1.4.0",
+		ArtifactKind: ArtifactArchive,
+		ArtifactURL:  server.URL + "/archive",
+		ChecksumURL:  server.URL + "/checksums",
 	}, filepath.Join(t.TempDir(), "updates"))
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
 	if prepared.Version != "1.4.0" {
 		t.Fatalf("version = %q", prepared.Version)
+	}
+	if prepared.Kind != ArtifactArchive || prepared.ArtifactPath == "" {
+		t.Fatalf("prepared archive = %+v", prepared)
 	}
 	for _, path := range []string{prepared.InstallerPath, filepath.Join(prepared.StageDir, "bin", "agent-notify.exe")} {
 		if _, err := os.Stat(path); err != nil {
@@ -201,12 +238,116 @@ func TestPrepareRejectsChecksumMismatch(t *testing.T) {
 
 	client := &Client{HTTPClient: server.Client(), Repository: "owner/repo", APIBaseURL: server.URL}
 	_, err := client.Prepare(context.Background(), Release{
+		Version:      "1.4.0",
+		ArtifactKind: ArtifactArchive,
+		ArtifactURL:  server.URL + "/archive",
+		ChecksumURL:  server.URL + "/checksums",
+	}, filepath.Join(t.TempDir(), "updates"))
+	if err == nil || !strings.Contains(err.Error(), "SHA256 校验失败") {
+		t.Fatalf("Prepare error = %v, want checksum mismatch", err)
+	}
+}
+
+func TestPrepareVerifiesInstallerWithoutExtracting(t *testing.T) {
+	installer := []byte("MZinstaller")
+	checksum := sha256.Sum256(installer)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/checksums":
+			_, _ = fmt.Fprintf(w, "%s  Agent-notify-Setup-v1.4.0.exe\n", hex.EncodeToString(checksum[:]))
+		case "/setup":
+			_, _ = w.Write(installer)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{HTTPClient: server.Client(), Repository: "owner/repo", APIBaseURL: server.URL}
+	prepared, err := client.Prepare(context.Background(), Release{
+		Version:      "1.4.0",
+		ArtifactKind: ArtifactInstaller,
+		ArtifactURL:  server.URL + "/setup",
+		ChecksumURL:  server.URL + "/checksums",
+	}, filepath.Join(t.TempDir(), "updates"))
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if prepared.Kind != ArtifactInstaller || prepared.ArtifactPath != prepared.InstallerPath {
+		t.Fatalf("prepared installer = %+v", prepared)
+	}
+	contents, err := os.ReadFile(prepared.InstallerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(contents, installer) {
+		t.Fatalf("installer contents = %q", contents)
+	}
+	if _, err := os.Stat(filepath.Join(prepared.StageDir, "extracted")); !os.IsNotExist(err) {
+		t.Fatalf("installer should not be extracted, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(prepared.StageDir, checksumName)); !os.IsNotExist(err) {
+		t.Fatalf("installer checksum file should be removed, stat err=%v", err)
+	}
+}
+
+func TestPrepareRejectsInstallerWithoutPESignature(t *testing.T) {
+	installer := []byte("not a windows executable")
+	checksum := sha256.Sum256(installer)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/checksums":
+			_, _ = fmt.Fprintf(w, "%s  Agent-notify-Setup-v1.4.0.exe\n", hex.EncodeToString(checksum[:]))
+		case "/setup":
+			_, _ = w.Write(installer)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{HTTPClient: server.Client(), Repository: "owner/repo", APIBaseURL: server.URL}
+	_, err := client.Prepare(context.Background(), Release{
+		Version:      "1.4.0",
+		ArtifactKind: ArtifactInstaller,
+		ArtifactURL:  server.URL + "/setup",
+		ChecksumURL:  server.URL + "/checksums",
+	}, filepath.Join(t.TempDir(), "updates"))
+	if err == nil || !strings.Contains(err.Error(), "不是有效的 Windows 程序") {
+		t.Fatalf("Prepare error = %v, want invalid PE error", err)
+	}
+}
+
+func TestPrepareSupportsLegacyArchiveRelease(t *testing.T) {
+	archive := releaseArchive(t, []zipTestFile{
+		{Name: "Agent-notify/VERSION", Body: "1.4.0"},
+		{Name: "Agent-notify/install.ps1", Body: "param()"},
+		{Name: "Agent-notify/bin/agent-notify.exe", Body: "MZ"},
+	})
+	checksum := sha256.Sum256(archive)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/checksums":
+			_, _ = fmt.Fprintf(w, "%s  Agent-notify-v1.4.0.zip\n", hex.EncodeToString(checksum[:]))
+		case "/archive":
+			_, _ = w.Write(archive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := &Client{HTTPClient: server.Client(), Repository: "owner/repo", APIBaseURL: server.URL}
+	prepared, err := client.Prepare(context.Background(), Release{
 		Version:     "1.4.0",
 		ArchiveURL:  server.URL + "/archive",
 		ChecksumURL: server.URL + "/checksums",
 	}, filepath.Join(t.TempDir(), "updates"))
-	if err == nil || !strings.Contains(err.Error(), "SHA256 校验失败") {
-		t.Fatalf("Prepare error = %v, want checksum mismatch", err)
+	if err != nil {
+		t.Fatalf("Prepare legacy archive: %v", err)
+	}
+	if prepared.Kind != ArtifactArchive {
+		t.Fatalf("legacy prepared kind = %q", prepared.Kind)
 	}
 }
 
@@ -240,6 +381,24 @@ func TestBuildUpdaterScriptQuotesArguments(t *testing.T) {
 	}
 	if !strings.Contains(script, `'C:\Temp\update''s.log'`) {
 		t.Fatalf("log path was not quoted: %s", script)
+	}
+}
+
+func TestInstallerCommandArgs(t *testing.T) {
+	command := installerCommand(`D:\Temp\Agent-notify-Setup-v1.4.0.exe`, []string{
+		"-SkipLoginLaunch",
+		"-InstallDir",
+		`D:\Agent's Files`,
+	})
+	if command.Path != `D:\Temp\Agent-notify-Setup-v1.4.0.exe` {
+		t.Fatalf("command path = %q", command.Path)
+	}
+	want := []string{`D:\Temp\Agent-notify-Setup-v1.4.0.exe`, "/NORESTART", "-SkipLoginLaunch", "-InstallDir", `D:\Agent's Files`}
+	if fmt.Sprint(command.Args) != fmt.Sprint(want) {
+		t.Fatalf("command args = %#v, want %#v", command.Args, want)
+	}
+	if command.SysProcAttr != nil {
+		t.Fatalf("installer command must remain visible: %+v", command.SysProcAttr)
 	}
 }
 
