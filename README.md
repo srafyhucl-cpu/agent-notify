@@ -1,7 +1,7 @@
 # Agent-notify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.0-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.3.0-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
@@ -34,7 +34,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 
 ## 安装
 
-从 Release 下载 `Agent-notify-v1.2.0.zip`，解压后运行：
+从 Release 下载 `Agent-notify-v1.3.0.zip`，解压后运行：
 
 发布包不包含任何账号凭据或绝对安装路径。安装器会在每台机器上按当前用户目录写入插件所需的实际可执行文件路径。
 
@@ -60,6 +60,8 @@ Antigravity 配置使用独立顶层 `agent-notify` Hook；Devin 只向 `hooks.S
 仅当 Antigravity 的 `hooks.json` 或 Devin 的 `config.json` 已存在（或其父目录已存在）时，安装器才写入对应 Hook；未安装这两个客户端的机器不会凭空创建配置目录。
 
 自定义安装目录（例如 `-InstallDir D:\Tools\Agent-notify`）时，安装器会把该绝对路径写进插件副本的 `BAKED_BIN`，OpenCode 插件无需额外环境变量就能找到运行程序。若把 exe 手动挪到别处，需要用 `AGENT_NOTIFY_BIN` 覆盖或重跑 `install.ps1`。
+
+首次安装且本机尚无微信凭据时，安装器会自动打开扫码登录窗口；扫码后给 ClawBot 发送一条消息即可完成会话绑定。安装结束会逐项打印 OpenCode、Codex、Antigravity、Devin 的真实接入状态，并明确提示需要重启的客户端。自动扫码可用 `-SkipLoginLaunch` 关闭。
 
 也可以从源码安装：
 
@@ -98,6 +100,8 @@ Start-Process $exe -ArgumentList "status" -Wait
 
 `login` 默认会等待首条消息。若选择 `agent-notify login --wait=false`，稍后运行 `agent-notify sync` 即可继续等待。悬浮窗运行时会自动维持会话轮询，因此扫码后在设置页保持悬浮窗运行也能完成第二步。
 
+悬浮窗中的 Agent 卡片不再只表示开关：`已接入` 表示配置、程序路径和可用的加载心跳均已通过；`待重启` 表示插件或扩展已安装但对应客户端尚未加载；`接入异常` 表示配置或路径有明确问题；`未接入` 表示尚未检测到有效配置。点击右下角“检查接入”会重新检查，并安全修复可直接恢复的 Codex notify；该操作不会启动、关闭或重启任何 Agent。
+
 安装完成后也可以双击桌面上的 `Agent-notify 悬浮窗`，在“设置”里完成上述流程。悬浮窗的推荐首次流程：
 
 1. 点击顶部连接卡或“设置”，打开设置窗。
@@ -113,6 +117,7 @@ agent-notify login       微信扫码登录，默认等待首条消息建立会�
 agent-notify sync        等待首条微信消息，建立主动推送会话
 agent-notify logout      删除本机 ClawBot 凭据
 agent-notify status      查看登录、会话、开关、路径与最近推送
+agent-notify integration-status  查看 OpenCode / Codex / Antigravity / Devin 的真实接入状态
 agent-notify notify      发送一条通知
 agent-notify test        发送测试通知
 agent-notify doctor      检查配置、凭据、会话、网络与接入

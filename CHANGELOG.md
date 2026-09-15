@@ -6,6 +6,19 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-15
+
+### Added
+
+- 新增 `integration-status`，并让安装器、`status`、`doctor` 与悬浮窗共用同一套 Agent 接入检测；悬浮窗提供“检查接入”入口，可安全恢复被改回的 Codex notify，但不会自动重启任何 Agent。
+- 新增首次安装无凭据时自动打开微信扫码，并在安装结束时逐项显示 OpenCode、Codex、Antigravity、Devin 的真实接入状态。
+
+### Fixed
+
+- 修复悬浮窗沿用越界坐标导致右侧被裁切的问题；启动和 DPI 变化时均按目标显示器工作区重新校正窗口边界。
+- 修复悬浮窗把“开关开启”误显示为“监听中”的问题；现在区分未接入、待重启、接入异常和已接入，OpenCode / Devin 使用真实加载心跳，Codex 与 Antigravity 校验有效配置和目标程序。
+- 修复安装器被 Codex 嵌套 `--previous-notify` 误导而跳过接入的问题，并确保安装结束在 Windows PowerShell 5.1 下正确显示四个 Agent 的真实状态。
+
 ## [1.2.0] - 2026-09-15
 
 ### Added
