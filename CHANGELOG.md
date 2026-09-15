@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-15
+
 ### Fixed
 
 - `install.ps1` 会把自身、`uninstall.ps1`、`VERSION`、`tools/hook-config.ps1` 与 `plugin/` 一并部署到安装目录；ZIP 与源码安装也能在悬浮窗首次启动时静默完成接入，不再报“首次配置程序不存在”。
