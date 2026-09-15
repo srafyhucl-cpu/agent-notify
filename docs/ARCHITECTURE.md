@@ -315,6 +315,17 @@ Agent-notify/
 - Release workflow 校验 tag `v<版本>` 与 Go 源码版本一致。
 - 发布包解压后包含 `bin/agent-notify.exe`，最终用户不需要安装 Go。
 
+## 自动更新
+
+悬浮窗的“升级”按钮调用 `internal/update`：
+
+1. 从 GitHub `releases/latest` 读取稳定版本，要求版本严格高于当前 SemVer。
+2. 只接受与版本对应的 `Agent-notify-v<版本>.zip` 和 `SHA256SUMS.txt`，不接受模糊文件名或旁路下载地址。
+3. 下载后先校验 SHA256，再拒绝越界 ZIP 路径、符号链接、超限文件、版本不一致或缺少安装器的包。
+4. 校验通过后，由独立 PowerShell 进程调用新版本自带的 `install.ps1`；当前 exe 不覆写自身。
+5. 安装器继承当前安装目录、插件目录、Devin 扩展、Codex notify、Antigravity Hook 和 Devin Hook 的实际路径，并保留 ClawBot 凭据、配置、历史和路由。
+6. 更新只重启 Agent-notify 悬浮窗，不启动、关闭或重启任何 Agent。
+
 ## 不可破坏的契约
 
 1. 安装入口名与位置：`agent-notify.exe`、`agent-notify.ts`、`agent-notify-install.json`。

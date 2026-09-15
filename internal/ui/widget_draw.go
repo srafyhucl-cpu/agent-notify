@@ -251,6 +251,8 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	drawIconTextButton(hdc, layout.hide, "\uE8A7", "隐藏", app.hover.hide, false, false, baseFont, iconFont)
 
 	pSelectObject.Call(hdc, smallFont)
+	updateLabel, updatePrimary := app.updateButtonState()
+	drawIconTextButton(hdc, layout.update, "\uE895", updateLabel, app.hover.update, updatePrimary, false, baseFont, iconFont)
 	repairColor := uintptr(RGB(105, 117, 128))
 	repairText := "检查接入"
 	if app.agentIntegrationIssues() > 0 {

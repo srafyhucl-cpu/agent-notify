@@ -63,6 +63,7 @@ func TestWidgetLayoutHitTargetsDoNotOverlap(t *testing.T) {
 		{"settings", layout.settings},
 		{"history", layout.history},
 		{"hide", layout.hide},
+		{"update", layout.update},
 		{"repair", layout.repair},
 	}
 	for i := 0; i < len(targets); i++ {

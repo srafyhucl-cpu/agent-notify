@@ -183,6 +183,8 @@ func TestWidgetTextFitsItsRects(t *testing.T) {
 		{"最近推送标签", newSmallFont, "最近推送", text.recentLabel},
 		{"最近推送元信息", newSmallFont, "OpenCode · 失败 · 12 分钟前", text.recentMeta},
 		{"最近推送标题", newStrongFont, "【codex】请你先了解这个项目。", text.recentTitle},
+		{"页脚版本", newSmallFont, "v10.10.10", text.footerVersion},
+		{"页脚升级", newSmallFont, "升级 v10.10.10", text.footerUpdate},
 		{"页脚接入检查", newSmallFont, "检查修复", text.footerHint},
 	}
 

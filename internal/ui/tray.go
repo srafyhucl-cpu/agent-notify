@@ -29,6 +29,7 @@ const (
 	IDM_SETTINGS           = 3007
 	IDM_TEST_PUSH          = 3008
 	IDM_EXIT               = 3009
+	IDM_UPDATE             = 3010
 )
 
 // CreateDotIcon creates a 16x16 colored tray status icon.
@@ -175,6 +176,7 @@ func (manager *TrayManager) ShowContextMenu(windowVisible bool, agentEnabled map
 	pAppendMenuW.Call(menu, MF_STRING, IDM_HISTORY, uintptr(unsafe.Pointer(StringToUTF16Ptr("推送历史"))))
 	pAppendMenuW.Call(menu, MF_STRING, IDM_SETTINGS, uintptr(unsafe.Pointer(StringToUTF16Ptr("设置与 ClawBot 登录"))))
 	pAppendMenuW.Call(menu, MF_STRING, IDM_TEST_PUSH, uintptr(unsafe.Pointer(StringToUTF16Ptr("发送测试推送"))))
+	pAppendMenuW.Call(menu, MF_STRING, IDM_UPDATE, uintptr(unsafe.Pointer(StringToUTF16Ptr("检查更新"))))
 	pAppendMenuW.Call(menu, MF_SEPARATOR, 0, 0)
 	pAppendMenuW.Call(menu, MF_STRING, IDM_EXIT, uintptr(unsafe.Pointer(StringToUTF16Ptr("退出"))))
 

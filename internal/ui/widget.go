@@ -67,6 +67,7 @@ type WidgetApp struct {
 	lastPushStatus      string
 	lastPushAgent       string
 	integrations        map[string]integration.Status
+	updateState         widgetUpdateState
 	procStatus          ProcessStatus
 	hover               widgetHoverState
 	isTracking          bool
@@ -86,6 +87,7 @@ type widgetLayout struct {
 	settings    RECT
 	history     RECT
 	hide        RECT
+	update      RECT
 	repair      RECT
 }
 
@@ -102,12 +104,13 @@ type widgetHoverState struct {
 	settings    bool
 	test        bool
 	hide        bool
+	update      bool
 	repair      bool
 }
 
 func (s widgetHoverState) any() bool {
 	return s.openCode || s.codex || s.antigravity || s.devin || s.minimize || s.close || s.connection ||
-		s.recent || s.history || s.settings || s.test || s.hide || s.repair
+		s.recent || s.history || s.settings || s.test || s.hide || s.update || s.repair
 }
 
 func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
@@ -124,6 +127,7 @@ func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
 		settings:    pointInRect(x, y, layout.settings),
 		test:        pointInRect(x, y, layout.test),
 		hide:        pointInRect(x, y, layout.hide),
+		update:      pointInRect(x, y, layout.update),
 		repair:      pointInRect(x, y, layout.repair),
 	}
 }
@@ -143,6 +147,7 @@ func widgetLayoutRects() widgetLayout {
 		settings:    RECT{140, 380, 238, 420},
 		history:     RECT{246, 380, 314, 420},
 		hide:        RECT{322, 380, 386, 420},
+		update:      RECT{80, 426, 250, 448},
 		repair:      RECT{258, 426, 386, 448},
 	}
 }
@@ -158,6 +163,7 @@ type widgetTextLayout struct {
 	recentMeta       RECT
 	recentTitle      RECT
 	footerVersion    RECT
+	footerUpdate     RECT
 	footerHint       RECT
 }
 
@@ -171,8 +177,9 @@ func widgetTextRects() widgetTextLayout {
 		recentLabel:      RECT{28, 312, 110, 330},
 		recentMeta:       RECT{120, 311, 370, 330},
 		recentTitle:      RECT{28, 332, 370, 356},
-		footerVersion:    RECT{14, 432, 100, 448},
-		footerHint:       RECT{170, 432, 386, 448},
+		footerVersion:    RECT{14, 432, 70, 448},
+		footerUpdate:     RECT{104, 432, 238, 448},
+		footerHint:       RECT{254, 432, 386, 448},
 	}
 }
 
@@ -384,6 +391,9 @@ func RunWidget() {
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 		}
+		if instance.handleUpdateMessage(hwnd, message) {
+			return 0
+		}
 
 		switch message {
 		case WM_CREATE:
@@ -503,6 +513,10 @@ func RunWidget() {
 				instance.repairIntegrations(hwnd)
 				return 0
 			}
+			if pointInRect(x, y, layout.update) {
+				instance.handleUpdateClick(hwnd)
+				return 0
+			}
 			if pointInRect(x, y, layout.hide) {
 				savePosition(hwnd, paths.WidgetPosFile)
 				pShowWindow.Call(hwnd, SW_HIDE)
@@ -545,6 +559,8 @@ func RunWidget() {
 				go func() {
 					_ = notify.SendNotification(notify.NotifyOptions{Agent: "test", Title: "【测试】Agent-notify", Summary: "ClawBot 推送链路正常。"})
 				}()
+			case IDM_UPDATE:
+				instance.startUpdateCheck(hwnd)
 			case IDM_EXIT:
 				savePosition(hwnd, paths.WidgetPosFile)
 				_ = os.WriteFile(paths.WidgetExitMarker, []byte(time.Now().Format(time.RFC3339)), 0600)
