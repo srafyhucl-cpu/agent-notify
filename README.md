@@ -35,7 +35,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 
 ## 安装
 
-从 Release 下载 `Agent-notify-v1.4.0.zip`，解压后运行：
+从[公开 Release](https://github.com/srafyhucl-cpu/agent-notify-releases/releases/latest)下载 `Agent-notify-v1.4.0.zip`，解压后运行：
 
 发布包不包含任何账号凭据或绝对安装路径。安装器会在每台机器上按当前用户目录写入插件所需的实际可执行文件路径。
 
@@ -117,7 +117,7 @@ Start-Process $exe -ArgumentList "status" -Wait
 
 更新流程始终校验 Release 中 `SHA256SUMS.txt` 对更新包计算的 SHA256。校验通过后，更新器会调用新版本自带的 `install.ps1` 更新程序、OpenCode 插件和桌面端扩展，保留本机 ClawBot 凭据、配置、历史与引用路由，并自动重启悬浮窗。更新不会自动启动、关闭或重启 OpenCode、Codex、Antigravity、Devin。
 
-默认更新源是 `https://github.com/srafyhucl-cpu/agent-notify/releases`，因此仓库与 Release 必须允许对应用户访问。私有仓库可临时通过 `AGENT_NOTIFY_GITHUB_TOKEN` 提供只读 GitHub token，但不适合作为普通用户的分发方式。
+默认更新源是 `https://github.com/srafyhucl-cpu/agent-notify-releases/releases`，该仓库只分发编译产物，不包含源码。需要切换测试或自建更新源时，可设置 `AGENT_NOTIFY_UPDATE_REPOSITORY` 与 `AGENT_NOTIFY_UPDATE_API_BASE`。
 
 ## 命令行
 

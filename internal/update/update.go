@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultRepository = "srafyhucl-cpu/agent-notify"
+	defaultRepository = "srafyhucl-cpu/agent-notify-releases"
 	defaultAPIBaseURL = "https://api.github.com"
 
 	downloadTimeout = 3 * time.Minute
