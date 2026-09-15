@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-15
+
 ### Added
 
 - 新增标准 Windows 安装器 `Agent-notify-Setup-vX.Y.Z.exe`，普通用户无需解压 ZIP 或运行 PowerShell。

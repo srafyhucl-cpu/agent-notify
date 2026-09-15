@@ -5,7 +5,7 @@
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-release.ps1
-  powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-release.ps1 -Version 1.4.1
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-release.ps1 -Version 1.5.0
 #>
 param(
   [string]$Version,
@@ -26,9 +26,13 @@ if (-not $Version) {
 
 $tag = "v$Version"
 $zipPath = Join-Path $DistDir "Agent-notify-$tag.zip"
+$setupPath = Join-Path $DistDir "Agent-notify-Setup-$tag.exe"
 $sumsPath = Join-Path $DistDir 'SHA256SUMS.txt'
 if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
   throw "Release archive does not exist: $zipPath"
+}
+if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+  throw "Release installer does not exist: $setupPath"
 }
 if (-not (Test-Path -LiteralPath $sumsPath -PathType Leaf)) {
   throw "Checksum file does not exist: $sumsPath"
@@ -65,13 +69,13 @@ try {
   $releaseExists = $LASTEXITCODE -eq 0
   $ErrorActionPreference = $previousErrorAction
   if ($releaseExists) {
-    & $gh.Source release upload $tag $zipPath $sumsPath --repo $Repository --clobber
+    & $gh.Source release upload $tag $setupPath $zipPath $sumsPath --repo $Repository --clobber
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed: exit=$LASTEXITCODE" }
     & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath
     if ($LASTEXITCODE -ne 0) { throw "gh release edit failed: exit=$LASTEXITCODE" }
     Write-Output "[publish] updated public release: $Repository $tag"
   } else {
-    & $gh.Source release create $tag $zipPath $sumsPath --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath
+    & $gh.Source release create $tag $setupPath $zipPath $sumsPath --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed: exit=$LASTEXITCODE" }
     Write-Output "[publish] created public release: $Repository $tag"
   }
