@@ -68,6 +68,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\sign-selfsigned.ps1 si
 $env:AGENT_NOTIFY_SIGNATURE_THUMBPRINT = '<证书指纹>'
 ```
 
+> 注意：在 PowerShell 里写 secret 请用文件重定向（`cmd /c "gh secret set NAME < file"`）。
+> 用管道写入会带上尾随换行，PFX 会因"密码不正确"导入失败；包装器已对换行做兜底，但仍建议用重定向。
+
 ## 3. 验证
 
 ```powershell
