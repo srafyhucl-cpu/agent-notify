@@ -45,6 +45,8 @@ type NotifyResult struct {
 	DryRunPayload string
 	MessageID     string
 	ClientID      string
+	// Warning 记录"消息已发出、但本地记录（历史/引用路由）写入失败"这类非致命问题。
+	Warning string
 }
 
 // SendNotification renders one plain-text ClawBot message and records the
@@ -94,7 +96,10 @@ func SendNotification(opts NotifyOptions) NotifyResult {
 		return recordFailure(opts, title, summary, status, clawbotHint(err))
 	}
 
-	_ = appendHistory(HistoryItem{
+	// 消息已经发出，本地记录失败不影响本次投递，但必须作为警告返回给调用方，
+	// 否则用户只会在之后引用回复时才发现"找不到会话记录"。
+	warnings := make([]string, 0, 2)
+	if err := appendHistory(HistoryItem{
 		Timestamp: time.Now().Format(time.RFC3339Nano),
 		Agent:     strings.TrimSpace(opts.Agent),
 		Session:   strings.TrimSpace(opts.SessionID),
@@ -103,18 +108,27 @@ func SendNotification(opts NotifyOptions) NotifyResult {
 		Status:    StatusSuccess,
 		MessageID: sendResult.MessageID,
 		ClientID:  sendResult.ClientID,
-	}, config.GetPaths().PushLog)
+	}, config.GetPaths().PushLog); err != nil {
+		warnings = append(warnings, "推送历史写入失败："+err.Error())
+	}
 	if isRouteable(opts, sendResult) {
-		_ = reply.RecordRoute(reply.Route{
+		if err := reply.RecordRoute(reply.Route{
 			MessageID: sendResult.MessageID,
 			ClientID:  sendResult.ClientID,
 			BotID:     creds.ILinkBotID,
 			UserID:    creds.ILinkUserID,
 			Agent:     strings.TrimSpace(opts.Agent),
 			SessionID: strings.TrimSpace(opts.SessionID),
-		})
+		}); err != nil {
+			warnings = append(warnings, "引用回复路由写入失败（微信里引用本条消息将无法续聊）："+err.Error())
+		}
 	}
-	return NotifyResult{Status: StatusSuccess, MessageID: sendResult.MessageID, ClientID: sendResult.ClientID}
+	return NotifyResult{
+		Status:    StatusSuccess,
+		MessageID: sendResult.MessageID,
+		ClientID:  sendResult.ClientID,
+		Warning:   strings.Join(warnings, "；"),
+	}
 }
 
 // clawbotHint turns a ClawBot error into an actionable Chinese message.

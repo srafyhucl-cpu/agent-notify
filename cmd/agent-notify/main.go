@@ -276,7 +276,13 @@ func runStopHook(args []string, handle func(io.Reader) notify.NotifyResult) {
 	if len(args) == 0 || !strings.EqualFold(strings.TrimSpace(args[0]), "stop") {
 		return
 	}
-	_ = handle(os.Stdin)
+	result := handle(os.Stdin)
+	if result.Error != "" && result.Status != notify.StatusSkipped {
+		fmt.Fprintln(os.Stderr, result.Error)
+	}
+	if result.Warning != "" {
+		fmt.Fprintln(os.Stderr, "警告："+result.Warning)
+	}
 }
 
 func runLogin(args []string) {
@@ -562,6 +568,9 @@ func runNotify(args []string) {
 	if result.Error != "" && result.Status != notify.StatusSkipped && !*dryRun {
 		fmt.Fprintln(os.Stderr, result.Error)
 	}
+	if result.Warning != "" {
+		fmt.Fprintln(os.Stderr, "警告："+result.Warning)
+	}
 }
 
 func runTest() {
@@ -584,6 +593,9 @@ func runTest() {
 		os.Exit(1)
 	}
 	fmt.Println("测试通知已发送。")
+	if result.Warning != "" {
+		fmt.Fprintln(os.Stderr, "警告："+result.Warning)
+	}
 }
 
 func runDoctor() int {
