@@ -40,6 +40,14 @@ $RepoRoot = $PSScriptRoot
 $ExeName = 'agent-notify.exe'
 $PluginName = 'agent-notify.ts'
 $RecordName = 'agent-notify-install.json'
+
+# 归一化为绝对路径：相对路径会被写进插件与 Codex 配置，换工作目录后就失联。
+foreach ($pathParam in @('InstallDir', 'PluginDir', 'AntigravityHooks', 'DevinConfig', 'DevinExtensionDir', 'CodexConfig')) {
+  $currentValue = Get-Variable -Name $pathParam -ValueOnly -ErrorAction SilentlyContinue
+  if (-not [string]::IsNullOrWhiteSpace($currentValue)) {
+    Set-Variable -Name $pathParam -Value ([IO.Path]::GetFullPath($currentValue))
+  }
+}
 # 快捷方式名与标准安装器保持一致，旧名字只做清理，避免重复。
 $ShortcutName = 'Agent-notify.lnk'
 $LegacyShortcutName = 'Agent-notify 悬浮窗.lnk'
@@ -297,7 +305,8 @@ try {
 
     # 3. 停掉正在运行的悬浮窗，释放二进制文件锁并替换文件。
     try {
-      $escaped = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\'))
+      # 目录边界必须带分隔符，避免 D:\bin 误伤 D:\bin2 的进程。
+      $escaped = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\')) + '\\'
       Get-CimInstance Win32_Process -Filter "Name='agent-notify.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -and ($_.CommandLine -match $escaped) -and ($_.ProcessId -ne $PID) } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -432,6 +441,10 @@ try {
           $updated = [regex]::Replace($content, '(?m)^notify\s*=.*$', $updatedLine.Replace('$', '$$'))
           [IO.File]::WriteAllText($CodexConfig, $updated)
           Write-Output "[install] Codex notify 已更新到当前 Agent-notify 路径（原文件备份到 $CodexConfig.bak-notify-wrapper）。"
+        } elseif ($notifyLine -notmatch [regex]::Escape($exeSlash)) {
+          # 行里有 agent-notify.exe，但既不是本安装目录、也不符合可自动替换的盘符格式（例如 UNC）。
+          # 明确警告，避免"无需改动"掩盖掉指向旧路径的事实。
+          Write-Output "[install] 警告：Codex notify 里的 agent-notify.exe 不指向本安装目录，且无法自动更新（可能不是盘符路径）。请手动改为：$installedExe"
         } else {
           Write-Output '[install] Codex notify 已指向 Agent-notify，无需改动。'
         }

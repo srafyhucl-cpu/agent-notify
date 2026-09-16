@@ -498,6 +498,7 @@ model = "gpt-5"
   # 清理沙箱：只逐个删除明确的文件路径，再逐个删除已空目录
   $explicitFiles = @(
     (Join-Path $smokeRoot 'bin\agent-notify.exe'),
+    (Join-Path $RepoRoot 'bin\agent-notify.exe'),
     (Join-Path $configDir 'config.json'),
     (Join-Path $configDir 'clawbot.json'),
     (Join-Path $configDir 'reply-routes.jsonl.lock'),
@@ -568,6 +569,7 @@ model = "gpt-5"
       (Join-Path $smokeRoot 'configure-only-plugins'),
       (Join-Path $smokeRoot 'configure-only-devin-extension'),
       (Join-Path $smokeRoot 'devin-extension'),
+      (Join-Path $RepoRoot 'bin'),
       $smokeRoot
     )) {
     if (Test-Path -LiteralPath $dir) {

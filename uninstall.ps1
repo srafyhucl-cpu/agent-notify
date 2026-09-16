@@ -52,7 +52,7 @@ function Test-InsideDir {
 # 0. 停掉安装目录里正在运行的悬浮窗，释放文件锁
 if (-not $SkipProcessStop) {
   try {
-    $escaped = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\'))
+    $escaped = [regex]::Escape([IO.Path]::GetFullPath($InstallDir).TrimEnd('\')) + '\\'
     Get-CimInstance Win32_Process -Filter "Name='agent-notify.exe'" -ErrorAction SilentlyContinue |
       Where-Object { $_.CommandLine -and ($_.CommandLine -match $escaped) -and ($_.ProcessId -ne $PID) } |
       ForEach-Object {
