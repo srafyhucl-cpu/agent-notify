@@ -98,3 +98,14 @@ jobs:
           } else {
             gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --generate-notes
           }
+
+      - name: Mirror release to update source
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            throw 'RELEASE_REPO_TOKEN 未配置：客户端更新源（agent-notify-releases）拿不到本版本，用户会看到"当前已是最新版本"。请在源码仓库 Settings → Secrets and variables → Actions 添加指向 agent-notify-releases（Contents: Read and write）的 PAT。'
+          }
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          ./tools/publish-release.ps1 -Version $version -DistDir dist
