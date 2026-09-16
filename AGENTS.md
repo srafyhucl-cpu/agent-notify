@@ -23,4 +23,5 @@
 ## 提交与发版
 - 提交信息用 Conventional Commits + 中文描述，例如 `feat(reply): ...`、`docs: ...`、`fix(ui): ...`。
 - 版本号只认 `internal/app/version.go`；发版时同步 `VERSION`、`agent-notify.manifest`、README 徽章与包名、`CHANGELOG.md`，按 SemVer 递增，打 tag 后推送，Release workflow 会自动发布产物。
+- Release workflow 只把产物发到源码仓库；客户端更新源是二进制仓库 `srafyhucl-cpu/agent-notify-releases`，发版后必须再跑 `tools\publish-release.ps1 -Version x.y.z -DistDir <已下载产物的目录>`（或在 CI 里镜像）把安装器、ZIP 与 `SHA256SUMS.txt` 同步过去并置为 Latest，否则用户点"升级"会误报"当前已是最新版本"。
 - 提交前确认工作区里没有别人未完成的改动（同一仓库可能有并行 agent 在工作），只提交本次相关文件。

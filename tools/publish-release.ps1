@@ -71,11 +71,11 @@ try {
   if ($releaseExists) {
     & $gh.Source release upload $tag $setupPath $zipPath $sumsPath --repo $Repository --clobber
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed: exit=$LASTEXITCODE" }
-    & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath
+    & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --latest
     if ($LASTEXITCODE -ne 0) { throw "gh release edit failed: exit=$LASTEXITCODE" }
     Write-Output "[publish] updated public release: $Repository $tag"
   } else {
-    & $gh.Source release create $tag $setupPath $zipPath $sumsPath --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath
+    & $gh.Source release create $tag $setupPath $zipPath $sumsPath --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --latest
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed: exit=$LASTEXITCODE" }
     Write-Output "[publish] created public release: $Repository $tag"
   }
