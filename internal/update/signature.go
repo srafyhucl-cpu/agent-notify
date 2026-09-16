@@ -19,6 +19,10 @@ const (
 	signatureStatusNotSigned    = "NotSigned"
 	signatureStatusHashMismatch = "HashMismatch"
 	signatureStatusNotTrusted   = "NotTrusted"
+
+	// defaultSignatureThumbprint 为空表示"不默认限定签名者"。启用代码签名后把证书指纹
+	// 填在这里，所有客户端都会只信任该签名者（详见 docs/code-signing.md）。
+	defaultSignatureThumbprint = ""
 )
 
 // verifyArtifactSignature 校验更新产物（最终要执行的程序）的 Authenticode 签名。
@@ -69,11 +73,13 @@ func signatureRequiredFromEnv() bool {
 }
 
 func signatureThumbprintsFromEnv() []string {
-	raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_SIGNATURE_THUMBPRINT"))
-	if raw == "" {
-		return nil
+	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_SIGNATURE_THUMBPRINT")); raw != "" {
+		return strings.Split(strings.NewReplacer(";", ",").Replace(raw), ",")
 	}
-	return strings.Split(strings.NewReplacer(";", ",").Replace(raw), ",")
+	if pinned := strings.TrimSpace(defaultSignatureThumbprint); pinned != "" {
+		return []string{pinned}
+	}
+	return nil
 }
 
 func normalizeThumbprints(values []string) []string {

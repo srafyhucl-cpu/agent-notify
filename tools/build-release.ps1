@@ -69,6 +69,26 @@ try {
     Pop-Location
   }
 
+  # 与安装器共用同一签名工具约定（<tool> sign <file>）；设置 AGENT_NOTIFY_SIGNTOOL 后
+  # ZIP 内的主程序也会签名，并强制校验签名有效，避免"配了签名却发未签名包"。
+  if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {
+    $signTool = $env:AGENT_NOTIFY_SIGNTOOL.Trim()
+    if (Test-Path -LiteralPath $signTool -PathType Leaf) {
+      $signTool = (Resolve-Path -LiteralPath $signTool).Path
+    } else {
+      $signCommand = Get-Command $signTool -ErrorAction SilentlyContinue
+      if (-not $signCommand) { throw "找不到签名工具：$signTool" }
+      $signTool = $signCommand.Source
+    }
+    & $signTool sign $tempExe
+    if ($LASTEXITCODE -ne 0) { throw "主程序签名失败 exit=$LASTEXITCODE" }
+    $signature = Get-AuthenticodeSignature -LiteralPath $tempExe
+    if ($signature.Status -ne 'Valid') {
+      throw "主程序签名校验未通过：$($signature.Status)"
+    }
+    Write-Output '[release] 已签名主程序并通过校验'
+  }
+
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
   $zipName = "Agent-notify-v$Version.zip"
   $zipPath = Join-Path $OutDir $zipName

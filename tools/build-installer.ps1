@@ -112,6 +112,15 @@ if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
   throw "安装器未生成：$installer"
 }
 
+# 配了签名工具就必须真的签上，否则直接失败，避免发出未签名安装器。
+if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {
+  $signature = Get-AuthenticodeSignature -LiteralPath $installer
+  if ($signature.Status -ne 'Valid') {
+    throw "安装器签名校验未通过：$($signature.Status)"
+  }
+  Write-Output '[installer] 安装器签名校验通过'
+}
+
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tests\installer-smoke.ps1') -Installer $installer
 if ($LASTEXITCODE -ne 0) {
   throw "安装器结构检查失败 exit=$LASTEXITCODE"
