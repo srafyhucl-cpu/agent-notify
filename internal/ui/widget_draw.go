@@ -488,20 +488,14 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 	pDeleteObject.Call(backgroundBrush)
 	pSetBkMode.Call(hdc, TRANSPARENT)
 
-	titleFont := newTitleFont()
-	baseFont := newBaseFont()
-	strongFont := newStrongFont()
-	smallFont := newSmallFont()
-	iconFont := newUIIconFont()
+	fonts := app.uiFonts()
+	titleFont := fonts.title
+	baseFont := fonts.base
+	strongFont := fonts.strong
+	smallFont := fonts.small
+	iconFont := fonts.icon
 	oldFont, _, _ := pSelectObject.Call(hdc, titleFont)
-	defer func() {
-		pSelectObject.Call(hdc, oldFont)
-		pDeleteObject.Call(titleFont)
-		pDeleteObject.Call(baseFont)
-		pDeleteObject.Call(strongFont)
-		pDeleteObject.Call(smallFont)
-		pDeleteObject.Call(iconFont)
-	}()
+	defer pSelectObject.Call(hdc, oldFont)
 
 	// If currently in an in-app subview, render that view!
 	switch app.currentView {

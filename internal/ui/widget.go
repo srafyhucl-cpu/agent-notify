@@ -100,6 +100,10 @@ type WidgetApp struct {
 	historyConfirmClear  bool
 	historyPageOffset    int
 	historySelectedIndex int
+	historyStamp         string
+	historyLimit         int
+	historyCache         []notify.HistoryItem
+	fonts                widgetFonts
 	settingsHover        settingsViewHover
 	loginHover           loginViewHover
 	loginState           loginDialogState
@@ -508,7 +512,7 @@ func RunWidget(options WidgetOptions) {
 		case WM_MOUSEWHEEL:
 			if instance.currentView == WidgetViewHistory {
 				delta := int16((wParam >> 16) & 0xFFFF)
-				historyItems, _ := notify.GetHistory(50, paths.PushLog)
+				historyItems := instance.loadHistory(historyListPageSize * 10)
 				total := len(historyItems)
 				const pageSize = historyListPageSize
 				if delta > 0 {
@@ -620,7 +624,7 @@ func RunWidget(options WidgetOptions) {
 
 			case WidgetViewHistory:
 				backRect, _, closeRect := subviewCommonHeader()
-				historyItems, _ := notify.GetHistory(50, paths.PushLog)
+				historyItems := instance.loadHistory(historyListPageSize * 10)
 				total := len(historyItems)
 				const pageSize = historyListPageSize
 				prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)
@@ -777,7 +781,7 @@ func RunWidget(options WidgetOptions) {
 
 			case WidgetViewHistory:
 				backRect, _, closeRect := subviewCommonHeader()
-				historyItems, _ := notify.GetHistory(50, paths.PushLog)
+				historyItems := instance.loadHistory(historyListPageSize * 10)
 				total := len(historyItems)
 				const pageSize = historyListPageSize
 				prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)
@@ -876,9 +880,9 @@ func RunWidget(options WidgetOptions) {
 				}
 				if pointInRect(x, y, replyTrack) {
 					instance.replyEnabled = !instance.replyEnabled
-					cfg, _ := config.LoadConfig("")
-					cfg.ReplyEnabled = instance.replyEnabled
-					_ = config.SaveConfig(cfg, "")
+					instance.mutateConfig(func(cfg *config.AppConfig) {
+						cfg.ReplyEnabled = instance.replyEnabled
+					})
 					pInvalidateRect.Call(hwnd, 0, 0)
 					return 0
 				}
@@ -908,13 +912,22 @@ func RunWidget(options WidgetOptions) {
 							cooldownVal = cd
 						}
 					}
-					cfg, _ := config.LoadConfig("")
+					cfg, err := config.LoadConfig("")
+					if err != nil {
+						instance.settingsError = "读取设置失败，未保存：" + err.Error()
+						pInvalidateRect.Call(hwnd, 0, 0)
+						return 0
+					}
 					cfg.QuietHours = quietVal
 					cfg.CooldownMin = cooldownVal
 					cfg.ReplyEnabled = instance.replyEnabled
 					cfg.Theme = instance.theme
 					cfg.DefaultAgent = instance.currentAgent
-					_ = config.SaveConfig(cfg, "")
+					if err := config.SaveConfig(cfg, ""); err != nil {
+						instance.settingsError = "保存失败：" + err.Error()
+						pInvalidateRect.Call(hwnd, 0, 0)
+						return 0
+					}
 					instance.quietHours = cfg.QuietHours
 					instance.cooldownMin = cfg.CooldownMin
 					instance.switchView(WidgetViewDashboard)
@@ -960,9 +973,9 @@ func RunWidget(options WidgetOptions) {
 						itemIdx := int((y - 134) / 34)
 						if itemIdx >= 0 && itemIdx < len(descriptors) {
 							instance.currentAgent = descriptors[itemIdx].ID
-							cfg, _ := config.LoadConfig("")
-							cfg.DefaultAgent = instance.currentAgent
-							_ = config.SaveConfig(cfg, "")
+							instance.mutateConfig(func(cfg *config.AppConfig) {
+								cfg.DefaultAgent = instance.currentAgent
+							})
 							instance.agentDropdownOpen = false
 							instance.refreshState()
 							pInvalidateRect.Call(hwnd, 0, 0)
@@ -1097,6 +1110,7 @@ func RunWidget(options WidgetOptions) {
 
 		case WM_DESTROY:
 			sessionCancel()
+			instance.releaseFonts()
 			if instance.tray != nil {
 				instance.tray.Destroy()
 			}
@@ -1186,9 +1200,9 @@ func (app *WidgetApp) toggleTheme() {
 	} else {
 		app.theme = "light"
 	}
-	cfg, _ := config.LoadConfig("")
-	cfg.Theme = app.theme
-	_ = config.SaveConfig(cfg, "")
+	app.mutateConfig(func(cfg *config.AppConfig) {
+		cfg.Theme = app.theme
+	})
 	app.applyThemeToWindow()
 	if app.quietEdit != 0 {
 		pInvalidateRect.Call(app.quietEdit, 0, 1)
@@ -1385,6 +1399,94 @@ func (app *WidgetApp) applyRepairDone() {
 	app.repairDone = nil
 }
 
+func (app *WidgetApp) loadHistory(limit int) []notify.HistoryItem {
+	if limit <= 0 {
+		limit = 1
+	}
+	stamp := historyFileStamp(app.paths.PushLog)
+	if stamp != "" && stamp == app.historyStamp && app.historyLimit >= limit && app.historyCache != nil {
+		return app.historyCache
+	}
+	items, _ := notify.GetHistory(limit, app.paths.PushLog)
+	if items == nil {
+		items = []notify.HistoryItem{}
+	}
+	app.historyStamp = stamp
+	app.historyLimit = limit
+	app.historyCache = items
+	return items
+}
+
+// historyFileStamp 用大小 + 修改时间标记日志；文件不存在时返回空串（此时每次都重读，代价可忽略）。
+func historyFileStamp(logPath string) string {
+	info, err := os.Stat(logPath)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
+}
+
+// widgetFonts 缓存按 DPI 创建的字体系列：绘制路径每帧都要用字体，
+// 缓存后不再每帧创建/销毁 5 个 GDI 字体对象，DPI 变化时重建。
+type widgetFonts struct {
+	title  uintptr
+	base   uintptr
+	strong uintptr
+	small  uintptr
+	icon   uintptr
+	dpi    uint32
+}
+
+func (app *WidgetApp) uiFonts() widgetFonts {
+	if app.fonts.title != 0 && app.fonts.dpi == uiDPI {
+		return app.fonts
+	}
+	app.releaseFonts()
+	app.fonts = widgetFonts{
+		title:  newTitleFont(),
+		base:   newBaseFont(),
+		strong: newStrongFont(),
+		small:  newSmallFont(),
+		icon:   newUIIconFont(),
+		dpi:    uiDPI,
+	}
+	return app.fonts
+}
+
+func (app *WidgetApp) releaseFonts() {
+	for _, font := range []uintptr{app.fonts.title, app.fonts.base, app.fonts.strong, app.fonts.small, app.fonts.icon} {
+		if font != 0 {
+			pDeleteObject.Call(font)
+		}
+	}
+	app.fonts = widgetFonts{}
+}
+
+// mutateConfig 读取-修改-保存配置：读取失败时绝不覆盖现有配置（避免用默认值冲掉用户文件），
+// 保存失败会把原因直接告诉用户。
+func (app *WidgetApp) mutateConfig(apply func(*config.AppConfig)) bool {
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		app.reportActionError("读取设置失败，本次修改未保存：%v", err)
+		return false
+	}
+	apply(&cfg)
+	if err := config.SaveConfig(cfg, ""); err != nil {
+		app.reportActionError("保存设置失败：%v", err)
+		return false
+	}
+	return true
+}
+
+// reportActionError 把用户操作中的失败明确暴露出来（消息框 + 调试日志）。
+func (app *WidgetApp) reportActionError(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+	debugLog("action error: %s", message)
+	if app.hwnd != 0 {
+		showMessage(app.hwnd, message, MB_ICONINFO)
+	}
+}
+
 func (app *WidgetApp) refreshState() {
 	app.refreshAgentSwitches()
 	clawbotStatus := clawbot.GetStatus()
@@ -1418,7 +1520,7 @@ func (app *WidgetApp) refreshState() {
 		}
 	}
 	app.procStatus = DetectProcesses()
-	history, _ := notify.GetHistory(1, app.paths.PushLog)
+	history := app.loadHistory(1)
 	if len(history) > 0 {
 		item := history[0]
 		app.lastPushTitle = truncateUI(item.Title, 28)
@@ -1539,16 +1641,16 @@ func (app *WidgetApp) nextAgent() {
 	for i, a := range agents {
 		if a == app.currentAgent {
 			app.currentAgent = agents[(i+1)%len(agents)]
-			cfg, _ := config.LoadConfig("")
-			cfg.DefaultAgent = app.currentAgent
-			_ = config.SaveConfig(cfg, "")
+			app.mutateConfig(func(cfg *config.AppConfig) {
+				cfg.DefaultAgent = app.currentAgent
+			})
 			return
 		}
 	}
 	app.currentAgent = agentmeta.Antigravity
-	cfg, _ := config.LoadConfig("")
-	cfg.DefaultAgent = app.currentAgent
-	_ = config.SaveConfig(cfg, "")
+	app.mutateConfig(func(cfg *config.AppConfig) {
+		cfg.DefaultAgent = app.currentAgent
+	})
 }
 
 func (app *WidgetApp) toggleAgentMode() {
@@ -1557,9 +1659,9 @@ func (app *WidgetApp) toggleAgentMode() {
 	} else {
 		app.agentMode = "single"
 	}
-	cfg, _ := config.LoadConfig("")
-	cfg.WidgetAgentMode = app.agentMode
-	_ = config.SaveConfig(cfg, "")
+	app.mutateConfig(func(cfg *config.AppConfig) {
+		cfg.WidgetAgentMode = app.agentMode
+	})
 }
 
 func (app *WidgetApp) focusedAgentHealth() (uint32, string) {

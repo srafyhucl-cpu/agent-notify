@@ -243,7 +243,7 @@ func historyRowIndexAt(x, y int32, listCard RECT, pageSize int) int {
 }
 
 func drawHistoryView(hdc uintptr, width, height int32, app *WidgetApp, theme ThemePalette, titleFont, strongFont, baseFont, smallFont, iconFont uintptr) {
-	historyItems, _ := notify.GetHistory(50, app.paths.PushLog)
+	historyItems := app.loadHistory(historyListPageSize * 10)
 	total := len(historyItems)
 	const pageSize = historyListPageSize
 	prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)

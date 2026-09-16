@@ -238,8 +238,15 @@ func (app *WidgetApp) toggleAgent(agentID string) bool {
 	if !ok {
 		return false
 	}
-	_, err := marker.SetMarker(path, "Flip")
-	return err == nil
+	if _, err := marker.SetMarker(path, "Flip"); err != nil {
+		name := agentID
+		if descriptor, found := agentmeta.Lookup(agentID); found {
+			name = descriptor.DisplayName
+		}
+		app.reportActionError("切换 %s 通知开关失败：%v", name, err)
+		return false
+	}
+	return true
 }
 
 func (app *WidgetApp) toggleAgentAt(x, y int32, layout widgetLayout) bool {
