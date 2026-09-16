@@ -8,6 +8,14 @@ import (
 	"testing"
 )
 
+// clearSignaturePin 让使用未签名桩产物的 Prepare 测试不受内置信任指纹影响。
+func clearSignaturePin(t *testing.T) {
+	t.Helper()
+	original := resolveSignatureThumbprints
+	resolveSignatureThumbprints = func() []string { return nil }
+	t.Cleanup(func() { resolveSignatureThumbprints = original })
+}
+
 func TestSignaturePolicy(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -46,18 +54,21 @@ func TestSignaturePolicy(t *testing.T) {
 }
 
 func TestSignatureThumbprintsFromEnv(t *testing.T) {
+	// 未配置环境变量时使用内置信任指纹（已启用代码签名）。
 	t.Setenv("AGENT_NOTIFY_SIGNATURE_THUMBPRINT", "")
-	if got := signatureThumbprintsFromEnv(); got != nil {
-		t.Fatalf("空配置应返回 nil，得到 %#v", got)
-	}
-	t.Setenv("AGENT_NOTIFY_SIGNATURE_THUMBPRINT", "aa bb,CC:DD; ee")
 	got := signatureThumbprintsFromEnv()
+	if len(got) != 1 || normalizeThumbprint(got[0]) != normalizeThumbprint(defaultSignatureThumbprint) {
+		t.Fatalf("默认应使用内置指纹 %q，得到 %#v", defaultSignatureThumbprint, got)
+	}
+	// 环境变量覆盖内置指纹。
+	t.Setenv("AGENT_NOTIFY_SIGNATURE_THUMBPRINT", "aa bb,CC:DD; ee")
+	got = signatureThumbprintsFromEnv()
 	if len(got) != 3 || normalizeThumbprint(got[0]) != "AABB" || normalizeThumbprint(got[1]) != "CCDD" || normalizeThumbprint(got[2]) != "EE" {
 		t.Fatalf("解析结果不符：%#v", got)
 	}
 }
 
-// 未签名的安装包在默认策略下放行，在强制签名或指定指纹时拒绝；无法识别的文件一律拒绝。
+// 未签名的安装包在默认策略下会被内置指纹拒绝；强制签名或指定错误指纹同样拒绝。
 func TestVerifyArtifactSignatureUnsignedFile(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Authenticode 校验仅在 Windows 上可用")
@@ -70,8 +81,8 @@ func TestVerifyArtifactSignatureUnsignedFile(t *testing.T) {
 
 	t.Setenv("AGENT_NOTIFY_REQUIRE_SIGNATURE", "")
 	t.Setenv("AGENT_NOTIFY_SIGNATURE_THUMBPRINT", "")
-	if err := verifyArtifactSignature(context.Background(), unsigned); err != nil {
-		t.Fatalf("未签名默认策略不应阻止升级：%v", err)
+	if err := verifyArtifactSignature(context.Background(), unsigned); err == nil {
+		t.Fatal("内置信任指纹生效时，未签名安装包必须被拒绝")
 	}
 
 	t.Setenv("AGENT_NOTIFY_REQUIRE_SIGNATURE", "1")
@@ -85,17 +96,13 @@ func TestVerifyArtifactSignatureUnsignedFile(t *testing.T) {
 		t.Fatal("配置信任指纹时必须拒绝未签名安装包")
 	}
 
-	// 非 PE 文件无法校验签名：默认放行（真正的保护是"有签名但校验失败"），强制签名时拒绝
+	// 非 PE 文件无法校验签名，同样拒绝。
 	broken := filepath.Join(t.TempDir(), "broken-installer.exe")
 	if err := os.WriteFile(broken, append([]byte("MZ"), make([]byte, 64)...), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENT_NOTIFY_SIGNATURE_THUMBPRINT", "")
-	if err := verifyArtifactSignature(context.Background(), broken); err != nil {
-		t.Fatalf("无法识别签名的文件默认不应阻止升级：%v", err)
-	}
-	t.Setenv("AGENT_NOTIFY_REQUIRE_SIGNATURE", "1")
 	if err := verifyArtifactSignature(context.Background(), broken); err == nil {
-		t.Fatal("要求签名时无法识别签名的安装包必须拒绝")
+		t.Fatal("无法识别的安装包必须拒绝")
 	}
 }

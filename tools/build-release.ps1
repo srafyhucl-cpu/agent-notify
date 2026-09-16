@@ -83,10 +83,11 @@ try {
     & $signTool sign $tempExe
     if ($LASTEXITCODE -ne 0) { throw "主程序签名失败 exit=$LASTEXITCODE" }
     $signature = Get-AuthenticodeSignature -LiteralPath $tempExe
-    if ($signature.Status -ne 'Valid') {
+    # 自签名/私有证书的链路状态是 UnknownError/NotTrusted，只要不是未签名或哈希不符即可。
+    if ($signature.Status -notin @('Valid', 'UnknownError', 'NotTrusted')) {
       throw "主程序签名校验未通过：$($signature.Status)"
     }
-    Write-Output '[release] 已签名主程序并通过校验'
+    Write-Output "[release] 已签名主程序（$($signature.SignerCertificate.Thumbprint)）"
   }
 
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null

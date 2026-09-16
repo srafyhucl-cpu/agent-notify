@@ -55,7 +55,9 @@ jobs:
       - name: Build release archive
         shell: powershell
         env:
-          AGENT_NOTIFY_SIGNTOOL: ${{ secrets.AGENT_NOTIFY_SIGNTOOL }}
+          AGENT_NOTIFY_SIGNTOOL: ${{ secrets.AGENT_NOTIFY_SIGN_PFX_BASE64 != '' && format('{0}\tools\sign-selfsigned.cmd', github.workspace) || '' }}
+          AGENT_NOTIFY_SIGN_PFX_BASE64: ${{ secrets.AGENT_NOTIFY_SIGN_PFX_BASE64 }}
+          AGENT_NOTIFY_SIGN_PFX_PASSWORD: ${{ secrets.AGENT_NOTIFY_SIGN_PFX_PASSWORD }}
         run: ./tools/build-release.ps1
 
       - name: Extract release notes

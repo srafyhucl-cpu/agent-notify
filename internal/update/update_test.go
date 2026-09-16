@@ -173,6 +173,7 @@ func TestCheckFallsBackToReleaseRedirect(t *testing.T) {
 }
 
 func TestPrepareVerifiesAndExtractsRelease(t *testing.T) {
+	clearSignaturePin(t)
 	archive := releaseArchive(t, []zipTestFile{
 		{Name: "Agent-notify/VERSION", Body: "1.4.0"},
 		{Name: "Agent-notify/install.ps1", Body: "param()"},
@@ -249,6 +250,7 @@ func TestPrepareRejectsChecksumMismatch(t *testing.T) {
 }
 
 func TestPrepareVerifiesInstallerWithoutExtracting(t *testing.T) {
+	clearSignaturePin(t)
 	installer := []byte("MZinstaller")
 	checksum := sha256.Sum256(installer)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -319,6 +321,7 @@ func TestPrepareRejectsInstallerWithoutPESignature(t *testing.T) {
 }
 
 func TestPrepareSupportsLegacyArchiveRelease(t *testing.T) {
+	clearSignaturePin(t)
 	archive := releaseArchive(t, []zipTestFile{
 		{Name: "Agent-notify/VERSION", Body: "1.4.0"},
 		{Name: "Agent-notify/install.ps1", Body: "param()"},

@@ -46,10 +46,14 @@
    ```
 
 2. 两个 secret：`AGENT_NOTIFY_SIGN_PFX_BASE64`（PFX 的 base64 文本）与 `AGENT_NOTIFY_SIGN_PFX_PASSWORD`；
-3. `AGENT_NOTIFY_SIGNTOOL` 指向仓库自带的包装脚本：`<仓库>\tools\sign-selfsigned.ps1`
-   （它按 `<tool> sign <file>` 约定签名，并在签名后立刻从证书存储清理）；
+3. `AGENT_NOTIFY_SIGNTOOL` 指向仓库自带的垫片脚本 `tools\sign-selfsigned.cmd`
+   （它转发到 `sign-selfsigned.ps1`，按 `<tool> sign <file>` 约定签名，并在签名后立刻从证书存储清理；
+   Inno Setup 无法直接执行 .ps1，所以必须用 .cmd）；
 4. 把指纹（去掉空格）填进 `internal/update/signature.go` 的 `defaultSignatureThumbprint`，
    发一版之后所有客户端都会只信任这张证书；
+   - 本仓库当前已内置指纹：`EDF9E283DF2407B318E65D59BB430FD546509ACD`（2026-09-16 启用，2031-09-16 到期）；
+   - CI 侧凭据在 GitHub secrets（`AGENT_NOTIFY_SIGN_PFX_BASE64` / `AGENT_NOTIFY_SIGN_PFX_PASSWORD`），
+     Release workflow 检测到 PFX secret 后会自动把 `AGENT_NOTIFY_SIGNTOOL` 指向垫片脚本；
 5. 局限与注意：
    - 手动运行安装器时仍会提示"未知发布者"（要消除该提示必须用 CA 签发的证书）；
    - 证书轮换/过期前，**先**更新 `defaultSignatureThumbprint` 并发版，否则老客户端会拒绝新版本；

@@ -21,21 +21,26 @@ const (
 	signatureStatusNotTrusted   = "NotTrusted"
 	signatureStatusUnknownError = "UnknownError"
 
-	// defaultSignatureThumbprint 为空表示"不默认限定签名者"。启用代码签名后把证书指纹
-	// 填在这里，所有客户端都会只信任该签名者（详见 docs/code-signing.md）。
-	defaultSignatureThumbprint = ""
+	// defaultSignatureThumbprint 是内置的信任指纹：客户端只接受由该证书签名的更新包
+	// （自签名的签名状态是 UnknownError/NotTrusted，指纹匹配即放行；篡改仍会被拒绝）。
+	// 轮换证书时必须先更新这里并发版，详见 docs/code-signing.md。
+	defaultSignatureThumbprint = "EDF9E283DF2407B318E65D59BB430FD546509ACD"
 )
 
 // verifyArtifactSignature 校验更新产物（最终要执行的程序）的 Authenticode 签名。
 // 默认策略：签名无效一律拒绝；未签名默认放行（保持向后兼容）。
 // AGENT_NOTIFY_REQUIRE_SIGNATURE=1 要求必须签名；AGENT_NOTIFY_SIGNATURE_THUMBPRINT
 // 配置后只信任指定指纹（逗号/分号/空格分隔）。
+// resolveSignatureThumbprints 默认为内置指纹 + 环境变量覆盖；测试可临时替换，
+// 以便用未签名的桩产物验证 Prepare 的其它行为。
+var resolveSignatureThumbprints = signatureThumbprintsFromEnv
+
 func verifyArtifactSignature(ctx context.Context, path string) error {
 	info, err := inspectSignature(ctx, path)
 	if err != nil {
 		return err
 	}
-	return signaturePolicy(info, signatureRequiredFromEnv(), signatureThumbprintsFromEnv())
+	return signaturePolicy(info, signatureRequiredFromEnv(), resolveSignatureThumbprints())
 }
 
 // signaturePolicy 是签名放行规则的纯函数，便于测试。

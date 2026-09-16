@@ -3,7 +3,7 @@
   <assemblyIdentity
     type="win32"
     name="AgentNotify"
-    version="1.10.0.0"
+    version="1.11.0.0"
     processorArchitecture="*" />
   <description>Agent-notify desktop notifier</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">

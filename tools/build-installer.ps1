@@ -113,12 +113,13 @@ if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
 }
 
 # 配了签名工具就必须真的签上，否则直接失败，避免发出未签名安装器。
+# 自签名证书的链路状态是 UnknownError/NotTrusted，因此只排除未签名与哈希不符。
 if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {
   $signature = Get-AuthenticodeSignature -LiteralPath $installer
-  if ($signature.Status -ne 'Valid') {
+  if ($signature.Status -notin @('Valid', 'UnknownError', 'NotTrusted')) {
     throw "安装器签名校验未通过：$($signature.Status)"
   }
-  Write-Output '[installer] 安装器签名校验通过'
+  Write-Output "[installer] 安装器签名校验通过（$($signature.SignerCertificate.Thumbprint)）"
 }
 
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tests\installer-smoke.ps1') -Installer $installer

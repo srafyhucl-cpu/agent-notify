@@ -5,6 +5,7 @@
   AGENT_NOTIFY_SIGNTOOL 调用（调用约定：<tool> sign <file>）。
 
 .DESCRIPTION
+  通过同目录的 sign-selfsigned.cmd 调用（Inno Setup 无法直接执行 .ps1）。
   从环境变量读取 PFX（base64）与密码，导入到当前用户证书存储签名后立即清理：
     AGENT_NOTIFY_SIGN_PFX_BASE64   PFX 文件的 base64 文本
     AGENT_NOTIFY_SIGN_PFX_PASSWORD PFX 密码
@@ -14,7 +15,7 @@
   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Agent-notify" -CertStoreLocation Cert:\CurrentUser\My
   $pwd = ConvertTo-SecureString -String 'your-password' -AsPlainText -Force
   Export-PfxCertificate -Cert $cert -FilePath agent-notify.pfx -Password $pwd
-  # 把 agent-notify.pfx 转 base64 后放进 CI secret，并把本脚本路径写入 AGENT_NOTIFY_SIGNTOOL
+  # 把中文说明与 base64 放进 CI secret，并把 tools\sign-selfsigned.cmd 的绝对路径写入 AGENT_NOTIFY_SIGNTOOL。
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Command,
