@@ -57,7 +57,6 @@ func TestWidgetLayoutHitTargetsDoNotOverlap(t *testing.T) {
 		{"codex", layout.codex},
 		{"antigravity", layout.antigravity},
 		{"devin", layout.devin},
-		{"connection", layout.connection},
 		{"recent", layout.recent},
 		{"test", layout.test},
 		{"settings", layout.settings},

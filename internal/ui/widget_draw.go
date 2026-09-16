@@ -3,7 +3,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -433,13 +432,6 @@ func drawRecentCard(hdc uintptr, rect RECT, app *WidgetApp, strongFont, smallFon
 	DrawText(hdc, "\uE76C", &arrowRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 }
 
-func drawPill(hdc uintptr, rect RECT, text string, color uint32, font uintptr) {
-	fillRoundRect(hdc, rect, 11, uintptr(color))
-	pSelectObject.Call(hdc, font)
-	pSetTextColor.Call(hdc, uintptr(RGB(245, 248, 248)))
-	DrawText(hdc, text, &rect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
-}
-
 // connectionText returns the headline and supporting line for the ClawBot card.
 func (app *WidgetApp) connectionText() (string, string, uint32) {
 	switch {
@@ -648,15 +640,4 @@ func (app *WidgetApp) recentStatusColor(theme ThemePalette) uint32 {
 	default:
 		return theme.TextMuted
 	}
-}
-
-func (app *WidgetApp) recentStatusText() string {
-	if app.lastPushStatus == "" {
-		return ""
-	}
-	label := app.lastPushStatus
-	if app.lastPushAgent != "" {
-		label = fmt.Sprintf("%s · %s", historyAgent(notify.HistoryItem{Agent: app.lastPushAgent}), label)
-	}
-	return label
 }

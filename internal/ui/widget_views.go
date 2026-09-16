@@ -25,17 +25,6 @@ const (
 	WidgetViewLogin
 )
 
-type viewSubLayout struct {
-	back   RECT
-	title  RECT
-	close  RECT
-	card   RECT
-	left   RECT
-	right  RECT
-	extra  RECT
-	extra2 RECT
-}
-
 func subviewCommonHeader() (RECT, RECT, RECT) {
 	return RECT{14, 12, 42, 38}, RECT{48, 12, 360, 38}, RECT{368, 12, 394, 38}
 }

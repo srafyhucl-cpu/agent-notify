@@ -125,7 +125,6 @@ type widgetLayout struct {
 	themeToggle  RECT
 	minimize     RECT
 	close        RECT
-	connection   RECT
 	modeToggle   RECT
 	switchAgent  RECT
 	singleSwitch RECT
@@ -155,7 +154,6 @@ type widgetHoverState struct {
 	themeToggle  bool
 	minimize     bool
 	close        bool
-	connection   bool
 	recent       bool
 	history      bool
 	settings     bool
@@ -167,7 +165,7 @@ type widgetHoverState struct {
 
 func (s widgetHoverState) any() bool {
 	return s.openCode || s.codex || s.antigravity || s.devin || s.singleAgent || s.modeToggle || s.switchAgent || s.singleSwitch ||
-		s.themeToggle || s.minimize || s.close || s.connection || s.recent || s.history || s.settings || s.test || s.hide || s.update || s.repair
+		s.themeToggle || s.minimize || s.close || s.recent || s.history || s.settings || s.test || s.hide || s.update || s.repair
 }
 
 func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
@@ -183,7 +181,6 @@ func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
 		themeToggle:  pointInRect(x, y, layout.themeToggle),
 		minimize:     pointInRect(x, y, layout.minimize),
 		close:        pointInRect(x, y, layout.close),
-		connection:   pointInRect(x, y, layout.connection),
 		recent:       pointInRect(x, y, layout.recent),
 		history:      pointInRect(x, y, layout.history),
 		settings:     pointInRect(x, y, layout.settings),
@@ -200,7 +197,6 @@ func widgetLayoutRects() widgetLayout {
 		themeToggle:  RECT{312, 12, 338, 38},
 		minimize:     RECT{340, 12, 366, 38},
 		close:        RECT{368, 12, 394, 38},
-		connection:   RECT{312, 12, 338, 38},
 		modeToggle:   RECT{270, 54, 386, 72},
 		switchAgent:  RECT{76, 92, 256, 128},
 		singleSwitch: RECT{326, 98, 372, 122},
@@ -1483,10 +1479,6 @@ func trayStateForStatus(statusColor uint32) int {
 	default:
 		return widgetTrayStateStopped
 	}
-}
-
-func (app *WidgetApp) repairIntegrations(hwnd uintptr) {
-	app.switchView(WidgetViewRepair)
 }
 
 func (app *WidgetApp) Version() string {

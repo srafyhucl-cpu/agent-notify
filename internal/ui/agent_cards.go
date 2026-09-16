@@ -276,10 +276,6 @@ func (app *WidgetApp) enabledAgentCount() int {
 	return count
 }
 
-func (app *WidgetApp) allAgentsEnabled() bool {
-	return app.enabledAgentCount() == len(agentmeta.All())
-}
-
 func (app *WidgetApp) anyAgentEnabled() bool {
 	return app.enabledAgentCount() > 0
 }

@@ -10,8 +10,6 @@ const minSentenceBoundaryRunes = 100
 var (
 	reCodeBlock    = regexp.MustCompile("(?s)```.*?```")
 	reManyBreaks   = regexp.MustCompile(`\n{3,}`)
-	reInlineCode   = regexp.MustCompile("`([^`]+)`")
-	reBold         = regexp.MustCompile(`\*\*(.+?)\*\*`)
 	reHeading      = regexp.MustCompile(`(?m)^#{1,6}\s+`)
 	reListMarker   = regexp.MustCompile(`(?m)^\s*(?:[-*]|\d+[.)])\s+`)
 	reInlineBullet = regexp.MustCompile(`([^\r\n\s])\s*•\s*`)

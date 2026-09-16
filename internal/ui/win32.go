@@ -32,9 +32,6 @@ var (
 	pShowWindow             = user32.NewProc("ShowWindow")
 	pUpdateWindow           = user32.NewProc("UpdateWindow")
 	pSetForegroundWindow    = user32.NewProc("SetForegroundWindow")
-	pEnableWindow           = user32.NewProc("EnableWindow")
-	pIsChild                = user32.NewProc("IsChild")
-	pUnregisterClassW       = user32.NewProc("UnregisterClassW")
 	pGetMessageW            = user32.NewProc("GetMessageW")
 	pTranslateMessage       = user32.NewProc("TranslateMessage")
 	pDispatchMessageW       = user32.NewProc("DispatchMessageW")
@@ -45,7 +42,6 @@ var (
 	pEndPaint               = user32.NewProc("EndPaint")
 	pInvalidateRect         = user32.NewProc("InvalidateRect")
 	pSetTimer               = user32.NewProc("SetTimer")
-	pKillTimer              = user32.NewProc("KillTimer")
 	pGetClientRect          = user32.NewProc("GetClientRect")
 	pGetWindowRect          = user32.NewProc("GetWindowRect")
 	pSetWindowPos           = user32.NewProc("SetWindowPos")
@@ -141,8 +137,20 @@ const (
 	WM_USER           = 0x0400
 	EM_SETCUEBANNER   = 0x1501
 	EM_SETSEL         = 0x00B1
+	WM_SETFONT        = 0x0030
+	WM_SETTEXT        = 0x000C
+	WM_GETTEXT        = 0x000D
+	WM_CTLCOLOREDIT   = 0x0133
+	ES_AUTOHSCROLL    = 0x0080
+	ES_NUMBER         = 0x2000
 	WM_COMMAND        = 0x0111
 	WM_USER_WAKEUP    = WM_USER + 200
+
+	VK_ESCAPE = 0x001B
+
+	// 悬浮窗内嵌 EDIT 控件的子窗口 ID
+	IDC_SETTINGS_QUIET    = 4001
+	IDC_SETTINGS_COOLDOWN = 4002
 
 	EVENT_MODIFY_STATE = 0x0002
 	WAIT_OBJECT_0      = 0x00000000
