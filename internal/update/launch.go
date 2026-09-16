@@ -9,9 +9,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-const powershellUTF8BOM = "\xEF\xBB\xBF"
+const (
+	powershellUTF8BOM = "\xEF\xBB\xBF"
+	// installerEarlyExitWindow 是判定"安装器立即失败"的观察窗口：正常静默安装会持续数秒以上，
+	// 在窗口内退出且退出码非零说明参数、权限或安装包有问题，必须立刻告诉用户而不是直接销毁悬浮窗。
+	installerEarlyExitWindow = 2 * time.Second
+)
 
 // Launch starts a native installer visibly, or a legacy archive installer in a
 // detached hidden process. installerArgs are appended verbatim.
@@ -23,6 +29,14 @@ func (prepared PreparedUpdate) Launch(logPath string, installerArgs ...string) e
 	if _, err := os.Stat(installerPath); err != nil {
 		return fmt.Errorf("更新安装器不可用：%w", err)
 	}
+	logPath = strings.TrimSpace(logPath)
+	if logPath == "" {
+		return errors.New("更新日志路径为空")
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0700); err != nil {
+		return fmt.Errorf("创建更新日志目录失败：%w", err)
+	}
+
 	if prepared.Kind == ArtifactInstaller {
 		artifactPath := strings.TrimSpace(prepared.ArtifactPath)
 		if artifactPath == "" {
@@ -31,19 +45,11 @@ func (prepared PreparedUpdate) Launch(logPath string, installerArgs ...string) e
 		if _, err := os.Stat(artifactPath); err != nil {
 			return fmt.Errorf("更新安装器不可用：%w", err)
 		}
-		command := installerCommand(artifactPath, installerArgs)
-		if err := command.Start(); err != nil {
-			return fmt.Errorf("启动更新安装器失败：%w", err)
+		command := installerCommand(artifactPath, logPath, installerArgs)
+		if err := startAndWatch(command, installerEarlyExitWindow); err != nil {
+			return fmt.Errorf("更新安装器启动失败：%w（安装日志：%s）", err, logPath)
 		}
 		return nil
-	}
-
-	logPath = strings.TrimSpace(logPath)
-	if logPath == "" {
-		return errors.New("更新日志路径为空")
-	}
-	if err := os.MkdirAll(filepath.Dir(logPath), 0700); err != nil {
-		return fmt.Errorf("创建更新日志目录失败：%w", err)
 	}
 
 	wrapperPath := filepath.Join(filepath.Dir(installerPath), "apply-update.ps1")
@@ -55,15 +61,36 @@ func (prepared PreparedUpdate) Launch(logPath string, installerArgs ...string) e
 	command := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapperPath)
 	command.Dir = filepath.Dir(installerPath)
 	configureHiddenProcess(command)
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("启动更新安装器失败：%w", err)
+	if err := startAndWatch(command, installerEarlyExitWindow); err != nil {
+		return fmt.Errorf("更新安装器启动失败：%w（安装日志：%s）", err, logPath)
 	}
 	return nil
 }
 
-func installerCommand(installerPath string, installerArgs []string) *exec.Cmd {
-	args := make([]string, 0, len(installerArgs)+2)
+// startAndWatch 启动进程，并在 window 内观察是否立即失败。
+func startAndWatch(command *exec.Cmd, window time.Duration) error {
+	if err := command.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	timer := time.NewTimer(window)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		// 立即退出：非零即失败；零退出说明安装器瞬间完成，同样视为成功。
+		return err
+	case <-timer.C:
+		return nil
+	}
+}
+
+func installerCommand(installerPath, logPath string, installerArgs []string) *exec.Cmd {
+	args := make([]string, 0, len(installerArgs)+3)
 	args = append(args, "/SILENT", "/NORESTART")
+	if trimmed := strings.TrimSpace(logPath); trimmed != "" {
+		args = append(args, "/LOG="+trimmed)
+	}
 	args = append(args, installerArgs...)
 	command := exec.Command(installerPath, args...)
 	command.Dir = filepath.Dir(installerPath)
