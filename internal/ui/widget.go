@@ -28,6 +28,12 @@ const (
 	widgetHeight = int32(450)
 
 	WM_USER_REFRESH = WM_USER + 1
+
+	// 自定义 WM_USER 消息统一编号，避免跨文件撞号：
+	// +2..+5 归更新检查（update.go）、+6 接入修复完成、+7 扫码配对码；
+	// +100 托盘、+200 唤醒。历史遗留的 WM_USER_VERIFY=0x0401 与刷新消息撞号，故改为 +7。
+	WM_USER_REPAIR_DONE = WM_USER + 6
+	WM_USER_VERIFY      = WM_USER + 7
 )
 
 const (
@@ -99,10 +105,13 @@ type WidgetApp struct {
 	loginState           loginDialogState
 	quietEdit            uintptr
 	cooldownEdit         uintptr
+	verifyEdit           uintptr
+	verifyPrompt         bool
 	editBrush            uintptr
 	isTracking           bool
 	setupError           string
 	repairSetup          func(context.Context) error
+	repairDone           chan repairResult
 }
 
 type WidgetOptions struct {
@@ -455,6 +464,19 @@ func RunWidget(options WidgetOptions) {
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 		}
+		if message == WM_USER_VERIFY {
+			// 用户可能已经离开登录视图，此时忽略配对码请求。
+			if instance.currentView == WidgetViewLogin {
+				instance.showVerifyPrompt(hwnd)
+			}
+			return 0
+		}
+		if message == WM_USER_REPAIR_DONE {
+			instance.applyRepairDone()
+			instance.refreshState()
+			pInvalidateRect.Call(hwnd, 0, 0)
+			return 0
+		}
 		if instance.handleUpdateMessage(hwnd, message) {
 			return 0
 		}
@@ -492,7 +514,7 @@ func RunWidget(options WidgetOptions) {
 				delta := int16((wParam >> 16) & 0xFFFF)
 				historyItems, _ := notify.GetHistory(50, paths.PushLog)
 				total := len(historyItems)
-				const pageSize = 5
+				const pageSize = historyListPageSize
 				if delta > 0 {
 					if instance.historyPageOffset >= pageSize {
 						instance.historyPageOffset -= pageSize
@@ -551,6 +573,10 @@ func RunWidget(options WidgetOptions) {
 				rect := scaleRect(RECT{246, 180, 372, 204})
 				pSetWindowPos.Call(instance.cooldownEdit, 0, uintptr(rect.Left), uintptr(rect.Top), uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top), SWP_NOZORDER|SWP_NOACTIVATE)
 			}
+			if instance.verifyEdit != 0 {
+				rect := verifyEditRect()
+				pSetWindowPos.Call(instance.verifyEdit, 0, uintptr(rect.Left), uintptr(rect.Top), uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top), SWP_NOZORDER|SWP_NOACTIVATE)
+			}
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
@@ -600,17 +626,14 @@ func RunWidget(options WidgetOptions) {
 				backRect, _, closeRect := subviewCommonHeader()
 				historyItems, _ := notify.GetHistory(50, paths.PushLog)
 				total := len(historyItems)
-				const pageSize = 5
+				const pageSize = historyListPageSize
 				prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)
 				copyBtn := RECT{14, 394, 195, 436}
 				doneBtn := RECT{205, 394, 386, 436}
-				rowIdx := -1
 				listCard := RECT{14, 48, 386, 260}
-				if pointInRect(x, y, listCard) {
-					idx := int((y - 54) / 40)
-					if idx >= 0 && idx < 5 && (instance.historyPageOffset+idx) < total {
-						rowIdx = idx
-					}
+				rowIdx := historyRowIndexAt(x, y, listCard, pageSize)
+				if rowIdx >= 0 && (instance.historyPageOffset+rowIdx) >= total {
+					rowIdx = -1
 				}
 				prev := instance.historyHover
 				instance.historyHover = historyViewHover{
@@ -666,17 +689,19 @@ func RunWidget(options WidgetOptions) {
 				backRect, _, closeRect := subviewCommonHeader()
 				refreshBtn := RECT{14, 394, 195, 436}
 				doneBtn := RECT{205, 394, 386, 436}
+				_, submitBtn := loginVerifyRects()
 				prev := instance.loginHover
 				instance.loginHover = loginViewHover{
 					back:    pointInRect(x, y, backRect),
 					close:   pointInRect(x, y, closeRect),
 					refresh: pointInRect(x, y, refreshBtn),
 					done:    pointInRect(x, y, doneBtn),
+					submit:  instance.verifyPrompt && pointInRect(x, y, submitBtn),
 				}
 				if instance.loginHover != prev {
 					pInvalidateRect.Call(hwnd, 0, 0)
 				}
-				if instance.loginHover.back || instance.loginHover.close || instance.loginHover.refresh || instance.loginHover.done {
+				if instance.loginHover.back || instance.loginHover.close || instance.loginHover.refresh || instance.loginHover.done || instance.loginHover.submit {
 					hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
 					pSetCursor.Call(hand)
 				}
@@ -748,10 +773,7 @@ func RunWidget(options WidgetOptions) {
 						instance.repairing = true
 						instance.repairError = ""
 						pInvalidateRect.Call(hwnd, 0, 0)
-						instance.runRepairCheck(func() {
-							instance.repairing = false
-							pPostMessageW.Call(hwnd, WM_USER_REFRESH, 0, 0)
-						})
+						instance.runRepairCheck(hwnd)
 					}
 					return 0
 				}
@@ -761,7 +783,7 @@ func RunWidget(options WidgetOptions) {
 				backRect, _, closeRect := subviewCommonHeader()
 				historyItems, _ := notify.GetHistory(50, paths.PushLog)
 				total := len(historyItems)
-				const pageSize = 5
+				const pageSize = historyListPageSize
 				prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)
 				copyBtn := RECT{14, 394, 195, 436}
 				doneBtn := RECT{205, 394, 386, 436}
@@ -812,11 +834,12 @@ func RunWidget(options WidgetOptions) {
 				instance.historyConfirmClear = false
 				listCard := RECT{14, 48, 386, 260}
 				if pointInRect(x, y, listCard) {
-					rowIdx := int((y - 54) / 40)
-					targetIdx := instance.historyPageOffset + rowIdx
-					if targetIdx >= 0 && targetIdx < len(historyItems) {
-						instance.historySelectedIndex = targetIdx
-						pInvalidateRect.Call(hwnd, 0, 0)
+					if rowIdx := historyRowIndexAt(x, y, listCard, pageSize); rowIdx >= 0 {
+						targetIdx := instance.historyPageOffset + rowIdx
+						if targetIdx >= 0 && targetIdx < len(historyItems) {
+							instance.historySelectedIndex = targetIdx
+							pInvalidateRect.Call(hwnd, 0, 0)
+						}
 					}
 					return 0
 				}
@@ -907,6 +930,12 @@ func RunWidget(options WidgetOptions) {
 				backRect, _, closeRect := subviewCommonHeader()
 				refreshBtn := RECT{14, 394, 195, 436}
 				doneBtn := RECT{205, 394, 386, 436}
+				if instance.verifyPrompt {
+					if _, submitBtn := loginVerifyRects(); pointInRect(x, y, submitBtn) {
+						instance.submitVerifyCode(hwnd)
+						return 0
+					}
+				}
 				if pointInRect(x, y, backRect) || pointInRect(x, y, closeRect) || pointInRect(x, y, doneBtn) {
 					instance.switchView(WidgetViewDashboard)
 					return 0
@@ -1023,6 +1052,11 @@ func RunWidget(options WidgetOptions) {
 
 		case WM_COMMAND:
 			switch int(wParam & 0xFFFF) {
+			case IDOK:
+				// 配对码输入框聚焦时回车由消息循环转成 IDOK，这里按"提交配对码"处理。
+				if instance.verifyPrompt {
+					instance.submitVerifyCode(hwnd)
+				}
 			case IDM_TOGGLE_SHOW:
 				visible, _, _ := user32.NewProc("IsWindowVisible").Call(hwnd)
 				if visible != 0 {
@@ -1136,6 +1170,11 @@ func RunWidget(options WidgetOptions) {
 		if result == 0 || int32(result) == -1 {
 			break
 		}
+		// 配对码输入框聚焦时回车只会送到 EDIT 控件，这里统一转成"提交配对码"。
+		if instance.verifyPrompt && message.Message == WM_KEYDOWN && message.WParam == VK_RETURN {
+			pPostMessageW.Call(hwnd, WM_COMMAND, uintptr(IDOK), 0)
+			continue
+		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&message)))
 		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&message)))
 	}
@@ -1188,7 +1227,9 @@ func (app *WidgetApp) switchView(view WidgetView) {
 		}
 	}
 	if app.currentView == WidgetViewLogin {
-		app.loginState.finish(0)
+		// 离开登录视图要真正结束扫码流程，否则后台会继续轮询并可能在没有界面的情况下写凭据。
+		app.hideVerifyPrompt()
+		app.loginState.cancel()
 	}
 
 	app.currentView = view
@@ -1263,7 +1304,89 @@ func (app *WidgetApp) ensureSettingsEdits() {
 }
 
 func (app *WidgetApp) startInAppLoginFlow() {
+	app.hideVerifyPrompt()
 	startLoginFlow(&app.loginState)
+}
+
+// ensureVerifyEdit 懒创建扫码配对码输入框，样式与设置页输入框保持一致。
+func (app *WidgetApp) ensureVerifyEdit() {
+	if app.hwnd == 0 || app.verifyEdit != 0 {
+		return
+	}
+	rect := verifyEditRect()
+	hInstance, _, _ := pGetModuleHandleW.Call(0)
+	app.verifyEdit, _, _ = pCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
+		0,
+		WS_CHILD|ES_AUTOHSCROLL|ES_NUMBER,
+		uintptr(rect.Left), uintptr(rect.Top),
+		uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top),
+		app.hwnd, uintptr(loginCodeEditID), hInstance, 0,
+	)
+	if app.verifyEdit == 0 {
+		return
+	}
+	pSendMessageW.Call(app.verifyEdit, WM_SETFONT, newBaseFont(), 1)
+	pSendMessageW.Call(app.verifyEdit, EM_SETCUEBANNER, 0, uintptr(unsafe.Pointer(StringToUTF16Ptr("输入微信配对码"))))
+}
+
+// showVerifyPrompt 展示配对码输入框并聚焦，等待用户输入。
+func (app *WidgetApp) showVerifyPrompt(hwnd uintptr) {
+	app.ensureVerifyEdit()
+	app.verifyPrompt = true
+	if app.verifyEdit != 0 {
+		setWindowText(app.verifyEdit, "")
+		pShowWindow.Call(app.verifyEdit, SW_SHOW)
+		pSetFocus.Call(app.verifyEdit)
+	}
+	pInvalidateRect.Call(hwnd, 0, 0)
+}
+
+// submitVerifyCode 读取输入并交回登录流程；输入为空时不打断提示。
+func (app *WidgetApp) submitVerifyCode(hwnd uintptr) {
+	if !app.verifyPrompt {
+		return
+	}
+	code := ""
+	if app.verifyEdit != 0 {
+		code = strings.TrimSpace(getWindowText(app.verifyEdit))
+	}
+	if code == "" {
+		return
+	}
+	app.hideVerifyPrompt()
+	app.loginState.submitVerifyCode(code)
+	pInvalidateRect.Call(hwnd, 0, 0)
+}
+
+// hideVerifyPrompt 只隐藏输入框，不取消登录流程（取消由 switchView 负责）。
+func (app *WidgetApp) hideVerifyPrompt() {
+	app.verifyPrompt = false
+	if app.verifyEdit != 0 {
+		pShowWindow.Call(app.verifyEdit, SW_HIDE)
+	}
+}
+
+// applyRepairDone 在 UI 线程消费修复结果，避免工作线程直接改界面状态。
+func (app *WidgetApp) applyRepairDone() {
+	if app.repairDone == nil {
+		return
+	}
+	select {
+	case result := <-app.repairDone:
+		app.repairing = false
+		if !result.setupFailed {
+			app.setupError = ""
+		}
+		if len(result.errors) > 0 {
+			app.repairError = strings.Join(result.errors, "；")
+		} else {
+			app.repairError = ""
+		}
+	default:
+	}
+	app.repairDone = nil
 }
 
 func (app *WidgetApp) refreshState() {

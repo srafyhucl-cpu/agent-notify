@@ -3,8 +3,8 @@
 package ui
 
 import (
-	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
 )
@@ -32,9 +32,11 @@ func TestGetTheme(t *testing.T) {
 }
 
 func TestWidgetAppToggleTheme(t *testing.T) {
-	tempDir := t.TempDir()
-	cfgFile := filepath.Join(tempDir, "config.json")
-	_ = config.SaveConfig(config.AppConfig{Theme: "dark"}, cfgFile)
+	// toggleTheme 会写 config.json，必须隔离到临时目录，避免污染真实用户配置。
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	if err := config.SaveConfig(config.AppConfig{Theme: "dark"}, ""); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
 
 	app := WidgetApp{
 		theme: "dark",
@@ -60,8 +62,10 @@ func TestWidgetAppToggleTheme(t *testing.T) {
 }
 
 func TestWidgetAppSwitchView(t *testing.T) {
+	// 标记已登录，避免切换视图时真的发起扫码登录流程（本测试不接触网络）。
 	app := WidgetApp{
-		currentView: WidgetViewDashboard,
+		currentView:     WidgetViewDashboard,
+		clawbotLoggedIn: true,
 	}
 
 	views := []WidgetView{
@@ -77,6 +81,22 @@ func TestWidgetAppSwitchView(t *testing.T) {
 		if app.currentView != v {
 			t.Fatalf("switchView(%v) = %v, want %v", v, app.currentView, v)
 		}
+	}
+}
+
+// 离开登录视图必须取消扫码流程，否则后台会继续轮询并可能在没有界面的情况下写凭据。
+func TestSwitchViewCancelsLoginFlow(t *testing.T) {
+	app := WidgetApp{currentView: WidgetViewLogin, clawbotLoggedIn: true}
+	_, ctx := app.loginState.begin(time.Minute)
+	app.verifyPrompt = true
+
+	app.switchView(WidgetViewDashboard)
+
+	if ctx.Err() == nil {
+		t.Fatal("离开登录视图后登录流程仍在运行")
+	}
+	if app.verifyPrompt {
+		t.Fatal("离开登录视图后配对码输入状态未重置")
 	}
 }
 

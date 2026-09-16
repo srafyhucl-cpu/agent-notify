@@ -79,38 +79,46 @@ type repairViewHover struct {
 	done    bool
 }
 
-func (app *WidgetApp) runRepairCheck(onComplete ...func()) {
+// repairResult 汇总一次接入修复的结果；工作线程只经通道把它交回 UI 线程应用，
+// 避免在 goroutine 里直接读写界面状态。
+type repairResult struct {
+	setupFailed bool
+	errors      []string
+}
+
+// runRepairCheck 在后台执行耗时的接入修复，完成后投递 WM_USER_REPAIR_DONE。
+// 传给工作线程的都是值快照，线程内不触碰 WidgetApp。
+func (app *WidgetApp) runRepairCheck(hwnd uintptr) {
+	repairSetup := app.repairSetup
+	codexConfig := app.paths.CodexConfig
+	codexTargets := make([]string, 0, 1)
+	for _, status := range app.integrations {
+		if status.Fixable && status.Repair == integration.RepairCodexWatch {
+			codexTargets = append(codexTargets, status.Name)
+		}
+	}
+
+	resultCh := make(chan repairResult, 1)
+	app.repairDone = resultCh
 	go func() {
 		executable, _ := os.Executable()
-		failures := make([]string, 0)
-		if app.repairSetup != nil {
+		result := repairResult{}
+		if repairSetup != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			err := app.repairSetup(ctx)
+			err := repairSetup(ctx)
 			cancel()
 			if err != nil {
-				failures = append(failures, "首次接入："+err.Error())
-			} else {
-				app.setupError = ""
+				result.setupFailed = true
+				result.errors = append(result.errors, "首次接入："+err.Error())
 			}
 		}
-		for _, status := range app.integrations {
-			if status.Fixable && status.Repair == integration.RepairCodexWatch {
-				if err := agent.HandleWatch(app.paths.CodexConfig, executable); err != nil {
-					failures = append(failures, status.Name+"："+err.Error())
-				}
+		for _, name := range codexTargets {
+			if err := agent.HandleWatch(codexConfig, executable); err != nil {
+				result.errors = append(result.errors, name+"："+err.Error())
 			}
 		}
-		app.refreshState()
-		if len(failures) > 0 {
-			app.repairError = strings.Join(failures, "；")
-		} else {
-			app.repairError = ""
-		}
-		for _, fn := range onComplete {
-			if fn != nil {
-				fn()
-			}
-		}
+		resultCh <- result
+		pPostMessageW.Call(hwnd, WM_USER_REPAIR_DONE, 0, 0)
 	}()
 }
 
@@ -221,10 +229,34 @@ func historyHeaderButtons(total, pageSize int) (prevBtn, nextBtn, clearBtn RECT)
 	return prevBtn, nextBtn, clearBtn
 }
 
+// 推送历史列表的行布局：绘制与点击命中共用同一组常量，避免可点范围与可见行不一致。
+const (
+	historyListPageSize  = 5
+	historyListRowInset  = 6
+	historyListRowPitch  = 40
+	historyListRowHeight = 36
+)
+
+// historyRowIndexAt 把列表卡内的坐标换算成可见行号；卡片外、行间空隙或超出本页行数时返回 -1。
+func historyRowIndexAt(x, y int32, listCard RECT, pageSize int) int {
+	if !pointInRect(x, y, listCard) {
+		return -1
+	}
+	row := int((y - (listCard.Top + historyListRowInset)) / historyListRowPitch)
+	if row < 0 || row >= pageSize {
+		return -1
+	}
+	rowTop := listCard.Top + historyListRowInset + int32(row)*historyListRowPitch
+	if y >= rowTop+historyListRowHeight {
+		return -1
+	}
+	return row
+}
+
 func drawHistoryView(hdc uintptr, width, height int32, app *WidgetApp, theme ThemePalette, titleFont, strongFont, baseFont, smallFont, iconFont uintptr) {
 	historyItems, _ := notify.GetHistory(50, app.paths.PushLog)
 	total := len(historyItems)
-	const pageSize = 5
+	const pageSize = historyListPageSize
 	prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)
 
 	backRect, titleRect, closeRect := subviewCommonHeader()
@@ -286,8 +318,8 @@ func drawHistoryView(hdc uintptr, width, height int32, app *WidgetApp, theme The
 		for i := start; i < end; i++ {
 			rowIdx := i - start
 			item := historyItems[i]
-			top := listCard.Top + 6 + int32(rowIdx)*40
-			rowRect := RECT{listCard.Left + 6, top, listCard.Right - 6, top + 36}
+			top := listCard.Top + historyListRowInset + int32(rowIdx)*historyListRowPitch
+			rowRect := RECT{listCard.Left + 6, top, listCard.Right - 6, top + historyListRowHeight}
 
 			fillCol := theme.CardBg
 			if app.historySelectedIndex == i {
@@ -518,6 +550,18 @@ type loginViewHover struct {
 	close   bool
 	refresh bool
 	done    bool
+	submit  bool
+}
+
+// loginVerifyRects 返回扫码登录索要数字配对码时的输入框与提交按钮位置（逻辑坐标）。
+func loginVerifyRects() (field, submit RECT) {
+	return RECT{110, 268, 290, 302}, RECT{130, 310, 270, 342}
+}
+
+// verifyEditRect 返回配对码 EDIT 控件的实际位置（已按 DPI 缩放）。
+func verifyEditRect() RECT {
+	field, _ := loginVerifyRects()
+	return scaleRect(RECT{field.Left + 6, field.Top + 4, field.Right - 6, field.Bottom - 4})
 }
 
 func drawLoginView(hdc uintptr, width, height int32, app *WidgetApp, theme ThemePalette, titleFont, strongFont, baseFont, smallFont, iconFont uintptr) {
@@ -527,7 +571,7 @@ func drawLoginView(hdc uintptr, width, height int32, app *WidgetApp, theme Theme
 	fillRoundRect(hdc, card, 8, uintptr(theme.CardBg))
 	strokeRoundRect(hdc, card, 8, uintptr(theme.CardBg), uintptr(theme.CardBorder), 1)
 
-	_, bitmap, status, _, success, _ := app.loginState.snapshot()
+	_, bitmap, status, _, success, promptActive := app.loginState.snapshot()
 
 	if app.clawbotLoggedIn || success {
 		// 已登录成功状态
@@ -565,17 +609,30 @@ func drawLoginView(hdc uintptr, width, height int32, app *WidgetApp, theme Theme
 		// 状态提示
 		pSelectObject.Call(hdc, strongFont)
 		pSetTextColor.Call(hdc, uintptr(theme.TextPrimary))
-		promptRect := RECT{card.Left + 14, card.Top + 260, card.Right - 14, card.Top + 288}
+		statusTop := card.Top + 260
+		if promptActive {
+			// 配对码输入框占据卡片中部，状态文案顺延到输入框下方
+			statusTop = card.Top + 300
+		}
+		promptRect := RECT{card.Left + 14, statusTop, card.Right - 14, statusTop + 28}
 		statusText := "请使用手机微信扫码"
 		if status != "" {
 			statusText = status
 		}
 		DrawText(hdc, statusText, &promptRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-		pSelectObject.Call(hdc, smallFont)
-		pSetTextColor.Call(hdc, uintptr(theme.TextMuted))
-		instructionRect := RECT{card.Left + 24, card.Top + 294, card.Right - 24, card.Top + 350}
-		DrawText(hdc, "扫码登录后，请在微信中向 ClawBot 发送任意一条消息以建立主动推送会话。", &instructionRect, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
+		if promptActive {
+			// 微信要求数字配对码：EDIT 控件由原生窗口渲染，这里只画底框与提交按钮
+			field, submitBtn := loginVerifyRects()
+			fillRoundRect(hdc, field, 6, uintptr(theme.InputBg))
+			strokeRoundRect(hdc, field, 6, uintptr(theme.InputBg), uintptr(theme.InputBorder), 1)
+			drawIconTextButton(hdc, submitBtn, "\uE73E", "提交配对码", app.loginHover.submit, true, false, smallFont, iconFont, theme)
+		} else {
+			pSelectObject.Call(hdc, smallFont)
+			pSetTextColor.Call(hdc, uintptr(theme.TextMuted))
+			instructionRect := RECT{card.Left + 24, card.Top + 294, card.Right - 24, card.Bottom - 6}
+			DrawText(hdc, "扫码登录后，请在微信中向 ClawBot 发送任意一条消息以建立主动推送会话。", &instructionRect, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
+		}
 	}
 
 	// 底部按钮

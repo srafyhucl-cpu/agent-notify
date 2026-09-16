@@ -51,6 +51,7 @@ var (
 	pSetWindowPos           = user32.NewProc("SetWindowPos")
 	pGetCursorPos           = user32.NewProc("GetCursorPos")
 	pSetCursor              = user32.NewProc("SetCursor")
+	pSetFocus               = user32.NewProc("SetFocus")
 	pLoadCursorW            = user32.NewProc("LoadCursorW")
 	pReleaseCapture         = user32.NewProc("ReleaseCapture")
 	pTrackMouseEvent        = user32.NewProc("TrackMouseEvent")

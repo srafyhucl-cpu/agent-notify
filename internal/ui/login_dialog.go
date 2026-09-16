@@ -22,7 +22,6 @@ const (
 	loginTimer  = 2
 
 	loginCodeEditID = 4301
-	WM_USER_VERIFY  = 0x0401
 )
 
 type loginDialogState struct {
