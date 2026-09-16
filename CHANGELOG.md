@@ -6,6 +6,24 @@
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-16
+
+### Added
+
+- 发布流程新增版本一致性门禁：`tools/check-version.ps1` 校验 `VERSION`、manifest、README 徽章、`BotAgent`、Devin 扩展 `package.json` 与 CHANGELOG 段落，`tools/lint.ps1` 与 Release workflow 共用。
+- CI 静态检查新增 `govulncheck` 漏洞扫描。
+
+### Changed
+
+- 最低 Go 版本提升到 1.26.8：1.25.6 的标准库存在 15 个可被利用的漏洞。
+- Release workflow 的发布步骤改为幂等：重复运行或用新提交重指 tag 时会更新已有 Release，而不是直接失败。
+
+### Fixed
+
+- 安装/卸载的残留进程清理要求目录边界，避免误伤路径前缀相同的其它安装（例如 `D:\bin` 与 `D:\bin2`）；悬浮窗清理残留实例时只结束同一安装目录下的进程。
+- 安装路径统一归一化为绝对路径，避免相对路径被写进插件与 Codex 配置；链式 notify 无法自动更新时给出明确警告。
+- 清理只被测试引用的死代码（`connectionText`、`agentMenuLabel` 及不再绘制的文本矩形）。
+
 ## [1.8.0] - 2026-09-16
 
 ### Changed
