@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-09-16
+
+### Fixed
+
+- 修复“点升级提示当前已是最新版本”：发版流程此前只把产物发布到源码仓库，客户端更新源 `srafyhucl-cpu/agent-notify-releases` 需要手动镜像，漏跑后更新器查不到新版本。现在 Release workflow 会自动镜像安装器、ZIP 与 `SHA256SUMS.txt` 并置为 Latest，镜像脚本也会显式标记 Latest，避免发布顺序影响。
+
 ## [1.6.1] - 2026-09-16
 
 ### Removed
