@@ -39,7 +39,8 @@ func PollSessionOnce(ctx context.Context, onMessage func(InboundMessage)) (Statu
 	updates, err := client.GetUpdates(ctx, credentials.GetUpdatesBuf)
 	if err != nil {
 		if errors.Is(err, ErrStaleToken) {
-			_ = markStale()
+			// 只把发起这次轮询所用的 token 标记失效：轮询期间用户可能已经重新登录。
+			_ = markStaleIfToken(credentials.BotToken)
 		}
 		return GetStatus(), err
 	}
@@ -65,7 +66,7 @@ func PollSessionOnce(ctx context.Context, onMessage func(InboundMessage)) (Statu
 	}
 
 	if next != credentials {
-		if err := SaveCredentials(next); err != nil {
+		if err := savePolledSession(credentials, next); err != nil {
 			return GetStatus(), err
 		}
 	}
@@ -204,12 +205,36 @@ func stopSessionLifecycle(announcedToken string) {
 	_ = client.NotifyStop(stopCtx)
 }
 
-func markStale() error {
+// markStaleIfToken 只在 botToken 仍是当前登录凭据时才标记失效并清空会话状态。
+// 长轮询最长 35 秒，期间用户可能扫码重新登录；旧 token 的失效响应不能殃及新凭据。
+func markStaleIfToken(botToken string) error {
+	botToken = strings.TrimSpace(botToken)
 	return updateCredentials(func(credentials *Credentials) error {
+		if botToken != "" && strings.TrimSpace(credentials.BotToken) != botToken {
+			return nil
+		}
 		credentials.StaleAt = time.Now().Format(time.RFC3339)
 		credentials.ContextToken = ""
 		credentials.ContextUserID = ""
 		credentials.GetUpdatesBuf = ""
+		return nil
+	})
+}
+
+// savePolledSession 只把轮询得到的游标与会话上下文写回，并要求期间没有重新登录：
+// 旧轮询结果既不能改写 bot_token，也不能覆盖新登录的凭据与游标。
+func savePolledSession(base, next Credentials) error {
+	baseToken := strings.TrimSpace(base.BotToken)
+	if nextToken := strings.TrimSpace(next.BotToken); baseToken != "" && nextToken != baseToken {
+		return nil
+	}
+	return updateCredentials(func(credentials *Credentials) error {
+		if strings.TrimSpace(credentials.BotToken) != baseToken {
+			return nil
+		}
+		credentials.GetUpdatesBuf = next.GetUpdatesBuf
+		credentials.ContextToken = next.ContextToken
+		credentials.ContextUserID = next.ContextUserID
 		return nil
 	})
 }

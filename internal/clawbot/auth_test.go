@@ -260,8 +260,8 @@ func TestCredentialsLifecycle(t *testing.T) {
 		t.Fatalf("unexpected user hint: %q", status.UserHint)
 	}
 
-	if err := markStale(); err != nil {
-		t.Fatalf("markStale: %v", err)
+	if err := markStaleIfToken(want.BotToken); err != nil {
+		t.Fatalf("markStaleIfToken: %v", err)
 	}
 	status = GetStatus()
 	if !status.LoggedIn || !status.Stale || status.SessionReady {

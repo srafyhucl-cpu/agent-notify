@@ -230,3 +230,105 @@ func TestClearSessionContextPreservesNewerContext(t *testing.T) {
 		t.Fatalf("matching context was not cleared: %#v", updated)
 	}
 }
+
+// 轮询期间用户重新登录后，旧 token 的失效响应不能把新凭据标记为失效。
+func TestMarkStaleIfTokenKeepsRelogin(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+
+	old := boundCredentials()
+	if err := SaveCredentials(old); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+	relogin := boundCredentials()
+	relogin.BotToken = "token-2"
+	relogin.ContextToken = "ctx-new"
+	relogin.GetUpdatesBuf = "cursor-new"
+	if err := SaveCredentials(relogin); err != nil {
+		t.Fatalf("SaveCredentials relogin: %v", err)
+	}
+
+	if err := markStaleIfToken(old.BotToken); err != nil {
+		t.Fatalf("markStaleIfToken(old): %v", err)
+	}
+	updated, err := LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if updated.StaleAt != "" {
+		t.Fatalf("旧轮询把新登录标记失效：%#v", updated)
+	}
+	if updated.BotToken != "token-2" || updated.GetUpdatesBuf != "cursor-new" || updated.ContextToken != "ctx-new" {
+		t.Fatalf("新登录凭据被改写：%#v", updated)
+	}
+
+	if err := markStaleIfToken(relogin.BotToken); err != nil {
+		t.Fatalf("markStaleIfToken(current): %v", err)
+	}
+	updated, err = LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials after stale: %v", err)
+	}
+	if updated.StaleAt == "" || updated.ContextToken != "" || updated.GetUpdatesBuf != "" {
+		t.Fatalf("当前 token 失效后未清理会话：%#v", updated)
+	}
+}
+
+// 轮询结果只能回写游标与上下文；期间重新登录时不得覆盖新凭据。
+func TestPollSessionOnceDoesNotOverwriteRelogin(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+
+	relogged := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !relogged {
+			// 模拟长轮询挂起期间用户扫码重新登录。
+			relogged = true
+			relogin := boundCredentials()
+			relogin.BotToken = "token-2"
+			relogin.GetUpdatesBuf = "cursor-new"
+			relogin.ContextToken = "ctx-new"
+			if err := SaveCredentials(relogin); err != nil {
+				t.Errorf("SaveCredentials relogin: %v", err)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ret":             0,
+			"get_updates_buf": "cursor-1",
+			"msgs": []map[string]any{{
+				"from_user_id":  "user-1",
+				"to_user_id":    "bot-1",
+				"message_type":  MessageTypeUser,
+				"context_token": "ctx-1",
+				"item_list":     []map[string]any{{"type": ItemTypeText, "text_item": map[string]string{"text": "你好"}}},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	credentials := boundCredentials()
+	credentials.BaseURL = server.URL
+	credentials.GetUpdatesBuf = "cursor-0"
+	if err := SaveCredentials(credentials); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+
+	var received []string
+	if _, err := PollSessionOnce(context.Background(), func(message InboundMessage) {
+		received = append(received, message.Text())
+	}); err != nil {
+		t.Fatalf("PollSessionOnce: %v", err)
+	}
+	if len(received) != 1 || received[0] != "你好" {
+		t.Fatalf("unexpected messages: %#v", received)
+	}
+
+	updated, err := LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if updated.BotToken != "token-2" {
+		t.Fatalf("旧轮询把新登录覆盖回旧 token：%#v", updated)
+	}
+	if updated.GetUpdatesBuf != "cursor-new" || updated.ContextToken != "ctx-new" {
+		t.Fatalf("旧轮询覆盖了新登录的游标或上下文：%#v", updated)
+	}
+}
