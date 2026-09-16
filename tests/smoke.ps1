@@ -446,6 +446,46 @@ Write-Output '[ok] install upgrade fixtures'
   Assert-True (@($uninstalledDevin.hooks.SessionStart).Count -eq 1) '卸载后 Devin 丢失其他事件 Hook'
   Assert-True (@($uninstalledDevin.permissions.allow) -contains 'Exec(ls)') '卸载后 Devin 丢失权限配置'
   Write-Output '[ok] uninstall preserves hook config'
+
+  # 卸载 Codex notify 时不得删除用户原有的 codex-computer-use 包装，也不得残留 Agent-notify 片段
+  $codexAfterUninstall = [IO.File]::ReadAllText($sandboxCodexConfig)
+  Assert-True ($codexAfterUninstall -match '(?i)codex-computer-use\.exe') '卸载把用户原有的 codex-computer-use 包装一起删掉了'
+  Assert-True ($codexAfterUninstall -notmatch '(?i)agent-notify') '卸载后 Codex notify 仍指向 Agent-notify'
+  Assert-True ($codexAfterUninstall -notmatch '--previous-notify') '卸载后残留 --previous-notify 片段'
+  Write-Output '[ok] uninstall keeps codex wrapper'
+
+  # 备份还原只改 notify 行：安装后用户对 config.toml 的其它修改必须保留
+  $codexRestore = Join-Path $smokeRoot 'codex-restore.toml'
+  $restoreFixture = @'
+notify = [ "C:/tools/codex-computer-use.exe", "turn-ended", "--previous-notify", "[\"D:/sandbox/agent-notify.exe\",\"codex\",\"turn-ended\"]" ]
+model = "gpt-5"
+'@
+  [IO.File]::WriteAllText($codexRestore, $restoreFixture, $utf8NoBom)
+  [IO.File]::WriteAllText("$codexRestore.bak-notify-wrapper", "notify = [ `"C:/tools/codex-computer-use.exe`", `"turn-ended`" ]`n", $utf8NoBom)
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
+    -InstallDir (Join-Path $smokeRoot 'restore-bin') -PluginDir (Join-Path $smokeRoot 'restore-plugins') `
+    -CodexConfig $codexRestore -SkipShortcuts -SkipAntigravityConfig -SkipDevinConfig -SkipDevinExtension -SkipProcessStop | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) "备份还原用例卸载 exit=$LASTEXITCODE"
+  $restored = [IO.File]::ReadAllText($codexRestore)
+  Assert-True ($restored -match '(?m)^model = "gpt-5"\s*$') "卸载备份还原覆盖了用户安装后的其它修改：$restored"
+  Assert-True ($restored -match [regex]::Escape('notify = [ "C:/tools/codex-computer-use.exe", "turn-ended" ]')) "备份还原后的 notify 行不符：$restored"
+  Assert-True ($restored -notmatch '(?i)agent-notify') '备份还原后仍残留 Agent-notify'
+  Assert-True (-not (Test-Path "$codexRestore.bak-notify-wrapper")) '卸载后残留 Codex 备份文件'
+  Write-Output '[ok] uninstall restores codex notify in place'
+
+  # 无备份的链式包装：只摘掉 Agent-notify 片段，保留包装与其它配置
+  $codexStrip = Join-Path $smokeRoot 'codex-strip.toml'
+  [IO.File]::WriteAllText($codexStrip, $restoreFixture, $utf8NoBom)
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
+    -InstallDir (Join-Path $smokeRoot 'strip-bin') -PluginDir (Join-Path $smokeRoot 'strip-plugins') `
+    -CodexConfig $codexStrip -SkipShortcuts -SkipAntigravityConfig -SkipDevinConfig -SkipDevinExtension -SkipProcessStop | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) "无备份卸载 exit=$LASTEXITCODE"
+  $stripped = [IO.File]::ReadAllText($codexStrip)
+  Assert-True ($stripped -match [regex]::Escape('notify = [ "C:/tools/codex-computer-use.exe", "turn-ended" ]')) "无备份时未正确摘除 Agent-notify：$stripped"
+  Assert-True ($stripped -notmatch '(?i)agent-notify') '无备份卸载后仍残留 Agent-notify'
+  Assert-True ($stripped -notmatch '--previous-notify') '无备份卸载后残留 --previous-notify 片段'
+  Assert-True ($stripped -match '(?m)^model = "gpt-5"\s*$') "无备份卸载破坏了其它配置：$stripped"
+  Write-Output '[ok] uninstall strips codex chain without backup'
   Write-Output '[ok] uninstall sandbox clean'
 } finally {
   $env:AGENT_NOTIFY_CONFIG_DIR = $null
@@ -498,6 +538,8 @@ Write-Output '[ok] install upgrade fixtures'
     (Join-Path $smokeRoot 'devin-config\config.json'),
     (Join-Path $smokeRoot 'codex-config\config.toml'),
     (Join-Path $smokeRoot 'codex-config\config.toml.bak-notify-wrapper'),
+    (Join-Path $smokeRoot 'codex-restore.toml'),
+    (Join-Path $smokeRoot 'codex-strip.toml'),
     (Join-Path $smokeRoot 'state\push.log'),
     (Join-Path $smokeRoot 'state\codex-notify-debug.log'),
     (Join-Path $smokeRoot 'state\opencode-sent.json'),

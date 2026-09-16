@@ -194,22 +194,78 @@ if (-not $SkipShortcuts) {
   }
 }
 
-# 6. 还原 Codex notify
+# 从 notify 行中移除 Agent-notify：链式包装只删 --previous-notify 载荷，直连项连同 codex/turn-ended 一起删，
+# 保留用户自己的程序与其它参数。返回空串表示整行都应删除。
+function Remove-AgentNotifyFromNotifyLine {
+  param([string]$NotifyLine)
+  $items = [regex]::Matches($NotifyLine, '"(?:\\.|[^"])*"')
+  if ($items.Count -eq 0) { return '' }
+  $kept = New-Object System.Collections.Generic.List[string]
+  for ($i = 0; $i -lt $items.Count; $i++) {
+    $value = Get-NotifyItemValue $items[$i].Value
+    if ($value -ieq '--previous-notify') {
+      $nextValue = ''
+      if ($i + 1 -lt $items.Count) { $nextValue = Get-NotifyItemValue $items[$i + 1].Value }
+      if ($nextValue -match '(?i)agent-notify') {
+        # 跳过 --previous-notify 与它的 Agent-notify 载荷
+        $i++
+        continue
+      }
+    }
+    if ($value -match '(?i)agent-notify\.exe') {
+      # 直连项：连同其后的 codex / turn-ended 参数一起移除
+      while ($i + 1 -lt $items.Count) {
+        $nextValue = Get-NotifyItemValue $items[$i + 1].Value
+        if ($nextValue -ieq 'codex' -or $nextValue -ieq 'turn-ended') { $i++ } else { break }
+      }
+      continue
+    }
+    $kept.Add($items[$i].Value)
+  }
+  if ($kept.Count -eq 0) { return '' }
+  return 'notify = [ ' + ($kept -join ', ') + ' ]'
+}
+
+function Get-NotifyItemValue {
+  param([string]$Raw)
+  if ($Raw.Length -lt 2) { return $Raw }
+  try { return [regex]::Unescape($Raw.Substring(1, $Raw.Length - 2)) } catch { return $Raw }
+}
+
+# 6. 还原 Codex notify：只改 notify 行，不整文件覆盖，保留安装后用户对配置的其它修改
 if (-not $SkipCodexConfig -and (Test-Path $CodexConfig)) {
   $backup = "$CodexConfig.bak-notify-wrapper"
-  if (Test-Path $backup) {
-    Copy-Item $backup $CodexConfig -Force
-    Remove-Item $backup -Force
-    Write-Output "[uninstall] Codex 配置已从备份还原。"
+  $content = [IO.File]::ReadAllText($CodexConfig)
+  $lineMatch = [regex]::Match($content, '(?m)^notify\s*=.*$')
+  if (-not $lineMatch.Success -or $lineMatch.Value -notmatch '(?i)agent-notify') {
+    if (Test-Path $backup) { Remove-Item $backup -Force }
+    Write-Output '[uninstall] Codex notify 未指向 Agent-notify，保持原样。'
   } else {
-    $content = [IO.File]::ReadAllText($CodexConfig)
-    if ($content -match '(?m)^notify\s*=.*agent-notify') {
-      $updated = [regex]::Replace($content, '(?m)^notify\s*=.*agent-notify.*(?:\r?\n|$)', '')
-      [IO.File]::WriteAllText($CodexConfig, $updated)
-      Write-Output '[uninstall] 已移除 config.toml 里的 Agent-notify notify 行。'
-    } else {
-      Write-Output '[uninstall] Codex notify 未指向 Agent-notify，保持原样。'
+    $backupLine = ''
+    if (Test-Path $backup) {
+      $backupMatch = [regex]::Match([IO.File]::ReadAllText($backup), '(?m)^notify\s*=.*$')
+      if ($backupMatch.Success -and $backupMatch.Value -notmatch '(?i)agent-notify') {
+        $backupLine = $backupMatch.Value
+      }
     }
+    if ($backupLine) {
+      # 备份里原本就有 notify 行：只把这一行按备份原文还原，用户其它修改不受影响
+      $updated = $content.Substring(0, $lineMatch.Index) + $backupLine + $content.Substring($lineMatch.Index + $lineMatch.Length)
+      [IO.File]::WriteAllText($CodexConfig, $updated)
+      Write-Output '[uninstall] Codex notify 已按备份原文定点还原，其它改动保持不变。'
+    } else {
+      $stripped = Remove-AgentNotifyFromNotifyLine $lineMatch.Value
+      if ([string]::IsNullOrWhiteSpace($stripped)) {
+        $updated = [regex]::Replace($content, '(?m)^notify\s*=.*(?:\r?\n|$)', '')
+        [IO.File]::WriteAllText($CodexConfig, $updated)
+        Write-Output '[uninstall] 已移除 config.toml 里的 Agent-notify notify 行。'
+      } else {
+        $updated = $content.Substring(0, $lineMatch.Index) + $stripped + $content.Substring($lineMatch.Index + $lineMatch.Length)
+        [IO.File]::WriteAllText($CodexConfig, $updated)
+        Write-Output '[uninstall] 已从 notify 链中移除 Agent-notify，保留其它程序。'
+      }
+    }
+    if (Test-Path $backup) { Remove-Item $backup -Force }
   }
 }
 
