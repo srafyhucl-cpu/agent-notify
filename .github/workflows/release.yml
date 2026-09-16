@@ -105,7 +105,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
-            throw 'RELEASE_REPO_TOKEN 未配置：客户端更新源（agent-notify-releases）拿不到本版本，用户会看到"当前已是最新版本"。请在源码仓库 Settings → Secrets and variables → Actions 添加指向 agent-notify-releases（Contents: Read and write）的 PAT。'
+            throw 'RELEASE_REPO_TOKEN is not configured, so the update source repo (agent-notify-releases) will not receive this version and clients will keep reporting "already up to date". Add a PAT (contents:write on agent-notify-releases) as the RELEASE_REPO_TOKEN repository secret.'
           }
           $version = '${{ github.ref_name }}'.TrimStart('v')
           ./tools/publish-release.ps1 -Version $version -DistDir dist
