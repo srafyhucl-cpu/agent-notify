@@ -49,6 +49,23 @@ func TestWidgetHoverAtOutsideLayoutClearsState(t *testing.T) {
 	}
 }
 
+func TestSingleAgentInteractiveRegionsHover(t *testing.T) {
+	layout := widgetLayoutRects()
+	xSwitch := layout.switchAgent.Left + (layout.switchAgent.Right-layout.switchAgent.Left)/2
+	ySwitch := layout.switchAgent.Top + (layout.switchAgent.Bottom-layout.switchAgent.Top)/2
+	gotSwitch := widgetHoverAt(xSwitch, ySwitch, layout)
+	if !gotSwitch.switchAgent {
+		t.Fatalf("switchAgent at (%d,%d) was not hovered: %+v", xSwitch, ySwitch, gotSwitch)
+	}
+
+	xSingle := layout.singleSwitch.Left + (layout.singleSwitch.Right-layout.singleSwitch.Left)/2
+	ySingle := layout.singleSwitch.Top + (layout.singleSwitch.Bottom-layout.singleSwitch.Top)/2
+	gotSingle := widgetHoverAt(xSingle, ySingle, layout)
+	if !gotSingle.singleSwitch {
+		t.Fatalf("singleSwitch at (%d,%d) was not hovered: %+v", xSingle, ySingle, gotSingle)
+	}
+}
+
 func countWidgetHoverFields(hover widgetHoverState) int {
 	count := 0
 	for _, active := range []bool{

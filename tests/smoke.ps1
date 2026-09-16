@@ -227,7 +227,7 @@ try {
   Write-Output '[ok] codex dry-run passthru'
   $codexJson = $codexText | ConvertFrom-Json
   Assert-True ($codexJson.title -match '【codex】帮我写个脚本测试一下') "codex 标题解析失败：$codexText"
-  Assert-True ($codexJson.message -match 'hello world smoke') "codex 摘要未透传：$codexText"
+  Assert-True ($codexJson.message -match 'hello (?:\*\*)?world(?:\*\*)? smoke') "codex 摘要未透传：$codexText"
 
   # 6b. Antigravity / Devin Stop hook 契约（DryRun，不发送）
   $env:AGENT_NOTIFY_ANTIGRAVITY_DRYRUN = '1'
@@ -525,7 +525,7 @@ Write-Output '[ok] install upgrade fixtures'
       (Join-Path $smokeRoot 'configure-only-app'),
       (Join-Path $smokeRoot 'configure-only-plugins'),
       (Join-Path $smokeRoot 'configure-only-devin-extension'),
-      $sandboxDevinExtension,
+      (Join-Path $smokeRoot 'devin-extension'),
       $smokeRoot
     )) {
     if (Test-Path -LiteralPath $dir) {

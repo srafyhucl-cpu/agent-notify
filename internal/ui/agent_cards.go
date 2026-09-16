@@ -23,12 +23,48 @@ type widgetAgentCard struct {
 	Hover   bool
 }
 
-func (app *WidgetApp) agentCards(layout widgetLayout) []widgetAgentCard {
+func (app *WidgetApp) allAgentCards(layout widgetLayout) []widgetAgentCard {
 	return []widgetAgentCard{
 		app.agentCard(agentmeta.OpenCode, "OpenCode", app.onOpenCode, app.procStatus.OpenCodeRunning, layout.openCode, app.hover.openCode),
 		app.agentCard(agentmeta.Codex, "Codex", app.onCodex, app.procStatus.CodexRunning, layout.codex, app.hover.codex),
 		app.agentCard(agentmeta.Antigravity, "Antigravity", app.onAntigravity, app.procStatus.AntigravityRunning, layout.antigravity, app.hover.antigravity),
 		app.agentCard(agentmeta.Devin, "Devin", app.onDevin, app.procStatus.DevinRunning, layout.devin, app.hover.devin),
+	}
+}
+
+func (app *WidgetApp) agentCards(layout widgetLayout) []widgetAgentCard {
+	cards := app.allAgentCards(layout)
+	if app.isSingleAgentMode() {
+		targetID := app.focusedAgentID()
+		for _, card := range cards {
+			if card.ID == targetID {
+				card.Rect = layout.singleAgent
+				card.Hover = app.hover.singleAgent
+				return []widgetAgentCard{card}
+			}
+		}
+		if len(cards) > 0 {
+			first := cards[0]
+			first.Rect = layout.singleAgent
+			first.Hover = app.hover.singleAgent
+			return []widgetAgentCard{first}
+		}
+	}
+	return cards
+}
+
+func agentHookDescription(agentID string) string {
+	switch agentID {
+	case agentmeta.Antigravity:
+		return "hooks.json (Stop Hook)"
+	case agentmeta.OpenCode:
+		return "agent-notify.ts (全局插件)"
+	case agentmeta.Codex:
+		return "config.toml (notify 包装)"
+	case agentmeta.Devin:
+		return "config.json + 回复扩展"
+	default:
+		return "系统配置"
 	}
 }
 
@@ -207,6 +243,12 @@ func (app *WidgetApp) toggleAgent(agentID string) bool {
 }
 
 func (app *WidgetApp) toggleAgentAt(x, y int32, layout widgetLayout) bool {
+	if app.isSingleAgentMode() {
+		if pointInRect(x, y, layout.singleSwitch) {
+			return app.toggleAgent(app.focusedAgentID())
+		}
+		return false
+	}
 	for _, card := range app.agentCards(layout) {
 		if pointInRect(x, y, card.Rect) {
 			return app.toggleAgent(card.ID)

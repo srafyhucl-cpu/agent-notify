@@ -58,6 +58,7 @@ var (
 	pDestroyMenu            = user32.NewProc("DestroyMenu")
 	pAppendMenuW            = user32.NewProc("AppendMenuW")
 	pTrackPopupMenu         = user32.NewProc("TrackPopupMenu")
+	pClientToScreen         = user32.NewProc("ClientToScreen")
 	pMessageBoxW            = user32.NewProc("MessageBoxW")
 	pSetClipboardData       = user32.NewProc("SetClipboardData")
 	pOpenClipboard          = user32.NewProc("OpenClipboard")
@@ -116,26 +117,31 @@ const (
 	SW_MINIMIZE   = 6
 	SW_RESTORE    = 9
 
-	WM_CREATE        = 0x0001
-	WM_DESTROY       = 0x0002
-	WM_PAINT         = 0x000F
-	WM_CLOSE         = 0x0010
-	WM_ERASEBKGND    = 0x0014
-	WM_DPICHANGED    = 0x02E0
-	WM_KEYDOWN       = 0x0100
-	WM_TIMER         = 0x0113
-	WM_MOUSEMOVE     = 0x0200
-	WM_LBUTTONDOWN   = 0x0201
-	WM_LBUTTONUP     = 0x0202
-	WM_LBUTTONDBLCLK = 0x0203
-	WM_RBUTTONUP     = 0x0205
-	WM_MOUSEWHEEL    = 0x020A
-	WM_MOUSELEAVE    = 0x02A3
-	WM_NCLBUTTONDOWN = 0x00A1
-	WM_USER          = 0x0400
-	EM_SETCUEBANNER  = 0x1501
-	WM_COMMAND       = 0x0111
-	WM_USER_WAKEUP   = WM_USER + 200
+	WM_NULL           = 0x0000
+	WM_CREATE         = 0x0001
+	WM_DESTROY        = 0x0002
+	WM_PAINT          = 0x000F
+	WM_CLOSE          = 0x0010
+	WM_ERASEBKGND     = 0x0014
+	WM_DPICHANGED     = 0x02E0
+	WM_KEYDOWN        = 0x0100
+	WM_TIMER          = 0x0113
+	WM_MOUSEMOVE      = 0x0200
+	WM_LBUTTONDOWN    = 0x0201
+	WM_LBUTTONUP      = 0x0202
+	WM_LBUTTONDBLCLK  = 0x0203
+	WM_RBUTTONUP      = 0x0205
+	WM_MOUSEWHEEL     = 0x020A
+	WM_MOUSELEAVE     = 0x02A3
+	WM_ACTIVATE       = 0x0006
+	WM_KILLFOCUS      = 0x0008
+	WM_CTLCOLORSTATIC = 0x0138
+	WM_NCLBUTTONDOWN  = 0x00A1
+	WM_USER           = 0x0400
+	EM_SETCUEBANNER   = 0x1501
+	EM_SETSEL         = 0x00B1
+	WM_COMMAND        = 0x0111
+	WM_USER_WAKEUP    = WM_USER + 200
 
 	EVENT_MODIFY_STATE = 0x0002
 	WAIT_OBJECT_0      = 0x00000000
@@ -156,9 +162,15 @@ const (
 	MONITOR_DEFAULTTONEAREST = 0x00000002
 
 	MF_STRING       = 0x00000000
+	MF_CHECKED      = 0x00000008
+	MF_UNCHECKED    = 0x00000000
 	MF_SEPARATOR    = 0x00000800
+	TPM_LEFTALIGN   = 0x0000
+	TPM_TOPALIGN    = 0x0000
+	TPM_RETURNCMD   = 0x0100
 	TPM_RIGHTBUTTON = 0x0002
 
+	DT_LEFT         = 0x00000000
 	DT_CENTER       = 0x00000001
 	DT_RIGHT        = 0x00000002
 	DT_VCENTER      = 0x00000004
@@ -181,7 +193,11 @@ const (
 	MB_YESNO        = 0x00000004
 	MB_ICONQUESTION = 0x00000020
 	MB_ICONINFO     = 0x00000040
+	IDOK            = 1
+	IDCANCEL        = 2
 	IDYES           = 6
+
+	VK_RETURN = 0x000D
 
 	IDC_ARROW = 32512
 	IDC_HAND  = 32649

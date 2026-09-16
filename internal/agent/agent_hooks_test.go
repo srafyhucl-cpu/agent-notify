@@ -54,7 +54,7 @@ func TestHandleAntigravityStopDryRun(t *testing.T) {
 	if result.Status != notify.StatusDryRun {
 		t.Fatalf("dry-run status = %q, error = %q", result.Status, result.Error)
 	}
-	if !strings.Contains(result.DryRunPayload, "【antigravity】跑完了") {
+	if !strings.Contains(result.DryRunPayload, "🟢【Antigravity】任务已完成") {
 		t.Fatalf("dry-run payload = %q", result.DryRunPayload)
 	}
 }
@@ -106,7 +106,7 @@ func TestHandleDevinStopUsesSessionTitle(t *testing.T) {
 	if result.Status != notify.StatusDryRun {
 		t.Fatalf("dry-run status = %q, error = %q", result.Status, result.Error)
 	}
-	if !strings.Contains(result.DryRunPayload, "【devin】真实 Devin 标题") {
+	if !strings.Contains(result.DryRunPayload, "🟢【Devin】真实 Devin 标题") {
 		t.Fatalf("dry-run payload = %q", result.DryRunPayload)
 	}
 }
@@ -123,7 +123,7 @@ func TestHandleDevinStopDryRun(t *testing.T) {
 	if result.Status != notify.StatusDryRun {
 		t.Fatalf("dry-run status = %q, error = %q", result.Status, result.Error)
 	}
-	if !strings.Contains(result.DryRunPayload, "【devin】跑完了") {
+	if !strings.Contains(result.DryRunPayload, "🟢【Devin】任务已完成") {
 		t.Fatalf("dry-run payload = %q", result.DryRunPayload)
 	}
 }

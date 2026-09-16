@@ -8,12 +8,13 @@ import (
 const minSentenceBoundaryRunes = 100
 
 var (
-	reCodeBlock  = regexp.MustCompile("(?s)```.*?```")
-	reManyBreaks = regexp.MustCompile(`\n{3,}`)
-	reInlineCode = regexp.MustCompile("`([^`]+)`")
-	reBold       = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	reHeading    = regexp.MustCompile(`(?m)^#{1,6}\s+`)
-	reListMarker = regexp.MustCompile(`(?m)^\s*(?:[-*]|\d+[.)])\s+`)
+	reCodeBlock    = regexp.MustCompile("(?s)```.*?```")
+	reManyBreaks   = regexp.MustCompile(`\n{3,}`)
+	reInlineCode   = regexp.MustCompile("`([^`]+)`")
+	reBold         = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	reHeading      = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+	reListMarker   = regexp.MustCompile(`(?m)^\s*(?:[-*]|\d+[.)])\s+`)
+	reInlineBullet = regexp.MustCompile(`([^\r\n\s])\s*•\s*`)
 )
 
 // CutSentence truncates text at a sentence boundary within max runes when a
@@ -53,8 +54,7 @@ func FormatNotifySummary(text string, maxChars int) string {
 	text = reCodeBlock.ReplaceAllString(text, "")
 	text = reHeading.ReplaceAllString(text, "")
 	text = reListMarker.ReplaceAllString(text, "• ")
-	text = reInlineCode.ReplaceAllString(text, "$1")
-	text = reBold.ReplaceAllString(text, "$1")
+	text = reInlineBullet.ReplaceAllString(text, "$1\n• ")
 
 	lines := strings.Split(strings.TrimSpace(text), "\n")
 	for i, line := range lines {
@@ -62,5 +62,29 @@ func FormatNotifySummary(text string, maxChars int) string {
 	}
 	text = strings.TrimSpace(strings.Join(lines, "\n"))
 	text = reManyBreaks.ReplaceAllString(text, "\n\n")
-	return CutSentence(strings.TrimSpace(text), maxChars)
+	text = cleanTrailingSummaryMarkers(text)
+	return CutSentence(text, maxChars)
+}
+
+func cleanTrailingSummaryMarkers(text string) string {
+	for {
+		orig := text
+		text = strings.TrimRight(text, "-\r\n\t ")
+		text = strings.TrimSpace(text)
+		lines := strings.Split(text, "\n")
+		if len(lines) > 0 {
+			last := strings.TrimSpace(lines[len(lines)-1])
+			lastClean := strings.TrimPrefix(last, ">")
+			lastClean = strings.TrimSpace(lastClean)
+			if strings.Contains(lastClean, "微信直接引用此消息可继续对话") {
+				text = strings.TrimSpace(strings.Join(lines[:len(lines)-1], "\n"))
+			}
+		}
+		text = strings.TrimRight(text, "-\r\n\t ")
+		text = strings.TrimSpace(text)
+		if text == orig {
+			break
+		}
+	}
+	return text
 }

@@ -10,7 +10,7 @@ import (
 const (
 	notificationSeparator = "\n\n"
 	genericTitlePrefix    = "【通知】"
-	genericDefaultTitle   = "任务完成"
+	genericDefaultTitle   = "任务已完成"
 	defaultBody           = "任务已完成。"
 	footerTimeLayout      = "2006/01/02 15:04"
 )
@@ -22,13 +22,14 @@ type renderedNotification struct {
 }
 
 func renderNotification(opts NotifyOptions, now time.Time) renderedNotification {
-	title := normalizeNotificationTitle(opts.Agent, opts.Title)
+	title := normalizeNotificationTitle(opts.Agent, opts.Title, opts.Notice)
 	summary := FormatNotifySummary(opts.Summary, 0)
 	if summary == "" {
 		summary = defaultBody
 	}
 	if notice := strings.TrimSpace(opts.Notice); notice != "" {
-		summary = strings.TrimSpace(summary + notificationSeparator + notice)
+		formattedNotice := "> ⚠️ " + strings.ReplaceAll(notice, "\n", "\n> ")
+		summary = strings.TrimSpace(summary + notificationSeparator + formattedNotice)
 	}
 	footer := notificationFooter(opts.Agent, now)
 
@@ -39,25 +40,53 @@ func renderNotification(opts NotifyOptions, now time.Time) renderedNotification 
 	return renderedNotification{Title: title, Summary: summary, Message: message}
 }
 
-func normalizeNotificationTitle(agentName, rawTitle string) string {
+func normalizeNotificationTitle(agentName, rawTitle, notice string) string {
 	title := strings.TrimSpace(strings.ReplaceAll(rawTitle, "\n", " "))
-	if descriptor, ok := agentmeta.Lookup(agentName); ok {
-		if title == "" {
-			title = descriptor.DefaultTitle
-		}
-		if !strings.HasPrefix(title, descriptor.TitlePrefix) {
-			title = descriptor.TitlePrefix + title
-		}
-		return title
+	badge := "🟢"
+	if strings.Contains(notice, "错误") || strings.Contains(notice, "失败") || strings.Contains(notice, "异常") ||
+		strings.Contains(title, "错误") || strings.Contains(title, "失败") || strings.Contains(title, "异常") {
+		badge = "⚠️"
 	}
 
-	if title == "" {
+	if descriptor, ok := agentmeta.Lookup(agentName); ok {
+		// 剥离可能存在的各种旧前缀（大小写不限）
+		clean := strings.TrimSpace(title)
+		for _, prefix := range []string{
+			descriptor.TitlePrefix,
+			"【" + strings.ToLower(descriptor.ID) + "】",
+			"【" + strings.ToUpper(descriptor.ID) + "】",
+			"【" + descriptor.DisplayName + "】",
+		} {
+			clean = strings.TrimSpace(strings.TrimPrefix(clean, prefix))
+		}
+
+		if clean == "" || clean == "跑完了" || clean == "opencode会话" {
+			clean = descriptor.DefaultTitle
+		}
+
+		if hasStatusBadge(clean) {
+			return clean
+		}
+		return badge + descriptor.TitlePrefix + clean
+	}
+
+	if title == "" || title == genericDefaultTitle || title == "任务完成" || title == "跑完了" {
 		title = genericDefaultTitle
 	}
-	if !strings.HasPrefix(title, "【") {
-		title = genericTitlePrefix + title
+	clean := strings.TrimPrefix(title, genericTitlePrefix)
+	clean = strings.TrimPrefix(clean, "【通知】")
+	if clean == "" {
+		clean = genericDefaultTitle
 	}
-	return title
+
+	if hasStatusBadge(clean) {
+		return clean
+	}
+	return badge + genericTitlePrefix + clean
+}
+
+func hasStatusBadge(s string) bool {
+	return strings.HasPrefix(s, "🟢") || strings.HasPrefix(s, "⚠️") || strings.HasPrefix(s, "🔴") || strings.HasPrefix(s, "⚡")
 }
 
 func notificationFooter(agentName string, now time.Time) string {
@@ -65,7 +94,13 @@ func notificationFooter(agentName string, now time.Time) string {
 	if !ok || descriptor.FooterLabel == "" {
 		return ""
 	}
-	return descriptor.FooterLabel + " · " + now.Format(footerTimeLayout)
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	if descriptor.Replyable {
+		sb.WriteString("> 微信直接引用此消息可继续对话\n\n")
+	}
+	sb.WriteString(descriptor.FooterLabel + " · " + now.Format(footerTimeLayout))
+	return sb.String()
 }
 
 func composeNotification(title, summary, footer string) string {

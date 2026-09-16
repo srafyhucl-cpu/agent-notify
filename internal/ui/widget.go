@@ -41,6 +41,13 @@ const (
 	widgetTrayStateReady
 )
 
+// 整体状态色：窗口顶部状态条与托盘图标共用同一套语义。
+var (
+	statusColorReady   = RGB(54, 190, 144) // 正常
+	statusColorWarning = RGB(224, 165, 70) // 等待用户处理
+	statusColorStopped = RGB(220, 92, 92)  // 未登录 / 登录失效 / 全部暂停
+)
+
 var (
 	classNameWidget   = StringToUTF16Ptr("AgentNotifyWidgetMain")
 	windowTitleWidget = StringToUTF16Ptr("Agent-notify")
@@ -50,29 +57,52 @@ var (
 )
 
 type WidgetApp struct {
-	hwnd                uintptr
-	tray                *TrayManager
-	paths               config.Paths
-	onOpenCode          bool
-	onCodex             bool
-	onAntigravity       bool
-	onDevin             bool
-	clawbotLoggedIn     bool
-	clawbotSessionReady bool
-	clawbotStale        bool
-	clawbotHint         string
-	quietHours          string
-	lastPushText        string
-	lastPushTitle       string
-	lastPushStatus      string
-	lastPushAgent       string
-	integrations        map[string]integration.Status
-	updateState         widgetUpdateState
-	procStatus          ProcessStatus
-	hover               widgetHoverState
-	isTracking          bool
-	setupError          string
-	repairSetup         func(context.Context) error
+	hwnd                 uintptr
+	tray                 *TrayManager
+	paths                config.Paths
+	theme                string
+	currentView          WidgetView
+	agentDropdownOpen    bool
+	dropdownHoverIndex   int
+	agentMode            string
+	currentAgent         string
+	onOpenCode           bool
+	onCodex              bool
+	onAntigravity        bool
+	onDevin              bool
+	clawbotLoggedIn      bool
+	clawbotSessionReady  bool
+	clawbotStale         bool
+	clawbotHint          string
+	quietHours           string
+	replyEnabled         bool
+	cooldownMin          int
+	lastPushText         string
+	lastPushTitle        string
+	lastPushSummary      string
+	lastPushStatus       string
+	lastPushAgent        string
+	integrations         map[string]integration.Status
+	updateState          widgetUpdateState
+	procStatus           ProcessStatus
+	hover                widgetHoverState
+	repairHover          repairViewHover
+	repairError          string
+	repairing            bool
+	settingsError        string
+	historyHover         historyViewHover
+	historyConfirmClear  bool
+	historyPageOffset    int
+	historySelectedIndex int
+	settingsHover        settingsViewHover
+	loginHover           loginViewHover
+	loginState           loginDialogState
+	quietEdit            uintptr
+	cooldownEdit         uintptr
+	editBrush            uintptr
+	isTracking           bool
+	setupError           string
+	repairSetup          func(context.Context) error
 }
 
 type WidgetOptions struct {
@@ -82,81 +112,101 @@ type WidgetOptions struct {
 }
 
 type widgetLayout struct {
-	drag        RECT
-	minimize    RECT
-	close       RECT
-	connection  RECT
-	openCode    RECT
-	codex       RECT
-	antigravity RECT
-	devin       RECT
-	recent      RECT
-	test        RECT
-	settings    RECT
-	history     RECT
-	hide        RECT
-	update      RECT
-	repair      RECT
+	drag         RECT
+	themeToggle  RECT
+	minimize     RECT
+	close        RECT
+	connection   RECT
+	modeToggle   RECT
+	switchAgent  RECT
+	singleSwitch RECT
+	singleAgent  RECT
+	openCode     RECT
+	codex        RECT
+	antigravity  RECT
+	devin        RECT
+	recent       RECT
+	test         RECT
+	settings     RECT
+	history      RECT
+	hide         RECT
+	update       RECT
+	repair       RECT
 }
 
 type widgetHoverState struct {
-	openCode    bool
-	codex       bool
-	antigravity bool
-	devin       bool
-	minimize    bool
-	close       bool
-	connection  bool
-	recent      bool
-	history     bool
-	settings    bool
-	test        bool
-	hide        bool
-	update      bool
-	repair      bool
+	openCode     bool
+	codex        bool
+	antigravity  bool
+	devin        bool
+	singleAgent  bool
+	modeToggle   bool
+	switchAgent  bool
+	singleSwitch bool
+	themeToggle  bool
+	minimize     bool
+	close        bool
+	connection   bool
+	recent       bool
+	history      bool
+	settings     bool
+	test         bool
+	hide         bool
+	update       bool
+	repair       bool
 }
 
 func (s widgetHoverState) any() bool {
-	return s.openCode || s.codex || s.antigravity || s.devin || s.minimize || s.close || s.connection ||
-		s.recent || s.history || s.settings || s.test || s.hide || s.update || s.repair
+	return s.openCode || s.codex || s.antigravity || s.devin || s.singleAgent || s.modeToggle || s.switchAgent || s.singleSwitch ||
+		s.themeToggle || s.minimize || s.close || s.connection || s.recent || s.history || s.settings || s.test || s.hide || s.update || s.repair
 }
 
 func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
 	return widgetHoverState{
-		openCode:    pointInRect(x, y, layout.openCode),
-		codex:       pointInRect(x, y, layout.codex),
-		antigravity: pointInRect(x, y, layout.antigravity),
-		devin:       pointInRect(x, y, layout.devin),
-		minimize:    pointInRect(x, y, layout.minimize),
-		close:       pointInRect(x, y, layout.close),
-		connection:  pointInRect(x, y, layout.connection),
-		recent:      pointInRect(x, y, layout.recent),
-		history:     pointInRect(x, y, layout.history),
-		settings:    pointInRect(x, y, layout.settings),
-		test:        pointInRect(x, y, layout.test),
-		hide:        pointInRect(x, y, layout.hide),
-		update:      pointInRect(x, y, layout.update),
-		repair:      pointInRect(x, y, layout.repair),
+		openCode:     pointInRect(x, y, layout.openCode),
+		codex:        pointInRect(x, y, layout.codex),
+		antigravity:  pointInRect(x, y, layout.antigravity),
+		devin:        pointInRect(x, y, layout.devin),
+		singleAgent:  pointInRect(x, y, layout.singleAgent),
+		modeToggle:   pointInRect(x, y, layout.modeToggle),
+		switchAgent:  pointInRect(x, y, layout.switchAgent),
+		singleSwitch: pointInRect(x, y, layout.singleSwitch),
+		themeToggle:  pointInRect(x, y, layout.themeToggle),
+		minimize:     pointInRect(x, y, layout.minimize),
+		close:        pointInRect(x, y, layout.close),
+		connection:   pointInRect(x, y, layout.connection),
+		recent:       pointInRect(x, y, layout.recent),
+		history:      pointInRect(x, y, layout.history),
+		settings:     pointInRect(x, y, layout.settings),
+		test:         pointInRect(x, y, layout.test),
+		hide:         pointInRect(x, y, layout.hide),
+		update:       pointInRect(x, y, layout.update),
+		repair:       pointInRect(x, y, layout.repair),
 	}
 }
 
 func widgetLayoutRects() widgetLayout {
 	return widgetLayout{
-		drag:        RECT{0, 0, 240, 48},
-		minimize:    RECT{344, 4, 372, 36},
-		close:       RECT{372, 4, 400, 36},
-		connection:  RECT{14, 56, 386, 112},
-		openCode:    RECT{14, 136, 193, 212},
-		codex:       RECT{207, 136, 386, 212},
-		antigravity: RECT{14, 218, 193, 294},
-		devin:       RECT{207, 218, 386, 294},
-		recent:      RECT{14, 304, 386, 366},
-		test:        RECT{14, 380, 132, 420},
-		settings:    RECT{140, 380, 238, 420},
-		history:     RECT{246, 380, 314, 420},
-		hide:        RECT{322, 380, 386, 420},
-		update:      RECT{80, 426, 250, 448},
-		repair:      RECT{258, 426, 386, 448},
+		drag:         RECT{0, 0, 308, 48},
+		themeToggle:  RECT{312, 12, 338, 38},
+		minimize:     RECT{340, 12, 366, 38},
+		close:        RECT{368, 12, 394, 38},
+		connection:   RECT{312, 12, 338, 38},
+		modeToggle:   RECT{270, 54, 386, 72},
+		switchAgent:  RECT{76, 92, 256, 128},
+		singleSwitch: RECT{326, 98, 372, 122},
+		singleAgent:  RECT{14, 78, 386, 222},
+		openCode:     RECT{14, 78, 195, 146},
+		codex:        RECT{205, 78, 386, 146},
+		antigravity:  RECT{14, 154, 195, 222},
+		devin:        RECT{205, 154, 386, 222},
+		recent:       RECT{14, 232, 386, 318},
+		test:         RECT{14, 328, 101, 384},
+		history:      RECT{109, 328, 196, 384},
+		settings:     RECT{204, 328, 291, 384},
+		hide:         RECT{299, 328, 386, 384},
+		update:       RECT{106, 394, 242, 436},
+		repair:       RECT{250, 394, 386, 436},
 	}
 }
 
@@ -177,17 +227,17 @@ type widgetTextLayout struct {
 
 func widgetTextRects() widgetTextLayout {
 	return widgetTextLayout{
-		title:            RECT{14, 7, 230, 36},
-		subtitle:         RECT{15, 31, 250, 50},
-		connectionTitle:  RECT{46, 62, 286, 84},
-		connectionDetail: RECT{46, 84, 300, 103},
-		quiet:            RECT{286, 74, 372, 94},
-		recentLabel:      RECT{28, 312, 110, 330},
-		recentMeta:       RECT{120, 311, 370, 330},
-		recentTitle:      RECT{28, 332, 370, 356},
-		footerVersion:    RECT{14, 432, 70, 448},
-		footerUpdate:     RECT{104, 432, 238, 448},
-		footerHint:       RECT{254, 432, 386, 448},
+		title:            RECT{14, 12, 230, 32},
+		subtitle:         RECT{14, 32, 290, 48},
+		connectionTitle:  RECT{46, 62, 320, 84},
+		connectionDetail: RECT{46, 84, 320, 103},
+		quiet:            RECT{270, 54, 386, 72},
+		recentLabel:      RECT{26, 238, 100, 260},
+		recentMeta:       RECT{160, 238, 374, 260},
+		recentTitle:      RECT{26, 268, 354, 308},
+		footerVersion:    RECT{14, 394, 98, 436},
+		footerUpdate:     RECT{106, 394, 242, 436},
+		footerHint:       RECT{250, 394, 386, 436},
 	}
 }
 
@@ -414,10 +464,75 @@ func RunWidget(options WidgetOptions) {
 			setUIDPI(windowDPI(hwnd))
 			resizeForCurrentDPI(hwnd, widgetWidth, widgetHeight)
 			instance.hwnd = hwnd
+			instance.loginState.setWindow(hwnd)
 			instance.tray = NewTrayManager(hwnd)
 			instance.refreshState()
+			instance.applyThemeToWindow()
 			pSetTimer.Call(hwnd, 1, 5000, 0)
 			return 0
+
+		case WM_ACTIVATE:
+			if (wParam & 0xFFFF) == 0 { // WA_INACTIVE
+				if instance.agentDropdownOpen {
+					instance.agentDropdownOpen = false
+					pInvalidateRect.Call(hwnd, 0, 0)
+				}
+			}
+			return 0
+
+		case WM_KILLFOCUS:
+			if instance.agentDropdownOpen {
+				instance.agentDropdownOpen = false
+				pInvalidateRect.Call(hwnd, 0, 0)
+			}
+			return 0
+
+		case WM_MOUSEWHEEL:
+			if instance.currentView == WidgetViewHistory {
+				delta := int16((wParam >> 16) & 0xFFFF)
+				historyItems, _ := notify.GetHistory(50, paths.PushLog)
+				total := len(historyItems)
+				const pageSize = 5
+				if delta > 0 {
+					if instance.historyPageOffset >= pageSize {
+						instance.historyPageOffset -= pageSize
+						instance.historySelectedIndex = instance.historyPageOffset
+						pInvalidateRect.Call(hwnd, 0, 0)
+					}
+				} else if delta < 0 {
+					if instance.historyPageOffset+pageSize < total {
+						instance.historyPageOffset += pageSize
+						instance.historySelectedIndex = instance.historyPageOffset
+						pInvalidateRect.Call(hwnd, 0, 0)
+					}
+				}
+				return 0
+			}
+
+		case WM_KEYDOWN:
+			if wParam == VK_ESCAPE {
+				if instance.agentDropdownOpen {
+					instance.agentDropdownOpen = false
+					pInvalidateRect.Call(hwnd, 0, 0)
+					return 0
+				}
+				if instance.currentView != WidgetViewDashboard {
+					instance.switchView(WidgetViewDashboard)
+					return 0
+				}
+			}
+			return 0
+
+		case WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC:
+			theme := instance.getTheme()
+			editHdc := wParam
+			pSetTextColor.Call(editHdc, uintptr(theme.TextPrimary))
+			pSetBkColor.Call(editHdc, uintptr(theme.InputBg))
+			if instance.editBrush != 0 {
+				pDeleteObject.Call(instance.editBrush)
+			}
+			instance.editBrush, _, _ = pCreateSolidBrush.Call(uintptr(theme.InputBg))
+			return instance.editBrush
 
 		case WM_TIMER:
 			instance.refreshState()
@@ -428,6 +543,14 @@ func RunWidget(options WidgetOptions) {
 		case WM_DPICHANGED:
 			setUIDPI(uint32(wParam & 0xFFFF))
 			resizeForCurrentDPI(hwnd, widgetWidth, widgetHeight)
+			if instance.quietEdit != 0 {
+				rect := scaleRect(RECT{246, 126, 372, 150})
+				pSetWindowPos.Call(instance.quietEdit, 0, uintptr(rect.Left), uintptr(rect.Top), uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top), SWP_NOZORDER|SWP_NOACTIVATE)
+			}
+			if instance.cooldownEdit != 0 {
+				rect := scaleRect(RECT{246, 180, 372, 204})
+				pSetWindowPos.Call(instance.cooldownEdit, 0, uintptr(rect.Left), uintptr(rect.Top), uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top), SWP_NOZORDER|SWP_NOACTIVATE)
+			}
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
@@ -451,33 +574,390 @@ func RunWidget(options WidgetOptions) {
 			}
 
 			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
-			layout := widgetLayoutRects()
-			previous := instance.hover
-			instance.hover = widgetHoverAt(x, y, layout)
-			if instance.hover != previous {
-				pInvalidateRect.Call(hwnd, 0, 0)
-			}
-			if instance.hover.any() {
-				hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
-				pSetCursor.Call(hand)
+
+			switch instance.currentView {
+			case WidgetViewRepair:
+				backRect, _, closeRect := subviewCommonHeader()
+				recheckBtn := RECT{14, 394, 195, 436}
+				doneBtn := RECT{205, 394, 386, 436}
+				prev := instance.repairHover
+				instance.repairHover = repairViewHover{
+					back:    pointInRect(x, y, backRect),
+					close:   pointInRect(x, y, closeRect),
+					recheck: pointInRect(x, y, recheckBtn),
+					done:    pointInRect(x, y, doneBtn),
+				}
+				if instance.repairHover != prev {
+					pInvalidateRect.Call(hwnd, 0, 0)
+				}
+				if instance.repairHover.back || instance.repairHover.close || instance.repairHover.recheck || instance.repairHover.done {
+					hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
+					pSetCursor.Call(hand)
+				}
+				return 0
+
+			case WidgetViewHistory:
+				backRect, _, closeRect := subviewCommonHeader()
+				historyItems, _ := notify.GetHistory(50, paths.PushLog)
+				total := len(historyItems)
+				const pageSize = 5
+				prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)
+				copyBtn := RECT{14, 394, 195, 436}
+				doneBtn := RECT{205, 394, 386, 436}
+				rowIdx := -1
+				listCard := RECT{14, 48, 386, 260}
+				if pointInRect(x, y, listCard) {
+					idx := int((y - 54) / 40)
+					if idx >= 0 && idx < 5 && (instance.historyPageOffset+idx) < total {
+						rowIdx = idx
+					}
+				}
+				prev := instance.historyHover
+				instance.historyHover = historyViewHover{
+					back:     pointInRect(x, y, backRect),
+					close:    pointInRect(x, y, closeRect),
+					clear:    pointInRect(x, y, clearBtn),
+					prev:     pointInRect(x, y, prevBtn),
+					next:     pointInRect(x, y, nextBtn),
+					copy:     pointInRect(x, y, copyBtn),
+					done:     pointInRect(x, y, doneBtn),
+					rowIndex: rowIdx,
+				}
+				if instance.historyHover != prev {
+					pInvalidateRect.Call(hwnd, 0, 0)
+				}
+				if instance.historyHover.back || instance.historyHover.close || instance.historyHover.clear || instance.historyHover.prev || instance.historyHover.next || instance.historyHover.copy || instance.historyHover.done || rowIdx >= 0 {
+					hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
+					pSetCursor.Call(hand)
+				}
+				return 0
+
+			case WidgetViewSettings:
+				backRect, _, closeRect := subviewCommonHeader()
+				wechatCard := RECT{14, 48, 386, 104}
+				reloginBtn := RECT{wechatCard.Right - 100, wechatCard.Top + 12, wechatCard.Right - 12, wechatCard.Bottom - 12}
+				optCard := RECT{14, 112, 386, 384}
+				replyTrack := RECT{optCard.Right - 64, optCard.Top + 134, optCard.Right - 18, optCard.Top + 158}
+				themePill := RECT{optCard.Right - 100, optCard.Top + 188, optCard.Right - 18, optCard.Top + 220}
+				agentPill := RECT{optCard.Right - 120, optCard.Top + 240, optCard.Right - 18, optCard.Top + 270}
+				saveBtn := RECT{14, 394, 195, 436}
+				doneBtn := RECT{205, 394, 386, 436}
+				prev := instance.settingsHover
+				instance.settingsHover = settingsViewHover{
+					back:        pointInRect(x, y, backRect),
+					close:       pointInRect(x, y, closeRect),
+					relogin:     pointInRect(x, y, reloginBtn),
+					replyToggle: pointInRect(x, y, replyTrack),
+					themePill:   pointInRect(x, y, themePill),
+					agentCycle:  pointInRect(x, y, agentPill),
+					save:        pointInRect(x, y, saveBtn),
+					done:        pointInRect(x, y, doneBtn),
+				}
+				if instance.settingsHover != prev {
+					pInvalidateRect.Call(hwnd, 0, 0)
+				}
+				if instance.settingsHover.back || instance.settingsHover.close || instance.settingsHover.relogin || instance.settingsHover.replyToggle || instance.settingsHover.themePill || instance.settingsHover.agentCycle || instance.settingsHover.save || instance.settingsHover.done {
+					hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
+					pSetCursor.Call(hand)
+				}
+				return 0
+
+			case WidgetViewLogin:
+				backRect, _, closeRect := subviewCommonHeader()
+				refreshBtn := RECT{14, 394, 195, 436}
+				doneBtn := RECT{205, 394, 386, 436}
+				prev := instance.loginHover
+				instance.loginHover = loginViewHover{
+					back:    pointInRect(x, y, backRect),
+					close:   pointInRect(x, y, closeRect),
+					refresh: pointInRect(x, y, refreshBtn),
+					done:    pointInRect(x, y, doneBtn),
+				}
+				if instance.loginHover != prev {
+					pInvalidateRect.Call(hwnd, 0, 0)
+				}
+				if instance.loginHover.back || instance.loginHover.close || instance.loginHover.refresh || instance.loginHover.done {
+					hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
+					pSetCursor.Call(hand)
+				}
+				return 0
+
+			default:
+				if instance.isSingleAgentMode() && instance.agentDropdownOpen {
+					dropRect := RECT{76, 130, 266, 272}
+					if pointInRect(x, y, dropRect) {
+						instance.dropdownHoverIndex = int((y - 134) / 34)
+						pInvalidateRect.Call(hwnd, 0, 0)
+						hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
+						pSetCursor.Call(hand)
+						return 0
+					} else {
+						if instance.dropdownHoverIndex != -1 {
+							instance.dropdownHoverIndex = -1
+							pInvalidateRect.Call(hwnd, 0, 0)
+						}
+					}
+				}
+
+				layout := widgetLayoutRects()
+				previous := instance.hover
+				instance.hover = widgetHoverAt(x, y, layout)
+				if instance.hover != previous {
+					pInvalidateRect.Call(hwnd, 0, 0)
+				}
+				if instance.hover.any() {
+					hand, _, _ := pLoadCursorW.Call(0, uintptr(IDC_HAND))
+					pSetCursor.Call(hand)
+				}
 			}
 			return 0
 
 		case WM_MOUSELEAVE:
 			instance.isTracking = false
 			instance.hover = widgetHoverState{}
+			instance.repairHover = repairViewHover{}
+			instance.historyHover = historyViewHover{}
+			instance.settingsHover = settingsViewHover{}
+			instance.loginHover = loginViewHover{}
+			instance.dropdownHoverIndex = -1
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
 		case WM_LBUTTONDOWN:
 			x := int32(lParam & 0xFFFF)
 			y := int32((lParam >> 16) & 0xFFFF)
-			layout := widgetLayoutRects()
 			x, y = unscalePoint(x, y)
-			if pointInRect(x, y, layout.drag) && !pointInRect(x, y, layout.minimize) && !pointInRect(x, y, layout.close) {
+
+			switch instance.currentView {
+			case WidgetViewRepair:
+				backRect, _, closeRect := subviewCommonHeader()
+				recheckBtn := RECT{14, 394, 195, 436}
+				doneBtn := RECT{205, 394, 386, 436}
+				if pointInRect(x, y, backRect) || pointInRect(x, y, closeRect) || pointInRect(x, y, doneBtn) {
+					instance.switchView(WidgetViewDashboard)
+					return 0
+				}
+				if isSubviewHeaderDrag(x, y) {
+					pReleaseCapture.Call()
+					pSendMessageW.Call(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0)
+					savePosition(hwnd, paths.WidgetPosFile)
+					return 0
+				}
+				if pointInRect(x, y, recheckBtn) {
+					if !instance.repairing {
+						instance.repairing = true
+						instance.repairError = ""
+						pInvalidateRect.Call(hwnd, 0, 0)
+						instance.runRepairCheck(func() {
+							instance.repairing = false
+							pPostMessageW.Call(hwnd, WM_USER_REFRESH, 0, 0)
+						})
+					}
+					return 0
+				}
+				return 0
+
+			case WidgetViewHistory:
+				backRect, _, closeRect := subviewCommonHeader()
+				historyItems, _ := notify.GetHistory(50, paths.PushLog)
+				total := len(historyItems)
+				const pageSize = 5
+				prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)
+				copyBtn := RECT{14, 394, 195, 436}
+				doneBtn := RECT{205, 394, 386, 436}
+
+				if pointInRect(x, y, backRect) || pointInRect(x, y, closeRect) || pointInRect(x, y, doneBtn) {
+					instance.historyConfirmClear = false
+					instance.switchView(WidgetViewDashboard)
+					return 0
+				}
+				if isSubviewHeaderDrag(x, y, clearBtn, prevBtn, nextBtn) {
+					pReleaseCapture.Call()
+					pSendMessageW.Call(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0)
+					savePosition(hwnd, paths.WidgetPosFile)
+					return 0
+				}
+				if total > pageSize {
+					if pointInRect(x, y, prevBtn) {
+						if instance.historyPageOffset >= pageSize {
+							instance.historyPageOffset -= pageSize
+							instance.historySelectedIndex = instance.historyPageOffset
+							pInvalidateRect.Call(hwnd, 0, 0)
+						}
+						return 0
+					}
+					if pointInRect(x, y, nextBtn) {
+						if instance.historyPageOffset+pageSize < total {
+							instance.historyPageOffset += pageSize
+							instance.historySelectedIndex = instance.historyPageOffset
+							pInvalidateRect.Call(hwnd, 0, 0)
+						}
+						return 0
+					}
+				}
+				if pointInRect(x, y, clearBtn) {
+					if !instance.historyConfirmClear {
+						instance.historyConfirmClear = true
+						pInvalidateRect.Call(hwnd, 0, 0)
+						return 0
+					}
+					instance.historyConfirmClear = false
+					_ = os.WriteFile(paths.PushLog, []byte{}, 0600)
+					instance.historyPageOffset = 0
+					instance.historySelectedIndex = 0
+					instance.refreshState()
+					pInvalidateRect.Call(hwnd, 0, 0)
+					return 0
+				}
+				instance.historyConfirmClear = false
+				listCard := RECT{14, 48, 386, 260}
+				if pointInRect(x, y, listCard) {
+					rowIdx := int((y - 54) / 40)
+					targetIdx := instance.historyPageOffset + rowIdx
+					if targetIdx >= 0 && targetIdx < len(historyItems) {
+						instance.historySelectedIndex = targetIdx
+						pInvalidateRect.Call(hwnd, 0, 0)
+					}
+					return 0
+				}
+				if pointInRect(x, y, copyBtn) {
+					if len(historyItems) > instance.historySelectedIndex {
+						item := historyItems[instance.historySelectedIndex]
+						SetClipboardText(fmt.Sprintf("%s\n\n%s", item.Title, item.Summary))
+					}
+					return 0
+				}
+				return 0
+
+			case WidgetViewSettings:
+				backRect, _, closeRect := subviewCommonHeader()
+				wechatCard := RECT{14, 48, 386, 104}
+				reloginBtn := RECT{wechatCard.Right - 100, wechatCard.Top + 12, wechatCard.Right - 12, wechatCard.Bottom - 12}
+				optCard := RECT{14, 112, 386, 384}
+				replyTrack := RECT{optCard.Right - 64, optCard.Top + 134, optCard.Right - 18, optCard.Top + 158}
+				themePill := RECT{optCard.Right - 100, optCard.Top + 188, optCard.Right - 18, optCard.Top + 220}
+				agentPill := RECT{optCard.Right - 120, optCard.Top + 240, optCard.Right - 18, optCard.Top + 270}
+				saveBtn := RECT{14, 394, 195, 436}
+				doneBtn := RECT{205, 394, 386, 436}
+
+				if pointInRect(x, y, backRect) || pointInRect(x, y, closeRect) || pointInRect(x, y, doneBtn) {
+					instance.settingsError = ""
+					instance.switchView(WidgetViewDashboard)
+					return 0
+				}
+				if isSubviewHeaderDrag(x, y) {
+					pReleaseCapture.Call()
+					pSendMessageW.Call(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0)
+					savePosition(hwnd, paths.WidgetPosFile)
+					return 0
+				}
+				if pointInRect(x, y, reloginBtn) {
+					instance.switchView(WidgetViewLogin)
+					return 0
+				}
+				if pointInRect(x, y, replyTrack) {
+					instance.replyEnabled = !instance.replyEnabled
+					cfg, _ := config.LoadConfig("")
+					cfg.ReplyEnabled = instance.replyEnabled
+					_ = config.SaveConfig(cfg, "")
+					pInvalidateRect.Call(hwnd, 0, 0)
+					return 0
+				}
+				if pointInRect(x, y, themePill) {
+					instance.toggleTheme()
+					return 0
+				}
+				if pointInRect(x, y, agentPill) {
+					instance.nextAgent()
+					pInvalidateRect.Call(hwnd, 0, 0)
+					return 0
+				}
+				if pointInRect(x, y, saveBtn) {
+					quietVal := ""
+					if instance.quietEdit != 0 {
+						quietVal = strings.TrimSpace(getWindowText(instance.quietEdit))
+					}
+					if quietVal != "" && !config.ValidQuietHours(quietVal) {
+						instance.settingsError = "格式无效：如 23-8，留空关闭"
+						pInvalidateRect.Call(hwnd, 0, 0)
+						return 0
+					}
+					instance.settingsError = ""
+					cooldownVal := instance.cooldownMin
+					if instance.cooldownEdit != 0 {
+						if cd, err := strconv.Atoi(strings.TrimSpace(getWindowText(instance.cooldownEdit))); err == nil && cd > 0 {
+							cooldownVal = cd
+						}
+					}
+					cfg, _ := config.LoadConfig("")
+					cfg.QuietHours = quietVal
+					cfg.CooldownMin = cooldownVal
+					cfg.ReplyEnabled = instance.replyEnabled
+					cfg.Theme = instance.theme
+					cfg.DefaultAgent = instance.currentAgent
+					_ = config.SaveConfig(cfg, "")
+					instance.quietHours = cfg.QuietHours
+					instance.cooldownMin = cfg.CooldownMin
+					instance.switchView(WidgetViewDashboard)
+					return 0
+				}
+				return 0
+
+			case WidgetViewLogin:
+				backRect, _, closeRect := subviewCommonHeader()
+				refreshBtn := RECT{14, 394, 195, 436}
+				doneBtn := RECT{205, 394, 386, 436}
+				if pointInRect(x, y, backRect) || pointInRect(x, y, closeRect) || pointInRect(x, y, doneBtn) {
+					instance.switchView(WidgetViewDashboard)
+					return 0
+				}
+				if isSubviewHeaderDrag(x, y) {
+					pReleaseCapture.Call()
+					pSendMessageW.Call(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0)
+					savePosition(hwnd, paths.WidgetPosFile)
+					return 0
+				}
+				if pointInRect(x, y, refreshBtn) {
+					instance.startInAppLoginFlow()
+					return 0
+				}
+				return 0
+			}
+
+			// In WidgetViewDashboard:
+			layout := widgetLayoutRects()
+
+			if instance.isSingleAgentMode() && instance.agentDropdownOpen {
+				dropRect := RECT{76, 130, 266, 272}
+				if pointInRect(x, y, dropRect) {
+					descriptors := agentmeta.All()
+					if y >= 134 && y < 134+int32(len(descriptors))*34 {
+						itemIdx := int((y - 134) / 34)
+						if itemIdx >= 0 && itemIdx < len(descriptors) {
+							instance.currentAgent = descriptors[itemIdx].ID
+							cfg, _ := config.LoadConfig("")
+							cfg.DefaultAgent = instance.currentAgent
+							_ = config.SaveConfig(cfg, "")
+							instance.agentDropdownOpen = false
+							instance.refreshState()
+							pInvalidateRect.Call(hwnd, 0, 0)
+							return 0
+						}
+					}
+				}
+				instance.agentDropdownOpen = false
+				pInvalidateRect.Call(hwnd, 0, 0)
+				return 0
+			}
+
+			if pointInRect(x, y, layout.drag) && !pointInRect(x, y, layout.minimize) && !pointInRect(x, y, layout.close) && !pointInRect(x, y, layout.themeToggle) {
 				pReleaseCapture.Call()
 				pSendMessageW.Call(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0)
 				savePosition(hwnd, paths.WidgetPosFile)
+				return 0
+			}
+			if pointInRect(x, y, layout.themeToggle) {
+				instance.toggleTheme()
 				return 0
 			}
 			if pointInRect(x, y, layout.minimize) || pointInRect(x, y, layout.close) {
@@ -485,11 +965,24 @@ func RunWidget(options WidgetOptions) {
 				pShowWindow.Call(hwnd, SW_HIDE)
 				return 0
 			}
-			if pointInRect(x, y, layout.connection) {
-				ShowSettingsDialog(hwnd)
+			if pointInRect(x, y, layout.modeToggle) {
+				instance.toggleAgentMode()
 				instance.refreshState()
 				pInvalidateRect.Call(hwnd, 0, 0)
 				return 0
+			}
+			if instance.isSingleAgentMode() {
+				badge := RECT{layout.singleAgent.Left + 14, layout.singleAgent.Top + 14, layout.singleAgent.Left + 50, layout.singleAgent.Top + 50}
+				if pointInRect(x, y, layout.switchAgent) || pointInRect(x, y, badge) {
+					instance.showAgentDropdown(hwnd, layout.switchAgent)
+					return 0
+				}
+				if pointInRect(x, y, layout.singleSwitch) {
+					instance.toggleAgent(instance.focusedAgentID())
+					instance.refreshState()
+					pInvalidateRect.Call(hwnd, 0, 0)
+					return 0
+				}
 			}
 			if instance.toggleAgentAt(x, y, layout) {
 				instance.refreshState()
@@ -497,43 +990,23 @@ func RunWidget(options WidgetOptions) {
 				return 0
 			}
 			if pointInRect(x, y, layout.recent) || pointInRect(x, y, layout.history) {
-				ShowHistoryDialog(hwnd)
-				instance.refreshState()
-				pInvalidateRect.Call(hwnd, 0, 0)
+				instance.switchView(WidgetViewHistory)
 				return 0
 			}
-			if pointInRect(x, y, layout.settings) {
-				ShowSettingsDialog(hwnd)
-				instance.refreshState()
-				pInvalidateRect.Call(hwnd, 0, 0)
+			if pointInRect(x, y, layout.test) || pointInRect(x, y, layout.settings) {
+				instance.switchView(WidgetViewSettings)
 				return 0
 			}
-			if pointInRect(x, y, layout.test) {
-				go func() {
-					result := notify.SendNotification(notify.NotifyOptions{
-						Agent:   "test",
-						Title:   "【测试】Agent-notify",
-						Summary: "ClawBot 推送链路正常。",
-					})
-					message := "测试推送状态：" + result.Status
-					if result.Error != "" {
-						message += "\n" + result.Error
-					}
-					pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr(message))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify"))), MB_OK|MB_ICONINFO)
-				}()
+			if pointInRect(x, y, layout.hide) {
+				instance.switchView(WidgetViewLogin)
 				return 0
 			}
 			if pointInRect(x, y, layout.repair) {
-				instance.repairIntegrations(hwnd)
+				instance.switchView(WidgetViewRepair)
 				return 0
 			}
 			if pointInRect(x, y, layout.update) {
 				instance.handleUpdateClick(hwnd)
-				return 0
-			}
-			if pointInRect(x, y, layout.hide) {
-				savePosition(hwnd, paths.WidgetPosFile)
-				pShowWindow.Call(hwnd, SW_HIDE)
 				return 0
 			}
 			return 0
@@ -564,11 +1037,11 @@ func RunWidget(options WidgetOptions) {
 					pInvalidateRect.Call(hwnd, 0, 0)
 				}
 			case IDM_HISTORY:
-				ShowHistoryDialog(hwnd)
+				instance.switchView(WidgetViewHistory)
+				restoreAndBringToFront(hwnd)
 			case IDM_SETTINGS:
-				ShowSettingsDialog(hwnd)
-				instance.refreshState()
-				pInvalidateRect.Call(hwnd, 0, 0)
+				instance.switchView(WidgetViewSettings)
+				restoreAndBringToFront(hwnd)
 			case IDM_TEST_PUSH:
 				go func() {
 					_ = notify.SendNotification(notify.NotifyOptions{Agent: "test", Title: "【测试】Agent-notify", Summary: "ClawBot 推送链路正常。"})
@@ -646,12 +1119,15 @@ func RunWidget(options WidgetOptions) {
 	cornerPreference := uint32(2)
 	pDwmSetWindowAttribute.Call(hwnd, 33, uintptr(unsafe.Pointer(&cornerPreference)), 4)
 	darkMode := uint32(1)
+	if instance.theme == "light" {
+		darkMode = 0
+	}
 	pDwmSetWindowAttribute.Call(hwnd, 20, uintptr(unsafe.Pointer(&darkMode)), 4)
 	pShowWindow.Call(hwnd, SW_SHOW)
 	pUpdateWindow.Call(hwnd)
 	ForceForegroundWindow(hwnd)
 	if options.ShowLoginOnStart && !clawbot.HasCredentials() {
-		ShowLoginDialog(hwnd)
+		instance.switchView(WidgetViewLogin)
 	}
 
 	var message MSG
@@ -665,6 +1141,131 @@ func RunWidget(options WidgetOptions) {
 	}
 }
 
+func (app *WidgetApp) getTheme() ThemePalette {
+	return GetTheme(app.theme)
+}
+
+func (app *WidgetApp) toggleTheme() {
+	if app.theme == "light" {
+		app.theme = "dark"
+	} else {
+		app.theme = "light"
+	}
+	cfg, _ := config.LoadConfig("")
+	cfg.Theme = app.theme
+	_ = config.SaveConfig(cfg, "")
+	app.applyThemeToWindow()
+	if app.quietEdit != 0 {
+		pInvalidateRect.Call(app.quietEdit, 0, 1)
+	}
+	if app.cooldownEdit != 0 {
+		pInvalidateRect.Call(app.cooldownEdit, 0, 1)
+	}
+	pInvalidateRect.Call(app.hwnd, 0, 0)
+}
+
+func (app *WidgetApp) applyThemeToWindow() {
+	if app.hwnd == 0 {
+		return
+	}
+	darkMode := uint32(1)
+	if app.theme == "light" {
+		darkMode = 0
+	}
+	pDwmSetWindowAttribute.Call(app.hwnd, 20, uintptr(unsafe.Pointer(&darkMode)), 4)
+}
+
+func (app *WidgetApp) switchView(view WidgetView) {
+	if app.currentView == view {
+		return
+	}
+	if app.currentView == WidgetViewSettings {
+		if app.quietEdit != 0 {
+			pShowWindow.Call(app.quietEdit, SW_HIDE)
+		}
+		if app.cooldownEdit != 0 {
+			pShowWindow.Call(app.cooldownEdit, SW_HIDE)
+		}
+	}
+	if app.currentView == WidgetViewLogin {
+		app.loginState.finish(0)
+	}
+
+	app.currentView = view
+	app.agentDropdownOpen = false
+
+	switch view {
+	case WidgetViewRepair:
+		app.refreshState()
+	case WidgetViewSettings:
+		if cfg, err := config.LoadConfig(""); err == nil {
+			app.quietHours = cfg.QuietHours
+			app.cooldownMin = cfg.CooldownMin
+			app.replyEnabled = cfg.ReplyEnabled
+		}
+		app.settingsError = ""
+		app.ensureSettingsEdits()
+		if app.quietEdit != 0 {
+			setWindowText(app.quietEdit, app.quietHours)
+			pShowWindow.Call(app.quietEdit, SW_SHOW)
+		}
+		if app.cooldownEdit != 0 {
+			setWindowText(app.cooldownEdit, strconv.Itoa(app.cooldownMin))
+			pShowWindow.Call(app.cooldownEdit, SW_SHOW)
+		}
+	case WidgetViewLogin:
+		if !app.clawbotLoggedIn {
+			app.startInAppLoginFlow()
+		}
+	case WidgetViewHistory:
+		app.historyConfirmClear = false
+		app.historyPageOffset = 0
+		app.historySelectedIndex = 0
+	}
+
+	if app.hwnd != 0 {
+		pInvalidateRect.Call(app.hwnd, 0, 0)
+	}
+}
+
+func (app *WidgetApp) ensureSettingsEdits() {
+	if app.hwnd == 0 {
+		return
+	}
+	hInstance, _, _ := pGetModuleHandleW.Call(0)
+	font := newBaseFont()
+	if app.quietEdit == 0 {
+		rect := scaleRect(RECT{246, 126, 372, 150})
+		app.quietEdit, _, _ = pCreateWindowExW.Call(
+			0,
+			uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
+			uintptr(unsafe.Pointer(StringToUTF16Ptr(app.quietHours))),
+			WS_CHILD|ES_AUTOHSCROLL,
+			uintptr(rect.Left), uintptr(rect.Top),
+			uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top),
+			app.hwnd, uintptr(IDC_SETTINGS_QUIET), hInstance, 0,
+		)
+		pSendMessageW.Call(app.quietEdit, WM_SETFONT, font, 1)
+	}
+	if app.cooldownEdit == 0 {
+		rect := scaleRect(RECT{246, 180, 372, 204})
+		app.cooldownEdit, _, _ = pCreateWindowExW.Call(
+			0,
+			uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
+			uintptr(unsafe.Pointer(StringToUTF16Ptr(strconv.Itoa(app.cooldownMin)))),
+			WS_CHILD|ES_AUTOHSCROLL|ES_NUMBER,
+			uintptr(rect.Left), uintptr(rect.Top),
+			uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top),
+			app.hwnd, uintptr(IDC_SETTINGS_COOLDOWN), hInstance, 0,
+		)
+		pSendMessageW.Call(app.cooldownEdit, WM_SETFONT, font, 1)
+	}
+}
+
+func (app *WidgetApp) startInAppLoginFlow() {
+	startLoginFlow(&app.loginState)
+}
+
 func (app *WidgetApp) refreshState() {
 	app.refreshAgentSwitches()
 	clawbotStatus := clawbot.GetStatus()
@@ -674,103 +1275,95 @@ func (app *WidgetApp) refreshState() {
 	app.clawbotHint = clawbotStatus.UserHint
 	if cfg, err := config.LoadConfig(""); err == nil {
 		app.quietHours = cfg.QuietHours
+		app.replyEnabled = cfg.ReplyEnabled
+		app.cooldownMin = cfg.CooldownMin
+		if app.theme == "" {
+			app.theme = cfg.Theme
+			if app.theme == "" {
+				app.theme = "dark"
+			}
+		}
+		if app.agentMode == "" {
+			if cfg.WidgetAgentMode != "" {
+				app.agentMode = cfg.WidgetAgentMode
+			} else {
+				app.agentMode = "single"
+			}
+		}
+		if app.currentAgent == "" {
+			if cfg.DefaultAgent != "" {
+				app.currentAgent = cfg.DefaultAgent
+			} else {
+				app.currentAgent = agentmeta.Antigravity
+			}
+		}
 	}
 	app.procStatus = DetectProcesses()
 	history, _ := notify.GetHistory(1, app.paths.PushLog)
 	if len(history) > 0 {
 		item := history[0]
 		app.lastPushTitle = truncateUI(item.Title, 28)
+		app.lastPushSummary = truncateUI(item.Summary, 45)
 		app.lastPushStatus = item.Status
 		app.lastPushAgent = item.Agent
 		app.lastPushText = relativeHistoryTime(item)
 	} else {
 		app.lastPushTitle = "暂无推送记录"
+		app.lastPushSummary = "等待 Agent 产生第一条任务推送"
 		app.lastPushStatus = ""
 		app.lastPushAgent = ""
 		app.lastPushText = "暂无记录"
 	}
 
-	state := widgetTrayStateStopped
-	ready := app.clawbotLoggedIn && app.clawbotSessionReady
-	if ready && app.enabledIntegrationsReady() {
-		state = widgetTrayStateReady
-	} else if ready && app.anyAgentEnabled() {
-		state = widgetTrayStatePartial
-	}
 	if app.tray != nil {
-		app.tray.UpdateState(state)
+		statusColor, _ := app.health()
+		app.tray.UpdateState(trayStateForStatus(statusColor))
 	}
 }
 
 func (app *WidgetApp) health() (uint32, string) {
 	if app.setupError != "" {
-		return RGB(224, 165, 70), "接入异常"
+		return statusColorWarning, "接入异常"
 	}
 	if !app.clawbotLoggedIn {
-		return RGB(220, 92, 92), "未登录"
+		return statusColorStopped, "未登录"
 	}
 	if app.clawbotStale {
-		return RGB(220, 92, 92), "登录已失效"
+		return statusColorStopped, "登录已失效"
 	}
 	if !app.clawbotSessionReady {
-		return RGB(224, 165, 70), "等待微信消息"
+		return statusColorWarning, "等待微信消息"
 	}
 	errors, restarts, missing := app.agentIntegrationCounts()
 	if errors > 0 || missing > 0 {
-		return RGB(224, 165, 70), "接入异常"
+		return statusColorWarning, "接入异常"
 	}
 	if restarts > 0 {
-		return RGB(224, 165, 70), "待重启"
+		return statusColorWarning, "待重启"
 	}
 	if app.enabledIntegrationsReady() {
-		return RGB(54, 190, 144), "正常"
+		return statusColorReady, "正常"
 	}
 	if app.anyAgentEnabled() {
-		return RGB(224, 165, 70), "等待 Agent"
+		return statusColorWarning, "等待 Agent"
 	}
-	return RGB(220, 92, 92), "全部暂停"
+	return statusColorStopped, "全部暂停"
+}
+
+// trayStateForStatus 把整体状态色映射为托盘图标状态，保证托盘与窗口状态条语义一致。
+func trayStateForStatus(statusColor uint32) int {
+	switch statusColor {
+	case statusColorReady:
+		return widgetTrayStateReady
+	case statusColorWarning:
+		return widgetTrayStatePartial
+	default:
+		return widgetTrayStateStopped
+	}
 }
 
 func (app *WidgetApp) repairIntegrations(hwnd uintptr) {
-	executable, _ := os.Executable()
-	failures := make([]string, 0)
-	if app.repairSetup != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		err := app.repairSetup(ctx)
-		cancel()
-		if err != nil {
-			failures = append(failures, "首次接入："+err.Error())
-		} else {
-			app.setupError = ""
-		}
-	}
-	for _, status := range app.integrations {
-		if status.Fixable && status.Repair == integration.RepairCodexWatch {
-			if err := agent.HandleWatch(app.paths.CodexConfig, executable); err != nil {
-				failures = append(failures, status.Name+"："+err.Error())
-			}
-		}
-	}
-	app.refreshState()
-
-	lines := make([]string, 0)
-	if len(failures) > 0 {
-		lines = append(lines, "修复失败：", strings.Join(failures, "\n"), "")
-	}
-	lines = append(lines, "接入检查完成：")
-	for _, descriptor := range agentmeta.All() {
-		status := app.integrationStatus(descriptor.ID)
-		line := fmt.Sprintf("%s：%s", descriptor.DisplayName, status.Label())
-		if status.Detail != "" {
-			line += " - " + status.Detail
-		}
-		lines = append(lines, line)
-		if status.Action != "" && status.State != integration.StateConnected {
-			lines = append(lines, "  "+status.Action)
-		}
-	}
-	message := strings.Join(lines, "\n")
-	pMessageBoxW.Call(hwnd, uintptr(unsafe.Pointer(StringToUTF16Ptr(message))), uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify 接入检查"))), MB_OK|MB_ICONINFO)
+	app.switchView(WidgetViewRepair)
 }
 
 func (app *WidgetApp) Version() string {
@@ -811,4 +1404,104 @@ func ForceForegroundWindow(hwnd uintptr) {
 // second taskbar button would only duplicate the entry the user already has.
 func widgetExtendedStyle() uintptr {
 	return WS_EX_TOOLWINDOW | WS_EX_TOPMOST
+}
+
+func (app *WidgetApp) isSingleAgentMode() bool {
+	return app.agentMode == "single"
+}
+
+func (app *WidgetApp) focusedAgentID() string {
+	switch app.currentAgent {
+	case agentmeta.OpenCode, agentmeta.Codex, agentmeta.Antigravity, agentmeta.Devin:
+		return app.currentAgent
+	default:
+		return agentmeta.Antigravity
+	}
+}
+
+func (app *WidgetApp) nextAgent() {
+	agents := []string{agentmeta.Antigravity, agentmeta.OpenCode, agentmeta.Codex, agentmeta.Devin}
+	for i, a := range agents {
+		if a == app.currentAgent {
+			app.currentAgent = agents[(i+1)%len(agents)]
+			cfg, _ := config.LoadConfig("")
+			cfg.DefaultAgent = app.currentAgent
+			_ = config.SaveConfig(cfg, "")
+			return
+		}
+	}
+	app.currentAgent = agentmeta.Antigravity
+	cfg, _ := config.LoadConfig("")
+	cfg.DefaultAgent = app.currentAgent
+	_ = config.SaveConfig(cfg, "")
+}
+
+func (app *WidgetApp) toggleAgentMode() {
+	if app.agentMode == "single" {
+		app.agentMode = "grid"
+	} else {
+		app.agentMode = "single"
+	}
+	cfg, _ := config.LoadConfig("")
+	cfg.WidgetAgentMode = app.agentMode
+	_ = config.SaveConfig(cfg, "")
+}
+
+func (app *WidgetApp) focusedAgentHealth() (uint32, string) {
+	agentID := app.focusedAgentID()
+	if !app.agentEnabled(agentID) {
+		return RGB(120, 132, 143), "已暂停"
+	}
+	status := app.integrationStatus(agentID)
+	switch status.State {
+	case integration.StateConnected:
+		if app.agentRunning(agentID) {
+			return RGB(54, 190, 144), "正常"
+		}
+		return RGB(54, 190, 144), "已接入"
+	case integration.StatePendingRestart:
+		return RGB(224, 165, 70), "待重启"
+	case integration.StateError:
+		return RGB(224, 104, 104), "异常"
+	default:
+		if app.agentRunning(agentID) {
+			return RGB(224, 165, 70), "未接入"
+		}
+		return RGB(138, 150, 161), "未配置"
+	}
+}
+
+func (app *WidgetApp) currentHealth() (uint32, string) {
+	if app.isSingleAgentMode() {
+		return app.focusedAgentHealth()
+	}
+	return app.health()
+}
+
+func (app *WidgetApp) agentMenuLabel(agentID string) string {
+	if !app.agentEnabled(agentID) {
+		return "已暂停"
+	}
+	status := app.integrationStatus(agentID)
+	switch status.State {
+	case integration.StateConnected:
+		if app.agentRunning(agentID) {
+			return "正常"
+		}
+		return "已接入"
+	case integration.StatePendingRestart:
+		return "待重启"
+	case integration.StateError:
+		return "异常"
+	default:
+		if app.agentRunning(agentID) {
+			return "未接入"
+		}
+		return "未配置"
+	}
+}
+
+func (app *WidgetApp) showAgentDropdown(hwnd uintptr, rect RECT) {
+	app.agentDropdownOpen = !app.agentDropdownOpen
+	pInvalidateRect.Call(hwnd, 0, 0)
 }

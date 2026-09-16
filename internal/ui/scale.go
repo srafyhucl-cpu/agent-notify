@@ -78,6 +78,14 @@ func scaleRect(rect RECT) RECT {
 	}
 }
 
+func unscaleFloat(value int32) int32 {
+	scale := float64(uiDPI) / baseDPI
+	if scale <= 0 {
+		scale = 1
+	}
+	return int32(math.Round(float64(value) / scale))
+}
+
 func unscalePoint(x, y int32) (int32, int32) {
 	scale := float64(uiDPI) / baseDPI
 	if scale <= 0 {

@@ -19,9 +19,12 @@ const (
 )
 
 type AppConfig struct {
-	QuietHours   string `json:"quietHours"`
-	CooldownMin  int    `json:"cooldownMin"`
-	ReplyEnabled bool   `json:"replyEnabled"`
+	QuietHours      string `json:"quietHours"`
+	CooldownMin     int    `json:"cooldownMin"`
+	ReplyEnabled    bool   `json:"replyEnabled"`
+	DefaultAgent    string `json:"defaultAgent,omitempty"`
+	WidgetAgentMode string `json:"widgetAgentMode,omitempty"`
+	Theme           string `json:"theme,omitempty"`
 }
 
 var quietHoursPattern = regexp.MustCompile(`^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$`)
@@ -38,6 +41,9 @@ func DefaultConfig() AppConfig {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
 			cfg.CooldownMin = value
 		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_THEME")); raw != "" {
+		cfg.Theme = strings.ToLower(raw)
 	}
 	return cfg
 }
@@ -59,9 +65,12 @@ func LoadConfig(configPath string) (AppConfig, error) {
 	}
 
 	var raw struct {
-		QuietHours   *string `json:"quietHours"`
-		CooldownMin  *int    `json:"cooldownMin"`
-		ReplyEnabled *bool   `json:"replyEnabled"`
+		QuietHours      *string `json:"quietHours"`
+		CooldownMin     *int    `json:"cooldownMin"`
+		ReplyEnabled    *bool   `json:"replyEnabled"`
+		DefaultAgent    *string `json:"defaultAgent"`
+		WidgetAgentMode *string `json:"widgetAgentMode"`
+		Theme           *string `json:"theme"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return cfg, fmt.Errorf("decode config: %w", err)
@@ -74,6 +83,15 @@ func LoadConfig(configPath string) (AppConfig, error) {
 	}
 	if raw.ReplyEnabled != nil {
 		cfg.ReplyEnabled = *raw.ReplyEnabled
+	}
+	if raw.DefaultAgent != nil {
+		cfg.DefaultAgent = strings.ToLower(strings.TrimSpace(*raw.DefaultAgent))
+	}
+	if raw.WidgetAgentMode != nil {
+		cfg.WidgetAgentMode = strings.ToLower(strings.TrimSpace(*raw.WidgetAgentMode))
+	}
+	if raw.Theme != nil {
+		cfg.Theme = strings.ToLower(strings.TrimSpace(*raw.Theme))
 	}
 	return NormalizeConfig(cfg), nil
 }
@@ -88,6 +106,15 @@ func NormalizeConfig(cfg AppConfig) AppConfig {
 	}
 	if cfg.CooldownMin > maxCooldownMinutes {
 		cfg.CooldownMin = maxCooldownMinutes
+	}
+	cfg.DefaultAgent = strings.ToLower(strings.TrimSpace(cfg.DefaultAgent))
+	cfg.WidgetAgentMode = strings.ToLower(strings.TrimSpace(cfg.WidgetAgentMode))
+	if cfg.WidgetAgentMode != "" && cfg.WidgetAgentMode != "grid" && cfg.WidgetAgentMode != "single" {
+		cfg.WidgetAgentMode = ""
+	}
+	cfg.Theme = strings.ToLower(strings.TrimSpace(cfg.Theme))
+	if cfg.Theme != "" && cfg.Theme != "dark" && cfg.Theme != "light" {
+		cfg.Theme = ""
 	}
 	return cfg
 }

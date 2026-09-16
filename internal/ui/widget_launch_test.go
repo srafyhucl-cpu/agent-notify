@@ -75,6 +75,16 @@ func TestWidgetLayoutHitTargetsDoNotOverlap(t *testing.T) {
 	}
 }
 
+func TestSingleAgentControlsDoNotOverlap(t *testing.T) {
+	layout := widgetLayoutRects()
+	if rectsOverlap(layout.switchAgent, layout.singleSwitch) {
+		t.Fatalf("switchAgent %+v overlaps singleSwitch %+v", layout.switchAgent, layout.singleSwitch)
+	}
+	if layout.switchAgent.Right >= layout.singleSwitch.Left {
+		t.Fatalf("switchAgent right %d must be strictly before singleSwitch left %d", layout.switchAgent.Right, layout.singleSwitch.Left)
+	}
+}
+
 func rectsOverlap(a, b RECT) bool {
 	return a.Left < b.Right && a.Right > b.Left && a.Top < b.Bottom && a.Bottom > b.Top
 }

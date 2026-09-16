@@ -45,8 +45,8 @@ func (state *loginDialogState) snapshot() (uint64, [][]bool, string, bool, bool,
 
 func (state *loginDialogState) update(generation uint64, bitmap [][]bool, status string, failure, success bool) {
 	state.mu.Lock()
-	defer state.mu.Unlock()
 	if generation != state.generation {
+		state.mu.Unlock()
 		return
 	}
 	if bitmap != nil {
@@ -57,6 +57,11 @@ func (state *loginDialogState) update(generation uint64, bitmap [][]bool, status
 	}
 	state.failure = failure
 	state.success = success
+	hwnd := state.hwnd
+	state.mu.Unlock()
+	if hwnd != 0 {
+		pPostMessageW.Call(hwnd, WM_USER_REFRESH, 0, 0)
+	}
 }
 
 func (state *loginDialogState) begin(timeout time.Duration) (uint64, context.Context) {
@@ -262,15 +267,27 @@ func ShowLoginDialog(parentHwnd uintptr) {
 	var dialog uintptr
 	var tracking bool
 	var codeVisible bool
-	var codeEdit uintptr
+	var codeEdit, editFont, backgroundBrush uintptr
 	var hoverClose, hoverRetry, hoverDone, hoverSubmit bool
+
+	submitCode := func(hwnd uintptr) {
+		code := strings.TrimSpace(getWindowText(codeEdit))
+		if code == "" {
+			return
+		}
+		pShowWindow.Call(codeEdit, SW_HIDE)
+		codeVisible = false
+		state.submitVerifyCode(code)
+		pInvalidateRect.Call(hwnd, 0, 0)
+	}
 
 	wndProc := syscall.NewCallback(func(hwnd, msg, wParam, lParam uintptr) uintptr {
 		switch uint32(msg) {
 		case WM_CREATE:
 			setUIDPI(windowDPI(hwnd))
 			state.setWindow(hwnd)
-			editFont := newBaseFont()
+			backgroundBrush, _, _ = pCreateSolidBrush.Call(uintptr(RGB(20, 26, 33)))
+			editFont = newBaseFont()
 			codeEdit, _, _ = pCreateWindowExW.Call(
 				0,
 				uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
@@ -283,13 +300,25 @@ func ShowLoginDialog(parentHwnd uintptr) {
 				hwnd, loginCodeEditID, hInstance, 0,
 			)
 			pSendMessageW.Call(codeEdit, WM_SETFONT, editFont, 1)
+			pSendMessageW.Call(codeEdit, EM_SETCUEBANNER, 0, uintptr(unsafe.Pointer(StringToUTF16Ptr("输入微信验证码"))))
 			startLoginFlow(state)
 			pSetTimer.Call(hwnd, loginTimer, 100, 0)
 			return 0
 
+		case WM_CTLCOLOREDIT:
+			pSetTextColor.Call(wParam, uintptr(RGB(235, 239, 242)))
+			pSetBkColor.Call(wParam, uintptr(RGB(20, 26, 33)))
+			return backgroundBrush
+
 		case WM_DPICHANGED:
 			setUIDPI(uint32(wParam & 0xFFFF))
 			resizeForCurrentDPI(hwnd, loginWidth, loginHeight)
+			if editFont != 0 {
+				pDeleteObject.Call(editFont)
+			}
+			editFont = newBaseFont()
+			pSendMessageW.Call(codeEdit, WM_SETFONT, editFont, 1)
+			placeEdit(codeEdit, layout.code)
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
@@ -353,18 +382,30 @@ func ShowLoginDialog(parentHwnd uintptr) {
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
+		case WM_COMMAND:
+			if wParam == uintptr(IDOK) && codeVisible {
+				submitCode(hwnd)
+				return 0
+			}
+			return 0
+
+		case WM_KEYDOWN:
+			if wParam == VK_ESCAPE {
+				state.cancel()
+				pDestroyWindow.Call(hwnd)
+				return 0
+			}
+			if wParam == VK_RETURN && codeVisible {
+				submitCode(hwnd)
+				return 0
+			}
+			return 0
+
 		case WM_LBUTTONDOWN:
 			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
 			switch {
 			case codeVisible && pointInRect(x, y, layout.codeSubmit):
-				code := strings.TrimSpace(getWindowText(codeEdit))
-				if code == "" {
-					return 0
-				}
-				pShowWindow.Call(codeEdit, SW_HIDE)
-				codeVisible = false
-				state.submitVerifyCode(code)
-				pInvalidateRect.Call(hwnd, 0, 0)
+				submitCode(hwnd)
 			case pointInRect(x, y, layout.retry):
 				startLoginFlow(state)
 			case pointInRect(x, y, layout.winClose), pointInRect(x, y, layout.done):
@@ -398,6 +439,9 @@ func ShowLoginDialog(parentHwnd uintptr) {
 				DrawText(hdc, "扫码登录后，还需发送一条微信消息建立会话", &RECT{20, 42, 300, 64}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 				drawWindowButton(hdc, layout.winClose, "\uE8BB", hoverClose, true, iconFont)
 
+				// QR Code Container Card
+				drawCard(hdc, RECT{36, 70, 324, 342}, uintptr(RGB(22, 28, 34)), uintptr(RGB(41, 50, 59)))
+
 				_, bitmap, status, failure, success, promptActive := state.snapshot()
 				drawQRCode(hdc, layout.qr, bitmap)
 
@@ -409,7 +453,7 @@ func ShowLoginDialog(parentHwnd uintptr) {
 				}
 				pSelectObject.Call(hdc, baseFont)
 				pSetTextColor.Call(hdc, statusColor)
-				DrawText(hdc, status, &RECT{24, 344, 336, 378}, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
+				DrawText(hdc, status, &RECT{24, 348, 336, 378}, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
 
 				if promptActive {
 					drawFieldFrame(hdc, layout.code)
@@ -433,6 +477,14 @@ func ShowLoginDialog(parentHwnd uintptr) {
 		case WM_DESTROY:
 			state.cancel()
 			pKillTimer.Call(hwnd, loginTimer)
+			if editFont != 0 {
+				pDeleteObject.Call(editFont)
+				editFont = 0
+			}
+			if backgroundBrush != 0 {
+				pDeleteObject.Call(backgroundBrush)
+				backgroundBrush = 0
+			}
 			dialog = 0
 			return 0
 		}

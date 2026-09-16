@@ -177,6 +177,7 @@ func TestWidgetTextFitsItsRects(t *testing.T) {
 	}{
 		{"标题", newTitleFont, "Agent-notify", text.title},
 		{"副标题", newSmallFont, "4 个 Agent · ClawBot 微信通知", text.subtitle},
+		{"单Agent副标题", newSmallFont, "聚焦单 Agent · ClawBot 微信通知", text.subtitle},
 		{"连接标题", newStrongFont, "ClawBot 登录已失效", text.connectionTitle},
 		{"连接说明", newSmallFont, "请先给 ClawBot 发送一条微信消息", text.connectionDetail},
 		{"勿扰状态", newSmallFont, "勿扰 23:00-08:00", text.quiet},

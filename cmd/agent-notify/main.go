@@ -566,9 +566,14 @@ func runNotify(args []string) {
 
 func runTest() {
 	result := notify.SendNotification(notify.NotifyOptions{
-		Agent:   "test",
-		Title:   "【测试】Agent-notify",
-		Summary: "如果你在微信中看到这条消息，说明 ClawBot 登录与发送链路正常。",
+		Agent: "test",
+		Title: "⚡【测试】Agent-notify 微信链路验证",
+		Summary: "| 项目 | 状态 | 详情 |\n" +
+			"|---|---|---|\n" +
+			"| ClawBot 登录 | 正常 | 凭据有效 |\n" +
+			"| 会话状态 | 就绪 | 主动推送已联通 |\n" +
+			"| 桌面客户端 | 运行中 | v" + app.Version + " |\n\n" +
+			"> 提示：长按引用本条消息并回复任意内容，可验证反向引用回复路由。",
 	})
 	if result.Status != notify.StatusSuccess {
 		fmt.Fprintf(os.Stderr, "测试失败: %s", result.Status)

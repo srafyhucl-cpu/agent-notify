@@ -155,7 +155,16 @@ func settingsConnectionState(status clawbot.Status) (string, string, string, uin
 	}
 }
 
+const (
+	SettingsFocusDefault = 0
+	SettingsFocusQuiet   = 1
+)
+
 func ShowSettingsDialog(parentHwnd uintptr) {
+	ShowSettingsDialogWithFocus(parentHwnd, SettingsFocusDefault)
+}
+
+func ShowSettingsDialogWithFocus(parentHwnd uintptr, focusField int) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -175,11 +184,32 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 
 	layout := settingsLayoutRects()
 
+	doSave := func(hwnd uintptr) bool {
+		quiet := strings.TrimSpace(getWindowText(quietEdit))
+		if !config.ValidQuietHours(quiet) {
+			showMessage(hwnd, "勿扰时段格式无效。留空表示关闭，或使用 23-8 形式。", MB_ICONINFO)
+			return false
+		}
+		cooldown := config.DefaultCooldownMin
+		if parsed, err := strconv.Atoi(strings.TrimSpace(getWindowText(cooldownEdit))); err == nil && parsed > 0 {
+			cooldown = parsed
+		}
+		cfg.QuietHours = quiet
+		cfg.CooldownMin = cooldown
+		cfg.ReplyEnabled = replyEnabled
+		if err := config.SaveConfig(cfg, ""); err != nil {
+			showMessage(hwnd, "保存失败："+err.Error(), MB_ICONINFO)
+			return false
+		}
+		pDestroyWindow.Call(hwnd)
+		return true
+	}
+
 	wndProc := syscall.NewCallback(func(hwnd, msg, wParam, lParam uintptr) uintptr {
 		switch uint32(msg) {
 		case WM_CREATE:
 			setUIDPI(windowDPI(hwnd))
-			backgroundBrush, _, _ = pCreateSolidBrush.Call(uintptr(RGB(15, 19, 23)))
+			backgroundBrush, _, _ = pCreateSolidBrush.Call(uintptr(RGB(20, 26, 33)))
 			editFont = newBaseFont()
 
 			quietEdit, _, _ = pCreateWindowExW.Call(
@@ -210,6 +240,10 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			pSendMessageW.Call(quietEdit, EM_SETCUEBANNER, 0, uintptr(unsafe.Pointer(StringToUTF16Ptr("例如 23:00-08:00"))))
 			setWindowText(quietEdit, cfg.QuietHours)
 			setWindowText(cooldownEdit, fmt.Sprintf("%d", cfg.CooldownMin))
+			if focusField == SettingsFocusQuiet {
+				user32.NewProc("SetFocus").Call(quietEdit)
+				pSendMessageW.Call(quietEdit, EM_SETSEL, 0, ^uintptr(0))
+			}
 			pSetTimer.Call(hwnd, settingsTimer, 1000, 0)
 			return 0
 
@@ -316,7 +350,7 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 
 		case WM_CTLCOLOREDIT:
 			pSetTextColor.Call(wParam, uintptr(RGB(235, 239, 242)))
-			pSetBkColor.Call(wParam, uintptr(RGB(16, 20, 24)))
+			pSetBkColor.Call(wParam, uintptr(RGB(20, 26, 33)))
 			return backgroundBrush
 
 		case WM_MOUSEMOVE:
@@ -359,6 +393,15 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 			pInvalidateRect.Call(hwnd, 0, 0)
 			return 0
 
+		case WM_COMMAND:
+			if wParam == uintptr(IDOK) {
+				if doSave != nil {
+					doSave(hwnd)
+				}
+				return 0
+			}
+			return 0
+
 		case WM_LBUTTONDOWN:
 			x, y := unscalePoint(int32(lParam&0xFFFF), int32((lParam>>16)&0xFFFF))
 			switch {
@@ -368,23 +411,9 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 				replyEnabled = !replyEnabled
 				pInvalidateRect.Call(hwnd, 0, 0)
 			case pointInRect(x, y, layout.save):
-				quiet := strings.TrimSpace(getWindowText(quietEdit))
-				if !config.ValidQuietHours(quiet) {
-					showMessage(hwnd, "勿扰时段格式无效。留空表示关闭，或使用 23-8 形式。", MB_ICONINFO)
-					return 0
+				if doSave != nil {
+					doSave(hwnd)
 				}
-				cooldown := config.DefaultCooldownMin
-				if parsed, err := strconv.Atoi(strings.TrimSpace(getWindowText(cooldownEdit))); err == nil && parsed > 0 {
-					cooldown = parsed
-				}
-				cfg.QuietHours = quiet
-				cfg.CooldownMin = cooldown
-				cfg.ReplyEnabled = replyEnabled
-				if err := config.SaveConfig(cfg, ""); err != nil {
-					showMessage(hwnd, "保存失败："+err.Error(), MB_ICONINFO)
-					return 0
-				}
-				pDestroyWindow.Call(hwnd)
 			case pointInRect(x, y, layout.login):
 				ShowLoginDialog(hwnd)
 				pInvalidateRect.Call(hwnd, 0, 0)
@@ -403,6 +432,13 @@ func ShowSettingsDialog(parentHwnd uintptr) {
 		case WM_KEYDOWN:
 			if wParam == VK_ESCAPE {
 				pDestroyWindow.Call(hwnd)
+				return 0
+			}
+			if wParam == VK_RETURN {
+				if doSave != nil {
+					doSave(hwnd)
+				}
+				return 0
 			}
 			return 0
 

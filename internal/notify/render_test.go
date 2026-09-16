@@ -20,7 +20,7 @@ func TestRenderNotificationFormat(t *testing.T) {
 				Title:   "评估微信消息转发到Agent",
 				Summary: "摘要正文……",
 			},
-			message: "【codex】评估微信消息转发到Agent\n\n摘要正文……\n\nCodex · 2026/09/13 15:18",
+			message: "🟢【Codex】评估微信消息转发到Agent\n\n摘要正文……\n\n---\n> 微信直接引用此消息可继续对话\n\nCodex · 2026/09/13 15:18",
 		},
 		{
 			name: "opencode",
@@ -29,7 +29,7 @@ func TestRenderNotificationFormat(t *testing.T) {
 				Title:   "会话标题",
 				Summary: "摘要正文……",
 			},
-			message: "【opencode】会话标题\n\n摘要正文……\n\nOpenCode · 2026/09/13 15:18",
+			message: "🟢【OpenCode】会话标题\n\n摘要正文……\n\n---\n> 微信直接引用此消息可继续对话\n\nOpenCode · 2026/09/13 15:18",
 		},
 	}
 
@@ -52,7 +52,7 @@ func TestRenderNotificationKeepsLongProbe(t *testing.T) {
 		Title:   "长消息探针",
 		Summary: body,
 	}, time.Unix(0, 0))
-	if !strings.Contains(rendered.Message, marker+notificationSeparator+"Codex · ") {
+	if !strings.Contains(rendered.Message, marker) || !strings.Contains(rendered.Message, "Codex · ") {
 		t.Fatalf("last marker was truncated: %q", rendered.Message[len(rendered.Message)-40:])
 	}
 	if runeCount(rendered.Summary) != probeRunes {
@@ -83,8 +83,8 @@ func TestRenderNotificationIncludesNotice(t *testing.T) {
 		Summary: "正文",
 		Notice:  "标题读取失败：数据库不可读。",
 	}, now)
-	want := "正文\n\n标题读取失败：数据库不可读。\n\nCodex · 2026/09/13 15:18"
-	if rendered.Message != "【codex】标题\n\n"+want {
+	want := "正文\n\n> ⚠️ 标题读取失败：数据库不可读。\n\n---\n> 微信直接引用此消息可继续对话\n\nCodex · 2026/09/13 15:18"
+	if rendered.Message != "⚠️【Codex】标题\n\n"+want {
 		t.Fatalf("Message = %q, want summary %q", rendered.Message, want)
 	}
 }
@@ -136,9 +136,9 @@ func TestRenderNotificationDefaultTitles(t *testing.T) {
 		agent   string
 		message string
 	}{
-		{agent: "codex", message: "【codex】跑完了\n\n任务已完成。\n\nCodex · 2026/09/13 15:18"},
-		{agent: "opencode", message: "【opencode】opencode会话\n\n任务已完成。\n\nOpenCode · 2026/09/13 15:18"},
-		{agent: "", message: "【通知】任务完成\n\n任务已完成。"},
+		{agent: "codex", message: "🟢【Codex】任务已完成\n\n任务已完成。\n\n---\n> 微信直接引用此消息可继续对话\n\nCodex · 2026/09/13 15:18"},
+		{agent: "opencode", message: "🟢【OpenCode】任务已完成\n\n任务已完成。\n\n---\n> 微信直接引用此消息可继续对话\n\nOpenCode · 2026/09/13 15:18"},
+		{agent: "", message: "🟢【通知】任务已完成\n\n任务已完成。"},
 	}
 	for _, testCase := range tests {
 		rendered := renderNotification(NotifyOptions{Agent: testCase.agent}, now)

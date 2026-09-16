@@ -88,9 +88,9 @@ func CreateDotIcon(color uint32) uintptr {
 func NewTrayManager(hwnd uintptr) *TrayManager {
 	manager := &TrayManager{
 		hwnd:      hwnd,
-		hIconOn:   CreateDotIcon(RGB(54, 190, 144)),
-		hIconMid:  CreateDotIcon(RGB(224, 165, 70)),
-		hIconOff:  CreateDotIcon(RGB(220, 92, 92)),
+		hIconOn:   CreateDotIcon(statusColorReady),
+		hIconMid:  CreateDotIcon(statusColorWarning),
+		hIconOff:  CreateDotIcon(statusColorStopped),
 		lastState: -1,
 	}
 

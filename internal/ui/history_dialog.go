@@ -186,20 +186,34 @@ func ShowHistoryDialog(parentHwnd uintptr) {
 					row := layout.rows[i]
 					switch {
 					case index == selectedIndex:
-						fillRoundRect(hdc, row, 6, uintptr(RGB(31, 52, 60)))
+						fillRoundRect(hdc, row, 6, uintptr(RGB(30, 42, 54)))
+						indicator := RECT{row.Left + 2, row.Top + 3, row.Left + 5, row.Bottom - 3}
+						fillRectLogical(hdc, indicator, uintptr(RGB(56, 194, 151)))
 					case hoverRow == index:
 						fillRoundRect(hdc, row, 6, uintptr(RGB(28, 35, 42)))
 					}
 					pSelectObject.Call(hdc, baseFont)
 					pSetTextColor.Call(hdc, uintptr(RGB(228, 233, 236)))
-					DrawText(hdc, truncateUI(item.Title, 30), &RECT{row.Left + 10, row.Top, row.Left + 290, row.Bottom}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
+					DrawText(hdc, truncateUI(item.Title, 30), &RECT{row.Left + 12, row.Top, row.Left + 290, row.Bottom}, DT_SINGLELINE|DT_VCENTER|DT_END_ELLIPSIS|DT_NOPREFIX)
 
 					pSelectObject.Call(hdc, smallFont)
 					pSetTextColor.Call(hdc, uintptr(RGB(139, 148, 158)))
-					DrawText(hdc, historyTime(item), &RECT{row.Left + 300, row.Top, row.Left + 400, row.Bottom}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
-					DrawText(hdc, historyAgent(item), &RECT{row.Left + 410, row.Top, row.Left + 500, row.Bottom}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
-					pSetTextColor.Call(hdc, uintptr(historyStatusColor(item.Status)))
-					DrawText(hdc, item.Status, &RECT{row.Left + 510, row.Top, row.Right - 10, row.Bottom}, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+					DrawText(hdc, historyTime(item), &RECT{row.Left + 300, row.Top, row.Left + 395, row.Bottom}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+
+					agentBadge := RECT{row.Left + 402, row.Top + 3, row.Left + 495, row.Bottom - 3}
+					fillRoundRect(hdc, agentBadge, 4, uintptr(RGB(31, 39, 48)))
+					pSetTextColor.Call(hdc, uintptr(RGB(190, 205, 218)))
+					DrawText(hdc, historyAgent(item), &agentBadge, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+
+					stColor := historyStatusColor(item.Status)
+					statusBg := uintptr(RGB(24, 44, 36))
+					if item.Status != notify.StatusSuccess {
+						statusBg = uintptr(RGB(46, 26, 28))
+					}
+					statusBadge := RECT{row.Right - 72, row.Top + 3, row.Right - 8, row.Bottom - 3}
+					fillRoundRect(hdc, statusBadge, 4, statusBg)
+					pSetTextColor.Call(hdc, uintptr(stColor))
+					DrawText(hdc, item.Status, &statusBadge, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 				}
 
 				drawCard(hdc, layout.detail, uintptr(RGB(22, 28, 34)), uintptr(RGB(41, 50, 59)))

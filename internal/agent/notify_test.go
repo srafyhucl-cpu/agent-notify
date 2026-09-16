@@ -71,7 +71,7 @@ func TestHandleNotifyUsesGenericHistorySource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetHistory: %v", err)
 	}
-	if len(history) != 1 || history[0].Agent != "" || history[0].Title != "【通知】脚本完成" {
+	if len(history) != 1 || history[0].Agent != "" || history[0].Title != "🟢【通知】脚本完成" {
 		t.Fatalf("generic history = %#v", history)
 	}
 }

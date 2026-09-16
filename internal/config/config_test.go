@@ -175,3 +175,24 @@ func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
 		t.Fatalf("TempDir = %q", paths.TempDir)
 	}
 }
+
+func TestThemeConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config_theme.json")
+
+	cfg := AppConfig{Theme: "light"}
+	if err := SaveConfig(cfg, path); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	loaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.Theme != "light" {
+		t.Fatalf("loaded theme = %q, want light", loaded.Theme)
+	}
+
+	norm := NormalizeConfig(AppConfig{Theme: "INVALID"})
+	if norm.Theme != "" {
+		t.Fatalf("invalid theme normalized = %q, want empty", norm.Theme)
+	}
+}
