@@ -92,6 +92,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # PowerShell 5.1 with ErrorActionPreference=Stop (Actions default) turns gh stderr into a
+          # terminating error, so check $LASTEXITCODE explicitly and keep Continue here.
+          $ErrorActionPreference = 'Continue'
           $tag = '${{ github.ref_name }}'
           $zipItem = Get-ChildItem dist\Agent-notify-v*.zip | Select-Object -First 1
           $setupItem = Get-ChildItem dist\Agent-notify-Setup-v*.exe | Select-Object -First 1
@@ -101,25 +104,26 @@ jobs:
           $setup = $setupItem.FullName
           $hasNotes = '${{ steps.notes.outputs.has_notes }}' -eq 'true'
 
-          # Idempotent publish: re-running the workflow updates the existing release instead of failing.
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "$setup" "$zip" dist\SHA256SUMS.txt --clobber
-            if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }
+          & gh release view $tag *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists) {
+            & gh release upload $tag "$setup" "$zip" dist\SHA256SUMS.txt --clobber
+            if ($LASTEXITCODE -ne 0) { throw "gh release upload failed (exit $LASTEXITCODE)" }
             if ($hasNotes) {
-              gh release edit $tag --title "Agent-notify $tag" --notes-file release-notes.md
+              & gh release edit $tag --title "Agent-notify $tag" --notes-file release-notes.md
             } else {
-              gh release edit $tag --title "Agent-notify $tag"
+              & gh release edit $tag --title "Agent-notify $tag"
             }
-            if ($LASTEXITCODE -ne 0) { throw 'gh release edit failed' }
+            if ($LASTEXITCODE -ne 0) { throw "gh release edit failed (exit $LASTEXITCODE)" }
             Write-Output "Release $tag updated in place."
           } else {
             if ($hasNotes) {
-              gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --notes-file release-notes.md
+              & gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --notes-file release-notes.md
             } else {
-              gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --generate-notes
+              & gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --generate-notes
             }
-            if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+            if ($LASTEXITCODE -ne 0) { throw "gh release create failed (exit $LASTEXITCODE)" }
             Write-Output "Release $tag created."
           }
 
