@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 统一快捷方式名：install.ps1 与标准安装器都创建 `Agent-notify.lnk`，并清理旧版 `Agent-notify 悬浮窗.lnk`，避免升级后桌面和启动项各出现一份。
+
 ## [1.5.2] - 2026-09-15
 
 ### Fixed

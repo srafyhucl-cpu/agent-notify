@@ -40,6 +40,9 @@ $RepoRoot = $PSScriptRoot
 $ExeName = 'agent-notify.exe'
 $PluginName = 'agent-notify.ts'
 $RecordName = 'agent-notify-install.json'
+# 快捷方式名与标准安装器保持一致，旧名字只做清理，避免重复。
+$ShortcutName = 'Agent-notify.lnk'
+$LegacyShortcutName = 'Agent-notify 悬浮窗.lnk'
 # notify 行里 agent-notify.exe 的路径，直连和被 --previous-notify 转义包装的写法都能匹配。
 $agentNotifyPathPattern = '(?<=["\\])[A-Za-z]:[^"]*?[\\/]+agent-notify\.exe(?=["\\])'
 # 客户端正在读取被替换文件时的有界重试次数与间隔。
@@ -448,12 +451,13 @@ try {
     }
   }
 
-  # 8. 快捷方式（开机自启 + 桌面），目标就是 exe 的 widget 子命令
+  # 8. 快捷方式（开机自启 + 桌面），目标就是 exe 的 widget 子命令。
+  #    与标准安装器共用 Agent-notify.lnk，避免两套安装体系各建一份快捷方式。
   if (-not $SkipShortcuts -and -not $ConfigureOnly) {
     try {
       $ws = New-Object -ComObject WScript.Shell
       foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
-        $lnkPath = Join-Path $dir 'Agent-notify 悬浮窗.lnk'
+        $lnkPath = Join-Path $dir $ShortcutName
         $sc = $ws.CreateShortcut($lnkPath)
         $sc.TargetPath = $installedExe
         $sc.Arguments = 'widget'
@@ -461,6 +465,11 @@ try {
         $sc.Description = 'Agent-notify 推送悬浮窗'
         $sc.Save()
         Write-Output "[install] 已创建快捷方式：$lnkPath"
+        $legacyLnk = Join-Path $dir $LegacyShortcutName
+        if (Test-Path -LiteralPath $legacyLnk) {
+          Remove-Item -LiteralPath $legacyLnk -Force
+          Write-Output "[install] 已清理旧快捷方式：$legacyLnk"
+        }
       }
     } catch {
       Write-Output "[install] 警告：快捷方式创建失败（不影响推送）：$($_.Exception.Message)"

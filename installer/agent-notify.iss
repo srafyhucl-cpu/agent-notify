@@ -51,6 +51,11 @@ Source: "{#RepoRoot}\install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\tools\hook-config.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion
 
+[InstallDelete]
+; 旧版本由 install.ps1 创建过另一个名字的快捷方式，安装器升级时一并清掉，避免重复。
+Type: files; Name: "{userdesktop}\Agent-notify 悬浮窗.lnk"
+Type: files; Name: "{userstartup}\Agent-notify 悬浮窗.lnk"
+
 [Icons]
 Name: "{group}\Agent-notify"; Filename: "{app}\agent-notify.exe"; Parameters: "widget"
 Name: "{userdesktop}\Agent-notify"; Filename: "{app}\agent-notify.exe"; Parameters: "widget"; Tasks: desktopicon

@@ -181,13 +181,15 @@ if (Get-Command Remove-AntigravityAgentHook -ErrorAction SilentlyContinue) {
   }
 }
 
-# 5. 清理快捷方式
+# 5. 清理快捷方式（含旧版本用的 Agent-notify 悬浮窗.lnk）
 if (-not $SkipShortcuts) {
   foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
-    $lnk = Join-Path $dir 'Agent-notify 悬浮窗.lnk'
-    if (Test-Path $lnk) {
-      Remove-Item $lnk -Force
-      Write-Output "[uninstall] 已删除快捷方式：$lnk"
+    foreach ($name in @('Agent-notify.lnk', 'Agent-notify 悬浮窗.lnk')) {
+      $lnk = Join-Path $dir $name
+      if (Test-Path $lnk) {
+        Remove-Item $lnk -Force
+        Write-Output "[uninstall] 已删除快捷方式：$lnk"
+      }
     }
   }
 }
