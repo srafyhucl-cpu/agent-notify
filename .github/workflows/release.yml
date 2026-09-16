@@ -30,6 +30,12 @@ jobs:
           if ($tag -ne $version) { throw "tag v$tag does not match application version $version" }
           Write-Output "Version verified: $version"
 
+      - name: Verify version consistency
+        shell: powershell
+        run: |
+          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          ./tools/check-version.ps1 -Version $tag
+
       - name: Install Inno Setup
         shell: powershell
         run: |
@@ -93,10 +99,28 @@ jobs:
           if (-not $setupItem) { throw 'Release installer was not generated' }
           $zip = $zipItem.FullName
           $setup = $setupItem.FullName
-          if ('${{ steps.notes.outputs.has_notes }}' -eq 'true') {
-            gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --notes-file release-notes.md
+          $hasNotes = '${{ steps.notes.outputs.has_notes }}' -eq 'true'
+
+          # Idempotent publish: re-running the workflow updates the existing release instead of failing.
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag "$setup" "$zip" dist\SHA256SUMS.txt --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }
+            if ($hasNotes) {
+              gh release edit $tag --title "Agent-notify $tag" --notes-file release-notes.md
+            } else {
+              gh release edit $tag --title "Agent-notify $tag"
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'gh release edit failed' }
+            Write-Output "Release $tag updated in place."
           } else {
-            gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --generate-notes
+            if ($hasNotes) {
+              gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --notes-file release-notes.md
+            } else {
+              gh release create $tag "$setup" "$zip" dist\SHA256SUMS.txt --title "Agent-notify $tag" --generate-notes
+            }
+            if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+            Write-Output "Release $tag created."
           }
 
       - name: Mirror release to update source

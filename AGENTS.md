@@ -25,4 +25,6 @@
 - 版本号只认 `internal/app/version.go`；发版时同步 `VERSION`、`agent-notify.manifest`、README 徽章与包名、`CHANGELOG.md`，按 SemVer 递增，打 tag 后推送，Release workflow 会自动发布产物。
 - Release workflow 只把产物发到源码仓库；客户端更新源是二进制仓库 `srafyhucl-cpu/agent-notify-releases`。workflow 末尾会用 secret `RELEASE_REPO_TOKEN` 自动把安装器、ZIP 与 `SHA256SUMS.txt` 镜像过去并置为 Latest；该 secret 缺失时镜像步骤直接失败提醒（否则用户点"升级"会误报"当前已是最新版本"）。手动补发用 `tools\publish-release.ps1 -Version x.y.z -DistDir <产物目录>`。
 - `.github/workflows/*.yml` 必须保持纯 ASCII：Actions 会把 `run` 脚本写成无 BOM 临时文件，PS 5.1 按 ANSI 读取，中文会破坏引号导致步骤语法错误（`tools\lint.ps1` 已加校验）。
+- 版本一致性由 `tools\check-version.ps1` 校验（`VERSION`、manifest、README 徽章、`BotAgent`、Devin 扩展、CHANGELOG 段落）；`tools\lint.ps1` 与 Release workflow 都会调用它。Release workflow 的发布步骤已幂等，重跑或用新提交重指 tag 都不会因 Release 已存在而失败。
+- CI 静态检查包含 `govulncheck`；项目最低 Go 版本以 `go.mod` 的 `go` 行为准（当前 1.26.8）。
 - 提交前确认工作区里没有别人未完成的改动（同一仓库可能有并行 agent 在工作），只提交本次相关文件。

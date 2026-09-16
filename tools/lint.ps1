@@ -60,4 +60,18 @@ if (Get-Module PSScriptAnalyzer -ListAvailable) {
   Write-Output '[lint] 未安装 PSScriptAnalyzer，跳过深度规则检查'
 }
 
+# 版本号一致性：与 release workflow 的 tag 校验共用同一脚本
+$versionChecker = Join-Path $PSScriptRoot 'check-version.ps1'
+if (Test-Path -LiteralPath $versionChecker -PathType Leaf) {
+  if ($PSVersionTable.PSVersion.Major -ge 6) {
+    & pwsh -NoProfile -File $versionChecker
+  } else {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $versionChecker
+  }
+  if ($LASTEXITCODE -ne 0) {
+    Write-Output '[lint] 版本号一致性检查失败'
+    exit 1
+  }
+}
+
 exit 0
