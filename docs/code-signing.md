@@ -29,6 +29,41 @@
 配置后构建会强制校验签名：主程序或安装器签名状态不是 `Valid` 就直接失败，
 不会出现"配了签名却发出未签名包"的情况。
 
+## 2.5 零成本方案：自签名证书 + 指纹锁定
+
+没有付费证书时，用自签名证书同样能拿到"防篡改"这一核心能力——客户端把**证书指纹**当作信任锚，
+不依赖 Windows 受信链（自签名产物的状态是 `UnknownError`/`NotTrusted`，指纹匹配即放行；
+被篡改的包会变成 `HashMismatch`，仍然拒绝）。
+
+1. 本地生成证书并导出 PFX（有效期自定）：
+
+   ```powershell
+   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Agent-notify" `
+     -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(5)
+   Export-PfxCertificate -Cert $cert -FilePath agent-notify.pfx `
+     -Password (Read-Host -AsSecureString "PFX 密码")
+   Get-ChildItem Cert:\CurrentUser\My\$($cert.Thumbprint) | Select-Object Thumbprint   # 记下指纹
+   ```
+
+2. 两个 secret：`AGENT_NOTIFY_SIGN_PFX_BASE64`（PFX 的 base64 文本）与 `AGENT_NOTIFY_SIGN_PFX_PASSWORD`；
+3. `AGENT_NOTIFY_SIGNTOOL` 指向仓库自带的包装脚本：`<仓库>\tools\sign-selfsigned.ps1`
+   （它按 `<tool> sign <file>` 约定签名，并在签名后立刻从证书存储清理）；
+4. 把指纹（去掉空格）填进 `internal/update/signature.go` 的 `defaultSignatureThumbprint`，
+   发一版之后所有客户端都会只信任这张证书；
+5. 局限与注意：
+   - 手动运行安装器时仍会提示"未知发布者"（要消除该提示必须用 CA 签发的证书）；
+   - 证书轮换/过期前，**先**更新 `defaultSignatureThumbprint` 并发版，否则老客户端会拒绝新版本；
+   - 私钥泄露时吊销证书，并在下一版移除旧指纹。
+
+本地联调：
+
+```powershell
+# 用包装器签名（需要上面两个环境变量）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\sign-selfsigned.ps1 sign .\signed.exe
+# 客户端视角：限定指纹后验证升级
+$env:AGENT_NOTIFY_SIGNATURE_THUMBPRINT = '<证书指纹>'
+```
+
 ## 3. 验证
 
 ```powershell

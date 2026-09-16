@@ -19,6 +19,7 @@ const (
 	signatureStatusNotSigned    = "NotSigned"
 	signatureStatusHashMismatch = "HashMismatch"
 	signatureStatusNotTrusted   = "NotTrusted"
+	signatureStatusUnknownError = "UnknownError"
 
 	// defaultSignatureThumbprint 为空表示"不默认限定签名者"。启用代码签名后把证书指纹
 	// 填在这里，所有客户端都会只信任该签名者（详见 docs/code-signing.md）。
@@ -42,8 +43,10 @@ func signaturePolicy(info SignatureInfo, required bool, thumbprints []string) er
 	status := strings.TrimSpace(info.Status)
 	pinned := normalizeThumbprints(thumbprints)
 	if len(pinned) > 0 {
-		if status != signatureStatusValid {
-			return fmt.Errorf("更新包签名校验失败：已配置信任指纹，但安装器状态为 %s，拒绝安装", displaySignatureStatus(status))
+		// 配置了指纹后，指纹本身就是信任锚：自签名/根不受信（UnknownError、NotTrusted）
+		// 只要指纹匹配就放行，但篡改类状态（HashMismatch 等）一律拒绝。
+		if !acceptableWhenPinned(status) {
+			return fmt.Errorf("更新包签名状态异常（%s），拒绝安装", displaySignatureStatus(status))
 		}
 		actual := normalizeThumbprint(info.Thumbprint)
 		if actual == "" || !containsThumbprint(pinned, actual) {
@@ -64,6 +67,17 @@ func signaturePolicy(info SignatureInfo, required bool, thumbprints []string) er
 			return errors.New("更新包未签名，已按 AGENT_NOTIFY_REQUIRE_SIGNATURE 配置拒绝安装")
 		}
 		return nil
+	}
+}
+
+// acceptableWhenPinned 判断"签名存在且未被判为篡改"的状态：自签名证书因根不受信
+// 会得到 UnknownError/NotTrusted，此时以指纹作为信任锚；HashMismatch 等篡改信号必须拒绝。
+func acceptableWhenPinned(status string) bool {
+	switch status {
+	case signatureStatusValid, signatureStatusUnknownError, signatureStatusNotTrusted:
+		return true
+	default:
+		return false
 	}
 }
 

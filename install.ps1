@@ -51,8 +51,6 @@ foreach ($pathParam in @('InstallDir', 'PluginDir', 'AntigravityHooks', 'DevinCo
 # 快捷方式名与标准安装器保持一致，旧名字只做清理，避免重复。
 $ShortcutName = 'Agent-notify.lnk'
 $LegacyShortcutName = 'Agent-notify 悬浮窗.lnk'
-# notify 行里 agent-notify.exe 的路径，直连和被 --previous-notify 转义包装的写法都能匹配。
-$agentNotifyPathPattern = '(?<=["\\])[A-Za-z]:[^"]*?[\\/]+agent-notify\.exe(?=["\\])'
 # 客户端正在读取被替换文件时的有界重试次数与间隔。
 $InstallReplaceAttempts = 5
 $InstallReplaceDelayMs = 300
@@ -144,6 +142,73 @@ function Get-NotifyTargetPath {
   }
   $quoted = $match.Value
   return [regex]::Unescape($quoted.Substring(1, $quoted.Length - 2))
+}
+
+# 把 notify 行里指向 agent-notify.exe 的路径替换成 $NewPath。
+# 直连项与 --previous-notify 内嵌的 JSON 数组都能处理，路径形式不限（盘符、UNC、相对路径）。
+function Update-AgentNotifyPathInNotifyLine {
+  param(
+    [string]$NotifyLine,
+    [string]$NewPath
+  )
+  $items = [regex]::Matches($NotifyLine, '"(?:\\.|[^"])*"')
+  if ($items.Count -eq 0) { return $NotifyLine }
+
+  $changed = $false
+  $kept = New-Object System.Collections.Generic.List[string]
+  foreach ($item in $items) {
+    $raw = $item.Value
+    $value = $raw
+    if ($raw.Length -gt 2) {
+      try { $value = [regex]::Unescape($raw.Substring(1, $raw.Length - 2)) } catch { $value = $raw }
+    }
+
+    if ($value -match '(?i)agent-notify\.exe\s*$') {
+      $kept.Add('"' + $NewPath + '"')
+      $changed = $true
+      continue
+    }
+
+    if ($value -match '(?i)agent-notify\.exe') {
+      # --previous-notify 的载荷是内嵌 JSON 数组，逐项替换后重新转义
+      $innerFixed = $null
+      try {
+        $inner = ConvertFrom-Json -InputObject $value
+        if ($inner -is [System.Array]) {
+          $innerChanged = $false
+          for ($index = 0; $index -lt $inner.Count; $index++) {
+            if ([string]$inner[$index] -match '(?i)agent-notify\.exe\s*$') {
+              $inner[$index] = $NewPath
+              $innerChanged = $true
+            }
+          }
+          if ($innerChanged) {
+            $innerFixed = (ConvertTo-Json -InputObject @($inner) -Compress).Replace('"', '\"')
+          }
+        }
+      } catch { }
+
+      if (-not $innerFixed) {
+        # 兜底：历史或手写的不规范转义会让 JSON 解析失败，此时按路径片段替换。
+        $pattern = '(?i)[^"\[\],\s]*agent-notify\.exe'
+        $replaced = [regex]::Replace($value, $pattern, [System.Text.RegularExpressions.MatchEvaluator] { param($match) $NewPath })
+        if ($replaced -ne $value) {
+          $innerFixed = $replaced.Replace('\', '\\').Replace('"', '\"')
+        }
+      }
+
+      if ($innerFixed) {
+        $kept.Add('"' + $innerFixed + '"')
+        $changed = $true
+        continue
+      }
+    }
+
+    $kept.Add($raw)
+  }
+
+  if (-not $changed) { return $NotifyLine }
+  return 'notify = [ ' + ($kept -join ', ') + ' ]'
 }
 
 # 路径必须在根目录内，防安装记录拼接越界删除。
@@ -434,17 +499,16 @@ try {
       $notifyTarget = Get-NotifyTargetPath $notifyLine
       if ($notifyLine -match '(?i)agent-notify\.exe') {
         # 直连或 Codex computer-use 的链式包装：保留包装，只把链里的 agent-notify.exe 更新到当前安装目录。
-        $replacement = $exeSlash.Replace('$', '$$')
-        $updatedLine = [regex]::Replace($notifyLine, $agentNotifyPathPattern, $replacement)
+        $updatedLine = Update-AgentNotifyPathInNotifyLine -NotifyLine $notifyLine -NewPath $exeSlash
         if ($updatedLine -ne $notifyLine) {
           Copy-Item $CodexConfig "$CodexConfig.bak-notify-wrapper" -Force
-          $updated = [regex]::Replace($content, '(?m)^notify\s*=.*$', $updatedLine.Replace('$', '$$'))
+          $lineMatch = [regex]::Match($content, '(?m)^notify\s*=.*$')
+          $updated = $content.Substring(0, $lineMatch.Index) + $updatedLine + $content.Substring($lineMatch.Index + $lineMatch.Length)
           [IO.File]::WriteAllText($CodexConfig, $updated)
           Write-Output "[install] Codex notify 已更新到当前 Agent-notify 路径（原文件备份到 $CodexConfig.bak-notify-wrapper）。"
         } elseif ($notifyLine -notmatch [regex]::Escape($exeSlash)) {
-          # 行里有 agent-notify.exe，但既不是本安装目录、也不符合可自动替换的盘符格式（例如 UNC）。
-          # 明确警告，避免"无需改动"掩盖掉指向旧路径的事实。
-          Write-Output "[install] 警告：Codex notify 里的 agent-notify.exe 不指向本安装目录，且无法自动更新（可能不是盘符路径）。请手动改为：$installedExe"
+          # 兜底：确实无法自动改写时明确警告，避免"无需改动"掩盖指向旧路径的事实。
+          Write-Output "[install] 警告：Codex notify 里的 agent-notify.exe 不指向本安装目录，且无法自动更新。请手动改为：$installedExe"
         } else {
           Write-Output '[install] Codex notify 已指向 Agent-notify，无需改动。'
         }

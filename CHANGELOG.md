@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-09-16
+
+### Added
+
+- 支持用自签名/私有证书签名发布产物：客户端在配置了信任指纹时接受 `UnknownError`/`NotTrusted`（指纹即信任锚），被篡改（`HashMismatch`）仍一律拒绝；新增 `tools/sign-selfsigned.ps1`（CI 中导入 PFX 签名后自动清理）与 `docs/code-signing.md` 的零成本接入方案。
+- 配置 `AGENT_NOTIFY_SIGNTOOL` 后，构建会对 ZIP 内主程序与安装器强制校验签名状态，未签成直接失败。
+
+### Fixed
+
+- 安装时改写 Codex notify 链不再局限于盘符路径：UNC 与其它路径形式都能更新到当前安装目录；对历史/手写的不规范转义有兜底，无法改写时会明确警告。
+
 ## [1.9.0] - 2026-09-16
 
 ### Added

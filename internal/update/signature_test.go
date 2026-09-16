@@ -27,6 +27,10 @@ func TestSignaturePolicy(t *testing.T) {
 		{name: "指定指纹且匹配放行", status: "Valid", thumbprint: "aabbcc", pinned: []string{"AA:BB:CC"}},
 		{name: "指定指纹但不匹配拒绝", status: "Valid", thumbprint: "aabbcc", pinned: []string{"DDEEFF"}, wantErr: true},
 		{name: "指定指纹时未签名拒绝", status: "NotSigned", pinned: []string{"AABBCC"}, wantErr: true},
+		{name: "自签名证书指纹匹配放行", status: "UnknownError", thumbprint: "aabbcc", pinned: []string{"AABBCC"}},
+		{name: "根不受信但指纹匹配放行", status: "NotTrusted", thumbprint: "aabbcc", pinned: []string{"AABBCC"}},
+		{name: "自签名但没有指纹拒绝", status: "UnknownError", pinned: []string{"AABBCC"}, wantErr: true},
+		{name: "篡改状态即使指纹相同也拒绝", status: "HashMismatch", thumbprint: "aabbcc", pinned: []string{"AABBCC"}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

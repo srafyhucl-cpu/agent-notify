@@ -360,12 +360,21 @@ Write-Output '[ok] install upgrade fixtures'
   foreach ($name in @('package.json', 'extension.js', 'acp-bridge.js')) {
     Copy-Item -LiteralPath (Join-Path $RepoRoot "plugin\devin-extension\$name") -Destination (Join-Path $configureOnlySourcePlugin "devin-extension\$name") -Force
   }
+  $configureOnlyCodexConfig = Join-Path $smokeRoot 'configure-only-codex\config.toml'
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $configureOnlyCodexConfig) | Out-Null
+  # UNC 链式包装（真实双层转义）：安装应只把链里的 agent-notify.exe 换成当前安装路径，
+  # 并保留包装与其它配置。
+  $uncInner = ConvertTo-Json -InputObject @('\\server\share\bin\agent-notify.exe', 'codex', 'turn-ended') -Compress
+  $uncFixture = 'notify = [ "C:/tools/codex-computer-use.exe", "turn-ended", "--previous-notify", "' +
+    $uncInner.Replace('\', '\\').Replace('"', '\"') + '" ]' + "`n" + 'model = "gpt-5"' + "`n"
+  [IO.File]::WriteAllText($configureOnlyCodexConfig, $uncFixture, $utf8NoBom)
+
   $configureOnlyOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $configureOnlyInstall 'install.ps1') `
     -ConfigureOnly `
     -InstallDir $configureOnlyInstall `
     -PluginDir $configureOnlyPlugins `
     -DevinExtensionDir $configureOnlyDevinExtension `
-    -CodexConfig (Join-Path $smokeRoot 'configure-only-codex\config.toml') `
+    -CodexConfig $configureOnlyCodexConfig `
     -AntigravityHooks (Join-Path $smokeRoot 'configure-only-antigravity\hooks.json') `
     -DevinConfig (Join-Path $smokeRoot 'configure-only-devin\config.json') `
     -SkipShortcuts `
@@ -376,6 +385,39 @@ Write-Output '[ok] install upgrade fixtures'
   Assert-True (Test-Path -LiteralPath (Join-Path $configureOnlyDevinExtension 'package.json')) 'ConfigureOnly 未安装 Devin 扩展'
   Assert-True (Test-Path -LiteralPath (Join-Path $configureOnlyInstall 'agent-notify-install.json')) 'ConfigureOnly 未写安装记录'
   Write-Output '[ok] configure-only install'
+
+  # 8a. UNC 链式 notify 要按项改写成新安装路径，且不能碰包装与其它配置。
+  $uncUpdated = [IO.File]::ReadAllText($configureOnlyCodexConfig)
+  $expectedExe = (Join-Path $configureOnlyInstall 'agent-notify.exe').Replace('\', '/')
+  Assert-True ($uncUpdated -match [regex]::Escape($expectedExe)) "UNC 链未更新到新安装路径：$uncUpdated"
+  Assert-True ($uncUpdated -notmatch 'server\\\\share') "UNC 链仍指向旧路径：$uncUpdated"
+  Assert-True ($uncUpdated -match '(?i)codex-computer-use\.exe') "UNC 链丢失了用户原有包装：$uncUpdated"
+  Assert-True ($uncUpdated -match '(?m)^model = "gpt-5"\s*$') "UNC 链改写破坏了其它配置：$uncUpdated"
+  Assert-True (Test-Path -LiteralPath "$configureOnlyCodexConfig.bak-notify-wrapper") '改写 UNC 链前未生成备份'
+  Write-Output '[ok] install updates unc notify chain'
+
+  # 8b. 旧式/不规范转义（单层反斜杠）也要能改写。
+  $legacyCodexConfig = Join-Path $smokeRoot 'configure-only-codex-legacy\config.toml'
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $legacyCodexConfig) | Out-Null
+  $legacyFixture = 'notify = [ "C:/tools/codex-computer-use.exe", "turn-ended", "--previous-notify", "' +
+    $uncInner.Replace('"', '\"') + '" ]' + "`n"
+  [IO.File]::WriteAllText($legacyCodexConfig, $legacyFixture, $utf8NoBom)
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $configureOnlyInstall 'install.ps1') `
+    -ConfigureOnly `
+    -InstallDir $configureOnlyInstall `
+    -PluginDir $configureOnlyPlugins `
+    -DevinExtensionDir $configureOnlyDevinExtension `
+    -CodexConfig $legacyCodexConfig `
+    -SkipAntigravityConfig `
+    -SkipDevinConfig `
+    -SkipShortcuts `
+    -SkipWidgetLaunch `
+    -SkipLoginLaunch 2>&1 | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) '旧式转义用例安装失败'
+  $legacyUpdated = [IO.File]::ReadAllText($legacyCodexConfig)
+  Assert-True ($legacyUpdated -match [regex]::Escape($expectedExe)) "旧式转义链未更新：$legacyUpdated"
+  Assert-True ($legacyUpdated -match '(?i)codex-computer-use\.exe') "旧式转义链丢失了包装：$legacyUpdated"
+  Write-Output '[ok] install updates legacy-escaped notify chain'
 
   # 8. Hook 安装只替换 Agent-notify 自己的 handler，保留其他配置。
   $installedAntigravity = Get-Content -LiteralPath $antigravityHooks -Raw -Encoding utf8 | ConvertFrom-Json
@@ -541,6 +583,10 @@ model = "gpt-5"
     (Join-Path $smokeRoot 'codex-config\config.toml.bak-notify-wrapper'),
     (Join-Path $smokeRoot 'codex-restore.toml'),
     (Join-Path $smokeRoot 'codex-strip.toml'),
+    (Join-Path $smokeRoot 'configure-only-codex\config.toml'),
+    (Join-Path $smokeRoot 'configure-only-codex\config.toml.bak-notify-wrapper'),
+    (Join-Path $smokeRoot 'configure-only-codex-legacy\config.toml'),
+    (Join-Path $smokeRoot 'configure-only-codex-legacy\config.toml.bak-notify-wrapper'),
     (Join-Path $smokeRoot 'state\push.log'),
     (Join-Path $smokeRoot 'state\codex-notify-debug.log'),
     (Join-Path $smokeRoot 'state\opencode-sent.json'),
@@ -566,6 +612,8 @@ model = "gpt-5"
       (Join-Path $smokeRoot 'configure-only-app\plugin'),
       (Join-Path $smokeRoot 'configure-only-app\tools'),
       (Join-Path $smokeRoot 'configure-only-app'),
+      (Join-Path $smokeRoot 'configure-only-codex'),
+      (Join-Path $smokeRoot 'configure-only-codex-legacy'),
       (Join-Path $smokeRoot 'configure-only-plugins'),
       (Join-Path $smokeRoot 'configure-only-devin-extension'),
       (Join-Path $smokeRoot 'devin-extension'),
