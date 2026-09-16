@@ -275,6 +275,9 @@ func (client *Client) Prepare(ctx context.Context, release Release, root string)
 		if err := validateWindowsExecutable(artifactPath); err != nil {
 			return PreparedUpdate{}, err
 		}
+		if err := verifyArtifactSignature(ctx, artifactPath); err != nil {
+			return PreparedUpdate{}, err
+		}
 		_ = os.Remove(checksumsPath)
 		return PreparedUpdate{
 			Version:       version,
@@ -298,6 +301,12 @@ func (client *Client) Prepare(ctx context.Context, release Release, root string)
 	executablePath := filepath.Join(releaseDir, "bin", "agent-notify.exe")
 	versionPath := filepath.Join(releaseDir, "VERSION")
 	if err := validatePreparedRelease(releaseDir, installerPath, executablePath, versionPath, version); err != nil {
+		return PreparedUpdate{}, err
+	}
+	if err := validateWindowsExecutable(executablePath); err != nil {
+		return PreparedUpdate{}, err
+	}
+	if err := verifyArtifactSignature(ctx, executablePath); err != nil {
 		return PreparedUpdate{}, err
 	}
 
