@@ -5,7 +5,7 @@
 ## 环境要求
 
 - Windows 10 / 11
-- Go 1.25+
+- Go 1.26+
 - Node.js 20+，仅用于 OpenCode 插件类型检查
 - Windows PowerShell 5.1+，用于安装器和 smoke 测试
 

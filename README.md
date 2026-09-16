@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.8.0-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
-  <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8.svg?style=flat-square" alt="Go" />
+  <img src="https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
 </p>
 
@@ -320,7 +320,7 @@ Devin 回复扩展仅在 `package.json` 的 `name` 和 `publisher` 均属于 Age
 要求：
 
 - Windows 10 / 11
-- Go 1.25+
+- Go 1.26+
 - Node.js 20+，仅用于 OpenCode 插件类型检查
 - Windows PowerShell 5.1+，用于安装器和 smoke 测试
 - Inno Setup 6，仅构建标准 Windows 安装器时需要
