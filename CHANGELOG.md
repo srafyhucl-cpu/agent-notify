@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-16
+
+### Added
+
+- 更新安装包在 SHA256 校验之外新增 Authenticode 签名校验：签名校验失败或不可信一律拒绝安装；未签名默认放行，可用 `AGENT_NOTIFY_REQUIRE_SIGNATURE=1` 强制要求签名，或用 `AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 限定信任的签名者指纹。
+
+### Fixed
+
+- 修复卸载会损坏 Codex 配置：不再用整份备份覆盖 `config.toml`，改为只定点还原 notify 行，保留安装后用户对配置的其它修改；无备份时只从 `--previous-notify` 链里摘掉 Agent-notify 片段，不再连带删除用户原有的 codex-computer-use 包装。
+- 修复重新登录与常驻轮询之间的凭据竞态：旧 token 的失效响应只作用于发起该次轮询的凭据，轮询结果也不再整结构回写，避免把刚重新登录得到的新 token、游标与会话上下文覆盖回旧值。
+
 ## [1.6.2] - 2026-09-16
 
 ### Fixed
