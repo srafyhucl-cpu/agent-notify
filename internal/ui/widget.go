@@ -221,32 +221,20 @@ func widgetLayoutRects() widgetLayout {
 
 // widgetTextLayout 集中定义悬浮窗内的文本区域，绘制与布局测试共用，避免文案改宽后溢出。
 type widgetTextLayout struct {
-	title            RECT
-	subtitle         RECT
-	connectionTitle  RECT
-	connectionDetail RECT
-	quiet            RECT
-	recentLabel      RECT
-	recentMeta       RECT
-	recentTitle      RECT
-	footerVersion    RECT
-	footerUpdate     RECT
-	footerHint       RECT
+	title         RECT
+	subtitle      RECT
+	footerVersion RECT
+	footerUpdate  RECT
+	footerHint    RECT
 }
 
 func widgetTextRects() widgetTextLayout {
 	return widgetTextLayout{
-		title:            RECT{14, 12, 230, 32},
-		subtitle:         RECT{14, 32, 290, 48},
-		connectionTitle:  RECT{46, 62, 320, 84},
-		connectionDetail: RECT{46, 84, 320, 103},
-		quiet:            RECT{270, 54, 386, 72},
-		recentLabel:      RECT{26, 238, 100, 260},
-		recentMeta:       RECT{160, 238, 374, 260},
-		recentTitle:      RECT{26, 268, 354, 308},
-		footerVersion:    RECT{14, 394, 98, 436},
-		footerUpdate:     RECT{106, 394, 242, 436},
-		footerHint:       RECT{250, 394, 386, 436},
+		title:         RECT{14, 12, 230, 32},
+		subtitle:      RECT{14, 32, 290, 48},
+		footerVersion: RECT{14, 394, 98, 436},
+		footerUpdate:  RECT{106, 394, 242, 436},
+		footerHint:    RECT{250, 394, 386, 436},
 	}
 }
 
@@ -1693,29 +1681,6 @@ func (app *WidgetApp) currentHealth() (uint32, string) {
 		return app.focusedAgentHealth()
 	}
 	return app.health()
-}
-
-func (app *WidgetApp) agentMenuLabel(agentID string) string {
-	if !app.agentEnabled(agentID) {
-		return "已暂停"
-	}
-	status := app.integrationStatus(agentID)
-	switch status.State {
-	case integration.StateConnected:
-		if app.agentRunning(agentID) {
-			return "正常"
-		}
-		return "已接入"
-	case integration.StatePendingRestart:
-		return "待重启"
-	case integration.StateError:
-		return "异常"
-	default:
-		if app.agentRunning(agentID) {
-			return "未接入"
-		}
-		return "未配置"
-	}
 }
 
 func (app *WidgetApp) showAgentDropdown(hwnd uintptr, rect RECT) {

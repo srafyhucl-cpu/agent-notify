@@ -62,14 +62,6 @@ func TestHealthReportsSetupFailure(t *testing.T) {
 	}
 }
 
-func TestConnectionTextReportsSetupFailure(t *testing.T) {
-	app := WidgetApp{setupError: "首次接入失败：hook 被占用"}
-	title, detail, _ := app.connectionText()
-	if title != "首次接入失败" || detail != app.setupError {
-		t.Fatalf("connection text = (%q, %q)", title, detail)
-	}
-}
-
 func TestHealthReadyOnlyWhenRelevantIntegrationsAreConnected(t *testing.T) {
 	app := WidgetApp{
 		clawbotLoggedIn:     true,
@@ -279,39 +271,6 @@ func TestCleanRecentPushTitle(t *testing.T) {
 		if got := cleanRecentPushTitle(tt.title, tt.agent); got != tt.want {
 			t.Errorf("cleanRecentPushTitle(%q, %q) = %q, want %q", tt.title, tt.agent, got, tt.want)
 		}
-	}
-}
-
-func TestAgentMenuLabels(t *testing.T) {
-	app := WidgetApp{
-		onAntigravity: true,
-		procStatus:    ProcessStatus{AntigravityRunning: true},
-		integrations: map[string]integration.Status{
-			agentmeta.Antigravity: {
-				Agent:   agentmeta.Antigravity,
-				Enabled: true,
-				State:   integration.StateConnected,
-			},
-			agentmeta.Codex: {
-				Agent:   agentmeta.Codex,
-				Enabled: true,
-				State:   integration.StatePendingRestart,
-			},
-		},
-		onCodex: true,
-		onDevin: true,
-	}
-	if label := app.agentMenuLabel(agentmeta.Antigravity); label != "正常" {
-		t.Fatalf("antigravity menu label = %q, want 正常", label)
-	}
-	if label := app.agentMenuLabel(agentmeta.Codex); label != "待重启" {
-		t.Fatalf("codex menu label = %q, want 待重启", label)
-	}
-	if label := app.agentMenuLabel(agentmeta.Devin); label != "未配置" {
-		t.Fatalf("devin menu label = %q, want 未配置", label)
-	}
-	if label := app.agentMenuLabel(agentmeta.OpenCode); label != "已暂停" {
-		t.Fatalf("opencode menu label = %q, want 已暂停", label)
 	}
 }
 

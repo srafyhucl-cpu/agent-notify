@@ -432,26 +432,6 @@ func drawRecentCard(hdc uintptr, rect RECT, app *WidgetApp, strongFont, smallFon
 	DrawText(hdc, "\uE76C", &arrowRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 }
 
-// connectionText returns the headline and supporting line for the ClawBot card.
-func (app *WidgetApp) connectionText() (string, string, uint32) {
-	switch {
-	case app.setupError != "":
-		return "首次接入失败", app.setupError, RGB(224, 165, 70)
-	case !app.clawbotLoggedIn:
-		return "ClawBot 未连接", "点击设置微信推送", RGB(224, 104, 104)
-	case app.clawbotStale:
-		return "ClawBot 登录已失效", "点击重新扫码登录", RGB(224, 104, 104)
-	case !app.clawbotSessionReady:
-		return "等待建立微信会话", "请先给 ClawBot 发送一条微信消息", RGB(224, 165, 70)
-	default:
-		detail := "主动推送会话已就绪"
-		if app.clawbotHint != "" {
-			detail = "已绑定 " + app.clawbotHint
-		}
-		return "ClawBot 已连接", detail, RGB(55, 190, 147)
-	}
-}
-
 func (app *WidgetApp) focusedAgentHint() string {
 	agentID := app.focusedAgentID()
 	agentName := agentID
