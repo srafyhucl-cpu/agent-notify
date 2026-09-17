@@ -38,20 +38,18 @@ func (r DevinQueueRunner) Queue(ctx context.Context, sessionID, text string) err
 	if dir == "" {
 		dir = config.GetPaths().DevinReplyDir
 	}
-	queue := spoolQueueConfig{
-		Dir:          dir,
-		Label:        "devin reply",
-		ResultWait:   r.ResultWait,
-		AsyncWait:    r.AsyncWait,
-		PollInterval: r.PollInterval,
-		RequireReady: requireDevinHeartbeat,
-		ResultError:  devinResultError,
-		Unconfirmed:  errDevinResultUnconfirmed,
-		TargetID:     r.resolveCascadeID(),
-	}
-	if r.OnAsyncFailure != nil {
-		queue.OnAsyncFailure = r.OnAsyncFailure
-	}
+	queue := newSpoolQueueConfig(
+		dir,
+		"devin reply",
+		r.ResultWait,
+		r.AsyncWait,
+		r.PollInterval,
+		requireDevinHeartbeat,
+		devinResultError,
+		errDevinResultUnconfirmed,
+		r.OnAsyncFailure,
+	)
+	queue.TargetID = r.resolveCascadeID()
 	return queue.Queue(ctx, sessionID, text)
 }
 

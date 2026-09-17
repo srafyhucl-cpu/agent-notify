@@ -41,18 +41,16 @@ func (r OpenCodeQueueRunner) Queue(ctx context.Context, sessionID, text string) 
 	if dir == "" {
 		dir = config.GetPaths().OpenCodeReplyDir
 	}
-	queue := spoolQueueConfig{
-		Dir:          dir,
-		Label:        "opencode reply",
-		ResultWait:   r.ResultWait,
-		AsyncWait:    r.AsyncWait,
-		PollInterval: r.PollInterval,
-		RequireReady: requireOpenCodeHeartbeat,
-		ResultError:  openCodeResultError,
-		Unconfirmed:  errOpenCodeResultUnconfirmed,
-	}
-	if r.OnAsyncFailure != nil {
-		queue.OnAsyncFailure = r.OnAsyncFailure
-	}
+	queue := newSpoolQueueConfig(
+		dir,
+		"opencode reply",
+		r.ResultWait,
+		r.AsyncWait,
+		r.PollInterval,
+		requireOpenCodeHeartbeat,
+		openCodeResultError,
+		errOpenCodeResultUnconfirmed,
+		r.OnAsyncFailure,
+	)
 	return queue.Queue(ctx, sessionID, text)
 }

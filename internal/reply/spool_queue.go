@@ -59,6 +59,32 @@ type spoolQueueConfig struct {
 	TargetID func(sessionID string) (string, error)
 }
 
+// newSpoolQueueConfig 构造 Devin / OpenCode 共用的本地队列配置。两个 Runner 只在
+// readiness 检查、结果错误映射、未确认错误与（Devin 的）目标标识上存在差异。
+func newSpoolQueueConfig(
+	dir, label string,
+	resultWait, asyncWait, pollInterval time.Duration,
+	requireReady func(dir string, now time.Time) error,
+	resultError func(code, detail string) error,
+	unconfirmed error,
+	onAsyncFailure func(sessionID, text string, err error),
+) spoolQueueConfig {
+	config := spoolQueueConfig{
+		Dir:          dir,
+		Label:        label,
+		ResultWait:   resultWait,
+		AsyncWait:    asyncWait,
+		PollInterval: pollInterval,
+		RequireReady: requireReady,
+		ResultError:  resultError,
+		Unconfirmed:  unconfirmed,
+	}
+	if onAsyncFailure != nil {
+		config.OnAsyncFailure = onAsyncFailure
+	}
+	return config
+}
+
 func (c spoolQueueConfig) Queue(ctx context.Context, sessionID, text string) error {
 	label := strings.TrimSpace(c.Label)
 	if label == "" {
