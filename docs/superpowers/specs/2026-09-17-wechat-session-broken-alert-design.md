@@ -23,7 +23,7 @@ ClawBot 主动推送依赖服务端下发的 `context_token`。该上下文会�
 
 ## 非目标
 
-1. 不改变「未登录 / 登录已失效」的现有红色显示与文案。
+1. 不改变「未登录」的现有红色显示与文案。「登录已失效」只在设置页 ClawBot 卡片与微信配置页修正为真实状态（现状是绿色「会话正常」，属于错误陈述），不纳入气泡提醒范围。
 2. 不把网络错误、服务端限流等其他推送失败纳入本次提醒范围。
 3. 不新增用户开关或配置项。
 4. 不做自绘飞入提示窗口，不引入 WinRT Toast 依赖。
@@ -98,19 +98,21 @@ func wechatLinkStateFor(loggedIn, stale, sessionReady, everReady bool) wechatLin
 
 ### 3. 界面四处显示
 
-| 位置 | 文件 | 正常 | 等待首条消息 | 已断开 |
-|---|---|---|---|---|
-| 底部 dock 按钮 | `internal/ui/widget_draw.go` | 「微信配置」常规色 | 「微信待就绪」警告色 | 「微信已断开」警告色 |
-| 设置页 ClawBot 卡片 | `internal/ui/widget_views.go` | 绿点「ClawBot 微信会话正常」 | 黄点「等待你给 ClawBot 发第一条消息」 | 黄点「主动推送会话已失效」 |
-| 微信配置页 | `internal/ui/widget_views.go` | 「已连接，推送正常」 | 「已登录，等待你的第一条消息」 | 提示块：「在微信里给 ClawBot 发一条消息即可恢复」 |
-| 「最近推送」卡片状态色 | `internal/ui/widget_draw.go` | 成功绿 / 失败红 | 不适用 | 「会话未建立」由灰改警告色 |
+| 位置 | 文件 | 正常 | 等待首条消息 | 已断开 | 未登录 / 登录失效 |
+|---|---|---|---|---|---|
+| 底部 dock 按钮 | `internal/ui/widget_draw.go` | 「微信配置」常规色 | 「待发消息」警告色 | 「推送已断」警告色 | 「微信未连」危险色；登录失效维持现状「微信配置」 |
+| 设置页 ClawBot 卡片 | `internal/ui/widget_views.go` | 绿点「ClawBot 微信会话正常」 | 黄点「等待你给 ClawBot 发第一条消息」 | 黄点「主动推送会话已失效」 | 红点「ClawBot 微信未登录」/「ClawBot 微信登录已失效」 |
+| 微信配置页 | `internal/ui/widget_views.go` | 「已连接，推送正常」 | 「已登录，等待你的第一条消息」 | 提示块：「在微信里给 ClawBot 发一条消息即可恢复」 | 维持扫码登录界面 |
+| 「最近推送」卡片状态色 | `internal/ui/widget_draw.go` | 成功绿 / 失败红 | 不适用 | 「会话未建立」由灰改警告色 | 维持现状 |
 
-未登录 / 登录失效维持现有红色显示与文案，不在本次改动范围。
+dock 按钮宽度只有 87 逻辑像素且绘制不使用省略号（`drawFluentDockButton` 的 `DT_CENTER|DT_SINGLELINE`），因此 dock 文案固定为 4 个汉字，与现有「推送历史」「系统设置」一致。
+
+「登录失效」的修正是把设置页卡片与微信配置页从错误的绿色「会话正常」改为红色真实状态，`stale` 不触发气泡通知。
 
 ### 4. Windows 通知
 
 - `internal/ui/win32.go` 新增 `NIF_INFO = 0x00000010`、`NIIF_WARNING = 0x00000002`，并给 `NOTIFYICONDATAW` 补充 `SzInfo` / `SzInfoTitle` 的拷贝辅助（字段已存在）。
-- `internal/ui/tray.go` 新增 `ShowAlert(title, body string)`：`Shell_NotifyIconW(NIM_MODIFY, ...)`，`UFlags = NIF_INFO`，`DwInfoFlags = NIIF_WARNING`，`UTimeout = 10000`。
+- `internal/ui/tray.go` 新增 `ShowAlert(title, body string)`：`Shell_NotifyIconW(NIM_MODIFY, ...)`，`UFlags = NIF_INFO`，`DwInfoFlags = NIIF_WARNING`。`NOTIFYICONDATAW` 没有可用的独立 `uTimeout` 字段（该位置是 `uVersion` 的联合体），因此不设超时，由系统决定展示时长；Win10/11 会把气泡并入通知中心，用户可回看。
 - 文案：
   - 标题：`微信推送已断开`
   - 正文：`ClawBot 主动推送会话失效，任务通知暂时发不出去了。请在微信里给 ClawBot 发任意一条消息即可恢复。`
