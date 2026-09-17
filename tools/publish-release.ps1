@@ -15,6 +15,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'signature-common.ps1')
 if (-not $DistDir) { $DistDir = Join-Path $RepoRoot 'dist' }
 
 if (-not $Version) {
@@ -36,6 +37,33 @@ if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $sumsPath -PathType Leaf)) {
   throw "Checksum file does not exist: $sumsPath"
+}
+
+# 手动补发同样必须签名，且签名者指纹等于客户端内置信任指纹，否则 1.11+ 客户端会拒绝安装。
+# 自动镜像步骤（release.yml）也走本脚本，因此这一步同时是发布前的纵深防御。
+$expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
+$installerThumbprint = Get-VerifiedSignatureThumbprint -Path $setupPath -ExpectedThumbprint $expectedThumbprint
+Write-Output "[publish] 安装器签名校验通过（$installerThumbprint）"
+
+# ZIP 内的主程序也要校验：解压到临时目录验证后立即清理。
+$extractRoot = Join-Path ([IO.Path]::GetTempPath()) ('agent-notify-publish-' + [guid]::NewGuid().ToString('N'))
+try {
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $entryName = 'Agent-notify/bin/agent-notify.exe'
+  $extractedExe = Join-Path $extractRoot 'agent-notify.exe'
+  $archive = [IO.Compression.ZipFile]::OpenRead($zipPath)
+  try {
+    $entry = $archive.Entries | Where-Object { $_.FullName -eq $entryName } | Select-Object -First 1
+    if (-not $entry) { throw "发布包缺少主程序：$entryName（$zipPath）" }
+    New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $extractedExe, $true)
+  } finally {
+    $archive.Dispose()
+  }
+  $exeThumbprint = Get-VerifiedSignatureThumbprint -Path $extractedExe -ExpectedThumbprint $expectedThumbprint
+  Write-Output "[publish] ZIP 内主程序签名校验通过（$exeThumbprint）"
+} finally {
+  if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force }
 }
 
 $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
