@@ -58,7 +58,6 @@ var (
 	pDestroyMenu                = user32.NewProc("DestroyMenu")
 	pAppendMenuW                = user32.NewProc("AppendMenuW")
 	pTrackPopupMenu             = user32.NewProc("TrackPopupMenu")
-	pClientToScreen             = user32.NewProc("ClientToScreen")
 	pMessageBoxW                = user32.NewProc("MessageBoxW")
 	pSetClipboardData           = user32.NewProc("SetClipboardData")
 	pOpenClipboard              = user32.NewProc("OpenClipboard")

@@ -16,7 +16,6 @@ type SignatureInfo struct {
 
 const (
 	signatureStatusValid        = "Valid"
-	signatureStatusNotSigned    = "NotSigned"
 	signatureStatusHashMismatch = "HashMismatch"
 	signatureStatusNotTrusted   = "NotTrusted"
 	signatureStatusUnknownError = "UnknownError"

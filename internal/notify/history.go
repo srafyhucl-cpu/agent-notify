@@ -16,12 +16,9 @@ import (
 )
 
 const (
-	// Summaries are stored one JSON object per line; a long summary can legitimately
-	// exceed bufio's default 64KiB buffer, so the scanner starts there and stops at
-	// historyScanMaxLineBytes.
-	historyScanInitialBuffer = 64 * 1024
-	historyScanMaxLineBytes  = 2 * 1024 * 1024
-	defaultHistoryLimit      = 50
+	// 历史记录按 JSON Lines 存储；读取与裁剪均使用 bufio.NewReaderSize 按块读取
+	// （见 trimHistoryTo），不再依赖固定大小的行缓冲区常量。
+	defaultHistoryLimit = 50
 
 	// 倒序扫描时每次从文件末尾读取的块大小。
 	historyReadChunkBytes = 64 * 1024

@@ -4,7 +4,6 @@ package reply
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -16,7 +15,6 @@ const (
 	processQueryLimitedInfo     = 0x1000
 	processVMRead               = 0x0010
 	invalidProcessHandle        = ^uintptr(0)
-	processImagePathMaxUTF16    = 32768
 	processEntryExeFileCapacity = 260
 	processCommandLineMaxBytes  = 64 << 10
 )
@@ -296,12 +294,4 @@ func listeningTCPPorts(pid uint32) []int {
 		ports = append(ports, port)
 	}
 	return ports
-}
-
-func parsePID(value string) (uint32, bool) {
-	pid, err := strconv.ParseUint(strings.TrimSpace(value), 10, 32)
-	if err != nil || pid == 0 {
-		return 0, false
-	}
-	return uint32(pid), true
 }

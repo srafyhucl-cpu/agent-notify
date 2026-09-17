@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 type Options struct {
@@ -23,8 +22,7 @@ type Options struct {
 type commandRunner func(context.Context, string, ...string) ([]byte, error)
 
 type state struct {
-	Version     string `json:"version"`
-	CompletedAt string `json:"completedAt"`
+	Version string `json:"version"`
 }
 
 func Ensure(ctx context.Context, options Options) error {
@@ -80,8 +78,7 @@ func writeState(path, version string) error {
 		return err
 	}
 	data, err := json.MarshalIndent(state{
-		Version:     version,
-		CompletedAt: time.Now().Format(time.RFC3339),
+		Version: version,
 	}, "", "  ")
 	if err != nil {
 		return err
