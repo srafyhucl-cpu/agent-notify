@@ -13,7 +13,16 @@ import (
 	"strings"
 )
 
-const maxExtractedBytes = int64(200 << 20)
+const maxExtractedBytes = uint64(200 << 20)
+
+// withinExtractionBudget 判断 declared 字节是否还在剩余预算内。
+// 全程使用 uint64 累计，避免声明大小溢出为负数绕过检查。
+func withinExtractionBudget(declared, used, max uint64) bool {
+	if used > max {
+		return false
+	}
+	return declared <= max-used
+}
 
 func extractZip(archivePath, destination string) error {
 	archive, err := zip.OpenReader(archivePath)
@@ -22,7 +31,7 @@ func extractZip(archivePath, destination string) error {
 	}
 	defer archive.Close()
 
-	var extracted int64
+	var extracted uint64
 	for _, entry := range archive.File {
 		name := path.Clean(strings.ReplaceAll(entry.Name, "\\", "/"))
 		nativeName := filepath.FromSlash(name)
@@ -43,24 +52,27 @@ func extractZip(archivePath, destination string) error {
 		if entry.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("更新包包含不支持的符号链接：%s", entry.Name)
 		}
-		extracted += int64(entry.UncompressedSize64)
-		if extracted > maxExtractedBytes {
+		if !withinExtractionBudget(entry.UncompressedSize64, extracted, maxExtractedBytes) {
 			return fmt.Errorf("解压后的更新内容超过允许大小 %d 字节", maxExtractedBytes)
 		}
-		if err := extractZipFile(entry, target); err != nil {
+		written, err := extractZipFile(entry, target, maxExtractedBytes-extracted)
+		if err != nil {
 			return err
 		}
+		extracted += written
 	}
 	return nil
 }
 
-func extractZipFile(entry *zip.File, target string) error {
+// extractZipFile 将单个 entry 解压到 target，最多写入 limit 字节；
+// 返回实际写入字节数，超过 limit 时返回错误。
+func extractZipFile(entry *zip.File, target string, limit uint64) (uint64, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
-		return fmt.Errorf("创建更新目录失败：%w", err)
+		return 0, fmt.Errorf("创建更新目录失败：%w", err)
 	}
 	source, err := entry.Open()
 	if err != nil {
-		return fmt.Errorf("读取更新包文件失败：%w", err)
+		return 0, fmt.Errorf("读取更新包文件失败：%w", err)
 	}
 	defer source.Close()
 
@@ -70,16 +82,21 @@ func extractZipFile(entry *zip.File, target string) error {
 	}
 	destination, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
-		return fmt.Errorf("写入更新文件失败：%w", err)
+		return 0, fmt.Errorf("写入更新文件失败：%w", err)
 	}
-	if _, err := io.Copy(destination, source); err != nil {
+	written, err := io.Copy(destination, io.LimitReader(source, int64(limit)+1))
+	if err != nil {
 		_ = destination.Close()
-		return fmt.Errorf("解压更新文件失败：%w", err)
+		return uint64(written), fmt.Errorf("解压更新文件失败：%w", err)
+	}
+	if uint64(written) > limit {
+		_ = destination.Close()
+		return uint64(written), fmt.Errorf("解压后的更新内容超过允许大小 %d 字节", maxExtractedBytes)
 	}
 	if err := destination.Close(); err != nil {
-		return fmt.Errorf("关闭更新文件失败：%w", err)
+		return uint64(written), fmt.Errorf("关闭更新文件失败：%w", err)
 	}
-	return nil
+	return uint64(written), nil
 }
 
 func validatePreparedRelease(releaseDir, installerPath, executablePath, versionPath, expectedVersion string) error {

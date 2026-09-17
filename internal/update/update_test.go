@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -367,6 +368,74 @@ func TestExtractZipRejectsTraversal(t *testing.T) {
 				t.Fatalf("extractZip error = %v, want traversal rejection", err)
 			}
 		})
+	}
+}
+
+func TestWithinExtractionBudget(t *testing.T) {
+	const max = uint64(100)
+	tests := []struct {
+		name     string
+		declared uint64
+		used     uint64
+		want     bool
+	}{
+		{"normal", 40, 30, true},
+		{"exact remaining", 70, 30, true},
+		{"over remaining", 71, 30, false},
+		{"declared max uint64", math.MaxUint64, 0, false},
+		{"declared max uint64 with used", math.MaxUint64, 1, false},
+		{"used over max", 1, max + 1, false},
+		{"zero declared at full budget", 0, max, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := withinExtractionBudget(tt.declared, tt.used, max); got != tt.want {
+				t.Fatalf("withinExtractionBudget(%d, %d, %d) = %v, want %v", tt.declared, tt.used, max, got, tt.want)
+			}
+		})
+	}
+}
+
+func zipEntry(t *testing.T, name, body string) *zip.File {
+	t.Helper()
+	archive := releaseArchive(t, []zipTestFile{{Name: name, Body: body}})
+	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatalf("zip.NewReader: %v", err)
+	}
+	if len(reader.File) != 1 {
+		t.Fatalf("entries = %d, want 1", len(reader.File))
+	}
+	return reader.File[0]
+}
+
+func TestExtractZipFileHonorsLimit(t *testing.T) {
+	entry := zipEntry(t, "Agent-notify/VERSION", "0123456789")
+	dir := t.TempDir()
+
+	target := filepath.Join(dir, "ok.txt")
+	written, err := extractZipFile(entry, target, 10)
+	if err != nil {
+		t.Fatalf("extractZipFile within limit: %v", err)
+	}
+	if written != 10 {
+		t.Fatalf("written = %d, want 10", written)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "0123456789" {
+		t.Fatalf("content = %q, want 0123456789", data)
+	}
+
+	overTarget := filepath.Join(dir, "over.txt")
+	written, err = extractZipFile(entry, overTarget, 4)
+	if err == nil || !strings.Contains(err.Error(), "超过允许大小") {
+		t.Fatalf("extractZipFile over limit error = %v, want size error", err)
+	}
+	if written != 5 {
+		t.Fatalf("written over limit = %d, want 5 (limit+1)", written)
 	}
 }
 
