@@ -169,15 +169,24 @@ func processCommandLine(pid uint32) string {
 		commandLine.Buffer == nil || commandLine.Length == 0 {
 		return ""
 	}
-	size := int(commandLine.Length)
-	if size > processCommandLineMaxBytes {
-		size = processCommandLineMaxBytes
+	size := commandLineBufferBytes(int(commandLine.Length))
+	if size < 2 {
+		return ""
 	}
 	buffer := make([]uint16, size/2)
 	if !readRemote(handle, uintptr(unsafe.Pointer(commandLine.Buffer)), unsafe.Pointer(&buffer[0]), uintptr(size), readProcessMemory) {
 		return ""
 	}
 	return string(utf16.Decode(buffer))
+}
+
+// commandLineBufferBytes 归一化目标进程命令行长度：先截断到上限，再向下取偶，
+// 保证按 uint16 读取时缓冲区与读取字节数一致；结果可能为 0。
+func commandLineBufferBytes(length int) int {
+	if length > processCommandLineMaxBytes {
+		length = processCommandLineMaxBytes
+	}
+	return length &^ 1
 }
 
 func readRemote(
