@@ -115,7 +115,13 @@ func (app *WidgetApp) refreshAgentSwitches() {
 	app.onAntigravity = !marker.IsOff(app.paths.AntigravityMarker)
 	app.onDevin = !marker.IsOff(app.paths.DevinMarker)
 
-	executable, _ := os.Executable()
+	executable, err := os.Executable()
+	if err != nil {
+		// 取不到自身路径时传空串：CheckAll 会退回插件内记录的二进制或默认路径，
+		// 不会把未知结果伪造成"已接入"。
+		debugLog("locate executable: %v", err)
+		executable = ""
+	}
 	statuses := integration.CheckAll(integration.Options{
 		Paths:      app.paths,
 		Executable: executable,

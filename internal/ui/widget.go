@@ -813,7 +813,10 @@ func RunWidget(options WidgetOptions) {
 						return 0
 					}
 					instance.historyConfirmClear = false
-					_ = os.WriteFile(paths.PushLog, []byte{}, 0600)
+					if err := os.WriteFile(paths.PushLog, []byte{}, 0600); err != nil {
+						instance.reportActionError("清空推送历史失败：%v", err)
+						return 0
+					}
 					instance.historyPageOffset = 0
 					instance.historySelectedIndex = 0
 					instance.refreshState()
@@ -1401,7 +1404,12 @@ func (app *WidgetApp) loadHistory(limit int) []notify.HistoryItem {
 	if stamp != "" && stamp == app.historyStamp && app.historyLimit >= limit && app.historyCache != nil {
 		return app.historyCache
 	}
-	items, _ := notify.GetHistory(limit, app.paths.PushLog)
+	items, err := notify.GetHistory(limit, app.paths.PushLog)
+	if err != nil {
+		debugLog("load history: %v", err)
+		// 读取失败时返回空列表：不把旧缓存或截断内容伪装成有效历史。
+		items = nil
+	}
 	if items == nil {
 		items = []notify.HistoryItem{}
 	}

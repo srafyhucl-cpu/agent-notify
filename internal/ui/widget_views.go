@@ -90,7 +90,13 @@ func (app *WidgetApp) runRepairCheck(hwnd uintptr) {
 	resultCh := make(chan repairResult, 1)
 	app.repairDone = resultCh
 	go func() {
-		executable, _ := os.Executable()
+		executable, err := os.Executable()
+		if err != nil {
+			// 取不到自身路径时传空串：HandleWatch 会自行定位当前可执行文件，
+			// 不会伪造接入状态。
+			debugLog("locate executable: %v", err)
+			executable = ""
+		}
 		result := repairResult{}
 		if repairSetup != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

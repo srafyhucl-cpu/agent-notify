@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -402,6 +403,42 @@ func TestSendNotificationRouteDispatchesExactQuotedReply(t *testing.T) {
 	}
 	if len(failures) != 1 || !strings.Contains(failures[0], "没有可用的会话记录") {
 		t.Fatalf("failure notices = %#v", failures)
+	}
+}
+
+// blockPushLog 把推送历史路径指向一个目录，使后续 appendHistory 必然失败，
+// 用于验证写入失败会通过 Warning 暴露而不是被静默忽略。
+func blockPushLog(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	blocked := filepath.Join(dir, "push.log")
+	if err := os.MkdirAll(blocked, 0700); err != nil {
+		t.Fatalf("setup blocked push log: %v", err)
+	}
+	t.Setenv("AGENT_NOTIFY_LOG_FILE", blocked)
+}
+
+func TestRecordFailureReportsHistoryWriteError(t *testing.T) {
+	blockPushLog(t)
+
+	result := recordFailure(NotifyOptions{Title: "测试", Summary: "hello"}, "测试", "hello", StatusFailed, "发送失败")
+	if result.Status != StatusFailed || result.Error != "发送失败" {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Warning == "" {
+		t.Fatal("history write failure must surface as non-empty Warning")
+	}
+}
+
+func TestRecordSkippedReportsHistoryWriteError(t *testing.T) {
+	blockPushLog(t)
+
+	result := RecordSkipped(NotifyOptions{Title: "测试", Summary: "hello"}, "策略跳过")
+	if result.Status != StatusSkipped || result.Error != "策略跳过" {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Warning == "" {
+		t.Fatal("history write failure must surface as non-empty Warning")
 	}
 }
 

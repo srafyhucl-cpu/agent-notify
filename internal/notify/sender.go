@@ -146,7 +146,8 @@ func clawbotHint(err error) string {
 }
 
 func recordFailure(opts NotifyOptions, title, summary, status, message string) NotifyResult {
-	_ = appendHistory(HistoryItem{
+	result := NotifyResult{Status: status, Error: message}
+	if err := appendHistory(HistoryItem{
 		Timestamp: time.Now().Format(time.RFC3339Nano),
 		Agent:     strings.TrimSpace(opts.Agent),
 		Session:   strings.TrimSpace(opts.SessionID),
@@ -154,8 +155,10 @@ func recordFailure(opts NotifyOptions, title, summary, status, message string) N
 		Summary:   summary,
 		Status:    status,
 		Error:     message,
-	}, config.GetPaths().PushLog)
-	return NotifyResult{Status: status, Error: message}
+	}, config.GetPaths().PushLog); err != nil {
+		result.Warning = "推送历史写入失败：" + err.Error()
+	}
+	return result
 }
 
 // RecordSkipped records a notification suppressed by policy without sending it.
@@ -173,7 +176,8 @@ func RecordSkipped(opts NotifyOptions, reason string) NotifyResult {
 	}
 	rendered := renderNotification(opts, time.Now())
 	title, summary := rendered.Title, rendered.Summary
-	_ = appendHistory(HistoryItem{
+	result := NotifyResult{Status: StatusSkipped, Error: reason}
+	if err := appendHistory(HistoryItem{
 		Timestamp: time.Now().Format(time.RFC3339Nano),
 		Agent:     strings.TrimSpace(opts.Agent),
 		Session:   strings.TrimSpace(opts.SessionID),
@@ -181,8 +185,10 @@ func RecordSkipped(opts NotifyOptions, reason string) NotifyResult {
 		Summary:   summary,
 		Status:    StatusSkipped,
 		Error:     reason,
-	}, config.GetPaths().PushLog)
-	return NotifyResult{Status: StatusSkipped, Error: reason}
+	}, config.GetPaths().PushLog); err != nil {
+		result.Warning = "推送历史写入失败：" + err.Error()
+	}
+	return result
 }
 
 func prepareNotification(opts NotifyOptions) (NotifyOptions, ProtocolResult) {
