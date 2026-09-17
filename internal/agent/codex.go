@@ -17,6 +17,7 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
 	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
+	"github.com/srafyhucl-cpu/agent-notify/internal/sysproc"
 )
 
 var (
@@ -208,7 +209,7 @@ func handleCodex(args []string, titles codexTitleResolver) notify.NotifyResult {
 		// 超时上下文在后台 goroutine 结束时才取消，让 helper 独立跑完自己的时间窗。
 		helperCtx, cancelHelper := context.WithTimeout(context.Background(), codexHelperTimeout)
 		command := exec.CommandContext(helperCtx, cuaExe, forwardArgs...)
-		configureHiddenProcess(command)
+		sysproc.ConfigureHidden(command)
 		if len(stdinBytes) > 0 {
 			command.Stdin = bytes.NewReader(stdinBytes)
 		}

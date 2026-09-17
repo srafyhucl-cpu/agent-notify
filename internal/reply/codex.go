@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/srafyhucl-cpu/agent-notify/internal/sysproc"
 )
 
 const (
@@ -28,7 +30,7 @@ type hiddenProcessRunner struct{}
 
 func (hiddenProcessRunner) Run(ctx context.Context, binary string, args ...string) ([]byte, error) {
 	command := exec.CommandContext(ctx, binary, args...)
-	configureHiddenProcess(command)
+	sysproc.ConfigureHidden(command)
 	applyProcessEnv(command, ctx)
 	return command.CombinedOutput()
 }

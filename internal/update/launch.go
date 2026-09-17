@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/srafyhucl-cpu/agent-notify/internal/sysproc"
 )
 
 const (
@@ -60,7 +62,7 @@ func (prepared PreparedUpdate) Launch(logPath string, installerArgs ...string) e
 
 	command := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapperPath)
 	command.Dir = filepath.Dir(installerPath)
-	configureHiddenProcess(command)
+	sysproc.ConfigureHidden(command)
 	if err := startAndWatch(command, installerEarlyExitWindow); err != nil {
 		return fmt.Errorf("更新安装器启动失败：%w（安装日志：%s）", err, logPath)
 	}

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/srafyhucl-cpu/agent-notify/internal/sysproc"
 )
 
 // inspectSignature 用系统自带的 Authenticode 检查读取签名状态与签名者指纹。
@@ -18,7 +20,7 @@ func inspectSignature(ctx context.Context, path string) (SignatureInfo, error) {
 		"$thumb = ''; if ($sig.SignerCertificate) { $thumb = [string]$sig.SignerCertificate.Thumbprint }; " +
 		"[pscustomobject]@{ Status = [string]$sig.Status; Thumbprint = $thumb } | ConvertTo-Json -Compress"
 	command := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
-	configureHiddenProcess(command)
+	sysproc.ConfigureHidden(command)
 	output, err := command.Output()
 	if err != nil {
 		return SignatureInfo{}, fmt.Errorf("读取安装包签名失败：%w", err)
