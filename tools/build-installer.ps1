@@ -15,6 +15,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'signature-common.ps1')
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 if (-not $ExePath) { $ExePath = Join-Path $RepoRoot 'bin\agent-notify.exe' }
 
@@ -112,14 +113,12 @@ if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
   throw "安装器未生成：$installer"
 }
 
-# 配了签名工具就必须真的签上，否则直接失败，避免发出未签名安装器。
-# 自签名证书的链路状态是 UnknownError/NotTrusted，因此只排除未签名与哈希不符。
+# 配了签名工具就必须真的签上，且指纹必须等于客户端内置的信任指纹，否则直接失败，
+# 避免发出未签名包，或发出对 1.11+ 客户端"签名者不匹配"的包。
 if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {
-  $signature = Get-AuthenticodeSignature -LiteralPath $installer
-  if ($signature.Status -notin @('Valid', 'UnknownError', 'NotTrusted')) {
-    throw "安装器签名校验未通过：$($signature.Status)"
-  }
-  Write-Output "[installer] 安装器签名校验通过（$($signature.SignerCertificate.Thumbprint)）"
+  $expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
+  $actualThumbprint = Get-VerifiedSignatureThumbprint -Path $installer -ExpectedThumbprint $expectedThumbprint
+  Write-Output "[installer] 安装器签名校验通过（$actualThumbprint）"
 }
 
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tests\installer-smoke.ps1') -Installer $installer

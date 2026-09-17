@@ -52,6 +52,15 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed: exit=$($process.ExitCode)" }
           "AGENT_NOTIFY_ISCC=$dir\ISCC.exe" | Out-File $env:GITHUB_ENV -Append -Encoding ascii
 
+      - name: Require signing secret
+        shell: powershell
+        env:
+          AGENT_NOTIFY_SIGN_PFX_BASE64: ${{ secrets.AGENT_NOTIFY_SIGN_PFX_BASE64 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGN_PFX_BASE64)) {
+            throw 'AGENT_NOTIFY_SIGN_PFX_BASE64 is not configured. Releases must be signed: clients pin the built-in certificate thumbprint and reject unsigned packages, so an unsigned release cannot be installed. Configure the signing secret before tagging.'
+          }
+
       - name: Build release archive
         shell: powershell
         env:

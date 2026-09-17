@@ -14,6 +14,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'signature-common.ps1')
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 
 if (-not $Version) {
@@ -82,12 +83,10 @@ try {
     }
     & $signTool sign $tempExe
     if ($LASTEXITCODE -ne 0) { throw "主程序签名失败 exit=$LASTEXITCODE" }
-    $signature = Get-AuthenticodeSignature -LiteralPath $tempExe
-    # 自签名/私有证书的链路状态是 UnknownError/NotTrusted，只要不是未签名或哈希不符即可。
-    if ($signature.Status -notin @('Valid', 'UnknownError', 'NotTrusted')) {
-      throw "主程序签名校验未通过：$($signature.Status)"
-    }
-    Write-Output "[release] 已签名主程序（$($signature.SignerCertificate.Thumbprint)）"
+    # 指纹必须等于客户端内置的信任指纹，否则 1.11+ 客户端会因"签名者不匹配"拒绝更新。
+    $expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
+    $actualThumbprint = Get-VerifiedSignatureThumbprint -Path $tempExe -ExpectedThumbprint $expectedThumbprint
+    Write-Output "[release] 已签名主程序（$actualThumbprint）"
   }
 
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null

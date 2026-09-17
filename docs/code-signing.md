@@ -2,8 +2,10 @@
 
 产物的 Authenticode 签名是自动更新链路唯一的"防篡改 + 防冒充"锚点：
 `SHA256SUMS.txt` 与安装包同源下载，能同时被篡改；只有签名能把伪造者挡在外面。
-当前仓库**未配置**代码签名（`gh secret list` 只有 `RELEASE_REPO_TOKEN`），因此发布产物是
-`NotSigned`，客户端只对"有签名但校验失败"的包做拒绝。按下面步骤接入即可补齐。
+本仓库**已启用**代码签名（自签名证书 + 指纹锁定）：`gh secret list` 包含
+`AGENT_NOTIFY_SIGN_PFX_BASE64` / `AGENT_NOTIFY_SIGN_PFX_PASSWORD`，产物以 `UnknownError`
+状态签名，指纹为 `EDF9E283DF2407B318E65D59BB430FD546509ACD`。构建脚本会在发布前强制校验
+"已签名且指纹等于内置常量"（见 `tools/signature-common.ps1`），未签名或指纹不符直接失败。
 
 ## 1. 准备证书
 
@@ -26,8 +28,11 @@
 3. 在源码仓库 Settings → Secrets and variables → Actions 新建 secret，名称必须是
    `AGENT_NOTIFY_SIGNTOOL`，值为包装器路径或命令名。
 
-配置后构建会强制校验签名：主程序或安装器签名状态不是 `Valid` 就直接失败，
-不会出现"配了签名却发出未签名包"的情况。
+配置后构建会强制校验签名：主程序与安装器必须已签名，且签名者指纹必须等于客户端内置的
+`defaultSignatureThumbprint`，否则直接失败。这样既能挡住"secret 丢失导致静默发出未签名包"，
+也能挡住"换证书只改了 secret、忘了同步内置指纹"（后者会让 1.11+ 客户端报"签名者不匹配"而无法
+自动更新自救）。Release workflow 另有一道前置步骤强制要求 `AGENT_NOTIFY_SIGN_PFX_BASE64` 存在，
+secret 被删除或改名时会在构建前直接失败，而不是发出未签名包。
 
 ## 2.5 零成本方案：自签名证书 + 指纹锁定
 
@@ -94,11 +99,13 @@ $env:AGENT_NOTIFY_REQUIRE_SIGNATURE = '1'
 
 把输出（去掉空格）填进常量即可；留空表示不限定签名者。
 客户端也可用环境变量 `AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 临时限定（多个用逗号/分号分隔），
-优先级高于常量。
+优先级高于常量——注意它是**覆盖**而不是追加：如果按早期文档在本机设过别的指纹，1.11 之后
+该机器会把官方包判为"签名者不匹配"，需要删掉这个环境变量或改成与内置常量一致。
 
 ## 5. 轮换与过期
 
 - 证书换签后，务必先更新 `defaultSignatureThumbprint`（若已启用）再发版，否则老客户端会拒绝新版本；
+  构建脚本的指纹门禁会在两者不一致时直接失败，所以顺序必须是：**先改常量并与新版本一起发布，再轮换 secret 里的证书**；
 - 建议同时配置时间戳（`/tr`），证书过期后既有产物的签名仍然有效；
 - 证书私钥泄露时立即吊销，并在下一版移除旧指纹。
 
