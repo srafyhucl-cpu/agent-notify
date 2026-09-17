@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -17,6 +16,14 @@ const (
 type devinHeartbeat struct {
 	Ready     bool      `json:"ready"`
 	Timestamp time.Time `json:"timestamp"`
+}
+
+var devinHeartbeatMessages = heartbeatMessages{
+	Unsupported: "当前 Devin 桌面端未提供精确回复能力，请更新 Devin 桌面端后重启",
+	Offline:     "Devin 引用回复扩展已离线，请重新打开 Devin 桌面端",
+	InvalidTime: "Devin 引用回复扩展心跳时间无效",
+	Malformed:   "Devin 引用回复扩展状态无效",
+	NotRunning:  "Devin 引用回复扩展未运行",
 }
 
 // requireDevinHeartbeat 确认至少一个 Devin 扩展实例在线，并且本机 Devin 桌面端
@@ -31,59 +38,15 @@ func requireDevinHeartbeat(dir string, now time.Time) error {
 		return fmt.Errorf("devin reply: read heartbeat directory: %w", err)
 	}
 
-	sawCapable := false
-	sawUnsupported := false
-	sawMalformed := false
-	sawInvalidTime := false
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(heartbeatDir, entry.Name()))
-		if err != nil {
-			sawMalformed = true
-			continue
-		}
-		var heartbeat devinHeartbeat
-		if err := json.Unmarshal(data, &heartbeat); err != nil {
-			sawMalformed = true
-			continue
-		}
-		capable, fresh, valid := classifyDevinHeartbeat(heartbeat, now)
-		if !valid {
-			sawInvalidTime = true
-			continue
-		}
-		if !fresh {
-			if capable {
-				sawCapable = true
-			}
-			continue
-		}
-		if !capable {
-			sawUnsupported = true
-			continue
-		}
-		return nil
-	}
-
-	switch {
-	case sawUnsupported:
-		return fmt.Errorf("当前 Devin 桌面端未提供精确回复能力，请更新 Devin 桌面端后重启")
-	case sawCapable:
-		return fmt.Errorf("Devin 引用回复扩展已离线，请重新打开 Devin 桌面端")
-	case sawInvalidTime:
-		return fmt.Errorf("Devin 引用回复扩展心跳时间无效")
-	case sawMalformed:
-		return fmt.Errorf("Devin 引用回复扩展状态无效")
-	default:
-		return fmt.Errorf("Devin 引用回复扩展未运行")
-	}
+	return checkHeartbeatEntries(heartbeatDir, entries, parseDevinHeartbeat, now, devinHeartbeatMaxAge, devinHeartbeatFutureSkew, devinHeartbeatMessages)
 }
 
-func classifyDevinHeartbeat(heartbeat devinHeartbeat, now time.Time) (capable, fresh, valid bool) {
-	if heartbeat.Timestamp.IsZero() || heartbeat.Timestamp.After(now.Add(devinHeartbeatFutureSkew)) {
-		return heartbeat.Ready, false, false
+// parseDevinHeartbeat 把 Devin 心跳 JSON 解析成公共状态；解析失败由调用方按
+// 「状态无效」处理。
+func parseDevinHeartbeat(data []byte) (heartbeatState, bool) {
+	var heartbeat devinHeartbeat
+	if err := json.Unmarshal(data, &heartbeat); err != nil {
+		return heartbeatState{}, false
 	}
-	return heartbeat.Ready, now.Sub(heartbeat.Timestamp) <= devinHeartbeatMaxAge, true
+	return heartbeatState{Ready: heartbeat.Ready, Timestamp: heartbeat.Timestamp}, true
 }
