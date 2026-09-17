@@ -83,16 +83,14 @@ func (app *WidgetApp) handleUpdateMessage(hwnd uintptr, message uint32) bool {
 		}
 		return true
 	case WM_USER_UPDATE_LATEST:
-		showMessage(hwnd, "当前已是最新版本。", MB_ICONINFO)
-		pInvalidateRect.Call(hwnd, 0, 0)
+		app.showInfoDialog(hwnd, "检查更新", "当前已是最新版本。")
 		return true
 	case WM_USER_UPDATE_ERROR:
 		detail := app.takeUpdateError()
 		if detail == "" {
 			detail = "未知错误"
 		}
-		showMessage(hwnd, "检查或安装更新失败：\n"+detail, MB_ICONINFO)
-		pInvalidateRect.Call(hwnd, 0, 0)
+		app.showInfoDialog(hwnd, "更新失败", detail)
 		return true
 	case WM_USER_UPDATE_AVAILABLE:
 		// 后台发现新版本：只重绘，把"升级"按钮标黄，不打断用户。
@@ -112,10 +110,9 @@ func (app *WidgetApp) confirmUpdate(hwnd uintptr, release update.Release) {
 		"发现新版本 v%s。\n\n是否立即下载并安装？安装完成后会自动重启悬浮窗，不会重启正在运行的 Agent。",
 		release.Version,
 	)
-	if !showConfirm(hwnd, message) {
-		return
-	}
-	app.startUpdateInstall(hwnd, release)
+	app.showConfirmDialog(hwnd, "发现新版本", message, func() {
+		app.startUpdateInstall(hwnd, release)
+	})
 }
 
 func (app *WidgetApp) startUpdateInstall(hwnd uintptr, release update.Release) {

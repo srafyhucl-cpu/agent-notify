@@ -486,7 +486,15 @@ func (app *WidgetApp) focusedAgentHint() string {
 	}
 }
 
+// drawUI 先绘制当前视图，再在最上层绘制应用内对话框（若可见）。
 func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
+	drawViewContent(hdc, width, height, app)
+	if app.dialog.visible {
+		drawAppDialog(hdc, app)
+	}
+}
+
+func drawViewContent(hdc uintptr, width, height int32, app *WidgetApp) {
 	theme := app.getTheme()
 	background := RECT{0, 0, width, height}
 	backgroundBrush, _, _ := pCreateSolidBrush.Call(uintptr(theme.Background))

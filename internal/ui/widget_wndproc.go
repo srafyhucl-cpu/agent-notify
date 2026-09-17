@@ -34,6 +34,9 @@ func (app *WidgetApp) handleMessage(hwnd, msg, wParam, lParam uintptr) uintptr {
 		pInvalidateRect.Call(hwnd, 0, 0)
 		return 0
 	}
+	if app.dialog.visible && app.handleDialogInput(hwnd, message, wParam, lParam) {
+		return 0
+	}
 	if app.handleUpdateMessage(hwnd, message) {
 		return 0
 	}

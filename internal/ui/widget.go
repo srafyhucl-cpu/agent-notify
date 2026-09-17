@@ -119,6 +119,7 @@ type WidgetApp struct {
 	repairSetup          func(context.Context) error
 	repairDone           chan repairResult
 	sessionCancel        context.CancelFunc
+	dialog               widgetDialog
 }
 
 type WidgetOptions struct {
@@ -810,13 +811,11 @@ func (app *WidgetApp) mutateConfig(apply func(*config.AppConfig)) bool {
 	return true
 }
 
-// reportActionError 把用户操作中的失败明确暴露出来（消息框 + 调试日志）。
+// reportActionError 把用户操作中的失败明确暴露出来（应用内对话框 + 调试日志）。
 func (app *WidgetApp) reportActionError(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	debugLog("action error: %s", message)
-	if app.window() != 0 {
-		showMessage(app.window(), message, MB_ICONINFO)
-	}
+	app.showInfoDialog(app.window(), "操作失败", message)
 }
 
 func (app *WidgetApp) refreshState() {
