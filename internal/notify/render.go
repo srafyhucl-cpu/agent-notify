@@ -138,7 +138,7 @@ func fitNotification(title, summary, footer string, maxChars int) (string, strin
 		return title, "", message
 	}
 
-	message = truncateRunes(message, maxChars)
+	message = clipRunes(message, maxChars)
 	return title, summary, message
 }
 
@@ -146,7 +146,9 @@ func runeCount(value string) int {
 	return len([]rune(value))
 }
 
-func truncateRunes(value string, limit int) string {
+// clipRunes 按 rune 截断到 limit 长度，截断后不追加省略号。通知正文只要求
+// 不超过渠道限长，加省略号反而会挤占正文空间；非正数 limit 返回空串。
+func clipRunes(value string, limit int) string {
 	if limit <= 0 {
 		return ""
 	}
