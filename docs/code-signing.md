@@ -101,3 +101,26 @@ $env:AGENT_NOTIFY_REQUIRE_SIGNATURE = '1'
 - 证书换签后，务必先更新 `defaultSignatureThumbprint`（若已启用）再发版，否则老客户端会拒绝新版本；
 - 建议同时配置时间戳（`/tr`），证书过期后既有产物的签名仍然有效；
 - 证书私钥泄露时立即吊销，并在下一版移除旧指纹。
+
+## 6. 可选加固：把签名密钥放进受保护环境
+
+默认情况下签名密钥是**仓库级 secret**：任何能修改 workflow 的协作者都能通过 CI 读取它。
+如果以后协作者增多（或想给发版加一道人工确认），可以这样做：
+
+1. 仓库 `Settings → Environments → New environment`，命名 `release`；
+2. 勾选 **Required reviewers**，把你自己加进去；
+3. 把 `AGENT_NOTIFY_SIGN_PFX_BASE64`、`AGENT_NOTIFY_SIGN_PFX_PASSWORD`、`RELEASE_REPO_TOKEN`
+   三个 secret 从仓库级删除，改为在该 environment 下新建（`gh secret set NAME --env release`）；
+4. `.github/workflows/release.yml` 的 `release` job 加上：
+
+   ```yaml
+   jobs:
+     release:
+       environment: release
+   ```
+
+之后每次发版，workflow 会停在等待批准的状态，你在 GitHub 的 Actions 页面点 **Approve** 后
+才会拿到密钥并开始构建。当前仓库只有单一协作者，未启用该加固。
+
+**安全边界一句话**：能读到 secrets 的人 = 拥有签名能力；仓库私有 + 只有你一个协作者时，
+边界就是你的账号安全（请开启 2FA）。
