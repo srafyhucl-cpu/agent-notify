@@ -19,6 +19,7 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/app"
 	"github.com/srafyhucl-cpu/agent-notify/internal/clawbot"
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/diag"
 	"github.com/srafyhucl-cpu/agent-notify/internal/integration"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 	"github.com/srafyhucl-cpu/agent-notify/internal/reply"
@@ -246,13 +247,8 @@ func pointInRect(x, y int32, rect RECT) bool {
 
 func debugLog(format string, args ...interface{}) {
 	paths := config.GetPaths()
-	_ = os.MkdirAll(paths.TempDir, 0700)
 	entry := fmt.Sprintf("[%s] [PID:%d] %s\r\n", time.Now().Format("15:04:05.000"), os.Getpid(), fmt.Sprintf(format, args...))
-	file, err := os.OpenFile(paths.WidgetTraceLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err == nil {
-		_, _ = file.WriteString(entry)
-		_ = file.Close()
-	}
+	diag.Append(paths.WidgetTraceLog, entry)
 }
 
 func resolveWidgetPosition(raw string, screenWidth, screenHeight, winWidth, winHeight int32) (int32, int32) {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/diag"
 )
 
 var (
@@ -70,12 +71,7 @@ func HandleWatch(configPath string, exePath string) error {
 	}
 
 	paths := config.GetPaths()
-	_ = os.MkdirAll(paths.TempDir, 0700)
 	entry := fmt.Sprintf("[watch] repatched %s at %s\n", configPath, time.Now().Format(time.RFC3339))
-	file, err := os.OpenFile(paths.CodexWatchLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err == nil {
-		_, _ = file.WriteString(entry)
-		_ = file.Close()
-	}
+	diag.Append(paths.CodexWatchLog, entry)
 	return nil
 }

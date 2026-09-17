@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/diag"
 	"github.com/srafyhucl-cpu/agent-notify/internal/marker"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 	"github.com/srafyhucl-cpu/agent-notify/internal/sysproc"
@@ -174,13 +175,8 @@ func writeCodexDebug(line string) {
 		return
 	}
 	paths := config.GetPaths()
-	_ = os.MkdirAll(paths.TempDir, 0700)
 	entry := fmt.Sprintf("%s %s\n", time.Now().Format(time.RFC3339), line)
-	file, err := os.OpenFile(paths.CodexNotifyDebugLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err == nil {
-		_, _ = file.WriteString(entry)
-		_ = file.Close()
-	}
+	diag.Append(paths.CodexNotifyDebugLog, entry)
 }
 
 // HandleCodex passes the original event through to codex-computer-use and then

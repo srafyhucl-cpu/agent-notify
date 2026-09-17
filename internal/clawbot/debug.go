@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/config"
+	"github.com/srafyhucl-cpu/agent-notify/internal/diag"
 )
 
 const clawbotDebugEnv = "AGENT_NOTIFY_CLAWBOT_DEBUG"
@@ -92,15 +93,8 @@ func writeClawbotDebugData(operation DebugOperation, data []byte) {
 		return
 	}
 	paths := config.GetPaths()
-	if err := os.MkdirAll(paths.TempDir, 0700); err != nil {
-		return
-	}
-	file, err := os.OpenFile(paths.ClawbotDebugLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	_, _ = fmt.Fprintf(file, "%s %s data=%s\n", time.Now().Format(time.RFC3339), operation, data)
+	line := fmt.Sprintf("%s %s data=%s\n", time.Now().Format(time.RFC3339), operation, data)
+	diag.Append(paths.ClawbotDebugLog, line)
 }
 
 func sanitizeClawbotDebugResponse(response []byte) []byte {
