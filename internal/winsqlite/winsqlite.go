@@ -100,8 +100,8 @@ func ReadRow(path, stage string, columnCount int, query string, args ...string) 
 		return Row{}, err
 	}
 
-	var lastErr error
-	for attempt := 0; attempt <= DefaultLockRetries; attempt++ {
+	// 重试上限由 attempt == DefaultLockRetries 的分支保证退出，无需额外的尾部 return。
+	for attempt := 0; ; attempt++ {
 		row, queryErr := sqlite.readRow(path, stage, columnCount, query, args...)
 		if queryErr == nil {
 			row.Retries = attempt
@@ -114,10 +114,8 @@ func ReadRow(path, stage string, columnCount int, query string, args ...string) 
 			}
 			return Row{}, queryErr
 		}
-		lastErr = queryErr
 		time.Sleep(RetryDelay)
 	}
-	return Row{}, lastErr
 }
 
 func (a *sqliteAPI) readRow(path, stage string, columnCount int, query string, args ...string) (Row, error) {
@@ -262,6 +260,12 @@ func cString(pointer uintptr) string {
 			return string(data)
 		}
 		data = append(data, scratch[0])
+	}
+	// 已读满 errorTextLimit 字节：再探测下一个字节，为 NUL 说明文本恰好是上限长度，
+	// 否则说明内容更长，按诊断上限返回哨兵。
+	move.Call(uintptr(unsafe.Pointer(&scratch[0])), pointer+uintptr(errorTextLimit), 1)
+	if scratch[0] == 0 {
+		return string(data)
 	}
 	return "sqlite error message exceeds diagnostic limit"
 }

@@ -445,8 +445,30 @@ func TestCString(t *testing.T) {
 		}
 	})
 
+	t.Run("普通短字符串", func(t *testing.T) {
+		text := "disk I/O error: 磁盘读取失败"
+		buffer := append([]byte(text), 0)
+		got := cString(uintptr(unsafe.Pointer(&buffer[0])))
+		runtime.KeepAlive(buffer)
+		if got != text {
+			t.Fatalf("普通短字符串读取错误：%q", got)
+		}
+	})
+
+	t.Run("恰好等于上限且 NUL 结尾", func(t *testing.T) {
+		// 真实文本长度恰好为 errorTextLimit，其后紧跟 NUL，应完整返回而非哨兵。
+		payload := bytes.Repeat([]byte{'A'}, errorTextLimit)
+		buffer := append(payload, 0)
+		got := cString(uintptr(unsafe.Pointer(&buffer[0])))
+		runtime.KeepAlive(buffer)
+		if got != string(payload) {
+			t.Fatalf("恰好达到上限的文本应原样返回，实际 len=%d（哨兵=%v）", len(got), got == "sqlite error message exceeds diagnostic limit")
+		}
+	})
+
 	t.Run("超过长度上限", func(t *testing.T) {
-		buffer := bytes.Repeat([]byte{'A'}, errorTextLimit)
+		// 读满 errorTextLimit 字节后下一字节仍非 NUL，说明内容更长，返回哨兵。
+		buffer := append(bytes.Repeat([]byte{'A'}, errorTextLimit), 'B')
 		got := cString(uintptr(unsafe.Pointer(&buffer[0])))
 		runtime.KeepAlive(buffer)
 		if got != "sqlite error message exceeds diagnostic limit" {
