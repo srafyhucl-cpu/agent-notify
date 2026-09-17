@@ -6,6 +6,25 @@
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-09-17
+
+### Fixed
+
+- 修复目标进程命令行长度为奇数或为空时的越界写与 panic，以及 Codex notify 重写时安装路径含 `$` 被正则展开导致路径被吞的问题。
+- 修复 ZIP 解压大小上限可被 uint64 溢出绕过、本地状态文件锁永久阻塞、原子写固定临时名并发覆盖、`winsqlite` 文本上限边界误判等健壮性问题。
+- `recordFailure`/`RecordSkipped` 的历史写入失败改由 `Warning` 上报；悬浮窗清空/读取推送历史、定位自身可执行文件失败不再静默；旁路 helper 与离线通知失败写入诊断日志。
+
+### Changed
+
+- 悬浮窗窗口句柄改为原子访问，消除跨 goroutine 数据竞争。
+- ClawBot HTTP 响应体读取限制为 8 MiB；`codex-computer-use` 旁路 helper 增加 30 秒超时。
+- 本地标记文件与原子写临时文件权限统一为 0700/0600。
+
+### Added
+
+- CI 新增 `-race` 并发检测作业。
+- 补齐 winsqlite 封装、CLI 纯逻辑、文件锁超时、心跳门禁、`$` 路径重写与 stdin 读取等回归测试。
+
 ## [1.11.0] - 2026-09-16
 
 ### Added
