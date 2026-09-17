@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -63,7 +64,7 @@ var (
 )
 
 type WidgetApp struct {
-	hwnd                 uintptr
+	hwnd                 atomic.Uintptr
 	tray                 *TrayManager
 	paths                config.Paths
 	theme                string
@@ -424,8 +425,8 @@ func RunWidget(options WidgetOptions) {
 	})
 	go clawbot.RunSessionLoop(sessionCtx, replyDispatcher.Handle, func(err error) {
 		debugLog("clawbot session loop: %v", err)
-		if instance.hwnd != 0 {
-			pPostMessageW.Call(instance.hwnd, WM_USER_REFRESH, 0, 0)
+		if instance.window() != 0 {
+			pPostMessageW.Call(instance.window(), WM_USER_REFRESH, 0, 0)
 		}
 	})
 
@@ -433,8 +434,8 @@ func RunWidget(options WidgetOptions) {
 		go func() {
 			for {
 				result, _, _ := pWaitForSingleObject.Call(hWakeupEvent, 500)
-				if result == WAIT_OBJECT_0 && instance.hwnd != 0 {
-					pPostMessageW.Call(instance.hwnd, WM_USER_WAKEUP, 0, 0)
+				if result == WAIT_OBJECT_0 && instance.window() != 0 {
+					pPostMessageW.Call(instance.window(), WM_USER_WAKEUP, 0, 0)
 				}
 			}
 		}()
@@ -473,7 +474,7 @@ func RunWidget(options WidgetOptions) {
 		case WM_CREATE:
 			setUIDPI(windowDPI(hwnd))
 			resizeForCurrentDPI(hwnd, widgetWidth, widgetHeight)
-			instance.hwnd = hwnd
+			instance.hwnd.Store(hwnd)
 			instance.loginState.setWindow(hwnd)
 			instance.tray = NewTrayManager(hwnd)
 			instance.refreshState()
@@ -1178,6 +1179,11 @@ func RunWidget(options WidgetOptions) {
 	}
 }
 
+// window 原子读取窗口句柄；唤醒/会话后台 goroutine 与 UI 线程通过它共享 hwnd。
+func (app *WidgetApp) window() uintptr {
+	return app.hwnd.Load()
+}
+
 func (app *WidgetApp) getTheme() ThemePalette {
 	return GetTheme(app.theme)
 }
@@ -1198,18 +1204,18 @@ func (app *WidgetApp) toggleTheme() {
 	if app.cooldownEdit != 0 {
 		pInvalidateRect.Call(app.cooldownEdit, 0, 1)
 	}
-	pInvalidateRect.Call(app.hwnd, 0, 0)
+	pInvalidateRect.Call(app.window(), 0, 0)
 }
 
 func (app *WidgetApp) applyThemeToWindow() {
-	if app.hwnd == 0 {
+	if app.window() == 0 {
 		return
 	}
 	darkMode := uint32(1)
 	if app.theme == "light" {
 		darkMode = 0
 	}
-	pDwmSetWindowAttribute.Call(app.hwnd, 20, uintptr(unsafe.Pointer(&darkMode)), 4)
+	pDwmSetWindowAttribute.Call(app.window(), 20, uintptr(unsafe.Pointer(&darkMode)), 4)
 }
 
 func (app *WidgetApp) switchView(view WidgetView) {
@@ -1262,13 +1268,13 @@ func (app *WidgetApp) switchView(view WidgetView) {
 		app.historySelectedIndex = 0
 	}
 
-	if app.hwnd != 0 {
-		pInvalidateRect.Call(app.hwnd, 0, 0)
+	if app.window() != 0 {
+		pInvalidateRect.Call(app.window(), 0, 0)
 	}
 }
 
 func (app *WidgetApp) ensureSettingsEdits() {
-	if app.hwnd == 0 {
+	if app.window() == 0 {
 		return
 	}
 	hInstance, _, _ := pGetModuleHandleW.Call(0)
@@ -1282,7 +1288,7 @@ func (app *WidgetApp) ensureSettingsEdits() {
 			WS_CHILD|ES_AUTOHSCROLL,
 			uintptr(rect.Left), uintptr(rect.Top),
 			uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top),
-			app.hwnd, uintptr(IDC_SETTINGS_QUIET), hInstance, 0,
+			app.window(), uintptr(IDC_SETTINGS_QUIET), hInstance, 0,
 		)
 		pSendMessageW.Call(app.quietEdit, WM_SETFONT, font, 1)
 	}
@@ -1295,7 +1301,7 @@ func (app *WidgetApp) ensureSettingsEdits() {
 			WS_CHILD|ES_AUTOHSCROLL|ES_NUMBER,
 			uintptr(rect.Left), uintptr(rect.Top),
 			uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top),
-			app.hwnd, uintptr(IDC_SETTINGS_COOLDOWN), hInstance, 0,
+			app.window(), uintptr(IDC_SETTINGS_COOLDOWN), hInstance, 0,
 		)
 		pSendMessageW.Call(app.cooldownEdit, WM_SETFONT, font, 1)
 	}
@@ -1308,7 +1314,7 @@ func (app *WidgetApp) startInAppLoginFlow() {
 
 // ensureVerifyEdit 懒创建扫码配对码输入框，样式与设置页输入框保持一致。
 func (app *WidgetApp) ensureVerifyEdit() {
-	if app.hwnd == 0 || app.verifyEdit != 0 {
+	if app.window() == 0 || app.verifyEdit != 0 {
 		return
 	}
 	rect := verifyEditRect()
@@ -1320,7 +1326,7 @@ func (app *WidgetApp) ensureVerifyEdit() {
 		WS_CHILD|ES_AUTOHSCROLL|ES_NUMBER,
 		uintptr(rect.Left), uintptr(rect.Top),
 		uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top),
-		app.hwnd, uintptr(loginCodeEditID), hInstance, 0,
+		app.window(), uintptr(loginCodeEditID), hInstance, 0,
 	)
 	if app.verifyEdit == 0 {
 		return
@@ -1470,8 +1476,8 @@ func (app *WidgetApp) mutateConfig(apply func(*config.AppConfig)) bool {
 func (app *WidgetApp) reportActionError(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	debugLog("action error: %s", message)
-	if app.hwnd != 0 {
-		showMessage(app.hwnd, message, MB_ICONINFO)
+	if app.window() != 0 {
+		showMessage(app.window(), message, MB_ICONINFO)
 	}
 }
 
