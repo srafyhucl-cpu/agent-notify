@@ -34,8 +34,11 @@ const (
 // 以便用未签名的桩产物验证 Prepare 的其它行为。
 var resolveSignatureThumbprints = signatureThumbprintsFromEnv
 
+// inspectSignatureFn 默认调用平台实现；测试可替换它，避免在单元测试里真跑 PowerShell。
+var inspectSignatureFn = inspectSignature
+
 func verifyArtifactSignature(ctx context.Context, path string) error {
-	info, err := inspectSignature(ctx, path)
+	info, err := inspectSignatureFn(ctx, path)
 	if err != nil {
 		return err
 	}

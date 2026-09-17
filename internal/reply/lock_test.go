@@ -264,6 +264,16 @@ func withTinyCompaction(t *testing.T) {
 	t.Cleanup(func() { defaultJSONLCompactionOptions = previous })
 }
 
+// withStressLockTimeout 为并发压力测试放宽锁等待上限。锁超时是防"另一进程挂死"的安全阀，
+// 不是数据一致性契约的一部分；这两个用例刻意制造 32 路并发 + 每轮重写文件，在 -race 的慢
+// 环境下会远超生产默认的 5s，这里单独放宽以验证真正的不变量："并发写不丢失"。
+func withStressLockTimeout(t *testing.T) {
+	t.Helper()
+	previous := lockAcquireTimeout
+	lockAcquireTimeout = 60 * time.Second
+	t.Cleanup(func() { lockAcquireTimeout = previous })
+}
+
 func expiredRouteFixtures(now time.Time, count int) []any {
 	fixtures := make([]any, 0, count)
 	for index := 0; index < count; index++ {
@@ -297,6 +307,7 @@ func expiredStateFixtures(now time.Time, count int) []any {
 // missing lock loses those appends when the rewritten file replaces the old one.
 func TestConcurrentRouteRecordsSurviveCompaction(t *testing.T) {
 	withTinyCompaction(t)
+	withStressLockTimeout(t)
 	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.Local)
 
 	for round := 0; round < concurrentCompactionRounds; round++ {
@@ -354,6 +365,7 @@ func TestConcurrentRouteRecordsSurviveCompaction(t *testing.T) {
 // duplicate WeChat delivery could execute the same reply twice.
 func TestConcurrentStateClaimsSurviveCompaction(t *testing.T) {
 	withTinyCompaction(t)
+	withStressLockTimeout(t)
 	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.Local)
 
 	for round := 0; round < concurrentCompactionRounds; round++ {

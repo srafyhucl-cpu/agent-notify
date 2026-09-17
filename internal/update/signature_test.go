@@ -8,12 +8,20 @@ import (
 	"testing"
 )
 
-// clearSignaturePin 让使用未签名桩产物的 Prepare 测试不受内置信任指纹影响。
-func clearSignaturePin(t *testing.T) {
+// useUnsignedStubArtifact 让 Prepare 系列用例使用未签名桩产物：既忽略内置信任指纹，
+// 也不必真跑 PowerShell 的 Authenticode 探测（CI 的 cgo/race 环境下该探测不可靠）。
+func useUnsignedStubArtifact(t *testing.T) {
 	t.Helper()
-	original := resolveSignatureThumbprints
+	originalPin := resolveSignatureThumbprints
+	originalInspect := inspectSignatureFn
 	resolveSignatureThumbprints = func() []string { return nil }
-	t.Cleanup(func() { resolveSignatureThumbprints = original })
+	inspectSignatureFn = func(context.Context, string) (SignatureInfo, error) {
+		return SignatureInfo{Status: "NotSigned"}, nil
+	}
+	t.Cleanup(func() {
+		resolveSignatureThumbprints = originalPin
+		inspectSignatureFn = originalInspect
+	})
 }
 
 func TestSignaturePolicy(t *testing.T) {
