@@ -280,28 +280,35 @@ func randomReplyID() (string, error) {
 }
 
 func writeFileAtomic(path string, data []byte) error {
-	tmp := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
-	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, privateFilePerm)
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
-	_ = file.Chmod(privateFilePerm)
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		_ = os.Remove(tmp)
+	tmpPath := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}
+
+	// 保留原有的 fsync 语义：先落盘再改名，避免掉电后出现半截文件。
+	if err := tmp.Chmod(privateFilePerm); err != nil {
+		cleanup()
 		return err
 	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		_ = os.Remove(tmp)
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
 		return err
 	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(tmp)
+	if err := tmp.Sync(); err != nil {
+		cleanup()
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	return nil

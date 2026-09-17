@@ -1,6 +1,7 @@
 package reply
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -298,5 +300,62 @@ func TestSpoolQueueCarriesSessionMetadata(t *testing.T) {
 	writeSpoolResult(t, dir, job.ID, spoolReplyResult{OK: true})
 	if err := <-done; err != nil {
 		t.Fatalf("Queue: %v", err)
+	}
+}
+
+// 并发写同一路径时，临时文件必须唯一，最终内容应是某一次完整写入。
+// Windows 上并发替换同一目标文件时，部分 writer 的 rename 会明确失败，
+// 这是可接受的显式失败；这里只校验「不损坏」：至少一个成功、内容完整、无残留临时文件。
+func TestWriteFileAtomicConcurrentWriters(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "heartbeat.json")
+
+	const writers = 16
+	payload := func(i int) []byte {
+		return bytes.Repeat([]byte{byte('a' + i)}, 4096)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	successCount := 0
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := writeFileAtomic(path, payload(i)); err == nil {
+				mu.Lock()
+				successCount++
+				mu.Unlock()
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if successCount < 1 {
+		t.Fatal("no writer succeeded, want at least one")
+	}
+
+	// 最终内容必须是某一次写入的完整载荷，证明没有交叉写入或截断。
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched := false
+	for i := 0; i < writers; i++ {
+		if bytes.Equal(data, payload(i)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		t.Fatalf("final content length %d does not match any writer payload", len(data))
+	}
+
+	leftovers, err := filepath.Glob(path + ".*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("temporary files remain: %#v", leftovers)
 	}
 }

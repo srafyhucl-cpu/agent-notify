@@ -438,7 +438,7 @@ func TestWriteFileAtomicReplacesExistingFile(t *testing.T) {
 	if string(data) != "new" {
 		t.Fatalf("content = %q, want new", data)
 	}
-	leftovers, err := filepath.Glob(path + ".tmp-*")
+	leftovers, err := filepath.Glob(path + ".*.tmp")
 	if err != nil {
 		t.Fatal(err)
 	}
