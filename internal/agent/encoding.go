@@ -47,6 +47,10 @@ func ReadPipedStdinNonBlocking() []byte {
 	}
 
 	buf := make([]byte, bytesAvail)
-	n, _ := os.Stdin.Read(buf)
+	n, err := os.Stdin.Read(buf)
+	if err != nil {
+		// 读取出错时宁愿当作没有 stdin，也不把可能被截断的数据当成完整内容。
+		return nil
+	}
 	return buf[:n]
 }

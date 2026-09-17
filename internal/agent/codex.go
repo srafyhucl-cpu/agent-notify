@@ -2,7 +2,9 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,7 +25,12 @@ var (
 	reInputMessages     = regexp.MustCompile(`input-messages["':\s]+\["?([^\]"]*)"?\]`)
 )
 
-const codexTurnCompleteType = "agent-turn-complete"
+const (
+	codexTurnCompleteType = "agent-turn-complete"
+	// codexHelperTimeout 限制旁路 codex-computer-use helper 的最长运行时间，
+	// 避免 helper 卡住时残留进程。
+	codexHelperTimeout = 30 * time.Second
+)
 
 // FindCodexComputerUseExe dynamically locates the latest codex-computer-use.exe.
 func FindCodexComputerUseExe() string {
@@ -197,13 +204,30 @@ func handleCodex(args []string, titles codexTitleResolver) notify.NotifyResult {
 
 	stdinBytes := ReadPipedStdinNonBlocking()
 	if cuaExe := FindCodexComputerUseExe(); cuaExe != "" {
-		command := exec.Command(cuaExe, forwardArgs...)
+		// helper 是旁路：启动失败、超时或异常退出都只记录调试日志，不影响后续通知发送。
+		// 超时上下文在后台 goroutine 结束时才取消，让 helper 独立跑完自己的时间窗。
+		helperCtx, cancelHelper := context.WithTimeout(context.Background(), codexHelperTimeout)
+		command := exec.CommandContext(helperCtx, cuaExe, forwardArgs...)
 		configureHiddenProcess(command)
 		if len(stdinBytes) > 0 {
 			command.Stdin = bytes.NewReader(stdinBytes)
 		}
-		if err := command.Start(); err == nil {
-			go func() { _ = command.Wait() }()
+		if err := command.Start(); err != nil {
+			cancelHelper()
+			writeCodexDebug(fmt.Sprintf("helper start failed: %v", err))
+		} else {
+			go func() {
+				defer cancelHelper()
+				err := command.Wait()
+				switch {
+				case err == nil:
+					return
+				case errors.Is(helperCtx.Err(), context.DeadlineExceeded):
+					writeCodexDebug(fmt.Sprintf("helper timed out after %s", codexHelperTimeout))
+				default:
+					writeCodexDebug(fmt.Sprintf("helper wait failed: %v", err))
+				}
+			}()
 		}
 	}
 

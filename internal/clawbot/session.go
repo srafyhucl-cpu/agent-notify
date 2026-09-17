@@ -13,6 +13,8 @@ const (
 	sessionIdlePollInterval = time.Second
 	sessionBackoffInitial   = time.Second
 	sessionBackoffMax       = time.Minute
+	// debugOperationNotifyStop 记录离线通知（NotifyStop）的旁路失败，便于排查未送达。
+	debugOperationNotifyStop DebugOperation = "notify-stop"
 )
 
 // SessionEvent reports one batch of inbound messages.
@@ -202,7 +204,9 @@ func stopSessionLifecycle(announcedToken string) {
 	}
 	stopCtx, cancel := context.WithTimeout(context.Background(), sessionLifecycleTimeout)
 	defer cancel()
-	_ = client.NotifyStop(stopCtx)
+	if err := client.NotifyStop(stopCtx); err != nil {
+		writeClawbotDebugEvent(debugOperationNotifyStop, map[string]string{"error": err.Error()})
+	}
 }
 
 // markStaleIfToken 只在 botToken 仍是当前登录凭据时才标记失效并清空会话状态。
