@@ -120,6 +120,8 @@ Start-Process $exe -ArgumentList "status" -Wait
 
 悬浮窗底部提供“升级”按钮。点击后会读取官方仓库的最新稳定 Release；发现更高版本时，再确认下载并安装。
 
+悬浮窗启动约 15 秒后会自动静默检查一次更新，之后每 2 小时轮询：发现新版本时“升级”按钮会标黄并显示版本号，但不会弹窗、也不会自动安装；检查失败只写调试日志，不打扰使用。
+
 更新流程优先静默下载 `Agent-notify-Setup-vX.Y.Z.exe`，并读取 Release 中 `SHA256SUMS.txt` 校验 SHA256；校验失败时立即终止，不启动安装程序。随后校验安装包的 Authenticode 签名：签名无效一律拒绝，未签名默认放行（可用 `AGENT_NOTIFY_REQUIRE_SIGNATURE=1` 要求必须签名，或用 `AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 指定信任的签名者指纹）；接入代码签名的步骤见 [`docs/code-signing.md`](docs/code-signing.md)。校验通过后直接启动安装器进行原地升级，安装器会收到当前悬浮窗所在目录（自定义安装目录不会被改回默认位置），安装过程保留本机 ClawBot 凭据、配置、历史与引用路由，并重新启动新版悬浮窗。更新不会自动启动、关闭或重启 OpenCode、Codex、Antigravity、Devin。
 
 如果旧 Release 没有提供安装器，更新器会兼容回退到 `Agent-notify-vX.Y.Z.zip`，并按当前 exe 所在目录原地升级。当 GitHub API 不可用、只能通过公开跳转页确定版本时，也会使用 ZIP 兼容路径。

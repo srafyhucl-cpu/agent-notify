@@ -3,6 +3,9 @@
 package ui
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -102,4 +105,72 @@ func containsString(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+// 后台静默检查的并发约束：不重复进入、不与手动检查/安装重叠、失败不抹掉已发现的新版本。
+func TestBackgroundUpdateCheckStateGuards(t *testing.T) {
+	app := &WidgetApp{}
+	known := update.Release{Version: "9.9.9"}
+	app.updateState.release = &known
+
+	if !app.beginBackgroundUpdateCheck() {
+		t.Fatal("first background check should start")
+	}
+	if app.beginBackgroundUpdateCheck() {
+		t.Fatal("overlapping background check should be rejected")
+	}
+	// 后台检查失败（release=nil）不得抹掉已发现的新版本。
+	app.finishBackgroundUpdateCheck(nil)
+	if release, ok := app.pendingUpdate(); !ok || release.Version != "9.9.9" {
+		t.Fatalf("known release lost after background check: %+v ok=%v", release, ok)
+	}
+
+	// 手动检查进行中时，后台检查跳过，避免与用户可见状态互相干扰。
+	if !app.beginUpdateCheck() {
+		t.Fatal("manual check should start")
+	}
+	if app.beginBackgroundUpdateCheck() {
+		t.Fatal("background check should skip while a manual check is in flight")
+	}
+	app.finishUpdateCheck(nil, "")
+}
+
+// 静默检查发现新版本时写入状态（按钮由此标黄），且不设置用户可见的忙状态。
+func TestCheckUpdateSilentlyStoresRelease(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/owner/repo/releases/latest" {
+			http.NotFound(w, r)
+			return
+		}
+		base := "http://" + r.Host
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{
+			"tag_name":"v9.9.9",
+			"body":"silent notes",
+			"assets":[
+				{"name":"Agent-notify-Setup-v9.9.9.exe","url":"%s/setup"},
+				{"name":"SHA256SUMS.txt","url":"%s/checksums"}
+			]
+		}`, base, base)
+	}))
+	defer server.Close()
+
+	original := newUpdateClient
+	newUpdateClient = func() *update.Client {
+		return &update.Client{HTTPClient: server.Client(), Repository: "owner/repo", APIBaseURL: server.URL}
+	}
+	t.Cleanup(func() { newUpdateClient = original })
+
+	app := &WidgetApp{}
+	app.checkUpdateSilently()
+
+	if release, ok := app.pendingUpdate(); !ok || release.Version != "9.9.9" {
+		t.Fatalf("silent check pending update = %+v ok=%v", release, ok)
+	}
+	if label, primary := app.updateButtonState(); label != "升级 v9.9.9" || !primary {
+		t.Fatalf("button after silent check = %q primary=%v", label, primary)
+	}
+	if app.updateState.background {
+		t.Fatal("background flag should be cleared after silent check")
+	}
 }

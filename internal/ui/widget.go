@@ -418,6 +418,7 @@ func RunWidget(options WidgetOptions) {
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	instance.sessionCancel = sessionCancel
 	defer sessionCancel()
+	go instance.runBackgroundUpdateChecks(sessionCtx)
 	replyDispatcher := reply.NewDispatcher(reply.DispatcherOptions{
 		SendText: reply.NewClawBotTextSender(),
 	})

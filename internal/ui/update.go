@@ -19,17 +19,28 @@ const (
 	WM_USER_UPDATE_LATEST  = WM_USER + 3
 	WM_USER_UPDATE_ERROR   = WM_USER + 4
 	WM_USER_UPDATE_RESTART = WM_USER + 5
+	// WM_USER_UPDATE_AVAILABLE 由后台静默检查在发现新版本后投递，只重绘按钮，不弹窗。
+	WM_USER_UPDATE_AVAILABLE = WM_USER + 6
 
 	updateCheckTimeout = 25 * time.Second
 	updatePrepareTime  = 4 * time.Minute
+
+	// 后台静默检查：启动后延迟一次，随后每 2 小时轮询。发现新版本只把"升级"按钮标黄，
+	// 不弹窗；失败只写调试日志。
+	updateBackgroundInitialDelay = 15 * time.Second
+	updateBackgroundInterval     = 2 * time.Hour
 )
 
 type widgetUpdateState struct {
-	mu      sync.Mutex
-	busy    string
-	release *update.Release
-	errText string
+	mu         sync.Mutex
+	busy       string // 用户可见的忙状态："checking"/"installing"，会影响按钮文案
+	background bool   // 后台静默检查进行中；不改变按钮文案，仅用于互斥
+	release    *update.Release
+	errText    string
 }
+
+// newUpdateClient 便于测试注入更新客户端；默认走生产客户端。
+var newUpdateClient = update.NewClient
 
 func (app *WidgetApp) handleUpdateClick(hwnd uintptr) {
 	if release, ok := app.pendingUpdate(); ok {
@@ -48,7 +59,7 @@ func (app *WidgetApp) startUpdateCheck(hwnd uintptr) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
 		defer cancel()
-		release, available, err := update.NewClient().Check(ctx, app.Version())
+		release, available, err := newUpdateClient().Check(ctx, app.Version())
 		if err != nil {
 			app.finishUpdateCheck(nil, err.Error())
 			pPostMessageW.Call(hwnd, WM_USER_UPDATE_ERROR, 0, 0)
@@ -81,6 +92,10 @@ func (app *WidgetApp) handleUpdateMessage(hwnd uintptr, message uint32) bool {
 			detail = "未知错误"
 		}
 		showMessage(hwnd, "检查或安装更新失败：\n"+detail, MB_ICONINFO)
+		pInvalidateRect.Call(hwnd, 0, 0)
+		return true
+	case WM_USER_UPDATE_AVAILABLE:
+		// 后台发现新版本：只重绘，把"升级"按钮标黄，不打断用户。
 		pInvalidateRect.Call(hwnd, 0, 0)
 		return true
 	case WM_USER_UPDATE_RESTART:
@@ -245,4 +260,64 @@ func (app *WidgetApp) takeUpdateError() string {
 	text := app.updateState.errText
 	app.updateState.errText = ""
 	return text
+}
+
+// beginBackgroundUpdateCheck 占用后台检查标志；不改变用户可见的 busy 状态，也不清空已发现的新版本。
+func (app *WidgetApp) beginBackgroundUpdateCheck() bool {
+	app.updateState.mu.Lock()
+	defer app.updateState.mu.Unlock()
+	if app.updateState.busy != "" || app.updateState.background {
+		return false
+	}
+	app.updateState.background = true
+	return true
+}
+
+// finishBackgroundUpdateCheck 结束后台检查；release 为 nil（失败或已是最新）时保留已发现的新版本。
+func (app *WidgetApp) finishBackgroundUpdateCheck(release *update.Release) {
+	app.updateState.mu.Lock()
+	defer app.updateState.mu.Unlock()
+	app.updateState.background = false
+	if release != nil {
+		app.updateState.release = release
+	}
+}
+
+// checkUpdateSilently 做一次静默检查：有新版本就更新按钮状态并通知重绘，失败只写调试日志。
+func (app *WidgetApp) checkUpdateSilently() {
+	if !app.beginBackgroundUpdateCheck() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)
+	defer cancel()
+	release, available, err := newUpdateClient().Check(ctx, app.Version())
+	if err != nil {
+		debugLog("background update check: %v", err)
+		app.finishBackgroundUpdateCheck(nil)
+		return
+	}
+	if !available {
+		app.finishBackgroundUpdateCheck(nil)
+		return
+	}
+	app.finishBackgroundUpdateCheck(&release)
+	if hwnd := app.window(); hwnd != 0 {
+		pPostMessageW.Call(hwnd, WM_USER_UPDATE_AVAILABLE, 0, 0)
+	}
+}
+
+// runBackgroundUpdateChecks 启动延迟后做一次静默检查，之后每 updateBackgroundInterval 轮询，
+// 直到 ctx 结束（悬浮窗退出）。
+func (app *WidgetApp) runBackgroundUpdateChecks(ctx context.Context) {
+	timer := time.NewTimer(updateBackgroundInitialDelay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		app.checkUpdateSilently()
+		timer.Reset(updateBackgroundInterval)
+	}
 }

@@ -47,6 +47,32 @@ func drawIconTextButton(hdc uintptr, rect RECT, glyph, label string, hover, prim
 			fillColor = uintptr(theme.ButtonBgHover)
 		}
 	}
+	drawIconTextButtonShape(hdc, rect, glyph, label, fillColor, textColor, borderColor, font, iconFont)
+}
+
+// drawUpdateButton 绘制"升级"按钮：有可用更新时整块标黄（AccentWarning），与其它按钮的
+// 绿色 primary 区分开，用于提示"有新版本"。其余绘制逻辑与普通按钮共用。
+func drawUpdateButton(hdc uintptr, rect RECT, glyph, label string, hover, available bool, font, iconFont uintptr, theme ThemePalette) {
+	fillColor := uintptr(theme.ButtonBg)
+	textColor := uintptr(theme.TextPrimary)
+	borderColor := uintptr(theme.ButtonBorder)
+	if available {
+		fillColor = uintptr(theme.AccentWarning)
+		textColor = uintptr(RGB(38, 30, 12))
+		borderColor = uintptr(theme.AccentWarning)
+	}
+	if hover {
+		fillColor = uintptr(theme.ButtonBgHover)
+		borderColor = uintptr(theme.ButtonBorderHover)
+		if available {
+			fillColor = uintptr(theme.AccentWarning)
+		}
+	}
+	drawIconTextButtonShape(hdc, rect, glyph, label, fillColor, textColor, borderColor, font, iconFont)
+}
+
+// drawIconTextButtonShape 是按钮绘制的公共部分：圆角底、边框与图标+文字居中。
+func drawIconTextButtonShape(hdc uintptr, rect RECT, glyph, label string, fillColor, textColor, borderColor, font, iconFont uintptr) {
 	fillRoundRect(hdc, rect, 7, fillColor)
 	strokeRoundRect(hdc, rect, 7, fillColor, borderColor, 1)
 
@@ -590,7 +616,7 @@ func drawUI(hdc uintptr, width, height int32, app *WidgetApp) {
 
 	pSelectObject.Call(hdc, smallFont)
 	updateLabel, updatePrimary := app.updateButtonState()
-	drawIconTextButton(hdc, layout.update, "\uE895", updateLabel, app.hover.update, updatePrimary, false, smallFont, iconFont, theme)
+	drawUpdateButton(hdc, layout.update, "\uE895", updateLabel, app.hover.update, updatePrimary, smallFont, iconFont, theme)
 
 	repairIssues := app.agentIntegrationIssues() > 0
 	repairText := "检查接入"
