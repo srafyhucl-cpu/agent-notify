@@ -47,10 +47,16 @@ func ReadPipedStdinNonBlocking() []byte {
 	}
 
 	buf := make([]byte, bytesAvail)
-	n, err := os.Stdin.Read(buf)
-	if err != nil {
-		// 读取出错时宁愿当作没有 stdin，也不把可能被截断的数据当成完整内容。
+	n, _ := os.Stdin.Read(buf)
+	return stdinReadResult(buf, n)
+}
+
+// stdinReadResult 决定一次 stdin 读取的结果：只要读到字节就保留。
+// Read 允许在返回若干字节的同时带回 EOF 等错误（同一调用内的非 nil error），
+// 这些字节仍是有效输入，丢弃会丢失本次摘要；只有一字节都没读到才视为没有 stdin。
+func stdinReadResult(buffer []byte, read int) []byte {
+	if read <= 0 {
 		return nil
 	}
-	return buf[:n]
+	return buffer[:read]
 }
