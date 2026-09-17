@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+## [1.11.2] - 2026-09-17
+
+### Fixed
+
+- 更新包签名探测失败时，错误信息附带 PowerShell 子进程 stderr，便于定位客户端"更新失败"的原因。
+
+### Changed
+
+- 发布流程新增签名门禁：Release workflow 强制要求签名 secret，构建脚本（`tools/signature-common.ps1`）校验产物已签名且签名者指纹等于 `internal/update/signature.go` 的内置信任指纹；未签名、状态异常或指纹不符都会在发布前失败，避免发出客户端拒绝安装的包。
+- `Prepare` 通用用例改为注入签名探测、并发压力测试显式放宽锁等待，保证 `-race` 下稳定。
+
 ## [1.11.1] - 2026-09-17
 
 ### Fixed
