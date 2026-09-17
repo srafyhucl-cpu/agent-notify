@@ -59,7 +59,9 @@ func HandleWatch(configPath string, exePath string) error {
 
 	exeSlash := strings.ReplaceAll(exePath, "\\", "/")
 	replacement := fmt.Sprintf(`notify = [ "%s", "codex", "turn-ended" ]`, exeSlash)
-	updated := reAnyNotifyLine.ReplaceAllString(content, replacement)
+	// 用字面量替换：replacement 内嵌了安装路径，若走正则展开，路径中的 `$`
+	// 会被当成分组引用而被吞掉（例如 C:\Tools\$weird\...）。
+	updated := reAnyNotifyLine.ReplaceAllLiteralString(content, replacement)
 	if updated == content {
 		return nil
 	}
