@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-09-18
+
+### Added
+
+- 引用回复成功后回一条送达确认（`✅ 已送达 **Agent**，会话：…`），让你明确回复已抵达目标会话；默认开启，可在配置里用 `replyConfirmation: false` 关闭，也会叠加在 `AGENT_NOTIFY_REPLY_CONFIRMATION` 环境覆盖上。
+
+### Changed
+
+- 通知改为 Markdown 模板：加粗标题行 `**🟢 Agent｜会话名**`、保留 Agent 的 Markdown（标题、列表、代码块等）、`———` 分隔与 `引用此消息可继续对话 · MM/DD HH:mm` 页脚；纯文本客户端也保持可读，不再把 Markdown 破坏成半成品。
+
 ## [1.12.0] - 2026-09-18
 
 ### Added
