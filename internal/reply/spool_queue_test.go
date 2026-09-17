@@ -173,8 +173,15 @@ func TestSpoolQueueRejectsBrokenResult(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Queue 未返回")
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatal("损坏的结果文件未被清理")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("损坏的结果文件未被清理")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

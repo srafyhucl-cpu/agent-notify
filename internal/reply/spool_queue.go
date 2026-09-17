@@ -260,13 +260,13 @@ func consumeSpoolResult(
 ) (bool, error) {
 	result, found, err := readSpoolResult(path, label)
 	if err != nil {
-		_ = os.Remove(path)
+		removeSpoolFile(path)
 		return false, err
 	}
 	if !found {
 		return false, nil
 	}
-	_ = os.Remove(path)
+	removeSpoolFile(path)
 	if result.OK {
 		return true, nil
 	}
@@ -280,6 +280,17 @@ func consumeSpoolResult(
 		return true, mapError(code, "")
 	}
 	return true, fmt.Errorf("%s: 会话 prompt 失败", label)
+}
+
+// removeSpoolFile 删除结果文件；Windows 上文件可能被杀软或其它句柄短暂占用，
+// 这里做几次有界重试，避免坏结果文件残留导致后续反复报错。
+func removeSpoolFile(path string) {
+	for attempt := 0; attempt < 10; attempt++ {
+		if err := os.Remove(path); err == nil || os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func readSpoolResult(path, label string) (spoolReplyResult, bool, error) {
