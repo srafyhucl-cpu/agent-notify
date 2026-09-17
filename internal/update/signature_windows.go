@@ -5,6 +5,7 @@ package update
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -23,6 +24,12 @@ func inspectSignature(ctx context.Context, path string) (SignatureInfo, error) {
 	sysproc.ConfigureHidden(command)
 	output, err := command.Output()
 	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			if detail := strings.TrimSpace(string(exitErr.Stderr)); detail != "" {
+				return SignatureInfo{}, fmt.Errorf("读取安装包签名失败：%w（%s）", err, detail)
+			}
+		}
 		return SignatureInfo{}, fmt.Errorf("读取安装包签名失败：%w", err)
 	}
 
