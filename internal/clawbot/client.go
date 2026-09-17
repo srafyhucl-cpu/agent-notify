@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -277,7 +276,7 @@ func (c *Client) postJSON(ctx context.Context, path string, body any, result any
 	}
 	defer resp.Body.Close()
 
-	respData, err := io.ReadAll(resp.Body)
+	respData, err := readResponseBody(resp.Body)
 	if err != nil {
 		return fmt.Errorf("clawbot: read response: %w", err)
 	}

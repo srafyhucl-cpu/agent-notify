@@ -329,7 +329,7 @@ func (c *AuthClient) doJSON(ctx context.Context, method, endpoint string, body a
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := readResponseBody(resp.Body)
 	if err != nil {
 		return err
 	}
