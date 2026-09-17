@@ -46,12 +46,12 @@ func SetMarker(path string, mode string) (string, error) {
 
 	// Turn Off: ensure directory exists and write timestamp
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "ON", err
 	}
 
 	content := fmt.Sprintf("off %s\n", time.Now().Format(time.RFC3339))
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return "ON", err
 	}
 
