@@ -53,7 +53,7 @@ func extractZip(archivePath, destination string) error {
 			return fmt.Errorf("更新包包含不支持的符号链接：%s", entry.Name)
 		}
 		if !withinExtractionBudget(entry.UncompressedSize64, extracted, maxExtractedBytes) {
-			return fmt.Errorf("解压后的更新内容超过允许大小 %d 字节", maxExtractedBytes)
+			return fmt.Errorf("解压后的更新内容超过允许大小（本条剩余 %d 字节，总计 %d 字节）", maxExtractedBytes-extracted, maxExtractedBytes)
 		}
 		written, err := extractZipFile(entry, target, maxExtractedBytes-extracted)
 		if err != nil {
@@ -91,7 +91,7 @@ func extractZipFile(entry *zip.File, target string, limit uint64) (uint64, error
 	}
 	if uint64(written) > limit {
 		_ = destination.Close()
-		return uint64(written), fmt.Errorf("解压后的更新内容超过允许大小 %d 字节", maxExtractedBytes)
+		return uint64(written), fmt.Errorf("解压后的更新内容超过允许大小（本条剩余 %d 字节，总计 %d 字节）", limit, maxExtractedBytes)
 	}
 	if err := destination.Close(); err != nil {
 		return uint64(written), fmt.Errorf("关闭更新文件失败：%w", err)

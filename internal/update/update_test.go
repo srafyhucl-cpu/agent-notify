@@ -434,6 +434,9 @@ func TestExtractZipFileHonorsLimit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "超过允许大小") {
 		t.Fatalf("extractZipFile over limit error = %v, want size error", err)
 	}
+	if !strings.Contains(err.Error(), "本条剩余 4 字节") {
+		t.Fatalf("extractZipFile over limit error = %v, want remaining budget in message", err)
+	}
 	if written != 5 {
 		t.Fatalf("written over limit = %d, want 5 (limit+1)", written)
 	}
