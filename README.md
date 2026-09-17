@@ -30,7 +30,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 - 设置窗内置 ClawBot 扫码登录、重新登录和退出登录，不再切换到独立控制台。
 - 悬浮窗、设置、登录和历史窗口均按 DPI 缩放并使用双缓冲绘制，支持多显示器 DPI 变化。
 - 悬浮窗是托盘型工具窗，不占用任务栏按钮，也不进入 Alt+Tab；隐藏后从托盘图标恢复。
-- JSON Lines 推送历史，区分成功、失败、未登录、会话未建立与跳过状态。
+- JSON Lines 推送历史，区分成功、失败、未登录、会话未建立、DryRun 与跳过状态。
 - 退出码与输出面向脚本友好；hook 调用失败不会阻塞 agent。
 
 ## 安装
@@ -137,6 +137,7 @@ agent-notify integration-status  查看 OpenCode / Codex / Antigravity / Devin �
 agent-notify notify      发送一条通知
 agent-notify test        发送测试通知
 agent-notify doctor      检查配置、凭据、会话、网络与接入
+agent-notify reply-check 只读校验微信引用 ID 与通知发送记录是否精确对应
 agent-notify toggle      开启或暂停 OpenCode / Codex / Antigravity / Devin 推送
 agent-notify watch       恢复被改回的 Codex notify 配置
 agent-notify history     查看最近推送记录（`--json` 输出机器可读结果）
@@ -235,7 +236,7 @@ P0 只承认当前登录账号的 scoped 证据：诊断里的 `account_scope` �
 - `codex queue` 支持尚未在前台打开的持久化线程：消息由 Codex 写入线程队列，下次恢复同一线程时执行。已归档线程会提示先运行 `codex unarchive`；不存在或已删除的线程会明确失败。
 - 临时会话（ephemeral）不支持引用续聊，Codex 未启用持久化队列或本地 app-server 状态冲突时也会返回可见错误，不会静默落到其他会话。
 - `codex queue` 在 30 秒内没有确认退出时，结果按“投递未确认”处理；系统不会自动重试，并会提示先检查对应的 Codex 会话。
-- Codex 命令按“`AGENT_NOTIFY_CODEX_BIN` / 测试注入 > PATH > `%LOCALAPPDATA%\OpenAI\Codex\bin` 本地安装目录”的顺序发现，避免开机自启进程没有 Codex 临时 PATH 时失联。
+- Codex 命令按“`AGENT_NOTIFY_CODEX_BIN` / 测试注入 > PATH > `%LOCALAPPDATA%\OpenAI\Codex\bin` / `os.UserCacheDir()\OpenAI\Codex\bin` 本地安装目录”的顺序发现，避免开机自启进程没有 Codex 临时 PATH 时失联。
 - 多个 ID 冲突、路由缺失或过期都会停止转发并在微信中显示错误；提交成功后不额外回复确认，Agent 下一轮完成时仍通过原有通知链路反馈。
 - Codex 通知必须携带 `thread-id`（兼容 `thread_id`），Antigravity 必须携带 `conversationId`，Devin 必须携带 `session_id`，OpenCode 必须携带 `sessionID`；缺失时仍可正常推送，但不建立可回复路由。
 - 重启 OpenCode 后插件才会刷新心跳；插件不支持 `session.prompt` / `promptAsync` 时会安全拒绝并返回错误。
@@ -321,7 +322,7 @@ Devin 回复扩展仅在 `package.json` 的 `name` 和 `publisher` 均属于 Age
 
 - Windows 10 / 11
 - Go 1.26+
-- Node.js 20+，仅用于 OpenCode 插件类型检查
+- Node.js 22，仅用于 OpenCode 插件类型检查（CI 使用 Node 22）
 - Windows PowerShell 5.1+，用于安装器和 smoke 测试
 - Inno Setup 6，仅构建标准 Windows 安装器时需要
 
@@ -344,7 +345,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\lint.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
 ```
 
-`tools\test.ps1` 会运行 Go 单测、TypeScript 类型检查和隔离沙箱 smoke；smoke 不联网，不访问真实用户配置。
+`tools\test.ps1` 会运行 Go 单测、`go vet`、`gofmt` 格式检查、TypeScript 类型检查、OpenCode 插件与 Devin 扩展状态机测试，以及隔离沙箱 smoke；smoke 不联网，不访问真实用户配置。
 
 如需验证本机 Codex CLI 的真实 `queue` 入队路径，请只在隔离的 `CODEX_HOME` 和测试线程上运行：
 
