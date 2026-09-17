@@ -1,13 +1,11 @@
 package clawbot
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -254,45 +252,43 @@ func (c *Client) lifecycle(ctx context.Context, path string) error {
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, body any, result any) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("clawbot: marshal request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("clawbot: create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("AuthorizationType", "ilink_bot_token")
-	req.Header.Set("Authorization", "Bearer "+c.botToken)
-	req.Header.Set("X-WECHAT-UIN", randomWechatUIN())
-	req.Header.Set("iLink-App-Id", AppID)
-	req.Header.Set("iLink-App-ClientVersion", AppClientVersion)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("clawbot: http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respData, err := readResponseBody(resp.Body)
-	if err != nil {
-		return fmt.Errorf("clawbot: read response: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &httpStatusError{status: resp.StatusCode, body: string(respData)}
-	}
-	switch path {
-	case endpointSendMessage:
-		writeClawbotDebug(DebugOperationSendResponse, respData)
-	case endpointGetUpdates:
-		writeClawbotDebug(DebugOperationGetUpdates, respData)
-	}
-	if err := json.Unmarshal(respData, result); err != nil {
-		return fmt.Errorf("clawbot: decode response: %w", err)
-	}
-	return nil
+	return doJSONRequest(ctx, c.httpClient, http.MethodPost, c.baseURL+path, body, result, jsonRequestOptions{
+		// 鉴权头是 Client 与 AuthClient 的主要差异，由各自调用方提供。
+		Headers: map[string]string{
+			"Content-Type":            "application/json",
+			"Accept":                  "application/json",
+			"AuthorizationType":       "ilink_bot_token",
+			"Authorization":           "Bearer " + c.botToken,
+			"X-WECHAT-UIN":            randomWechatUIN(),
+			"iLink-App-Id":            AppID,
+			"iLink-App-ClientVersion": AppClientVersion,
+		},
+		OnResponse: func(_ int, respData []byte) {
+			switch path {
+			case endpointSendMessage:
+				writeClawbotDebug(DebugOperationSendResponse, respData)
+			case endpointGetUpdates:
+				writeClawbotDebug(DebugOperationGetUpdates, respData)
+			}
+		},
+		// 非 2xx 继续返回 *httpStatusError，供 isRetryable 用 errors.As 判断。
+		WrapError: func(stage jsonRequestStage, err error) error {
+			switch stage {
+			case jsonStageMarshal:
+				return fmt.Errorf("clawbot: marshal request: %w", err)
+			case jsonStageNewRequest:
+				return fmt.Errorf("clawbot: create request: %w", err)
+			case jsonStageDo:
+				return fmt.Errorf("clawbot: http request: %w", err)
+			case jsonStageReadBody:
+				return fmt.Errorf("clawbot: read response: %w", err)
+			case jsonStageDecode:
+				return fmt.Errorf("clawbot: decode response: %w", err)
+			default:
+				return err
+			}
+		},
+	})
 }
 
 func checkAPIStatus(operation string, ret, errCode int, errMsg string) error {

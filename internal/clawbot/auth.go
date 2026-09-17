@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -301,45 +300,24 @@ func (c *AuthClient) pollQRStatusOnce(ctx context.Context, baseURL, qrCode, veri
 }
 
 func (c *AuthClient) doJSON(ctx context.Context, method, endpoint string, body any, result any) error {
-	var reader io.Reader
+	// AuthClient 不带 bot token 鉴权头；只在有请求体时补 Content-Type。
+	headers := map[string]string{
+		"Accept":                  "application/json",
+		"User-Agent":              "Agent-notify",
+		"X-WECHAT-UIN":            randomWechatUIN(),
+		"iLink-App-Id":            AppID,
+		"iLink-App-ClientVersion": AppClientVersion,
+	}
 	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = strings.NewReader(string(data))
+		headers["Content-Type"] = "application/json"
 	}
-
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Agent-notify")
-	req.Header.Set("X-WECHAT-UIN", randomWechatUIN())
-	req.Header.Set("iLink-App-Id", AppID)
-	req.Header.Set("iLink-App-ClientVersion", AppClientVersion)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	data, err := readResponseBody(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
-	}
-	if err := json.Unmarshal(data, result); err != nil {
-		return err
-	}
-	return nil
+	return doJSONRequest(ctx, c.httpClient, method, endpoint, body, result, jsonRequestOptions{
+		Headers: headers,
+		// 登录流程保持原有的裸错误与 "HTTP <status>: <body>" 文案。
+		StatusError: func(status int, data []byte) error {
+			return fmt.Errorf("HTTP %d: %s", status, strings.TrimSpace(string(data)))
+		},
+	})
 }
 
 func withScheme(host string) string {
