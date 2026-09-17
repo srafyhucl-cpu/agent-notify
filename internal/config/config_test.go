@@ -42,6 +42,42 @@ func TestReplyEnabledDefaultsOffForLegacyConfig(t *testing.T) {
 	}
 }
 
+// 引用送达确认默认开启、可显式关闭，且环境变量可覆盖。
+func TestReplyConfirmationDefaultsOnAndCanBeDisabled(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_REPLY_CONFIRMATION", "")
+	if cfg := DefaultConfig(); !cfg.ReplyConfirmation {
+		t.Fatal("ReplyConfirmation should default to true")
+	}
+	t.Setenv("AGENT_NOTIFY_REPLY_CONFIRMATION", "0")
+	if cfg := DefaultConfig(); cfg.ReplyConfirmation {
+		t.Fatal("env override should disable ReplyConfirmation")
+	}
+	t.Setenv("AGENT_NOTIFY_REPLY_CONFIRMATION", "")
+
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"replyEnabled":true}`), 0600); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.ReplyConfirmation {
+		t.Fatal("missing replyConfirmation should default to true")
+	}
+
+	if err := os.WriteFile(path, []byte(`{"replyConfirmation":false}`), 0600); err != nil {
+		t.Fatalf("write disabled config: %v", err)
+	}
+	cfg, err = LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.ReplyConfirmation {
+		t.Fatal("explicit false should disable ReplyConfirmation")
+	}
+}
+
 func TestLoadSaveConfig(t *testing.T) {
 	t.Setenv("AGENT_NOTIFY_QUIET", "")
 	t.Setenv("AGENT_NOTIFY_COOLDOWN_MIN", "")

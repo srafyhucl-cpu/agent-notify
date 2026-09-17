@@ -19,23 +19,29 @@ const (
 )
 
 type AppConfig struct {
-	QuietHours      string `json:"quietHours"`
-	CooldownMin     int    `json:"cooldownMin"`
-	ReplyEnabled    bool   `json:"replyEnabled"`
-	DefaultAgent    string `json:"defaultAgent,omitempty"`
-	WidgetAgentMode string `json:"widgetAgentMode,omitempty"`
-	Theme           string `json:"theme,omitempty"`
+	QuietHours   string `json:"quietHours"`
+	CooldownMin  int    `json:"cooldownMin"`
+	ReplyEnabled bool   `json:"replyEnabled"`
+	// ReplyConfirmation 控制引用回复成功后是否回一条送达确认，默认开启。
+	ReplyConfirmation bool   `json:"replyConfirmation"`
+	DefaultAgent      string `json:"defaultAgent,omitempty"`
+	WidgetAgentMode   string `json:"widgetAgentMode,omitempty"`
+	Theme             string `json:"theme,omitempty"`
 }
 
 var quietHoursPattern = regexp.MustCompile(`^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$`)
 
 func DefaultConfig() AppConfig {
 	cfg := AppConfig{
-		QuietHours:  strings.TrimSpace(os.Getenv("AGENT_NOTIFY_QUIET")),
-		CooldownMin: DefaultCooldownMin,
+		QuietHours:        strings.TrimSpace(os.Getenv("AGENT_NOTIFY_QUIET")),
+		CooldownMin:       DefaultCooldownMin,
+		ReplyConfirmation: true,
 	}
 	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_REPLY_ENABLED")); raw != "" {
 		cfg.ReplyEnabled = raw == "1" || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "on")
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_REPLY_CONFIRMATION")); raw != "" {
+		cfg.ReplyConfirmation = raw == "1" || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "on")
 	}
 	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_COOLDOWN_MIN")); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
@@ -65,12 +71,14 @@ func LoadConfig(configPath string) (AppConfig, error) {
 	}
 
 	var raw struct {
-		QuietHours      *string `json:"quietHours"`
-		CooldownMin     *int    `json:"cooldownMin"`
-		ReplyEnabled    *bool   `json:"replyEnabled"`
-		DefaultAgent    *string `json:"defaultAgent"`
-		WidgetAgentMode *string `json:"widgetAgentMode"`
-		Theme           *string `json:"theme"`
+		QuietHours   *string `json:"quietHours"`
+		CooldownMin  *int    `json:"cooldownMin"`
+		ReplyEnabled *bool   `json:"replyEnabled"`
+		// ReplyConfirmation 缺省时为 true（默认开启）；显式 false 才关闭。
+		ReplyConfirmation *bool   `json:"replyConfirmation"`
+		DefaultAgent      *string `json:"defaultAgent"`
+		WidgetAgentMode   *string `json:"widgetAgentMode"`
+		Theme             *string `json:"theme"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return cfg, fmt.Errorf("decode config: %w", err)
@@ -83,6 +91,9 @@ func LoadConfig(configPath string) (AppConfig, error) {
 	}
 	if raw.ReplyEnabled != nil {
 		cfg.ReplyEnabled = *raw.ReplyEnabled
+	}
+	if raw.ReplyConfirmation != nil {
+		cfg.ReplyConfirmation = *raw.ReplyConfirmation
 	}
 	if raw.DefaultAgent != nil {
 		cfg.DefaultAgent = strings.ToLower(strings.TrimSpace(*raw.DefaultAgent))

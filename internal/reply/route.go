@@ -24,12 +24,14 @@ var (
 
 // Route binds one outbound ClawBot message to an agent conversation.
 type Route struct {
-	MessageID string    `json:"messageID,omitempty"`
-	ClientID  string    `json:"clientID,omitempty"`
-	BotID     string    `json:"botID"`
-	UserID    string    `json:"userID"`
-	Agent     string    `json:"agent"`
-	SessionID string    `json:"sessionID"`
+	MessageID string `json:"messageID,omitempty"`
+	ClientID  string `json:"clientID,omitempty"`
+	BotID     string `json:"botID"`
+	UserID    string `json:"userID"`
+	Agent     string `json:"agent"`
+	SessionID string `json:"sessionID"`
+	// Title 是可选的会话显示名，仅用于引用送达确认文案。
+	Title     string    `json:"title,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
@@ -225,6 +227,7 @@ func (r Route) normalized() Route {
 	r.UserID = strings.TrimSpace(r.UserID)
 	r.Agent = strings.TrimSpace(r.Agent)
 	r.SessionID = strings.TrimSpace(r.SessionID)
+	r.Title = strings.TrimSpace(r.Title)
 	return r
 }
 

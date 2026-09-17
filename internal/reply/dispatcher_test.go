@@ -501,6 +501,68 @@ func TestDispatcherLogsSuccessfulDispatchWithoutReplyText(t *testing.T) {
 	}
 }
 
+func TestDispatcherSendsDeliveryConfirmation(t *testing.T) {
+	dispatcher, queue, notices := newTestDispatcher(t, config.AppConfig{ReplyEnabled: true, ReplyConfirmation: true})
+	if err := dispatcher.routes.Record(Route{
+		MessageID: "platform-1",
+		BotID:     "bot-1",
+		UserID:    "user-1",
+		Agent:     "codex",
+		SessionID: "thread-1",
+		Title:     "重构登录页",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dispatcher.Handle(quotedMessage(t, "reply-1", "platform-1", "继续检查"))
+	if len(queue.threadIDs) != 1 {
+		t.Fatalf("reply not dispatched: %#v", queue.threadIDs)
+	}
+	if len(*notices) != 1 || (*notices)[0] != "✅ 已送达 **Codex**，会话：重构登录页" {
+		t.Fatalf("delivery confirmation = %#v", *notices)
+	}
+}
+
+func TestDispatcherDeliveryConfirmationFallsBackToSessionID(t *testing.T) {
+	dispatcher, _, notices := newTestDispatcher(t, config.AppConfig{ReplyEnabled: true, ReplyConfirmation: true})
+	if err := dispatcher.routes.Record(Route{
+		MessageID: "platform-1",
+		BotID:     "bot-1",
+		UserID:    "user-1",
+		Agent:     "codex",
+		SessionID: "0123456789abcdef",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dispatcher.Handle(quotedMessage(t, "reply-1", "platform-1", "继续检查"))
+	if len(*notices) != 1 || (*notices)[0] != "✅ 已送达 **Codex**，会话：…89abcdef" {
+		t.Fatalf("delivery confirmation = %#v", *notices)
+	}
+}
+
+func TestDispatcherSkipsDeliveryConfirmationWhenDisabled(t *testing.T) {
+	dispatcher, queue, notices := newTestDispatcher(t, config.AppConfig{ReplyEnabled: true})
+	if err := dispatcher.routes.Record(Route{
+		MessageID: "platform-1",
+		BotID:     "bot-1",
+		UserID:    "user-1",
+		Agent:     "codex",
+		SessionID: "thread-1",
+		Title:     "重构登录页",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dispatcher.Handle(quotedMessage(t, "reply-1", "platform-1", "继续检查"))
+	if len(queue.threadIDs) != 1 {
+		t.Fatalf("reply not dispatched: %#v", queue.threadIDs)
+	}
+	if len(*notices) != 0 {
+		t.Fatalf("confirmation should be disabled: %#v", *notices)
+	}
+}
+
 func unavailableChildPath(t *testing.T, child string) string {
 	t.Helper()
 	parent := filepath.Join(t.TempDir(), "not-a-directory")

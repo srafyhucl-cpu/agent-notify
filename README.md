@@ -165,7 +165,7 @@ agent-notify.exe notify --dry-run --title "长通知" --summary "完整正文" -
 
 `notify` 未提供 `--summary` 且未指定 `--no-stdin` 时，会从标准输入读取摘要。发送前必须同时满足“已登录”和“主动推送会话已就绪”；仅扫码登录不会自动获得发送能力。
 
-Codex 通知格式为 `【codex】会话名`，OpenCode 为 `【opencode】会话标题`，Antigravity 为 `【antigravity】会话标题`，Devin 为 `【devin】会话标题`（读取失败时使用各自默认标题）；非空正文后附本地时间页脚。`--max-chars 0` 表示不限长；正数会同时计入标题、正文和页脚。
+通知以 Markdown 呈现（ClawBot 聊天界面支持渲染）：加粗标题行形如 `**🟢 Codex｜会话名**`（OpenCode / Antigravity / Devin 同理，读取失败时使用各自默认标题），正文保留 Agent 的 Markdown（标题、列表、代码块等），末尾用 `———` 分隔并附 `引用此消息可继续对话 · MM/DD HH:mm` 页脚；纯文本客户端也能正常阅读。`--max-chars 0` 表示不限长；正数会同时计入标题、正文和页脚。
 
 ## 文件与配置
 
@@ -197,13 +197,15 @@ Codex 通知格式为 `【codex】会话名`，OpenCode 为 `【opencode】会�
 {
   "quietHours": "23-8",
   "cooldownMin": 10,
-  "replyEnabled": false
+  "replyEnabled": false,
+  "replyConfirmation": true
 }
 ```
 
 - `quietHours` 为空表示关闭勿扰；格式为 `23-8`，结束时间不包含在静默时段内。
 - `cooldownMin` 是 OpenCode 同一会话的去重窗口，默认 10 分钟，范围为 1 到 1440。
 - `replyEnabled` 控制微信引用回复，默认是 `false`。开启后仍只处理当前绑定用户的私聊引用回复。
+- `replyConfirmation` 控制引用回复成功后是否回一条“✅ 已送达 …”确认，默认是 `true`；设为 `false` 可关闭。
 - 路由和去重 Claim 只保存在本机，默认保留 30 天；两类记录都按 ClawBot bot ID 和绑定用户 ID 隔离。
 - 路由和去重文件达到大小阈值且积累足够过期或损坏记录时会原子压缩，过期记录不会被长期物理保留。
 
@@ -260,7 +262,7 @@ notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe
 2. 检查 `codex.off` marker；关闭时只跳过推送，不影响透传。
 3. 从 `last-assistant-message` 提取摘要；标题按 Codex 状态库的 `threads.name → threads.title → threads.first_user_message`、`session_index.jsonl`、payload 首条消息依次降级。
 4. 从 `thread-id`（兼容 `thread_id`）提取权威线程 ID；只有该 ID 存在时，发送成功后才建立 30 天引用路由。
-5. 发送 `【codex】会话名`、正文和本地时间页脚并记录历史；引用回复命中已记录线程后按消息 ID 执行 `codex queue`。
+5. 发送 Markdown 通知（加粗标题行、正文与页脚）并记录历史；引用回复命中已记录线程后按消息 ID 执行 `codex queue`，成功后回一条“已送达”确认（可用 `replyConfirmation` 关闭）。
 
 悬浮窗每两分钟检查一次 Codex 配置；如果 Codex 更新后把 notify 行改回直调 `codex-computer-use.exe`，会自动恢复为 Agent-notify。如果 Codex computer-use 把 notify 包成 `--previous-notify` 链、链里仍调用 `agent-notify.exe`，悬浮窗按已接入处理并保留原配置；安装器只把链内的 `agent-notify.exe` 路径更新到当前安装目录。
 

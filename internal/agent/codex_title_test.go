@@ -218,7 +218,7 @@ func TestHandleCodexUsesResolvedTitleAndKeepsReplyRoute(t *testing.T) {
 	if err != nil || len(history) != 1 {
 		t.Fatalf("history = %#v, err=%v", history, err)
 	}
-	if history[0].Title != "⚠️【Codex】真实会话名" || !strings.Contains(history[0].Summary, "测试降级") {
+	if history[0].Title != "**⚠️ Codex｜真实会话名**" || !strings.Contains(history[0].Summary, "测试降级") {
 		t.Fatalf("history = %#v", history[0])
 	}
 }

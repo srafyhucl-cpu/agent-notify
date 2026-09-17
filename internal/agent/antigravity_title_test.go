@@ -78,7 +78,7 @@ func TestHandleAntigravityStopUsesConversationTitle(t *testing.T) {
 	if result.Status != notify.StatusDryRun {
 		t.Fatalf("dry-run status = %q, error = %q", result.Status, result.Error)
 	}
-	if !strings.Contains(result.DryRunPayload, "🟢【Antigravity】真实 Antigravity 标题") {
+	if !strings.Contains(result.DryRunPayload, "**🟢 Antigravity｜真实 Antigravity 标题**") {
 		t.Fatalf("dry-run payload = %q", result.DryRunPayload)
 	}
 }

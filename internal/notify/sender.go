@@ -119,6 +119,7 @@ func SendNotification(opts NotifyOptions) NotifyResult {
 			UserID:    creds.ILinkUserID,
 			Agent:     strings.TrimSpace(opts.Agent),
 			SessionID: strings.TrimSpace(opts.SessionID),
+			Title:     rendered.SessionName,
 		}); err != nil {
 			warnings = append(warnings, "引用回复路由写入失败（微信里引用本条消息将无法续聊）："+err.Error())
 		}

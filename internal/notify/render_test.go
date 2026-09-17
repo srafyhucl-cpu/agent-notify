@@ -20,7 +20,7 @@ func TestRenderNotificationFormat(t *testing.T) {
 				Title:   "评估微信消息转发到Agent",
 				Summary: "摘要正文……",
 			},
-			message: "🟢【Codex】评估微信消息转发到Agent\n\n摘要正文……\n\n---\n> 微信直接引用此消息可继续对话\n\nCodex · 2026/09/13 15:18",
+			message: "**🟢 Codex｜评估微信消息转发到Agent**\n\n摘要正文……\n\n———\n*引用此消息可继续对话 · 09/13 15:18*",
 		},
 		{
 			name: "opencode",
@@ -29,7 +29,7 @@ func TestRenderNotificationFormat(t *testing.T) {
 				Title:   "会话标题",
 				Summary: "摘要正文……",
 			},
-			message: "🟢【OpenCode】会话标题\n\n摘要正文……\n\n---\n> 微信直接引用此消息可继续对话\n\nOpenCode · 2026/09/13 15:18",
+			message: "**🟢 OpenCode｜会话标题**\n\n摘要正文……\n\n———\n*引用此消息可继续对话 · 09/13 15:18*",
 		},
 	}
 
@@ -52,7 +52,7 @@ func TestRenderNotificationKeepsLongProbe(t *testing.T) {
 		Title:   "长消息探针",
 		Summary: body,
 	}, time.Unix(0, 0))
-	if !strings.Contains(rendered.Message, marker) || !strings.Contains(rendered.Message, "Codex · ") {
+	if !strings.Contains(rendered.Message, marker) || !strings.Contains(rendered.Message, notificationDivider) {
 		t.Fatalf("last marker was truncated: %q", rendered.Message[len(rendered.Message)-40:])
 	}
 	if runeCount(rendered.Summary) != probeRunes {
@@ -70,7 +70,7 @@ func TestRenderNotificationExplicitLimitIncludesTitleAndFooter(t *testing.T) {
 	if got := runeCount(rendered.Message); got > 60 {
 		t.Fatalf("message runes = %d, want <= 60 (%q)", got, rendered.Message)
 	}
-	if !strings.Contains(rendered.Message, "Codex · ") {
+	if !strings.Contains(rendered.Message, replyHintText) {
 		t.Fatalf("footer missing from fitted message: %q", rendered.Message)
 	}
 }
@@ -83,9 +83,9 @@ func TestRenderNotificationIncludesNotice(t *testing.T) {
 		Summary: "正文",
 		Notice:  "标题读取失败：数据库不可读。",
 	}, now)
-	want := "正文\n\n> ⚠️ 标题读取失败：数据库不可读。\n\n---\n> 微信直接引用此消息可继续对话\n\nCodex · 2026/09/13 15:18"
-	if rendered.Message != "⚠️【Codex】标题\n\n"+want {
-		t.Fatalf("Message = %q, want summary %q", rendered.Message, want)
+	want := "**⚠️ Codex｜标题**\n\n正文\n\n> ⚠️ 标题读取失败：数据库不可读。\n\n———\n*引用此消息可继续对话 · 09/13 15:18*"
+	if rendered.Message != want {
+		t.Fatalf("Message = %q, want %q", rendered.Message, want)
 	}
 }
 
@@ -130,15 +130,23 @@ func TestSendNotificationProtocolPolicy(t *testing.T) {
 	})
 }
 
+// SessionName 供引用送达确认复用，应剥离旧前缀与徽标。
+func TestRenderNotificationReturnsSessionName(t *testing.T) {
+	rendered := renderNotification(NotifyOptions{Agent: "codex", Title: "【codex】重构登录页", Summary: "x"}, time.Unix(0, 0))
+	if rendered.SessionName != "重构登录页" {
+		t.Fatalf("SessionName = %q, want %q", rendered.SessionName, "重构登录页")
+	}
+}
+
 func TestRenderNotificationDefaultTitles(t *testing.T) {
 	now := time.Date(2026, time.September, 13, 15, 18, 0, 0, time.FixedZone("CST", 8*60*60))
 	tests := []struct {
 		agent   string
 		message string
 	}{
-		{agent: "codex", message: "🟢【Codex】任务已完成\n\n任务已完成。\n\n---\n> 微信直接引用此消息可继续对话\n\nCodex · 2026/09/13 15:18"},
-		{agent: "opencode", message: "🟢【OpenCode】任务已完成\n\n任务已完成。\n\n---\n> 微信直接引用此消息可继续对话\n\nOpenCode · 2026/09/13 15:18"},
-		{agent: "", message: "🟢【通知】任务已完成\n\n任务已完成。"},
+		{agent: "codex", message: "**🟢 Codex｜任务已完成**\n\n任务已完成。\n\n———\n*引用此消息可继续对话 · 09/13 15:18*"},
+		{agent: "opencode", message: "**🟢 OpenCode｜任务已完成**\n\n任务已完成。\n\n———\n*引用此消息可继续对话 · 09/13 15:18*"},
+		{agent: "", message: "**🟢 通知｜任务已完成**\n\n任务已完成。"},
 	}
 	for _, testCase := range tests {
 		rendered := renderNotification(NotifyOptions{Agent: testCase.agent}, now)

@@ -193,6 +193,50 @@ func (d *Dispatcher) Handle(message clawbot.InboundMessage) {
 	if err := d.state.Mark(key, replyStateSent); err != nil {
 		d.logf("mark sent %s: %v", key, err)
 	}
+	d.confirmDelivery(route, cfg.ReplyConfirmation)
+}
+
+// confirmDelivery 在引用回复成功分发后回一条送达确认，让用户明确回复已抵达目标会话；
+// 按配置可关闭。确认发送失败只记日志，不再回错误（避免套娃）。
+func (d *Dispatcher) confirmDelivery(route Route, enabled bool) {
+	if !enabled || d.sendText == nil {
+		return
+	}
+	message := deliveryConfirmation(route)
+	if message == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), errorSendWait)
+	defer cancel()
+	if err := d.sendText(ctx, message); err != nil {
+		d.logf("send delivery confirmation: %v", err)
+	}
+}
+
+// deliveryConfirmation 生成 Markdown 送达确认：优先用会话名，缺失时退回会话 ID 末 8 位。
+func deliveryConfirmation(route Route) string {
+	agent := agentLabel(route.Agent)
+	if strings.TrimSpace(agent) == "" {
+		return ""
+	}
+	session := strings.TrimSpace(route.Title)
+	if session == "" {
+		if id := strings.TrimSpace(route.SessionID); id != "" {
+			session = shortSessionID(id)
+		}
+	}
+	if session == "" {
+		return fmt.Sprintf("✅ 已送达 **%s**", agent)
+	}
+	return fmt.Sprintf("✅ 已送达 **%s**，会话：%s", agent, session)
+}
+
+func shortSessionID(id string) string {
+	runes := []rune(id)
+	if len(runes) <= 8 {
+		return id
+	}
+	return "…" + string(runes[len(runes)-8:])
 }
 
 func (d *Dispatcher) dispatch(ctx context.Context, route Route, text string) error {

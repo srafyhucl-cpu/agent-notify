@@ -39,7 +39,7 @@ func TestSendNotificationDryRun(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.DryRunPayload), &payload); err != nil {
 		t.Fatalf("decode dry-run payload: %v", err)
 	}
-	if payload["message"] != "🟢【通知】测试\n\nhello **world**" {
+	if payload["message"] != "**🟢 通知｜测试**\n\nhello **world**" {
 		t.Fatalf("unexpected dry-run message: %q", payload["message"])
 	}
 }
@@ -117,7 +117,7 @@ func TestSendNotificationSuccess(t *testing.T) {
 	if result.Status != StatusSuccess {
 		t.Fatalf("Status = %q, error = %q", result.Status, result.Error)
 	}
-	if !strings.HasPrefix(message, "🟢【OpenCode】任务完成\n\nall good\n\n---\n> 微信直接引用此消息可继续对话\n\nOpenCode · ") {
+	if !strings.HasPrefix(message, "**🟢 OpenCode｜任务完成**\n\nall good\n\n———\n*引用此消息可继续对话 · ") {
 		t.Fatalf("sent message = %q", message)
 	}
 

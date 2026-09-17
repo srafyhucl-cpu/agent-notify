@@ -97,7 +97,7 @@ Devin
 4. 检查 `codex.off`；关闭时只跳过推送，不影响上游透传。
 5. 摘要取 `last-assistant-message`；标题按 `threads.name → threads.title → threads.first_user_message → session_index.jsonl → payload 首条消息 → 跑完了` 顺序解析。
 6. 从 `thread-id`（兼容 `thread_id`）提取线程 ID；成功发送且 ID 非空时写入 30 天引用路由。
-7. 渲染 `【codex】会话名`、正文和 `Codex · yyyy/MM/dd HH:mm` 页脚后发送并写入结构化历史；引用回复命中路由后执行 `codex queue`，消息可写入尚未在前台打开的持久化线程。
+7. 渲染 Markdown 通知（加粗标题行 `**🟢 Codex｜会话名**`、正文、`———` 分隔与页脚）后发送并写入结构化历史；引用回复命中路由后执行 `codex queue`，成功后回一条送达确认（`replyConfirmation` 可关），消息可写入尚未在前台打开的持久化线程。
 
 `agent-notify watch` 与悬浮窗只会在 notify 行仍指向 `codex-computer-use.exe` 时恢复配置；自定义 notify 程序始终保留。
 
@@ -308,6 +308,7 @@ Agent-notify/
 - `quietHours`：`23-8` 表示 23:00 到次日 08:00，结束时间不包含。
 - `cooldownMin`：OpenCode 同一会话默认 10 分钟去重，范围是 1 到 1440。
 - `replyEnabled`：控制引用回复，默认 `false`；只影响入站引用分发，不改变原有推送行为。
+- `replyConfirmation`：引用回复成功后是否回一条“✅ 已送达 …”确认，默认 `true`。
 - 标题包含 `🔕` 或 `[勿扰]` 时跳过推送。
 - marker 在冷却记账前检查，被暂停的会话不会消耗冷却窗口。
 - 引用路由和入站 Claim 分别使用账号作用域与消息级持久化，不把“最近通知”当作回退目标。
@@ -317,7 +318,7 @@ Agent-notify/
 `push.log` 每行是一条 JSON 对象：
 
 ```json
-{"timestamp":"2026-09-12T09:00:00+08:00","agent":"opencode","session":"...","title":"【opencode】任务","summary":"摘要","status":"成功"}
+{"timestamp":"2026-09-12T09:00:00+08:00","agent":"opencode","session":"...","title":"**🟢 OpenCode｜任务**","summary":"摘要","status":"成功"}
 ```
 
 失败会额外记录 `error`，成功发送会额外记录可选的 `messageID` 与 `clientID`。历史列表按时间倒序读取，损坏的单行会被跳过，不影响其余记录。

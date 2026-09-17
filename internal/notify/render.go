@@ -9,20 +9,31 @@ import (
 
 const (
 	notificationSeparator = "\n\n"
-	genericTitlePrefix    = "【通知】"
-	genericDefaultTitle   = "任务已完成"
-	defaultBody           = "任务已完成。"
-	footerTimeLayout      = "2006/01/02 15:04"
+	// notificationDivider 用全角破折号：Markdown 客户端渲染为分隔线，纯文本客户端也是一条
+	// 干净的横线，两种情况都不刺眼。
+	notificationDivider  = "———"
+	notificationTitleBar = "｜"
+	// replyHintText 既用于页脚提示，也用于清理 Agent 误带的旧页脚。
+	replyHintText    = "引用此消息可继续对话"
+	footerTimeLayout = "01/02 15:04"
+
+	genericTitlePrefix  = "【通知】"
+	genericDefaultTitle = "任务已完成"
+	genericDisplayName  = "通知"
+	defaultBody         = "任务已完成。"
 )
 
 type renderedNotification struct {
 	Title   string
 	Summary string
 	Message string
+	// SessionName 是清洗后的会话名，供引用回复的送达确认复用。
+	SessionName string
 }
 
 func renderNotification(opts NotifyOptions, now time.Time) renderedNotification {
-	title := normalizeNotificationTitle(opts.Agent, opts.Title, opts.Notice)
+	sessionName := notificationSessionName(opts.Agent, opts.Title)
+	title := markdownNotificationTitle(opts.Agent, sessionName, opts.Notice)
 	summary := FormatNotifySummary(opts.Summary, 0)
 	if summary == "" {
 		summary = defaultBody
@@ -37,20 +48,16 @@ func renderNotification(opts NotifyOptions, now time.Time) renderedNotification 
 	if opts.MaxChars > 0 {
 		title, summary, message = fitNotification(title, summary, footer, opts.MaxChars)
 	}
-	return renderedNotification{Title: title, Summary: summary, Message: message}
+	return renderedNotification{Title: title, Summary: summary, Message: message, SessionName: sessionName}
 }
 
-func normalizeNotificationTitle(agentName, rawTitle, notice string) string {
-	title := strings.TrimSpace(strings.ReplaceAll(rawTitle, "\n", " "))
-	badge := "🟢"
-	if strings.Contains(notice, "错误") || strings.Contains(notice, "失败") || strings.Contains(notice, "异常") ||
-		strings.Contains(title, "错误") || strings.Contains(title, "失败") || strings.Contains(title, "异常") {
-		badge = "⚠️"
-	}
-
+// notificationSessionName 提取用于展示与引用确认的会话名：去掉旧前缀、状态徽标与加粗符号。
+func notificationSessionName(agentName, rawTitle string) string {
+	clean := strings.TrimSpace(strings.ReplaceAll(rawTitle, "\n", " "))
+	clean = strings.Trim(clean, "*")
+	clean = stripStatusBadge(clean)
 	if descriptor, ok := agentmeta.Lookup(agentName); ok {
-		// 剥离可能存在的各种旧前缀（大小写不限）
-		clean := strings.TrimSpace(title)
+		// 剥离可能存在的各种旧前缀（大小写不限）。
 		for _, prefix := range []string{
 			descriptor.TitlePrefix,
 			"【" + strings.ToLower(descriptor.ID) + "】",
@@ -59,48 +66,52 @@ func normalizeNotificationTitle(agentName, rawTitle, notice string) string {
 		} {
 			clean = strings.TrimSpace(strings.TrimPrefix(clean, prefix))
 		}
-
 		if clean == "" || clean == "跑完了" || clean == "opencode会话" {
 			clean = descriptor.DefaultTitle
 		}
-
-		if hasStatusBadge(clean) {
-			return clean
-		}
-		return badge + descriptor.TitlePrefix + clean
-	}
-
-	if title == "" || title == genericDefaultTitle || title == "任务完成" || title == "跑完了" {
-		title = genericDefaultTitle
-	}
-	clean := strings.TrimPrefix(title, genericTitlePrefix)
-	clean = strings.TrimPrefix(clean, "【通知】")
-	if clean == "" {
-		clean = genericDefaultTitle
-	}
-
-	if hasStatusBadge(clean) {
 		return clean
 	}
-	return badge + genericTitlePrefix + clean
+
+	clean = strings.TrimSpace(strings.TrimPrefix(clean, genericTitlePrefix))
+	if clean == "" || clean == genericDefaultTitle || clean == "任务完成" || clean == "跑完了" {
+		clean = genericDefaultTitle
+	}
+	return clean
 }
 
-func hasStatusBadge(s string) bool {
-	return strings.HasPrefix(s, "🟢") || strings.HasPrefix(s, "⚠️") || strings.HasPrefix(s, "🔴") || strings.HasPrefix(s, "⚡")
+// markdownNotificationTitle 生成加粗标题行：**🟢 Codex｜会话名**。
+func markdownNotificationTitle(agentName, sessionName, notice string) string {
+	badge := "🟢"
+	if isFailureText(notice) || isFailureText(sessionName) {
+		badge = "⚠️"
+	}
+	name := genericDisplayName
+	if descriptor, ok := agentmeta.Lookup(agentName); ok {
+		name = descriptor.DisplayName
+	}
+	return "**" + badge + " " + name + notificationTitleBar + sessionName + "**"
+}
+
+func isFailureText(value string) bool {
+	return strings.Contains(value, "错误") || strings.Contains(value, "失败") || strings.Contains(value, "异常")
+}
+
+func stripStatusBadge(value string) string {
+	return strings.TrimSpace(strings.TrimLeft(value, "🟢⚠️🔴⚡ "))
 }
 
 func notificationFooter(agentName string, now time.Time) string {
 	descriptor, ok := agentmeta.Lookup(agentName)
-	if !ok || descriptor.FooterLabel == "" {
+	if !ok {
+		// 通用通知没有 Agent 归属，保持无页脚（与旧行为一致）。
 		return ""
 	}
-	var sb strings.Builder
-	sb.WriteString("---\n")
+	parts := make([]string, 0, 2)
 	if descriptor.Replyable {
-		sb.WriteString("> 微信直接引用此消息可继续对话\n\n")
+		parts = append(parts, replyHintText)
 	}
-	sb.WriteString(descriptor.FooterLabel + " · " + now.Format(footerTimeLayout))
-	return sb.String()
+	parts = append(parts, now.Format(footerTimeLayout))
+	return notificationDivider + "\n*" + strings.Join(parts, " · ") + "*"
 }
 
 func composeNotification(title, summary, footer string) string {

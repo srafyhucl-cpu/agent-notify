@@ -223,10 +223,10 @@ try {
   $codexDry = & $exePath codex turn-ended $payload -dry-run 2>&1
   Assert-True ($LASTEXITCODE -eq 0) "codex dry-run exit=$LASTEXITCODE"
   $codexText = "$codexDry"
-  Assert-True ($codexText -match '【codex】帮我写个脚本测试一下') "codex 标题解析失败：$codexText"
+  Assert-True ($codexText -match 'Codex｜帮我写个脚本测试一下') "codex 标题解析失败：$codexText"
   Write-Output '[ok] codex dry-run passthru'
   $codexJson = $codexText | ConvertFrom-Json
-  Assert-True ($codexJson.title -match '【codex】帮我写个脚本测试一下') "codex 标题解析失败：$codexText"
+  Assert-True ($codexJson.title -match 'Codex｜帮我写个脚本测试一下') "codex 标题解析失败：$codexText"
   Assert-True ($codexJson.message -match 'hello (?:\*\*)?world(?:\*\*)? smoke') "codex 摘要未透传：$codexText"
 
   # 6b. Antigravity / Devin Stop hook 契约（DryRun，不发送）
