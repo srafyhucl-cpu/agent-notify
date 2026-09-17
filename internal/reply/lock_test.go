@@ -104,6 +104,50 @@ func TestFileLockSerializesAcrossProcesses(t *testing.T) {
 	}
 }
 
+// TestStateStoreClaimTimesOutWhileLockHeld proves Claim gives up after
+// lockAcquireTimeout instead of blocking forever when another process hangs
+// while holding the local state lock. The holder is a real child process so the
+// assertion holds on both the Windows LockFileEx and the Unix flock paths.
+func TestStateStoreClaimTimesOutWhileLockHeld(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStateStore(filepath.Join(dir, "state.jsonl"))
+	logPath := filepath.Join(dir, "lock-order.log")
+	releasePath := filepath.Join(dir, "release-holder")
+
+	holder := startLockHelper(t, store.Path+".lock", logPath, "holder", releasePath)
+	t.Cleanup(func() { _ = os.WriteFile(releasePath, []byte("release"), privateFilePerm) })
+	waitForLockMarker(t, logPath, "holder-start", lockHelperWaitTimeout)
+
+	previousTimeout := lockAcquireTimeout
+	lockAcquireTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { lockAcquireTimeout = previousTimeout })
+
+	start := time.Now()
+	claimed, err := store.Claim("message:timeout")
+	elapsed := time.Since(start)
+
+	if claimed {
+		t.Fatal("Claim succeeded while another process held the state lock")
+	}
+	if err == nil {
+		t.Fatal("Claim returned no error while another process held the state lock")
+	}
+	if !strings.Contains(err.Error(), "等待本地状态文件锁超时") {
+		t.Fatalf("Claim error = %v, want lock acquire timeout", err)
+	}
+	if elapsed < lockAcquireTimeout {
+		t.Fatalf("Claim returned after %s, want at least %s", elapsed, lockAcquireTimeout)
+	}
+	if elapsed > lockAcquireTimeout+2*time.Second {
+		t.Fatalf("Claim waited %s, want it bounded near %s", elapsed, lockAcquireTimeout)
+	}
+
+	if err := os.WriteFile(releasePath, []byte("release"), privateFilePerm); err != nil {
+		t.Fatalf("release holder: %v", err)
+	}
+	holder.wait(t)
+}
+
 func startLockHelper(t *testing.T, lockPath, logPath, tag, releasePath string) *lockHelperProcess {
 	t.Helper()
 	helper := &lockHelperProcess{tag: tag}
