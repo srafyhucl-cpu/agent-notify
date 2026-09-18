@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -439,6 +440,50 @@ func TestExtractZipFileHonorsLimit(t *testing.T) {
 	}
 	if written != 5 {
 		t.Fatalf("written over limit = %d, want 5 (limit+1)", written)
+	}
+}
+
+func TestRetryDownload(t *testing.T) {
+	ctx := context.Background()
+
+	attempts := 0
+	if err := retryDownload(ctx, 3, func() error {
+		attempts++
+		if attempts < 2 {
+			return errors.New("transient")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("retryDownload should recover: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+
+	wantErr := errors.New("boom")
+	failing := 0
+	if err := retryDownload(ctx, 3, func() error {
+		failing++
+		return wantErr
+	}); !errors.Is(err, wantErr) {
+		t.Fatalf("retryDownload error = %v, want %v", err, wantErr)
+	}
+	if failing != 3 {
+		t.Fatalf("failing attempts = %d, want 3", failing)
+	}
+
+	// context 已结束时立即停止，不再空转重试。
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	if err := retryDownload(canceled, 3, func() error {
+		calls++
+		return errors.New("fail")
+	}); err == nil {
+		t.Fatal("expected error for canceled context")
+	}
+	if calls != 1 {
+		t.Fatalf("canceled attempts = %d, want 1", calls)
 	}
 }
 

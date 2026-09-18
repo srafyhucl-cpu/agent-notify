@@ -22,7 +22,7 @@ const (
 	defaultAPIBaseURL = "https://api.github.com"
 	defaultWebBaseURL = "https://github.com"
 
-	downloadTimeout = 3 * time.Minute
+	downloadTimeout = 10 * time.Minute
 
 	releaseRootName = "Agent-notify"
 	checksumName    = "SHA256SUMS.txt"
@@ -262,10 +262,13 @@ func (client *Client) Prepare(ctx context.Context, release Release, root string)
 
 	artifactPath := filepath.Join(stageDir, artifactName)
 	checksumsPath := filepath.Join(stageDir, checksumName)
-	if err := client.download(ctx, release.ChecksumURL, checksumsPath, maxChecksumsBytes); err != nil {
+	if err := client.downloadWithRetry(ctx, release.ChecksumURL, checksumsPath, maxChecksumsBytes); err != nil {
 		return PreparedUpdate{}, fmt.Errorf("下载校验文件失败：%w", err)
 	}
-	if err := client.download(ctx, artifactURL, artifactPath, maxArchiveBytes); err != nil {
+	if err := client.downloadWithRetry(ctx, artifactURL, artifactPath, maxArchiveBytes); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return PreparedUpdate{}, fmt.Errorf("下载更新包超时（网络较慢或被限速）：请稍后重试，或到 Releases 页面手动下载安装包。原始错误：%w", err)
+		}
 		return PreparedUpdate{}, fmt.Errorf("下载更新包失败：%w", err)
 	}
 	if err := verifyChecksum(checksumsPath, artifactName, artifactPath); err != nil {

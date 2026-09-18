@@ -17,6 +17,9 @@ import (
 const (
 	maxArchiveBytes   = int64(100 << 20)
 	maxChecksumsBytes = int64(1 << 20)
+	// downloadAttempts 是单次下载的总尝试次数。GitHub Release 资源偶发停滞（尤其国内网络），
+	// 重试一次能显著降低"下载到一半超时"的失败率；总耗时仍受上层 context 截止时间约束。
+	downloadAttempts = 3
 )
 
 func (client *Client) readURL(ctx context.Context, rawURL string, limit int64, accept string) ([]byte, error) {
@@ -100,6 +103,29 @@ func (client *Client) httpClient() *http.Client {
 		return client.HTTPClient
 	}
 	return &http.Client{Timeout: downloadTimeout}
+}
+
+// downloadWithRetry 在失败时重试下载；context 已结束（超时/取消）则立即停止，不再空转重试。
+func (client *Client) downloadWithRetry(ctx context.Context, rawURL, destination string, limit int64) error {
+	return retryDownload(ctx, downloadAttempts, func() error {
+		return client.download(ctx, rawURL, destination, limit)
+	})
+}
+
+func retryDownload(ctx context.Context, attempts int, download func() error) error {
+	if attempts < 1 {
+		attempts = 1
+	}
+	var err error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if err = download(); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+	}
+	return err
 }
 
 func setRequestHeaders(request *http.Request, token, accept string) {

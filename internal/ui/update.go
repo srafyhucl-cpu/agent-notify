@@ -23,7 +23,7 @@ const (
 	WM_USER_UPDATE_AVAILABLE = WM_USER + 6
 
 	updateCheckTimeout = 25 * time.Second
-	updatePrepareTime  = 4 * time.Minute
+	updatePrepareTime  = 15 * time.Minute
 
 	// 后台静默检查：启动后延迟一次，随后每 2 小时轮询。发现新版本只把"升级"按钮标黄，
 	// 不弹窗；失败只写调试日志。
