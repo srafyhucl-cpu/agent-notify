@@ -32,7 +32,7 @@
 - 配置、凭据和历史写入前会创建目标目录。
 - 配置和凭据使用临时文件替换，降低写入中断导致的损坏风险。
 - 安装器只处理安装目录和记录文件，不读取或执行安装包内的任意代码。
-- 卸载器只删除 `agent-notify-install.json` 中记录的文件、固定插件与 Agent-notify 快捷方式。
+- 卸载器只删除 `agent-notify-install.json` 中记录的文件、固定插件与 AgentNotify 快捷方式。
 - Codex 配置只在 notify 行缺失或直指 `codex-computer-use.exe` 时修改，修改前创建备份；自定义 notify 程序不会被覆盖。
 
 ## Agent Hook 隔离
@@ -40,7 +40,7 @@
 - OpenCode 插件和 Codex hook 调用失败不得阻塞 agent。
 - Codex 先透传上游 `codex-computer-use.exe`，再执行通知发送。
 - 若上游透传失败，通知层不得吞掉或改写上游结果。
-- 开关关闭只影响 Agent-notify 推送，不改变 agent 自身行为。
+- 开关关闭只影响 AgentNotify 推送，不改变 agent 自身行为。
 
 ## 依赖与构建
 

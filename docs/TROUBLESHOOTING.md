@@ -39,11 +39,11 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 
 ## 双击安装器后 Agent 仍未接入
 
-1. 确认安装完成页中的“启动 Agent-notify”已执行；如果窗口没有出现，从开始菜单或桌面快捷方式手动打开。
+1. 确认安装完成页中的“启动 AgentNotify”已执行；如果窗口没有出现，从开始菜单或桌面快捷方式手动打开。
 2. 首次启动会短暂执行后台接入。等待窗口出现后查看 Agent 卡片；如果顶部显示“首次接入失败”，点击悬浮窗右下角“检查修复”。
 3. 查看 `%TEMP%\agent-notify\setup.log`。该文件保存最近一次失败时 `install.ps1 -ConfigureOnly` 的 PowerShell 输出；成功接入时不会删除旧日志，因此同时检查文件修改时间和 `%USERPROFILE%\.config\agent-notify\setup-state.json`。
-4. 如果 `setup-state.json` 中的 `version` 不是当前版本，完全退出 Agent-notify 后重新打开，或点击“检查修复”强制重跑接入。
-5. 如果安装目录缺少 `install.ps1`、插件目录不完整，或开始菜单中没有 Agent-notify，重新运行最新版 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装；不要只手动移动 exe。
+4. 如果 `setup-state.json` 中的 `version` 不是当前版本，完全退出 AgentNotify 后重新打开，或点击“检查修复”强制重跑接入。
+5. 如果安装目录缺少 `install.ps1`、插件目录不完整，或开始菜单中没有 AgentNotify，重新运行最新版 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装；不要只手动移动 exe。
 6. 如果 `setup.log` 明确提示 Hook 被占用或用户配置冲突，先按日志中的文件路径处理冲突项，再重新点击“检查修复”。程序不会覆盖无法安全接管的 Hook。
 
 ## 升级按钮下载或安装失败
@@ -103,7 +103,7 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 
 确认 Agent-notify 悬浮窗正在运行；引用消息由悬浮窗的 ClawBot 长轮询处理，完全退出托盘程序后不会触发 Agent。
 
-1. 只能引用 Agent-notify 自己推送的通知，并且必须是当前绑定微信用户的私聊消息。群聊、其他发送者和普通文本不会触发 Agent。
+1. 只能引用 AgentNotify 自己推送的通知，并且必须是当前绑定微信用户的私聊消息。群聊、其他发送者和普通文本不会触发 Agent。
 2. 打开 `AGENT_NOTIFY_CLAWBOT_DEBUG=1` 并重启悬浮窗。等一个真实 Agent（OpenCode / Codex / Antigravity / Devin）任务结束、收到带会话的推送后，在微信中引用它回复一句话，然后运行 `agent-notify reply-check`。
    自检推送（`agent-notify test` 与托盘「发送测试推送」）没有会话 ID，不会写入引用路由，引用它只会收到「无法续聊」，不能用来验证本功能。
    该命令只读核对 scoped `sendmessage-result`、当前账号未过期的本地路由与 `getupdates-result`：退出码 `0` 表示引用 ID 全部精确匹配且路由可解析，`1` 表示存在无法对应的引用（不要开启），`2` 表示证据不足。
@@ -121,7 +121,7 @@ Start-Process $exe -ArgumentList "doctor" -Wait
    如果 `codex queue` 在 30 秒内没有确认退出，错误会按“投递未确认”显示；系统不会自动重试，请先检查对应 Codex 会话是否已收到回复。
 8. Antigravity：回复通过当前运行桌面端的官方 `language_server.exe agentapi` 发送，只使用通知携带的 `conversationId`。发送前会按 CSRF token 和 HTTP 监听端口定位服务，并用 `get-conversation-metadata` 确认会话存在。可用 `AGENT_NOTIFY_ANTIGRAVITY_BIN` 覆盖语言服务路径。
 9. Devin：回复通过随安装器部署到 `%USERPROFILE%\.devin\extensions\agent-notify` 的扩展发送，只使用通知携带的 `session_id`。扩展必须在 Devin 重启后加载，随后直接向本窗口的 `devin.exe acp` 子进程写 `session/prompt`（旧 Cascade 会话才走 `devin.sendChatActionMessage` 聊天面板）；不依赖 Devin CLI 登录状态，也不启动第二个 Agent 进程。
-10. OpenCode 必须先重新启动桌面端，使新版插件写入 5 秒心跳。心跳缺失、过旧或插件不支持 `session.prompt` / `promptAsync` 时，Agent-notify 会拒绝任务并返回错误。
+10. OpenCode 必须先重新启动桌面端，使新版插件写入 5 秒心跳。心跳缺失、过旧或插件不支持 `session.prompt` / `promptAsync` 时，AgentNotify 会拒绝任务并返回错误。
 11. OpenCode 超出 10 秒同步等待窗口后会按队列已接收处理；后台会在任务有效期内继续观察结果，插件之后报告的会话投递失败或最终未确认会回写微信，同时可在 `opencode-debug.log` 查看细节。
 12. 插件提交会话 prompt 默认 30 秒未返回时按“状态未知”上报失败且不重试，避免重复执行；单个请求悬空不会阻塞后续回复任务，可用 `AGENT_NOTIFY_OPENCODE_REPLY_TIMEOUT_MS` 调整该超时（重启桌面端生效）。
 13. 插件读取会话标题和摘要各自默认 10 秒超时：超时只退回默认标题或空摘要，推送照发，且不会把该会话永久标记为处理中；可用 `AGENT_NOTIFY_OPENCODE_FETCH_TIMEOUT_MS` 调整（重启桌面端生效）。
@@ -141,7 +141,7 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 
 ## 界面模糊、过小或点击位置偏移
 
-- Agent-notify 使用 Per-Monitor V2 DPI 感知，窗口大小、字体和命中区域会按显示器 DPI 一起缩放。
+- AgentNotify 使用 Per-Monitor V2 DPI 感知，窗口大小、字体和命中区域会按显示器 DPI 一起缩放。
 - 本版本支持 72 到 384 DPI；如果修改 Windows 缩放后界面仍不对，请从托盘菜单退出并重新启动悬浮窗。
 - 多显示器在不同缩放比例之间移动窗口时，窗口会自动重新布局，不会裁切固定区域。
 - 如果截图或远程桌面里文字模糊，先确认客户端没有把远程会话再次缩放；本机原分辨率下不应出现半像素缩放。
@@ -173,8 +173,8 @@ CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json`
    ```
 
 4. 检查 `%USERPROFILE%\.config\agent-notify\codex.off` 是否存在。
-5. 运行 `agent-notify watch`，或重启悬浮窗。只有 notify 行仍直指 `codex-computer-use.exe` 时，看护才会恢复 Agent-notify。
-6. 如果 Codex 原本使用自定义 notify 程序，安装器不会覆盖；需要手动把自定义程序与 Agent-notify 串接。
+5. 运行 `agent-notify watch`，或重启悬浮窗。只有 notify 行仍直指 `codex-computer-use.exe` 时，看护才会恢复 AgentNotify。
+6. 如果 Codex 原本使用自定义 notify 程序，安装器不会覆盖；需要手动把自定义程序与 AgentNotify 串接。
 
 ## Antigravity 任务结束不推送
 
@@ -190,7 +190,7 @@ CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json`
 
 1. 确认 Antigravity 桌面端仍处于运行状态，并保留着引用通知对应的会话；回复通过当前 `language_server.exe` 的 HTTP 端点发送，不依赖 `agy` CLI。
 2. 如果提示找不到语言服务，检查 `%LOCALAPPDATA%\Programs\antigravity\resources\bin\language_server.exe`，或通过 `AGENT_NOTIFY_ANTIGRAVITY_BIN` 指定同时运行中的实际安装路径。
-3. 语言服务的端口与 CSRF token 每次启动都会变化。令牌失效时重启 Antigravity 后重试；Agent-notify 会重新发现端点，不会缓存旧 token。
+3. 语言服务的端口与 CSRF token 每次启动都会变化。令牌失效时重启 Antigravity 后重试；AgentNotify 会重新发现端点，不会缓存旧 token。
 4. 如果提示会话不可用，说明 `get-conversation-metadata` 没在当前语言服务中找到该 `conversationId`；系统不会按标题、项目或最近会话回退。
 
 ## Devin 任务结束不推送
@@ -200,12 +200,12 @@ CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json`
 3. 检查 `%USERPROFILE%\.config\agent-notify\devin.off` 是否存在；marker 存在时只在 `push.log` 记录跳过。
 4. `stop_hook_active=true` 的事件会被跳过，防止 hook 重入；如果 payload 包含 `hook_event_name`，它必须是 `Stop`。
 5. 必须包含非空 `session_id`；缺少时不会建立引用路由。`last_assistant_message` 为空时使用默认正文。
-6. 安装和卸载只增删 Agent-notify 自己的 handler，保留其他 `hooks.Stop` handler、其他事件和权限配置。
+6. 安装和卸载只增删 AgentNotify 自己的 handler，保留其他 `hooks.Stop` handler、其他事件和权限配置。
 
 ## Devin 引用回复不可用
 
 1. 点击悬浮窗“检查修复”，或重新运行最新版 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装；确认 `%USERPROFILE%\.devin\extensions\agent-notify` 下存在 `package.json`、`extension.js` 和 `acp-bridge.js`。ZIP 或源码环境改用对应的 `install.ps1`。
-2. 完全退出并重启 Devin 桌面端。Devin 只会在启动时扫描用户扩展目录；重启后可在扩展日志中查看 `Agent-notify Devin Reply`。
+2. 完全退出并重启 Devin 桌面端。Devin 只会在启动时扫描用户扩展目录；重启后可在扩展日志中查看 `AgentNotify Devin Reply`。
 3. 如果微信提示“扩展未运行”或“扩展已离线”，检查 `%USERPROFILE%\.config\agent-notify\devin-reply-inbox\heartbeats` 是否有新心跳文件。
 4. 如果微信提示“未找到 Devin 桌面端 ACP 通道”，说明本窗口还没拉起常驻的 `devin.exe acp` 子进程（常见于 Devin 刚启动）；等 Devin 就绪或重启 Devin 后重试，系统不会把回复改投到新会话。
 5. 如果微信提示“目标 Devin 会话不存在或已删除”，说明桌面端找不到该 Cascade；请确认引用的通知来自当前仍存在的会话，系统不会回退到最近会话。
@@ -224,18 +224,18 @@ CLI 还会跳过标题含 `🔕` 或 `[勿扰]` 的推送，以及 `config.json`
 
 ## Codex 电脑操控失效
 
-Agent-notify 应在发送前透传原始参数和 stdin。检查：
+AgentNotify 应在发送前透传原始参数和 stdin。检查：
 
 1. 使用的配置是 `agent-notify.exe codex turn-ended`，不是只调用 `notify`。
 2. `codex-notify-debug.log` 能看到参数。
 3. 最近的 Codex 版本是否改变了 `codex-computer-use.exe` 路径；`agent-notify doctor` 会检查接入。
-4. 如果自定义 notify 已存在，先恢复自定义链路，再在其后追加 Agent-notify。
+4. 如果自定义 notify 已存在，先恢复自定义链路，再在其后追加 AgentNotify。
 
 ## 悬浮窗不见了
 
 - 最小化按钮会隐藏窗口，任务栏按钮仍可用于恢复。
 - 关闭按钮会藏入托盘，双击托盘图标可以恢复。
-- 桌面快捷方式名为 `Agent-notify`。
+- 桌面快捷方式名为 `AgentNotify`。
 - 托盘图标可能在 Windows 11 的溢出区中，可在“任务栏设置 → 其他系统托盘图标”里固定。
 - 用户主动退出会写 `widget-exit.txt`，悬浮窗不会在当前登录会话中被独立看守进程重新拉起。
 - 异常退出后重新打开桌面快捷方式即可；开机自启也会在下次登录时恢复悬浮窗。
@@ -246,11 +246,11 @@ Agent-notify 应在发送前透传原始参数和 stdin。检查：
 2. 查看 `%TEMP%\agent-notify\widget-trace.log` 最后几行。
 3. 确认 `agent-notify.exe widget` 可以手动启动。
 4. 若二进制被安全软件隔离，重新解压 Release 并校验 `SHA256SUMS.txt`。
-5. 若安装目录内仍有旧进程占用文件，从托盘完全退出 Agent-notify，再重新运行安装器；ZIP 或源码环境可运行对应的 `uninstall.ps1` 后重新安装。
+5. 若安装目录内仍有旧进程占用文件，从托盘完全退出 AgentNotify，再重新运行安装器；ZIP 或源码环境可运行对应的 `uninstall.ps1` 后重新安装。
 
 ## 开关关了仍在推送
 
-- 确认当前用户是安装 Agent-notify 的同一 Windows 用户；配置与 marker 都按用户目录隔离。
+- 确认当前用户是安装 AgentNotify 的同一 Windows 用户；配置与 marker 都按用户目录隔离。
 - 运行 `agent-notify status --json`，检查 `openCodeEnabled` 与 `codexEnabled`。
 - 同时检查 `antigravityEnabled` 与 `devinEnabled`。四个开关分别对应 `%USERPROFILE%\.config\agent-notify\{opencode,codex,antigravity,devin}.off`。
 - OpenCode 插件与 CLI 都会检查 marker；如果只有插件未更新，重跑安装并重启 OpenCode。
@@ -284,10 +284,10 @@ Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" `
 
 ## 安装或卸载失败
 
-- 从托盘完全退出 Agent-notify 后重试安装或升级。
+- 从托盘完全退出 AgentNotify 后重试安装或升级。
 - 标准安装目录必须可写；默认是 `%LOCALAPPDATA%\Programs\Agent-notify`，当前用户通常不需要管理员权限。
 - 标准安装器包含已编译 exe，不需要 Go。ZIP 或源码安装缺少 `bin\agent-notify.exe` 时才会尝试调用 Go 编译，可通过 `AGENT_NOTIFY_GO` 指定 `go.exe`。
-- 标准卸载请使用 Windows“设置 → 应用 → 已安装的应用”。它会删除程序文件和 Agent-notify 自己写入的 Hook、快捷方式，但保留 `%USERPROFILE%\.config\agent-notify` 中的登录凭据、配置、历史和引用路由。
+- 标准卸载请使用 Windows“设置 → 应用 → 已安装的应用”。它会删除程序文件和 AgentNotify 自己写入的 Hook、快捷方式，但保留 `%USERPROFILE%\.config\agent-notify` 中的登录凭据、配置、历史和引用路由。
 - 如需完全重置，先备份需要的数据，再手动删除 `%USERPROFILE%\.config\agent-notify` 和 `%TEMP%\agent-notify`，然后重新安装。
 
 ## 提 Issue 前收集
@@ -296,6 +296,6 @@ Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" `
 - `%TEMP%\agent-notify\setup.log` 和对应更新日志（如有）。
 - `agent-notify doctor` 的文本输出。
 - 对应日志最后 30 行。
-- Windows 版本、Agent-notify 版本，以及相关 OpenCode、Codex、Antigravity 或 Devin 版本。
+- Windows 版本、AgentNotify 版本，以及相关 OpenCode、Codex、Antigravity 或 Devin 版本。
 - Antigravity 语言服务路径或 Devin 回复扩展目录，以及对应桌面端版本。
 - 已执行的排查步骤。

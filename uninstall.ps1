@@ -181,10 +181,10 @@ if (Get-Command Remove-AntigravityAgentHook -ErrorAction SilentlyContinue) {
   }
 }
 
-# 5. 清理快捷方式（含旧版本用的 Agent-notify 悬浮窗.lnk）
+# 5. 清理快捷方式（AgentNotify.lnk，以及改名前的 Agent-notify / Agent-notify 悬浮窗）
 if (-not $SkipShortcuts) {
   foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('Desktop'))) {
-    foreach ($name in @('Agent-notify.lnk', 'Agent-notify 悬浮窗.lnk')) {
+    foreach ($name in @('AgentNotify.lnk', 'Agent-notify.lnk', 'Agent-notify 悬浮窗.lnk')) {
       $lnk = Join-Path $dir $name
       if (Test-Path $lnk) {
         Remove-Item $lnk -Force
@@ -239,7 +239,7 @@ if (-not $SkipCodexConfig -and (Test-Path $CodexConfig)) {
   $lineMatch = [regex]::Match($content, '(?m)^notify\s*=.*$')
   if (-not $lineMatch.Success -or $lineMatch.Value -notmatch '(?i)agent-notify') {
     if (Test-Path $backup) { Remove-Item $backup -Force }
-    Write-Output '[uninstall] Codex notify 未指向 Agent-notify，保持原样。'
+    Write-Output '[uninstall] Codex notify 未指向 AgentNotify，保持原样。'
   } else {
     $backupLine = ''
     if (Test-Path $backup) {
@@ -258,11 +258,11 @@ if (-not $SkipCodexConfig -and (Test-Path $CodexConfig)) {
       if ([string]::IsNullOrWhiteSpace($stripped)) {
         $updated = [regex]::Replace($content, '(?m)^notify\s*=.*(?:\r?\n|$)', '')
         [IO.File]::WriteAllText($CodexConfig, $updated)
-        Write-Output '[uninstall] 已移除 config.toml 里的 Agent-notify notify 行。'
+        Write-Output '[uninstall] 已移除 config.toml 里的 AgentNotify notify 行。'
       } else {
         $updated = $content.Substring(0, $lineMatch.Index) + $stripped + $content.Substring($lineMatch.Index + $lineMatch.Length)
         [IO.File]::WriteAllText($CodexConfig, $updated)
-        Write-Output '[uninstall] 已从 notify 链中移除 Agent-notify，保留其它程序。'
+        Write-Output '[uninstall] 已从 notify 链中移除 AgentNotify，保留其它程序。'
       }
     }
     if (Test-Path $backup) { Remove-Item $backup -Force }
@@ -277,6 +277,6 @@ if (Test-Path $exitMarker) {
 }
 
 Write-Output ''
-Write-Output '[uninstall] Agent-notify 已卸载。'
+Write-Output '[uninstall] AgentNotify 已卸载。'
 Write-Output '[uninstall] 登录凭据与配置保留在 %USERPROFILE%\.config\agent-notify\，如需彻底清理请手动删除。'
 exit 0

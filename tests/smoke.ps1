@@ -60,10 +60,12 @@ Write-Output '[ok] plugin only targets agent-notify.exe'
 # 1b. 快捷方式必须两套安装体系同名，否则升级后桌面/启动项会出现两份。
 $installRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'install.ps1'))
 $issRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'installer\agent-notify.iss'))
-Assert-True ($installRaw.Contains("Agent-notify.lnk")) 'install.ps1 未使用统一快捷方式名 Agent-notify.lnk'
-Assert-True ($issRaw.Contains('{userdesktop}\Agent-notify"')) '安装器桌面快捷方式不是 Agent-notify.lnk'
-Assert-True ($issRaw.Contains('{userstartup}\Agent-notify"')) '安装器启动项快捷方式不是 Agent-notify.lnk'
+Assert-True ($installRaw.Contains("AgentNotify.lnk")) 'install.ps1 未使用统一快捷方式名 AgentNotify.lnk'
+Assert-True ($issRaw.Contains('{userdesktop}\AgentNotify"')) '安装器桌面快捷方式不是 AgentNotify.lnk'
+Assert-True ($issRaw.Contains('{userstartup}\AgentNotify"')) '安装器启动项快捷方式不是 AgentNotify.lnk'
+Assert-True ($issRaw.Contains('{userdesktop}\Agent-notify.lnk')) '安装器缺少改名前的 Agent-notify.lnk 清理项'
 Assert-True ($issRaw.Contains('Agent-notify 悬浮窗.lnk')) '安装器缺少旧快捷方式清理项'
+Assert-True ($installRaw.Contains('Agent-notify.lnk')) 'install.ps1 缺少改名前的 Agent-notify.lnk 清理项'
 Write-Output '[ok] shortcuts share one name'
 
 # 2. 编译 CLI（缓存放仓库所在磁盘）

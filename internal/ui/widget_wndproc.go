@@ -204,7 +204,7 @@ func (app *WidgetApp) handleMessage(hwnd, msg, wParam, lParam uintptr) uintptr {
 			restoreAndBringToFront(hwnd)
 		case IDM_TEST_PUSH:
 			go func() {
-				_ = notify.SendNotification(notify.NotifyOptions{Agent: "test", Title: "【测试】Agent-notify", Summary: "ClawBot 推送链路正常。"})
+				_ = notify.SendNotification(notify.NotifyOptions{Agent: "test", Title: "【测试】AgentNotify", Summary: "ClawBot 推送链路正常。"})
 			}()
 		case IDM_UPDATE:
 			app.startUpdateCheck(hwnd)

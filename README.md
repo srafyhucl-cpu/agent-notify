@@ -1,13 +1,13 @@
-# Agent-notify
+# AgentNotify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.14.0-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.15.0-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
 </p>
 
-Agent-notify 是面向 OpenCode、Codex、Antigravity、Devin 与命令行长任务的 Windows 通知工具。任务完成后，它通过 ClawBot 把标题和摘要发送到微信，并在本机保留结构化推送历史。
+AgentNotify 是面向 OpenCode、Codex、Antigravity、Devin 与命令行长任务的 Windows 通知工具。任务完成后，它通过 ClawBot 把标题和摘要发送到微信，并在本机保留结构化推送历史。
 
 v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再依赖旧脚本、旧模块、旧配置或旧环境变量，也不读取任何旧名称的别名。
 
@@ -23,7 +23,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 - Codex 通知使用真实会话名；OpenCode 使用插件读取的会话标题；四个 Agent 都带各自标识与本地时间页脚。
 - 协议块不会出现在微信正文；正常心跳静默，异常或未知心跳保留正文并推送。
 - 通知默认不截断；需要人工限制时可显式传入 `--max-chars`。
-- 微信引用 Agent-notify 通知后可继续对应的 OpenCode、Codex、Antigravity 或 Devin 会话；目标只按原始平台消息 ID 和稳定会话 ID 精确匹配，不回退到最近会话。
+- 微信引用 AgentNotify 通知后可继续对应的 OpenCode、Codex、Antigravity 或 Devin 会话；目标只按原始平台消息 ID 和稳定会话 ID 精确匹配，不回退到最近会话。
 - 通用 CLI，可在编译、测试、训练或爬虫结束后主动推送。
 - 原生 Windows 悬浮窗：四个 Agent 的开关与运行状态、勿扰设置、推送历史、测试推送和托盘。
 - 悬浮窗内置一键升级：检查最新 GitHub Release，静默下载并校验 `SHA256SUMS.txt`，优先直接运行新版 `Agent-notify-Setup-vX.Y.Z.exe`。
@@ -37,7 +37,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 
 普通用户从[公开 Release](https://github.com/srafyhucl-cpu/agent-notify-releases/releases/latest)下载 `Agent-notify-Setup-vX.Y.Z.exe`，双击后按向导完成安装。安装器默认按当前用户安装到 `%LOCALAPPDATA%\Programs\Agent-notify`，不要求管理员权限，也不会打开命令行窗口。
 
-安装完成页默认勾选“启动 Agent-notify”。标准安装版首次启动时会在后台静默完成 OpenCode、Codex、Antigravity、Devin 接入；本机没有 ClawBot 凭据时，随后打开微信扫码窗口。
+安装完成页默认勾选“启动 AgentNotify”。标准安装版首次启动时会在后台静默完成 OpenCode、Codex、Antigravity、Devin 接入；本机没有 ClawBot 凭据时，随后打开微信扫码窗口。
 
 如果首次接入失败，悬浮窗会显示“首次接入失败”或“接入异常”。点击右下角“检查修复”可重新执行接入并查看失败原因；详细输出位于 `%TEMP%\agent-notify\setup.log`。状态文件 `%USERPROFILE%\.config\agent-notify\setup-state.json` 记录已完成接入的版本，版本升级或删除该文件后会在下次启动重新执行。
 
@@ -54,7 +54,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 | 首次接入状态 | `%USERPROFILE%\.config\agent-notify\setup-state.json` |
 | 首次接入失败日志 | `%TEMP%\agent-notify\setup.log` |
 
-Antigravity 配置使用独立顶层 `agent-notify` Hook；Devin 只向 `hooks.Stop` 追加独立的 Agent-notify 组。安装和卸载都会保留其他顶层配置、事件和 handler，并采用同目录原子替换。
+Antigravity 配置使用独立顶层 `agent-notify` Hook；Devin 只向 `hooks.Stop` 追加独立的 AgentNotify 组。安装和卸载都会保留其他顶层配置、事件和 handler，并采用同目录原子替换。
 
 安装器只在 Codex `config.toml` 的 `notify` 行缺失或指向 `codex-computer-use.exe` 时接管，并在修改前创建 `config.toml.bak-notify-wrapper`。自定义 notify 程序不会被覆盖。
 
@@ -108,7 +108,7 @@ Start-Process $exe -ArgumentList "status" -Wait
 
 悬浮窗中的 Agent 卡片不再只表示开关：`已接入` 表示配置、程序路径和可用的加载心跳均已通过；`待重启` 表示插件或扩展已安装但对应客户端尚未加载；`接入异常` 表示配置或路径有明确问题；`未接入` 表示尚未检测到有效配置。点击右下角“检查修复”会重新执行首次接入、重新检查状态，并安全修复可直接恢复的 Codex notify；该操作不会启动、关闭或重启任何 Agent。
 
-安装完成后也可以双击桌面上的 `Agent-notify` 快捷方式，在“设置”里完成上述流程。悬浮窗的推荐首次流程：
+安装完成后也可以双击桌面上的 `AgentNotify` 快捷方式，在“设置”里完成上述流程。悬浮窗的推荐首次流程：
 
 1. 点击顶部连接卡或“设置”，打开设置窗。
 2. 点击“扫码登录”，使用微信扫描窗口内二维码。
@@ -209,7 +209,7 @@ agent-notify.exe notify --dry-run --title "长通知" --summary "完整正文" -
 - 路由和去重 Claim 只保存在本机，默认保留 30 天；两类记录都按 ClawBot bot ID 和绑定用户 ID 隔离。
 - 路由和去重文件达到大小阈值且积累足够过期或损坏记录时会原子压缩，过期记录不会被长期物理保留。
 
-可用的 `AGENT_NOTIFY_*` 覆盖项见 [.env.example](.env.example)。所有路径和开关都统一使用 Agent-notify 命名；v1.0.0 不读取旧名称的配置、环境变量、命令别名或迁移文件。
+可用的 `AGENT_NOTIFY_*` 覆盖项见 [.env.example](.env.example)。所有路径和开关都统一使用 AgentNotify 命名；v1.0.0 不读取旧名称的配置、环境变量、命令别名或迁移文件。
 
 ## 微信引用回复
 
@@ -230,13 +230,13 @@ P0 只承认当前登录账号的 scoped 证据：诊断里的 `account_scope` �
 
 运行时约束：
 
-- 引用回复由悬浮窗内的 ClawBot 会话轮询处理，使用期间需要保持 Agent-notify 运行。
+- 引用回复由悬浮窗内的 ClawBot 会话轮询处理，使用期间需要保持 AgentNotify 运行。
 - 只有当前绑定微信用户的私聊引用回复会触发 Agent。
 - 只有能在本机 30 天路由中找到唯一精确消息 ID 时才会执行对应 Agent；分发器不会按标题、正文、工作目录或“最近会话”查找目标。
 - Codex 执行 `codex queue --thread=<thread-id> --message=<text>`，按 `thread-id` 精确投递。
 - OpenCode 通过插件本地收件箱调用已有会话的 `session.prompt`，兼容旧版 `promptAsync`。
 - Antigravity 通过桌面端官方 `language_server.exe agentapi` 向原会话发送消息；端点、HTTP 端口和 CSRF token 从当前运行进程精确发现，不使用 CLI 或最近会话回退。
-- Devin 先用完整 `session_id` 从 Devin 桌面端状态库解析内部 Cascade 标识，再由随 Agent-notify 安装的扩展直接向桌面端常驻的 `devin.exe acp` 子进程写 `session/prompt`（旧 Cascade 会话保留聊天面板回退）；不使用最近会话、标题或项目目录回退，也不启动第二个 Agent 进程，因此不依赖 Devin CLI 登录状态。
+- Devin 先用完整 `session_id` 从 Devin 桌面端状态库解析内部 Cascade 标识，再由随 AgentNotify 安装的扩展直接向桌面端常驻的 `devin.exe acp` 子进程写 `session/prompt`（旧 Cascade 会话保留聊天面板回退）；不使用最近会话、标题或项目目录回退，也不启动第二个 Agent 进程，因此不依赖 Devin CLI 登录状态。
 - `codex queue` 支持尚未在前台打开的持久化线程：消息由 Codex 写入线程队列，下次恢复同一线程时执行。已归档线程会提示先运行 `codex unarchive`；不存在或已删除的线程会明确失败。
 - 临时会话（ephemeral）不支持引用续聊，Codex 未启用持久化队列或本地 app-server 状态冲突时也会返回可见错误，不会静默落到其他会话。
 - `codex queue` 在 30 秒内没有确认退出时，结果按“投递未确认”处理；系统不会自动重试，并会提示先检查对应的 Codex 会话。
@@ -264,7 +264,7 @@ notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe
 4. 从 `thread-id`（兼容 `thread_id`）提取权威线程 ID；只有该 ID 存在时，发送成功后才建立 30 天引用路由。
 5. 发送 Markdown 通知（加粗标题行、正文与页脚）并记录历史；引用回复命中已记录线程后按消息 ID 执行 `codex queue`，成功后回一条“已送达”确认（可用 `replyConfirmation` 关闭）。
 
-悬浮窗每两分钟检查一次 Codex 配置；如果 Codex 更新后把 notify 行改回直调 `codex-computer-use.exe`，会自动恢复为 Agent-notify。如果 Codex computer-use 把 notify 包成 `--previous-notify` 链、链里仍调用 `agent-notify.exe`，悬浮窗按已接入处理并保留原配置；安装器只把链内的 `agent-notify.exe` 路径更新到当前安装目录。
+悬浮窗每两分钟检查一次 Codex 配置；如果 Codex 更新后把 notify 行改回直调 `codex-computer-use.exe`，会自动恢复为 AgentNotify。如果 Codex computer-use 把 notify 包成 `--previous-notify` 链、链里仍调用 `agent-notify.exe`，悬浮窗按已接入处理并保留原配置；安装器只把链内的 `agent-notify.exe` 路径更新到当前安装目录。
 
 标题读取失败不会阻断通知或清除 `thread-id`：原通知末尾会显示简短降级提示，引用回复仍精确路由到原线程。详细诊断写入 `%TEMP%\agent-notify\codex-title.log`。
 
@@ -296,7 +296,7 @@ notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe
 
 ## Devin 接入
 
-安装器只向已有 `%APPDATA%\devin\config.json` 的 `hooks.Stop` 数组追加 Agent-notify 组；同组其他 handler、其他事件、`permissions`、`version` 等键全部保留。
+安装器只向已有 `%APPDATA%\devin\config.json` 的 `hooks.Stop` 数组追加 AgentNotify 组；同组其他 handler、其他事件、`permissions`、`version` 等键全部保留。
 
 - `Stop` 事件若 `stop_hook_active=true` 会直接跳过，防止 Hook 递归。
 - 摘要取 `last_assistant_message`，会话目标取稳定字段 `session_id`。
@@ -309,7 +309,7 @@ notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe
 
 ## 卸载
 
-标准安装版请在 Windows“设置 → 应用 → 已安装的应用”中选择 Agent-notify 并卸载。安装器会删除程序文件和 Agent-notify 自己写入的 Hook、快捷方式及卸载项。
+标准安装版请在 Windows“设置 → 应用 → 已安装的应用”中选择 AgentNotify 并卸载。安装器会删除程序文件和 AgentNotify 自己写入的 Hook、快捷方式及卸载项。
 
 便携或源码环境可手动运行卸载脚本：
 
@@ -317,8 +317,8 @@ notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe
 powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```
 
-卸载器按 `agent-notify-install.json` 清理程序与插件，尝试恢复 Codex 配置，并只移除 Agent-notify 自己的 Antigravity / Devin Hook。其他 Hook 和用户配置保持不变；ClawBot 登录凭据、Agent-notify 配置、推送历史和引用路由默认保留。如需彻底清理，请先备份需要的数据，再手动删除 `%USERPROFILE%\.config\agent-notify`。
-Devin 回复扩展仅在 `package.json` 的 `name` 和 `publisher` 均属于 Agent-notify 时删除；目录中若还有其他文件会保留。
+卸载器按 `agent-notify-install.json` 清理程序与插件，尝试恢复 Codex 配置，并只移除 AgentNotify 自己的 Antigravity / Devin Hook。其他 Hook 和用户配置保持不变；ClawBot 登录凭据、AgentNotify 配置、推送历史和引用路由默认保留。如需彻底清理，请先备份需要的数据，再手动删除 `%USERPROFILE%\.config\agent-notify`。
+Devin 回复扩展仅在 `package.json` 的 `name` 和 `publisher` 均属于 AgentNotify 时删除；目录中若还有其他文件会保留。
 
 ## 开发
 
@@ -372,4 +372,4 @@ go test -count=1 -run TestCodexQueueRunnerRealCLIIntegration -v ./internal/reply
 
 ## License
 
-[MIT License](LICENSE) © 2026 Agent-notify contributors
+[MIT License](LICENSE) © 2026 AgentNotify contributors

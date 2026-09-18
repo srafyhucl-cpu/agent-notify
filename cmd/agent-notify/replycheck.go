@@ -241,6 +241,6 @@ func writeReplyCheckJSON(output replyCheckOutput) {
 }
 
 func printReplyCheckHeader(path string) {
-	fmt.Println("Agent-notify 引用回复 P0 校验（只读）")
+	fmt.Println("AgentNotify 引用回复 P0 校验（只读）")
 	fmt.Printf("诊断日志：%s\n", path)
 }

@@ -121,10 +121,10 @@ try {
 } catch {
   $_ | Out-String | Add-Content -LiteralPath $logPath -Encoding UTF8
   Add-Type -AssemblyName PresentationFramework
-  $message = "Agent-notify 自动更新失败。" + [Environment]::NewLine + [Environment]::NewLine + "详情见：" + [Environment]::NewLine + $logPath
+  $message = "AgentNotify 自动更新失败。" + [Environment]::NewLine + [Environment]::NewLine + "详情见：" + [Environment]::NewLine + $logPath
   [System.Windows.MessageBox]::Show(
     $message,
-    "Agent-notify 更新失败",
+    "AgentNotify 更新失败",
     [System.Windows.MessageBoxButton]::OK,
     [System.Windows.MessageBoxImage]::Error
   ) | Out-Null

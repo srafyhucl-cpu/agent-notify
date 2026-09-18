@@ -73,7 +73,7 @@ func TestWidgetTextFitsItsRects(t *testing.T) {
 		text string
 		rect RECT
 	}{
-		{"标题", newTitleFont, "Agent-notify", text.title},
+		{"标题", newTitleFont, "AgentNotify", text.title},
 		{"副标题", newSmallFont, "4 个 Agent · ClawBot 微信通知", text.subtitle},
 		{"单Agent副标题", newSmallFont, "聚焦单 Agent · ClawBot 微信通知", text.subtitle},
 		{"页脚版本", newSmallFont, "v10.10.10", text.footerVersion},
@@ -255,7 +255,7 @@ func TestResizeForCurrentDPIAt96And144(t *testing.T) {
 	hwnd, _, createErr := pCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(className)),
-		uintptr(unsafe.Pointer(StringToUTF16Ptr("Agent-notify DPI test"))),
+		uintptr(unsafe.Pointer(StringToUTF16Ptr("AgentNotify DPI test"))),
 		WS_POPUP,
 		0, 0, 400, 360,
 		0, 0, hInstance, 0,

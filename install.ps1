@@ -49,8 +49,9 @@ foreach ($pathParam in @('InstallDir', 'PluginDir', 'AntigravityHooks', 'DevinCo
   }
 }
 # 快捷方式名与标准安装器保持一致，旧名字只做清理，避免重复。
-$ShortcutName = 'Agent-notify.lnk'
-$LegacyShortcutName = 'Agent-notify 悬浮窗.lnk'
+$ShortcutName = 'AgentNotify.lnk'
+# 改名前的快捷方式名，安装与卸载都要清掉，避免桌面上留下两个图标。
+$LegacyShortcutNames = @('Agent-notify.lnk', 'Agent-notify 悬浮窗.lnk')
 # 客户端正在读取被替换文件时的有界重试次数与间隔。
 $InstallReplaceAttempts = 5
 $InstallReplaceDelayMs = 300
@@ -67,7 +68,7 @@ $HasPackage = ((Test-Path (Join-Path $RepoRoot "bin\$ExeName")) -or
 
 # 在线/远程运行模式：仓库不在本地时下载新名称的 main 分支压缩包。
 if ([string]::IsNullOrWhiteSpace($RepoRoot) -or (-not $HasSource -and -not $HasPackage)) {
-  Write-Output '[install] 未检测到本地仓库，正在获取最新 Agent-notify 运行包...'
+  Write-Output '[install] 未检测到本地仓库，正在获取最新 AgentNotify 运行包...'
   $stageRoot = Join-Path ([IO.Path]::GetTempPath()) ('agent-notify-online-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
   $zipPath = Join-Path $stageRoot 'agent-notify.zip'
@@ -505,12 +506,12 @@ try {
           $lineMatch = [regex]::Match($content, '(?m)^notify\s*=.*$')
           $updated = $content.Substring(0, $lineMatch.Index) + $updatedLine + $content.Substring($lineMatch.Index + $lineMatch.Length)
           [IO.File]::WriteAllText($CodexConfig, $updated)
-          Write-Output "[install] Codex notify 已更新到当前 Agent-notify 路径（原文件备份到 $CodexConfig.bak-notify-wrapper）。"
+          Write-Output "[install] Codex notify 已更新到当前 AgentNotify 路径（原文件备份到 $CodexConfig.bak-notify-wrapper）。"
         } elseif ($notifyLine -notmatch [regex]::Escape($exeSlash)) {
           # 兜底：确实无法自动改写时明确警告，避免"无需改动"掩盖指向旧路径的事实。
           Write-Output "[install] 警告：Codex notify 里的 agent-notify.exe 不指向本安装目录，且无法自动更新。请手动改为：$installedExe"
         } else {
-          Write-Output '[install] Codex notify 已指向 Agent-notify，无需改动。'
+          Write-Output '[install] Codex notify 已指向 AgentNotify，无需改动。'
         }
       } elseif ($notifyTarget -match '(?i)codex-computer-use\.exe') {
         Copy-Item $CodexConfig "$CodexConfig.bak-notify-wrapper" -Force
@@ -529,7 +530,7 @@ try {
   }
 
   # 8. 快捷方式（开机自启 + 桌面），目标就是 exe 的 widget 子命令。
-  #    与标准安装器共用 Agent-notify.lnk，避免两套安装体系各建一份快捷方式。
+  #    与标准安装器共用 AgentNotify.lnk，避免两套安装体系各建一份快捷方式。
   if (-not $SkipShortcuts -and -not $ConfigureOnly) {
     try {
       $ws = New-Object -ComObject WScript.Shell
@@ -539,13 +540,15 @@ try {
         $sc.TargetPath = $installedExe
         $sc.Arguments = 'widget'
         $sc.WorkingDirectory = $InstallDir
-        $sc.Description = 'Agent-notify 推送悬浮窗'
+        $sc.Description = 'AgentNotify 推送悬浮窗'
         $sc.Save()
         Write-Output "[install] 已创建快捷方式：$lnkPath"
-        $legacyLnk = Join-Path $dir $LegacyShortcutName
-        if (Test-Path -LiteralPath $legacyLnk) {
-          Remove-Item -LiteralPath $legacyLnk -Force
-          Write-Output "[install] 已清理旧快捷方式：$legacyLnk"
+        foreach ($legacyName in $LegacyShortcutNames) {
+          $legacyLnk = Join-Path $dir $legacyName
+          if (Test-Path -LiteralPath $legacyLnk) {
+            Remove-Item -LiteralPath $legacyLnk -Force
+            Write-Output "[install] 已清理旧快捷方式：$legacyLnk"
+          }
         }
       }
     } catch {
@@ -583,7 +586,7 @@ try {
 
   Write-Output ''
   Write-Output '============================================================'
-  Write-Output "  Agent-notify v$(Get-RepoVersion) 安装完成"
+  Write-Output "  AgentNotify v$(Get-RepoVersion) 安装完成"
   Write-Output '============================================================'
   Write-Output '[install] 下一步：'
   Write-Output "  1. 如未自动打开扫码窗口：& `"$installedExe`" login"

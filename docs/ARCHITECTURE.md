@@ -48,7 +48,7 @@ Devin
 - `agent-notify.exe sync`：等待首条微信消息，建立主动推送会话。
 - `agent-notify.exe doctor`：配置、凭据、会话、网络和接入自检。
 - `agent-notify.exe status`：显示四类推送开关和路由文件位置；`doctor` 同时检查各 Agent 接入与 Codex queue 能力。
-- `agent-notify.exe watch`：仅在 Codex notify 指向 `codex-computer-use.exe` 时恢复 Agent-notify。
+- `agent-notify.exe watch`：仅在 Codex notify 指向 `codex-computer-use.exe` 时恢复 AgentNotify。
 - `install.ps1` / `uninstall.ps1`：部署和清理，不携带运行时业务逻辑。
 
 ## 代码职责
@@ -67,7 +67,7 @@ Devin
 | `internal/ui` | 原生 Win32 悬浮窗、设置、登录、历史、托盘 | 单实例、DPI 感知、双缓冲、会话状态实时刷新、`windowsgui` 发布模式 |
 | `plugin/agent-notify.ts` | OpenCode V2 插件 | 安装器写入 `BAKED_BIN`；发送通知并维护引用回复心跳、收件箱和 `session.prompt` / `promptAsync` 兼容投递 |
 | `plugin/devin-extension` | Devin 桌面端回复扩展 | ACP 会话直接向桌面端 `devin.exe acp` 子进程写 `session/prompt`（旧 Cascade 保留精确直发/聊天面板回退），维护心跳、持久收件箱、至多一次认领与结果回写 |
-| `install.ps1` / `uninstall.ps1` | 文件分发、安装记录、快捷方式，以及 Codex / Antigravity / Devin 接入 | 共享 `tools/hook-config.ps1`；只改 Agent-notify 自己的 Hook，保留其他 JSON 配置 |
+| `install.ps1` / `uninstall.ps1` | 文件分发、安装记录、快捷方式，以及 Codex / Antigravity / Devin 接入 | 共享 `tools/hook-config.ps1`；只改 AgentNotify 自己的 Hook，保留其他 JSON 配置 |
 
 ## OpenCode 数据流
 
@@ -273,7 +273,7 @@ Agent-notify/
 
 `install.ps1` 的完整模式：
 
-1. 停止安装目录内的 Agent-notify 进程。
+1. 停止安装目录内的 AgentNotify 进程。
 2. 复制或构建 `agent-notify.exe`。
 3. 复制 `plugin/agent-notify.ts`。
 4. 复制 `plugin/devin-extension` 到 Devin 用户扩展目录。
@@ -283,7 +283,7 @@ Agent-notify/
 8. 在安全条件下接管 Codex notify。
 9. 创建开机启动和桌面快捷方式，并启动悬浮窗。
 
-标准安装版卸载入口由 Inno Setup 注册，卸载时隐藏调用 `uninstall.ps1`。卸载器只删除安装记录中的程序文件、固定插件和 Agent-notify 快捷方式，移除 Agent-notify 自己写入的 Antigravity / Devin Hook 与 Codex notify 配置，并保留其他 Hook、用户配置和凭据。ClawBot 登录凭据、`config.json`、推送历史和引用路由默认保留在 `%USERPROFILE%\.config\agent-notify`。
+标准安装版卸载入口由 Inno Setup 注册，卸载时隐藏调用 `uninstall.ps1`。卸载器只删除安装记录中的程序文件、固定插件和 AgentNotify 快捷方式，移除 AgentNotify 自己写入的 Antigravity / Devin Hook 与 Codex notify 配置，并保留其他 Hook、用户配置和凭据。ClawBot 登录凭据、`config.json`、推送历史和引用路由默认保留在 `%USERPROFILE%\.config\agent-notify`。
 
 卸载 Devin 扩展前会校验 `package.json` 的 `name` 与 `publisher`；只删除明确的扩展文件，目录中其他内容不会被递归清理。
 
@@ -361,7 +361,7 @@ Agent-notify/
 8. v1.0.0 不读取旧品牌名称、旧模块、旧脚本、旧环境变量或命令别名。
 9. 引用回复只允许精确消息 ID 路由；禁止标题、正文、最近会话或跨账号回退。
 10. 引用回复默认关闭；OpenCode 插件不支持 `session.prompt` 或 `promptAsync` 时必须拒绝任务并返回可见错误。
-11. Antigravity Hook 使用独立顶层键 `agent-notify`；Devin 只修改 `hooks.Stop` 中的 Agent-notify handler，安装与卸载不得覆盖其他 JSON 配置。
+11. Antigravity Hook 使用独立顶层键 `agent-notify`；Devin 只修改 `hooks.Stop` 中的 AgentNotify handler，安装与卸载不得覆盖其他 JSON 配置。
 12. Antigravity 使用同目录无空格启动器调用安装目录中的 exe，避免其 Windows `cmd /c` 参数转义破坏带引号和空格的命令。
 13. Antigravity / Devin Stop wrapper 必须始终输出 `{}`，通知故障不得阻塞 agent。
 14. Antigravity / Devin 回复只允许使用通知携带的稳定会话 ID；禁止工作目录、最近会话或标题回退。

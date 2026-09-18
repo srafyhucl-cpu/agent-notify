@@ -58,7 +58,7 @@ var (
 
 var (
 	classNameWidget   = StringToUTF16Ptr("AgentNotifyWidgetMain")
-	windowTitleWidget = StringToUTF16Ptr("Agent-notify")
+	windowTitleWidget = StringToUTF16Ptr("AgentNotify")
 	msgWakeupID       uint32
 	//lint:ignore U1000 Retained so the Windows callback remains reachable.
 	wndProcCallback uintptr

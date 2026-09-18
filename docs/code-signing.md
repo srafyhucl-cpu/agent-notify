@@ -43,7 +43,7 @@ secret 被删除或改名时会在构建前直接失败，而不是发出未签�
 1. 本地生成证书并导出 PFX（有效期自定）：
 
    ```powershell
-   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Agent-notify" `
+   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=AgentNotify" `
      -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(5)
    Export-PfxCertificate -Cert $cert -FilePath agent-notify.pfx `
      -Password (Read-Host -AsSecureString "PFX 密码")

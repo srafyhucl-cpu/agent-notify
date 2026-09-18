@@ -32,65 +32,12 @@ const (
 	IDM_UPDATE             = 3010
 )
 
-// CreateDotIcon creates a 16x16 colored tray status icon.
-func CreateDotIcon(color uint32) uintptr {
-	hdcScreen, _, _ := user32.NewProc("GetDC").Call(0)
-	defer user32.NewProc("ReleaseDC").Call(0, hdcScreen)
-
-	hdcMem, _, _ := pCreateCompatibleDC.Call(hdcScreen)
-	defer pDeleteDC.Call(hdcMem)
-
-	hBitmapColor, _, _ := pCreateCompatibleBitmap.Call(hdcScreen, 16, 16)
-	hBitmapMask, _, _ := gdi32.NewProc("CreateBitmap").Call(16, 16, 1, 1, 0)
-
-	oldBitmap, _, _ := pSelectObject.Call(hdcMem, hBitmapColor)
-	backgroundBrush, _, _ := pCreateSolidBrush.Call(uintptr(RGB(0, 0, 0)))
-	rect := RECT{0, 0, 16, 16}
-	pFillRect.Call(hdcMem, uintptr(unsafe.Pointer(&rect)), backgroundBrush)
-	pDeleteObject.Call(backgroundBrush)
-
-	brush, _, _ := pCreateSolidBrush.Call(uintptr(color))
-	pen, _, _ := pCreatePen.Call(0, 1, uintptr(RGB(255, 255, 255)))
-	oldBrush, _, _ := pSelectObject.Call(hdcMem, brush)
-	oldPen, _, _ := pSelectObject.Call(hdcMem, pen)
-	pEllipse.Call(hdcMem, 1, 1, 15, 15)
-	pSelectObject.Call(hdcMem, oldBrush)
-	pSelectObject.Call(hdcMem, oldPen)
-	pDeleteObject.Call(brush)
-	pDeleteObject.Call(pen)
-	pSelectObject.Call(hdcMem, oldBitmap)
-
-	hdcMask, _, _ := pCreateCompatibleDC.Call(hdcScreen)
-	oldMask, _, _ := pSelectObject.Call(hdcMask, hBitmapMask)
-	whiteBrush, _, _ := pCreateSolidBrush.Call(uintptr(RGB(255, 255, 255)))
-	pFillRect.Call(hdcMask, uintptr(unsafe.Pointer(&rect)), whiteBrush)
-	pDeleteObject.Call(whiteBrush)
-
-	blackBrush, _, _ := pCreateSolidBrush.Call(uintptr(RGB(0, 0, 0)))
-	blackPen, _, _ := pCreatePen.Call(0, 1, uintptr(RGB(0, 0, 0)))
-	oldMaskBrush, _, _ := pSelectObject.Call(hdcMask, blackBrush)
-	oldMaskPen, _, _ := pSelectObject.Call(hdcMask, blackPen)
-	pEllipse.Call(hdcMask, 1, 1, 15, 15)
-	pSelectObject.Call(hdcMask, oldMaskBrush)
-	pSelectObject.Call(hdcMask, oldMaskPen)
-	pDeleteObject.Call(blackBrush)
-	pDeleteObject.Call(blackPen)
-	pSelectObject.Call(hdcMask, oldMask)
-	pDeleteDC.Call(hdcMask)
-
-	iconInfo := ICONINFO{FIcon: 1, HbmMask: hBitmapMask, HbmColor: hBitmapColor}
-	icon, _, _ := pCreateIconIndirect.Call(uintptr(unsafe.Pointer(&iconInfo)))
-	pDeleteObject.Call(hBitmapColor)
-	pDeleteObject.Call(hBitmapMask)
-	return icon
-}
-
 func NewTrayManager(hwnd uintptr) *TrayManager {
 	manager := &TrayManager{
 		hwnd:      hwnd,
-		hIconOn:   CreateDotIcon(statusColorReady),
-		hIconMid:  CreateDotIcon(statusColorWarning),
-		hIconOff:  CreateDotIcon(statusColorStopped),
+		hIconOn:   CreateStatusIcon(statusColorReady),
+		hIconMid:  CreateStatusIcon(statusColorWarning),
+		hIconOff:  CreateStatusIcon(statusColorStopped),
 		lastState: -1,
 	}
 
@@ -101,7 +48,7 @@ func NewTrayManager(hwnd uintptr) *TrayManager {
 	data.UFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
 	data.UCallbackMessage = WM_TRAYICON
 	data.HIcon = manager.hIconOn
-	tip, _ := syscall.UTF16FromString("Agent-notify")
+	tip, _ := syscall.UTF16FromString("AgentNotify")
 	copy(data.SzTip[:], tip)
 	if result, _, _ := pShell_NotifyIconW.Call(NIM_ADD, uintptr(unsafe.Pointer(&data))); result == 0 {
 		data.CbSize = 504
@@ -191,9 +138,9 @@ func (manager *TrayManager) ShowContextMenu(windowVisible bool, agentEnabled map
 	}
 	defer pDestroyMenu.Call(menu)
 
-	showText := "显示 Agent-notify"
+	showText := "显示 AgentNotify"
 	if windowVisible {
-		showText = "隐藏 Agent-notify"
+		showText = "隐藏 AgentNotify"
 	}
 	pAppendMenuW.Call(menu, MF_STRING, IDM_TOGGLE_SHOW, uintptr(unsafe.Pointer(StringToUTF16Ptr(showText))))
 

@@ -106,7 +106,7 @@ func TestCleanRecentPushTitleWithEmojis(t *testing.T) {
 		agent string
 		want  string
 	}{
-		{"⚡【测试】Agent-notify 微信链路验证", "test", "Agent-notify 微信链路验证"},
+		{"⚡【测试】AgentNotify 微信链路验证", "test", "AgentNotify 微信链路验证"},
 		{"🟢【Antigravity】构建成功", "antigravity", "构建成功"},
 		{"⚠️【Codex】需要人工介入", "codex", "需要人工介入"},
 		{"🔴【Devin】任务超时", "devin", "任务超时"},

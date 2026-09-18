@@ -15,3 +15,6 @@ bin/
 # Local release/package scratch files.
 Agent-notify-v*.zip
 SHA256SUMS.txt
+
+# 图标设计稿原图（大模型输出，本地保留即可；仓库里用的是 assets/icon-source.png）
+assets/icon-reference.png

@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢参与 Agent-notify。本项目中文优先，Issue、PR、提交说明与代码注释使用中文，Conventional Commits 的 type 和 scope 保持英文。
+感谢参与 AgentNotify。本项目中文优先，Issue、PR、提交说明与代码注释使用中文，Conventional Commits 的 type 和 scope 保持英文。
 
 ## 环境要求
 

@@ -12,7 +12,7 @@
 
 .EXAMPLE
   # 本地生成自签证书并导出 PFX（只做一次）：
-  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Agent-notify" -CertStoreLocation Cert:\CurrentUser\My
+  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=AgentNotify" -CertStoreLocation Cert:\CurrentUser\My
   $pwd = ConvertTo-SecureString -String 'your-password' -AsPlainText -Force
   Export-PfxCertificate -Cert $cert -FilePath agent-notify.pfx -Password $pwd
   # 把中文说明与 base64 放进 CI secret，并把 tools\sign-selfsigned.cmd 的绝对路径写入 AGENT_NOTIFY_SIGNTOOL。

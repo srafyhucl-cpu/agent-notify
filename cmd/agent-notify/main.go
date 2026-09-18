@@ -1,8 +1,8 @@
 package main
 
-//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -arch 386 -o rsrc_windows_386.syso
-//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -arch amd64 -o rsrc_windows_amd64.syso
-//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -arch arm64 -o rsrc_windows_arm64.syso
+//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -ico ../../assets/agent-notify.ico -arch 386 -o rsrc_windows_386.syso
+//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -ico ../../assets/agent-notify.ico -arch amd64 -o rsrc_windows_amd64.syso
+//go:generate go run github.com/akavel/rsrc@v0.10.2 -manifest agent-notify.manifest -ico ../../assets/agent-notify.ico -arch arm64 -o rsrc_windows_arm64.syso
 
 import (
 	"bufio"
@@ -109,7 +109,7 @@ func ensureConsole() {
 }
 
 func printHelp() {
-	fmt.Printf("Agent-notify v%s - OpenCode / Codex / Antigravity / Devin 微信任务通知\n\n", app.Version)
+	fmt.Printf("AgentNotify v%s - OpenCode / Codex / Antigravity / Devin 微信任务通知\n\n", app.Version)
 	fmt.Println("用法:")
 	fmt.Println("  agent-notify [命令] [选项]")
 	fmt.Println()
@@ -218,7 +218,7 @@ func main() {
 		runWidget()
 	case "version", "-v", "--version":
 		ensureConsole()
-		fmt.Printf("Agent-notify %s\ncommit: %s\nbuilt: %s\n", app.Version, app.Commit, app.BuildTime)
+		fmt.Printf("AgentNotify %s\ncommit: %s\nbuilt: %s\n", app.Version, app.Commit, app.BuildTime)
 	case "help", "-h", "--help":
 		ensureConsole()
 		printHelp()
@@ -476,7 +476,7 @@ func runStatus(args []string) {
 		return
 	}
 
-	fmt.Printf("Agent-notify v%s\n", app.Version)
+	fmt.Printf("AgentNotify v%s\n", app.Version)
 	fmt.Printf("ClawBot: %s\n", loginStatus(status))
 	fmt.Printf("主动推送会话: %s\n", sessionStatus(status))
 	fmt.Printf("OpenCode 推送: %s\n", onOff(openCodeOn))
@@ -588,7 +588,7 @@ func testNotificationBody() string {
 func runTest() {
 	result := notify.SendNotification(notify.NotifyOptions{
 		Agent:   "test",
-		Title:   "⚡【测试】Agent-notify 微信链路验证",
+		Title:   "⚡【测试】AgentNotify 微信链路验证",
 		Summary: testNotificationBody(),
 	})
 	if result.Status != notify.StatusSuccess {
@@ -608,7 +608,7 @@ func runTest() {
 func runDoctor() int {
 	paths := config.GetPaths()
 	failures := 0
-	fmt.Printf("Agent-notify doctor v%s\n\n", app.Version)
+	fmt.Printf("AgentNotify doctor v%s\n\n", app.Version)
 
 	if err := os.MkdirAll(paths.ConfigDir, 0700); err != nil {
 		reportCheck(false, "配置目录可写", err.Error())
@@ -799,7 +799,7 @@ func runToggle(args []string) int {
 func runWatch(args []string) int {
 	flags := flag.NewFlagSet("watch", flag.ContinueOnError)
 	configPath := flags.String("config", "", "Codex config.toml 路径")
-	exePath := flags.String("exe", "", "Agent-notify 可执行文件路径")
+	exePath := flags.String("exe", "", "AgentNotify 可执行文件路径")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}

@@ -537,7 +537,7 @@ func drawViewContent(hdc uintptr, width, height int32, app *WidgetApp) {
 	// [模块 1：顶栏 Header]
 	pSelectObject.Call(hdc, titleFont)
 	pSetTextColor.Call(hdc, uintptr(theme.TextPrimary))
-	DrawText(hdc, "Agent-notify", &text.title, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+	DrawText(hdc, "AgentNotify", &text.title, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(theme.TextMuted))

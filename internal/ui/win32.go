@@ -75,6 +75,7 @@ var (
 
 	pCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	pCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
+	pCreateBitmap           = gdi32.NewProc("CreateBitmap")
 	pSelectObject           = gdi32.NewProc("SelectObject")
 	pDeleteObject           = gdi32.NewProc("DeleteObject")
 	pDeleteDC               = gdi32.NewProc("DeleteDC")
@@ -86,6 +87,7 @@ var (
 	pReleaseDC              = user32.NewProc("ReleaseDC")
 	pRoundRect              = gdi32.NewProc("RoundRect")
 	pEllipse                = gdi32.NewProc("Ellipse")
+	pCreateDIBSection       = gdi32.NewProc("CreateDIBSection")
 	pSetBkMode              = gdi32.NewProc("SetBkMode")
 	pSetTextColor           = gdi32.NewProc("SetTextColor")
 	pSetBkColor             = gdi32.NewProc("SetBkColor")
@@ -216,6 +218,9 @@ const (
 	IDC_HAND  = 32649
 
 	SRCCOPY = 0x00CC0020
+
+	// CreateDIBSection 的颜色表类型。
+	dibRGBColors = 0
 )
 
 type WNDCLASSEXW struct {
@@ -243,6 +248,27 @@ type RECT struct {
 	Top    int32
 	Right  int32
 	Bottom int32
+}
+
+// bitmapInfoHeader / bitmapInfo 对应 Win32 的 BITMAPINFOHEADER / BITMAPINFO。
+// 这里只用于 32bpp BI_RGB，颜色表留一个占位项即可。
+type bitmapInfoHeader struct {
+	Size          uint32
+	Width         int32
+	Height        int32
+	Planes        uint16
+	BitCount      uint16
+	Compression   uint32
+	SizeImage     uint32
+	XPelsPerMeter int32
+	YPelsPerMeter int32
+	ClrUsed       uint32
+	ClrImportant  uint32
+}
+
+type bitmapInfo struct {
+	Header bitmapInfoHeader
+	Colors [1]uint32
 }
 
 type MONITORINFO struct {

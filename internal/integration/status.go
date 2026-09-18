@@ -161,7 +161,7 @@ func checkCodex(paths config.Paths, enabled bool) Status {
 		if strings.Contains(lowerTarget, "codex-computer-use.exe") {
 			return status.failureWithRepair("Codex notify 仍指向 codex-computer-use.exe", "点击检查修复可安全恢复", RepairCodexWatch)
 		}
-		return status.notDetected("Codex notify 使用其他程序，未接入 Agent-notify", "如不再需要原 notify，请重新运行 install.ps1")
+		return status.notDetected("Codex notify 使用其他程序，未接入 AgentNotify", "如不再需要原 notify，请重新运行 install.ps1")
 	}
 	if !fileExists(target) {
 		return status.failure("Codex notify 指向的 agent-notify.exe 不存在："+target, "请重新运行 install.ps1")
@@ -184,7 +184,7 @@ func checkAntigravity(paths config.Paths, enabled bool) Status {
 	}
 	command := antigravityCommand(root)
 	if command == "" {
-		return status.notDetected("Antigravity 未配置 Agent-notify Stop Hook", "请重新运行 install.ps1")
+		return status.notDetected("Antigravity 未配置 AgentNotify Stop Hook", "请重新运行 install.ps1")
 	}
 	status.InUse = true
 	if !strings.Contains(strings.ToLower(command), "antigravity stop") {
@@ -201,7 +201,7 @@ func checkAntigravity(paths config.Paths, enabled bool) Status {
 			return status.failure("Antigravity 启动器不存在："+launcher, "请重新运行 install.ps1")
 		}
 		if !strings.Contains(string(content), "agent-notify-antigravity-launcher") {
-			return status.failure("Antigravity 启动器不是 Agent-notify 创建的文件", "请重新运行 install.ps1")
+			return status.failure("Antigravity 启动器不是 AgentNotify 创建的文件", "请重新运行 install.ps1")
 		}
 		target = firstCommandPath(string(content))
 	}
@@ -226,7 +226,7 @@ func checkDevin(paths config.Paths, enabled bool, now time.Time) Status {
 	}
 	command := devinCommand(root)
 	if command == "" {
-		return status.notDetected("Devin 未配置 Agent-notify Stop Hook", "请重新运行 install.ps1")
+		return status.notDetected("Devin 未配置 AgentNotify Stop Hook", "请重新运行 install.ps1")
 	}
 	status.InUse = true
 	target := firstCommandPath(command)
