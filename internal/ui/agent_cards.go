@@ -29,6 +29,7 @@ func (app *WidgetApp) allAgentCards(layout widgetLayout) []widgetAgentCard {
 		app.agentCard(agentmeta.Codex, "Codex", app.onCodex, app.procStatus.CodexRunning, layout.codex, app.hover.codex),
 		app.agentCard(agentmeta.Antigravity, "Antigravity", app.onAntigravity, app.procStatus.AntigravityRunning, layout.antigravity, app.hover.antigravity),
 		app.agentCard(agentmeta.Devin, "Devin", app.onDevin, app.procStatus.DevinRunning, layout.devin, app.hover.devin),
+		app.agentCard(agentmeta.CommandCode, "CommandCode", app.onCommandCode, app.procStatus.CommandCodeRunning, layout.commandCode, app.hover.commandCode),
 	}
 }
 
@@ -63,6 +64,8 @@ func agentHookDescription(agentID string) string {
 		return "config.toml (notify 包装)"
 	case agentmeta.Devin:
 		return "config.json + 回复扩展"
+	case agentmeta.CommandCode:
+		return "~/.commandcode/mods (mod)"
 	default:
 		return "系统配置"
 	}
@@ -114,6 +117,7 @@ func (app *WidgetApp) refreshAgentSwitches() {
 	app.onCodex = !marker.IsOff(app.paths.CodexMarker)
 	app.onAntigravity = !marker.IsOff(app.paths.AntigravityMarker)
 	app.onDevin = !marker.IsOff(app.paths.DevinMarker)
+	app.onCommandCode = !marker.IsOff(app.paths.CommandCodeMarker)
 
 	executable, err := os.Executable()
 	if err != nil {
@@ -130,6 +134,7 @@ func (app *WidgetApp) refreshAgentSwitches() {
 			agentmeta.Codex:       app.onCodex,
 			agentmeta.Antigravity: app.onAntigravity,
 			agentmeta.Devin:       app.onDevin,
+			agentmeta.CommandCode: app.onCommandCode,
 		},
 		Now: time.Now(),
 	})
@@ -161,6 +166,8 @@ func (app *WidgetApp) agentEnabled(agentID string) bool {
 		return app.onAntigravity
 	case agentmeta.Devin:
 		return app.onDevin
+	case agentmeta.CommandCode:
+		return app.onCommandCode
 	default:
 		return false
 	}
@@ -176,6 +183,8 @@ func (app *WidgetApp) agentRunning(agentID string) bool {
 		return app.procStatus.AntigravityRunning
 	case agentmeta.Devin:
 		return app.procStatus.DevinRunning
+	case agentmeta.CommandCode:
+		return app.procStatus.CommandCodeRunning
 	default:
 		return false
 	}
@@ -234,6 +243,8 @@ func (app *WidgetApp) agentMarkerPath(agentID string) (string, bool) {
 		return app.paths.AntigravityMarker, true
 	case agentmeta.Devin:
 		return app.paths.DevinMarker, true
+	case agentmeta.CommandCode:
+		return app.paths.CommandCodeMarker, true
 	default:
 		return "", false
 	}
@@ -276,6 +287,7 @@ func (app *WidgetApp) enabledAgentStates() map[string]bool {
 		agentmeta.Codex:       app.onCodex,
 		agentmeta.Antigravity: app.onAntigravity,
 		agentmeta.Devin:       app.onDevin,
+		agentmeta.CommandCode: app.onCommandCode,
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 )
 
@@ -60,8 +61,32 @@ func TestScaleFloatAndUnscalePoint(t *testing.T) {
 	if x, y := unscalePoint(600, 540); x != 400 || y != 360 {
 		t.Fatalf("unscalePoint at 144 DPI = (%d,%d), want (400,360)", x, y)
 	}
-	if width, height := logicalSize(widgetWidth, widgetHeight); width != 600 || height != 675 {
-		t.Fatalf("logicalSize at 144 DPI = (%d,%d), want (600,675)", width, height)
+	if width, height := logicalSize(widgetWidth, widgetHeight); width != 600 || height != 855 {
+		t.Fatalf("logicalSize at 144 DPI = (%d,%d), want (600,855)", width, height)
+	}
+}
+
+// Agent 胶囊宽度必须放得下最长的显示名，否则历史列表里会被裁字。
+func TestHistoryAgentBadgeFitsLongestDisplayName(t *testing.T) {
+	longest := ""
+	for _, descriptor := range agentmeta.All() {
+		if len(descriptor.DisplayName) > len(longest) {
+			longest = descriptor.DisplayName
+		}
+	}
+	for _, dpi := range []uint32{96, 144, 192} {
+		t.Run(fmt.Sprintf("%ddpi", dpi), func(t *testing.T) {
+			withUIDPI(t, dpi)
+			font := newSmallFont()
+			measured := measureTextWidth(font, longest)
+			pDeleteObject.Call(font)
+			if measured <= 0 {
+				t.Fatalf("无法测量 %q 的宽度", longest)
+			}
+			if limit := scaleFloat(historyAgentBadgeWidth); measured > limit {
+				t.Fatalf("%q 需要 %d 像素，胶囊只有 %d", longest, measured, limit)
+			}
+		})
 	}
 }
 
@@ -74,7 +99,7 @@ func TestWidgetTextFitsItsRects(t *testing.T) {
 		rect RECT
 	}{
 		{"标题", newTitleFont, "AgentNotify", text.title},
-		{"副标题", newSmallFont, "4 个 Agent · ClawBot 微信通知", text.subtitle},
+		{"副标题", newSmallFont, "5 个 Agent · ClawBot 微信通知", text.subtitle},
 		{"单Agent副标题", newSmallFont, "聚焦单 Agent · ClawBot 微信通知", text.subtitle},
 		{"页脚版本", newSmallFont, "v10.10.10", text.footerVersion},
 		{"页脚升级", newSmallFont, "升级 v10.10.10", text.footerUpdate},
@@ -273,8 +298,8 @@ func TestResizeForCurrentDPIAt96And144(t *testing.T) {
 		wantWidth  int32
 		wantHeight int32
 	}{
-		{96, 400, 450},
-		{144, 600, 675},
+		{96, 400, 570},
+		{144, 600, 855},
 	}
 	for _, tt := range tests {
 		setUIDPI(tt.dpi)

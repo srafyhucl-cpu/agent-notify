@@ -31,7 +31,13 @@ foreach ($file in $files) {
 # GitHub Actions 的 run 脚本会被写成无 BOM 临时文件，PS 5.1 按 ANSI 读取：workflow 里出现中文会破坏引号导致语法错误。
 $workflowDir = Join-Path $RepoRoot '.github\workflows'
 if (Test-Path -LiteralPath $workflowDir) {
-  foreach ($file in @(Get-ChildItem -LiteralPath $workflowDir -File -Include *.yml, *.yaml)) {
+  # 注意：Get-ChildItem 的 -Include 只在 -Path 带通配符或配合 -Recurse 时才生效；
+  # 若用 -LiteralPath 指向目录，-Include 会被忽略且枚举不到任何文件，校验会静默失效。
+  $workflowFiles = @(Get-ChildItem -Path (Join-Path $workflowDir '*') -File -Include *.yml, *.yaml)
+  if ($workflowFiles.Count -eq 0) {
+    $failures += "workflow 目录存在但未枚举到 *.yml/*.yaml，非 ASCII 校验已失效，请检查 lint.ps1 的枚举写法"
+  }
+  foreach ($file in $workflowFiles) {
     $nonAsciiLine = Select-String -Path $file.FullName -Pattern '[^\x00-\x7F]' | Select-Object -First 1
     if ($nonAsciiLine) {
       $failures += "$($file.Name):$($nonAsciiLine.LineNumber) workflow 含非 ASCII 字符，PS 5.1 解析 run 脚本会乱码，请改用 ASCII"

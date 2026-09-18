@@ -178,21 +178,21 @@ func TestFiveModulesLayoutVerticalRhythm(t *testing.T) {
 		t.Fatalf("header theme toggle button out of bounds: %+v", layout.themeToggle)
 	}
 	// 模块 2：核心卡片
-	if layout.singleAgent.Top < 52 || layout.singleAgent.Bottom > 224 {
+	if layout.singleAgent.Top < 52 || layout.singleAgent.Bottom > 348 {
 		t.Fatalf("core card out of bounds: %+v", layout.singleAgent)
 	}
 	if layout.switchAgent.Right >= layout.singleSwitch.Left {
 		t.Fatalf("dropdown overlaps switch: switchAgent=%+v singleSwitch=%+v", layout.switchAgent, layout.singleSwitch)
 	}
 	// 模块 3：信息板块（最近推送）
-	if layout.recent.Top < layout.singleAgent.Bottom || layout.recent.Bottom > 320 {
+	if layout.recent.Top < layout.singleAgent.Bottom || layout.recent.Bottom > 442 {
 		t.Fatalf("recent card out of bounds: %+v", layout.recent)
 	}
 	// 模块 4：快捷操作四按钮（等宽均布）
 	buttons := []RECT{layout.test, layout.history, layout.settings, layout.hide}
 	for i, b := range buttons {
-		if b.Top != 328 || b.Bottom != 384 {
-			t.Fatalf("button %d top/bottom not aligned to 328/384: %+v", i, b)
+		if b.Top != 450 || b.Bottom != 502 {
+			t.Fatalf("button %d top/bottom not aligned to 450/502: %+v", i, b)
 		}
 		if i > 0 && buttons[i-1].Right >= b.Left {
 			t.Fatalf("button %d overlaps previous: %+v vs %+v", i, buttons[i-1], b)
@@ -200,14 +200,14 @@ func TestFiveModulesLayoutVerticalRhythm(t *testing.T) {
 	}
 	// 模块 5：底部状态条三元素（水平对齐）
 	text := widgetTextRects()
-	if text.footerVersion.Top != 394 || text.footerVersion.Bottom != 436 {
-		t.Fatalf("version badge not aligned to 394/436: %+v", text.footerVersion)
+	if text.footerVersion.Top != 512 || text.footerVersion.Bottom != 556 {
+		t.Fatalf("version badge not aligned to 512/556: %+v", text.footerVersion)
 	}
-	if layout.update.Top != 394 || layout.update.Bottom != 436 {
-		t.Fatalf("update button not aligned to 394/436: %+v", layout.update)
+	if layout.update.Top != 512 || layout.update.Bottom != 556 {
+		t.Fatalf("update button not aligned to 512/556: %+v", layout.update)
 	}
-	if layout.repair.Top != 394 || layout.repair.Bottom != 436 {
-		t.Fatalf("repair button not aligned to 394/436: %+v", layout.repair)
+	if layout.repair.Top != 512 || layout.repair.Bottom != 556 {
+		t.Fatalf("repair button not aligned to 512/556: %+v", layout.repair)
 	}
 	if text.footerVersion.Right >= layout.update.Left || layout.update.Right >= layout.repair.Left {
 		t.Fatalf("footer elements overlap: version=%+v update=%+v repair=%+v", text.footerVersion, layout.update, layout.repair)
@@ -262,6 +262,8 @@ func TestCleanRecentPushTitle(t *testing.T) {
 		want  string
 	}{
 		{"🟢【Antigravity】测试会话完成", "antigravity", "测试会话完成"},
+		{"**🟢 CommandCode｜Greeting Session**", "commandcode", "CommandCode｜Greeting Session"},
+		{"**⚠️ Codex｜标题读取失败**", "codex", "Codex｜标题读取失败"},
 		{"⚠️【Codex】标题读取失败", "codex", "标题读取失败"},
 		{"【通知】普通任务完成", "", "普通任务完成"},
 		{"普通任务无前缀", "antigravity", "普通任务无前缀"},

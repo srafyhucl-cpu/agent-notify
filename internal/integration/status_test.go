@@ -29,6 +29,11 @@ const event = "session.execution.succeeded"
 	writeHeartbeat(t, filepath.Join(paths.DevinReplyDir, "heartbeats", "devin.json"), now)
 	writeFile(t, paths.AntigravityLauncher, "@echo off\n@rem agent-notify-antigravity-launcher\n\""+binary+"\" antigravity stop\n")
 	writeFile(t, paths.AntigravityHooks, `{"agent-notify":{"Stop":[{"type":"command","command":".\\agent-notify-hook.cmd antigravity stop"}]}}`)
+	writeFile(t, paths.CommandCodeModFile, `
+// agent-notify-commandcode-mod
+const BAKED_BIN = "`+slashPath(binary)+`"
+`)
+	writeHeartbeat(t, filepath.Join(paths.CommandCodeReplyDir, "heartbeats", "commandcode.json"), now)
 
 	statuses := CheckAll(Options{Paths: paths, Executable: binary, Now: now})
 	for _, status := range statuses {
@@ -137,6 +142,8 @@ func testPaths(t *testing.T) (config.Paths, string) {
 	t.Setenv("AGENT_NOTIFY_DEVIN_REPLY_DIR", filepath.Join(root, "devin-reply"))
 	t.Setenv("AGENT_NOTIFY_ANTIGRAVITY_HOOKS", filepath.Join(root, "antigravity", "hooks.json"))
 	t.Setenv("AGENT_NOTIFY_ANTIGRAVITY_LAUNCHER", filepath.Join(root, "antigravity", "agent-notify-hook.cmd"))
+	t.Setenv("AGENT_NOTIFY_COMMANDCODE_MOD_FILE", filepath.Join(root, "commandcode", "mods", "agent-notify.ts"))
+	t.Setenv("AGENT_NOTIFY_COMMANDCODE_REPLY_DIR", filepath.Join(root, "commandcode-reply"))
 
 	binary := filepath.Join(root, "bin", "agent-notify.exe")
 	writeFile(t, binary, "exe")

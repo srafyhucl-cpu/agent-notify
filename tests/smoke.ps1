@@ -104,6 +104,8 @@ $env:AGENT_NOTIFY_ANTIGRAVITY_LAUNCHER = Join-Path $antigravityConfigDir 'agent-
 $env:AGENT_NOTIFY_DEVIN_CONFIG = Join-Path $devinConfigDir 'config.json'
 $env:AGENT_NOTIFY_DEVIN_EXTENSION_DIR = Join-Path $smokeRoot 'devin-extension'
 $env:AGENT_NOTIFY_DEVIN_REPLY_DIR = Join-Path $smokeRoot 'devin-reply'
+$env:AGENT_NOTIFY_COMMANDCODE_MOD_FILE = Join-Path $smokeRoot 'commandcode-mods\agent-notify.ts'
+$env:AGENT_NOTIFY_COMMANDCODE_REPLY_DIR = Join-Path $smokeRoot 'commandcode-reply'
 
 try {
   # 3. notify DryRun 渲染
@@ -122,6 +124,7 @@ try {
   Assert-True ($statusJson.codexEnabled -eq $true) 'status 初始 Codex 开关应为开启'
   Assert-True ($statusJson.antigravityEnabled -eq $true) 'status 初始 Antigravity 开关应为开启'
   Assert-True ($statusJson.devinEnabled -eq $true) 'status 初始 Devin 开关应为开启'
+  Assert-True ($statusJson.commandCodeEnabled -eq $true) 'status 初始 CommandCode 开关应为开启'
   Assert-True ($statusJson.replyEnabled -eq $false) 'status 初始引用回复开关应默认关闭'
   Assert-True (-not [string]::IsNullOrWhiteSpace($statusJson.replyRouteFile)) 'status 缺少引用路由文件路径'
   Write-Output '[ok] status json'
@@ -204,20 +207,23 @@ try {
   Assert-True (Test-Path (Join-Path $configDir 'codex.off')) 'toggle off 未建 Codex marker'
   Assert-True (Test-Path (Join-Path $configDir 'antigravity.off')) 'toggle off 未建 Antigravity marker'
   Assert-True (Test-Path (Join-Path $configDir 'devin.off')) 'toggle off 未建 Devin marker'
+  Assert-True (Test-Path (Join-Path $configDir 'commandcode.off')) 'toggle off 未建 CommandCode marker'
   $offJson = "$(& $exePath status --json 2>&1)" | ConvertFrom-Json
   Assert-True ($offJson.openCodeEnabled -eq $false) 'toggle off 后 OpenCode 应为关闭'
   Assert-True ($offJson.antigravityEnabled -eq $false) 'toggle off 后 Antigravity 应为关闭'
   Assert-True ($offJson.devinEnabled -eq $false) 'toggle off 后 Devin 应为关闭'
+  Assert-True ($offJson.commandCodeEnabled -eq $false) 'toggle off 后 CommandCode 应为关闭'
   & $exePath toggle --agent all --on 2>&1 | Out-Null
   Assert-True (-not (Test-Path (Join-Path $configDir 'opencode.off'))) 'toggle on 未删 OpenCode marker'
   Assert-True (-not (Test-Path (Join-Path $configDir 'codex.off'))) 'toggle on 未删 Codex marker'
   Assert-True (-not (Test-Path (Join-Path $configDir 'antigravity.off'))) 'toggle on 未删 Antigravity marker'
   Assert-True (-not (Test-Path (Join-Path $configDir 'devin.off'))) 'toggle on 未删 Devin marker'
+  Assert-True (-not (Test-Path (Join-Path $configDir 'commandcode.off'))) 'toggle on 未删 CommandCode marker'
   Write-Output '[ok] toggle markers'
 
   $integrationJson = "$(& $exePath integration-status --json 2>&1)" | ConvertFrom-Json
   Assert-True ($LASTEXITCODE -eq 0) "integration-status exit=$LASTEXITCODE"
-  Assert-True ($integrationJson.Count -eq 4) "integration-status 应返回 4 个 Agent，实际 $($integrationJson.Count)"
+  Assert-True ($integrationJson.Count -eq 5) "integration-status 应返回 5 个 Agent，实际 $($integrationJson.Count)"
   Write-Output '[ok] integration status contract'
 
   # 6. Codex 事件解析（DryRun，不发送）
@@ -252,6 +258,7 @@ try {
 $sandboxInstall = Join-Path $smokeRoot 'install-bin'
 $sandboxPlugins = Join-Path $smokeRoot 'install-plugins'
 $sandboxDevinExtension = Join-Path $smokeRoot 'devin-extension'
+$sandboxCommandCodeMods = Join-Path $smokeRoot 'commandcode-mods'
 $antigravityHooks = Join-Path $antigravityConfigDir 'hooks.json'
 $devinConfig = Join-Path $devinConfigDir 'config.json'
 $sandboxCodexConfig = Join-Path $smokeRoot 'codex-config\config.toml'
@@ -297,6 +304,7 @@ Write-Output '[ok] install upgrade fixtures'
   $installOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'install.ps1') `
     -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -AntigravityHooks $antigravityHooks -DevinConfig $devinConfig `
     -DevinExtensionDir $sandboxDevinExtension -CodexConfig $sandboxCodexConfig `
+    -CommandCodeModDir $sandboxCommandCodeMods `
     -SkipShortcuts -SkipWidgetLaunch -SkipLoginLaunch 2>&1)
   Assert-True ($LASTEXITCODE -eq 0) "沙箱安装 exit=$LASTEXITCODE"
   $installText = $installOutput -join "`n"
@@ -318,6 +326,11 @@ Write-Output '[ok] install upgrade fixtures'
   $expectedBaked = (Join-Path $sandboxInstall 'agent-notify.exe').Replace('\', '\\')
   Assert-True ($installedPluginText.Contains('const BAKED_BIN = "' + $expectedBaked + '"')) "安装后的插件没有指向沙箱 exe：$expectedBaked"
   Assert-True ($pluginRaw.Contains('const BAKED_BIN = ""')) '仓库内的插件副本应保持可移植的空 BAKED_BIN'
+  $installedModText = [IO.File]::ReadAllText((Join-Path $sandboxCommandCodeMods 'agent-notify.ts'))
+  Assert-True ($installedModText.Contains('agent-notify-commandcode-mod')) 'Command Code mod 缺少归属标识'
+  Assert-True ($installedModText.Contains('const BAKED_BIN = "' + $expectedBaked + '"')) "安装后的 Command Code mod 没有指向沙箱 exe：$expectedBaked"
+  $modRaw = [IO.File]::ReadAllText((Join-Path $RepoRoot 'plugin\commandcode-mod\agent-notify.ts'))
+  Assert-True ($modRaw.Contains('const BAKED_BIN = ""')) '仓库内的 mod 副本应保持可移植的空 BAKED_BIN'
   $installedCodexLine = [regex]::Match([IO.File]::ReadAllText($sandboxCodexConfig), '(?m)^notify\s*=.*$').Value
   $expectedCodexTarget = (Join-Path $sandboxInstall 'agent-notify.exe').Replace('\', '/')
   Assert-True ($installedCodexLine -match '(?i)codex-computer-use\.exe') "安装器不应拆掉 Codex computer-use 包装链：$installedCodexLine"
@@ -335,7 +348,8 @@ Write-Output '[ok] install upgrade fixtures'
       'plugin\agent-notify.ts',
       'plugin\devin-extension\package.json',
       'plugin\devin-extension\extension.js',
-      'plugin\devin-extension\acp-bridge.js'
+      'plugin\devin-extension\acp-bridge.js',
+      'plugin\commandcode-mod\agent-notify.ts'
     )) {
     Assert-True (Test-Path -LiteralPath (Join-Path $sandboxInstall $relative) -PathType Leaf) "安装目录缺自举文件：$relative"
   }
@@ -344,7 +358,7 @@ Write-Output '[ok] install upgrade fixtures'
   Assert-True (@($record.files) -contains 'agent-notify.exe') '安装记录缺 exe'
   Assert-True (@($record.files) -contains 'install.ps1') '安装记录缺自举文件 install.ps1'
   Assert-True (@($record.files) -contains 'tools/hook-config.ps1') '安装记录缺自举文件 tools/hook-config.ps1'
-  Assert-True (@($record.files).Count -eq 9) "安装记录 files 数量异常：$(@($record.files).Count)"
+  Assert-True (@($record.files).Count -eq 10) "安装记录 files 数量异常：$(@($record.files).Count)"
   Write-Output '[ok] install sandbox files + record'
 
   # 7b. 仅配置模式只更新用户级接入，不替换已安装 exe。
@@ -362,6 +376,8 @@ Write-Output '[ok] install upgrade fixtures'
   foreach ($name in @('package.json', 'extension.js', 'acp-bridge.js')) {
     Copy-Item -LiteralPath (Join-Path $RepoRoot "plugin\devin-extension\$name") -Destination (Join-Path $configureOnlySourcePlugin "devin-extension\$name") -Force
   }
+  New-Item -ItemType Directory -Force -Path (Join-Path $configureOnlySourcePlugin 'commandcode-mod') | Out-Null
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'plugin\commandcode-mod\agent-notify.ts') -Destination (Join-Path $configureOnlySourcePlugin 'commandcode-mod\agent-notify.ts') -Force
   $configureOnlyCodexConfig = Join-Path $smokeRoot 'configure-only-codex\config.toml'
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $configureOnlyCodexConfig) | Out-Null
   # UNC 链式包装（真实双层转义）：安装应只把链里的 agent-notify.exe 换成当前安装路径，
@@ -376,6 +392,7 @@ Write-Output '[ok] install upgrade fixtures'
     -InstallDir $configureOnlyInstall `
     -PluginDir $configureOnlyPlugins `
     -DevinExtensionDir $configureOnlyDevinExtension `
+    -CommandCodeModDir (Join-Path $smokeRoot 'configure-only-commandcode-mods') `
     -CodexConfig $configureOnlyCodexConfig `
     -AntigravityHooks (Join-Path $smokeRoot 'configure-only-antigravity\hooks.json') `
     -DevinConfig (Join-Path $smokeRoot 'configure-only-devin\config.json') `
@@ -385,6 +402,7 @@ Write-Output '[ok] install upgrade fixtures'
   Assert-True ($LASTEXITCODE -eq 0) "ConfigureOnly 安装失败：$($configureOnlyOutput -join [Environment]::NewLine)"
   Assert-True (Test-Path -LiteralPath (Join-Path $configureOnlyPlugins 'agent-notify.ts')) 'ConfigureOnly 未安装 OpenCode 插件'
   Assert-True (Test-Path -LiteralPath (Join-Path $configureOnlyDevinExtension 'package.json')) 'ConfigureOnly 未安装 Devin 扩展'
+  Assert-True (Test-Path -LiteralPath (Join-Path $smokeRoot 'configure-only-commandcode-mods\agent-notify.ts')) 'ConfigureOnly 未安装 Command Code mod'
   Assert-True (Test-Path -LiteralPath (Join-Path $configureOnlyInstall 'agent-notify-install.json')) 'ConfigureOnly 未写安装记录'
   Write-Output '[ok] configure-only install'
 

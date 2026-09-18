@@ -38,6 +38,9 @@ type Paths struct {
 	ReplyStateFile         string
 	OpenCodeReplyDir       string
 	DevinReplyDir          string
+	CommandCodeMarker      string
+	CommandCodeModFile     string
+	CommandCodeReplyDir    string
 	ClawbotDebugLog        string
 	ReplyDebugLog          string
 }
@@ -86,6 +89,9 @@ func GetPaths() Paths {
 	replyStateFile := envOr("AGENT_NOTIFY_REPLY_STATE_FILE", filepath.Join(configDir, "reply-state.jsonl"))
 	openCodeReplyDir := envOr("AGENT_NOTIFY_OPENCODE_REPLY_DIR", filepath.Join(configDir, "opencode-reply-inbox"))
 	devinReplyDir := envOr("AGENT_NOTIFY_DEVIN_REPLY_DIR", filepath.Join(configDir, "devin-reply-inbox"))
+	commandCodeMarker := envOr("AGENT_NOTIFY_COMMANDCODE_MARKER_FILE", filepath.Join(configDir, "commandcode.off"))
+	commandCodeModFile := envOr("AGENT_NOTIFY_COMMANDCODE_MOD_FILE", filepath.Join(home, ".commandcode", "mods", "agent-notify.ts"))
+	commandCodeReplyDir := envOr("AGENT_NOTIFY_COMMANDCODE_REPLY_DIR", filepath.Join(configDir, "commandcode-reply-inbox"))
 
 	return Paths{
 		ConfigDir:              configDir,
@@ -110,6 +116,9 @@ func GetPaths() Paths {
 		ReplyStateFile:         replyStateFile,
 		OpenCodeReplyDir:       openCodeReplyDir,
 		DevinReplyDir:          devinReplyDir,
+		CommandCodeMarker:      commandCodeMarker,
+		CommandCodeModFile:     commandCodeModFile,
+		CommandCodeReplyDir:    commandCodeReplyDir,
 		WidgetErrorLog:         filepath.Join(tempDir, "widget-error.log"),
 		WidgetAliveFile:        filepath.Join(tempDir, "widget-alive.txt"),
 		WidgetPosFile:          filepath.Join(tempDir, "widget-pos.txt"),

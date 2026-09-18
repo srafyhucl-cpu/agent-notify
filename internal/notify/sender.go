@@ -36,6 +36,9 @@ type NotifyOptions struct {
 	Notice    string
 	MaxChars  int
 	DryRun    bool
+	// ReplyWindowSec > 0 表示该 Agent 在通知发出后有这么一个可引用回复的等待窗口，
+	// 页脚会写明秒数，让用户知道要在这个时间内回复。
+	ReplyWindowSec int
 }
 
 // NotifyResult contains execution details of one delivery attempt.

@@ -120,7 +120,7 @@ func (app *WidgetApp) runRepairCheck(hwnd uintptr) {
 func drawRepairView(hdc uintptr, width, height int32, app *WidgetApp, theme ThemePalette, titleFont, strongFont, baseFont, smallFont, iconFont uintptr) {
 	drawSubHeader(hdc, "Agent 接入检查与修复", app.repairHover.back, app.repairHover.close, theme, titleFont, iconFont)
 
-	card := RECT{14, 48, 386, 384}
+	card := subviewCardRect()
 	fillRoundRect(hdc, card, 8, uintptr(theme.CardBg))
 	strokeRoundRect(hdc, card, 8, uintptr(theme.CardBg), uintptr(theme.CardBorder), 1)
 
@@ -191,8 +191,8 @@ func drawRepairView(hdc uintptr, width, height int32, app *WidgetApp, theme Them
 	}
 
 	// 底部按钮
-	recheckBtn := RECT{14, 394, 195, 436}
-	doneBtn := RECT{205, 394, 386, 436}
+	recheckBtn := RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+	doneBtn := RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
 	recheckLabel := "重新检查与修复"
 	if app.repairing {
 		recheckLabel = "正在修复中…"
@@ -226,10 +226,12 @@ func historyHeaderButtons(total, pageSize int) (prevBtn, nextBtn, clearBtn RECT)
 
 // 推送历史列表的行布局：绘制与点击命中共用同一组常量，避免可点范围与可见行不一致。
 const (
-	historyListPageSize  = 5
+	historyListPageSize  = 6
 	historyListRowInset  = 6
 	historyListRowPitch  = 40
 	historyListRowHeight = 36
+	// historyAgentBadgeWidth 按最长的 Agent 显示名（CommandCode）取值，避免胶囊里的文字被裁掉。
+	historyAgentBadgeWidth = 86
 )
 
 // historyRowIndexAt 把列表卡内的坐标换算成可见行号；卡片外、行间空隙或超出本页行数时返回 -1。
@@ -290,7 +292,7 @@ func drawHistoryView(hdc uintptr, width, height int32, app *WidgetApp, theme The
 	}
 
 	// 历史列表卡片
-	listCard := RECT{14, 48, 386, 260}
+	listCard := RECT{14, 48, 386, 294}
 	fillRoundRect(hdc, listCard, 8, uintptr(theme.CardBg))
 	strokeRoundRect(hdc, listCard, 8, uintptr(theme.CardBg), uintptr(theme.CardBorder), 1)
 
@@ -327,9 +329,9 @@ func drawHistoryView(hdc uintptr, width, height int32, app *WidgetApp, theme The
 				strokeRoundRect(hdc, rowRect, 6, uintptr(fillCol), uintptr(theme.AccentSuccess), 1)
 			}
 
-			// Agent 微胶囊
+			// Agent 微胶囊（宽度要容纳最长的 DisplayName，如 CommandCode）
 			agentName := historyAgent(item)
-			agentBadge := RECT{rowRect.Left + 6, rowRect.Top + 7, rowRect.Left + 62, rowRect.Bottom - 7}
+			agentBadge := RECT{rowRect.Left + 6, rowRect.Top + 7, rowRect.Left + 6 + historyAgentBadgeWidth, rowRect.Bottom - 7}
 			fillRoundRect(hdc, agentBadge, 4, uintptr(theme.BadgeBg))
 			pSelectObject.Call(hdc, smallFont)
 			pSetTextColor.Call(hdc, uintptr(theme.TextSecondary))
@@ -348,13 +350,13 @@ func drawHistoryView(hdc uintptr, width, height int32, app *WidgetApp, theme The
 			}
 			pSetTextColor.Call(hdc, uintptr(titleColor))
 			itemTitle := cleanRecentPushTitle(item.Title, item.Agent)
-			titleRect := RECT{rowRect.Left + 68, rowRect.Top + 7, rowRect.Right - 90, rowRect.Bottom - 7}
+			titleRect := RECT{rowRect.Left + 6 + historyAgentBadgeWidth + 6, rowRect.Top + 7, rowRect.Right - 90, rowRect.Bottom - 7}
 			DrawText(hdc, itemTitle, &titleRect, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX)
 		}
 	}
 
 	// 详情预览卡片
-	detailCard := RECT{14, 268, 386, 384}
+	detailCard := RECT{14, 302, 386, widgetHeight - 64}
 	fillRoundRect(hdc, detailCard, 8, uintptr(theme.CardBg))
 	strokeRoundRect(hdc, detailCard, 8, uintptr(theme.CardBg), uintptr(theme.CardBorder), 1)
 
@@ -363,7 +365,7 @@ func drawHistoryView(hdc uintptr, width, height int32, app *WidgetApp, theme The
 		pSelectObject.Call(hdc, strongFont)
 		pSetTextColor.Call(hdc, uintptr(theme.TextPrimary))
 		dTitleRect := RECT{detailCard.Left + 12, detailCard.Top + 8, detailCard.Right - 12, detailCard.Top + 32}
-		DrawText(hdc, selected.Title, &dTitleRect, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX)
+		DrawText(hdc, cleanRecentPushTitle(selected.Title, selected.Agent), &dTitleRect, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX)
 
 		pSelectObject.Call(hdc, smallFont)
 		pSetTextColor.Call(hdc, uintptr(theme.TextMuted))
@@ -389,8 +391,8 @@ func drawHistoryView(hdc uintptr, width, height int32, app *WidgetApp, theme The
 	}
 
 	// 底部按钮
-	copyBtn := RECT{14, 394, 195, 436}
-	doneBtn := RECT{205, 394, 386, 436}
+	copyBtn := RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+	doneBtn := RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
 	drawIconTextButton(hdc, copyBtn, "\uE8C8", "复制通知内容", app.historyHover.copy, false, false, smallFont, iconFont, theme)
 	drawIconTextButton(hdc, doneBtn, "\uE73E", "返回主页", app.historyHover.done, true, false, smallFont, iconFont, theme)
 }
@@ -439,7 +441,7 @@ func drawSettingsView(hdc uintptr, width, height int32, app *WidgetApp, theme Th
 	drawIconTextButton(hdc, reloginBtn, "\uE8BD", reloginLabel, app.settingsHover.relogin, false, false, smallFont, iconFont, theme)
 
 	// 选项卡片
-	optCard := RECT{14, 112, 386, 384}
+	optCard := RECT{14, 112, 386, widgetHeight - 64}
 	fillRoundRect(hdc, optCard, 8, uintptr(theme.CardBg))
 	strokeRoundRect(hdc, optCard, 8, uintptr(theme.CardBg), uintptr(theme.CardBorder), 1)
 
@@ -532,9 +534,24 @@ func drawSettingsView(hdc uintptr, width, height int32, app *WidgetApp, theme Th
 	}
 	drawIconTextButton(hdc, agentPill, "", defaultName+" ▾", app.settingsHover.agentCycle, false, false, smallFont, iconFont, theme)
 
+	// 6. CommandCode 回复窗口（实验性）
+	div5 := RECT{optCard.Left + 10, optCard.Top + 296, optCard.Right - 10, optCard.Top + 297}
+	fillRectLogical(hdc, div5, uintptr(theme.Divider))
+
+	pSelectObject.Call(hdc, baseFont)
+	pSetTextColor.Call(hdc, uintptr(theme.TextPrimary))
+	DrawText(hdc, "CommandCode 回复窗口", &RECT{optCard.Left + 14, optCard.Top + 308, optCard.Left + 220, optCard.Top + 330}, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+	pSelectObject.Call(hdc, smallFont)
+	pSetTextColor.Call(hdc, uintptr(theme.TextMuted))
+	DrawText(hdc, "0 关闭；等待时该会话暂停响应，不消耗 token", &RECT{optCard.Left + 14, optCard.Top + 328, optCard.Left + 236, optCard.Top + 348}, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX)
+
+	commandCodeBox := RECT{242, optCard.Top + 304, 376, optCard.Top + 336}
+	fillRoundRect(hdc, commandCodeBox, 6, uintptr(theme.InputBg))
+	strokeRoundRect(hdc, commandCodeBox, 6, uintptr(theme.InputBg), uintptr(theme.InputBorder), 1)
+
 	// 底部保存/返回
-	saveBtn := RECT{14, 394, 195, 436}
-	doneBtn := RECT{205, 394, 386, 436}
+	saveBtn := RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+	doneBtn := RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
 	drawIconTextButton(hdc, saveBtn, "\uE74E", "保存设置", app.settingsHover.save, true, false, smallFont, iconFont, theme)
 	drawIconTextButton(hdc, doneBtn, "\uE73E", "返回主页", app.settingsHover.done, false, false, smallFont, iconFont, theme)
 }
@@ -563,7 +580,7 @@ func verifyEditRect() RECT {
 func drawLoginView(hdc uintptr, width, height int32, app *WidgetApp, theme ThemePalette, titleFont, strongFont, baseFont, smallFont, iconFont uintptr) {
 	drawSubHeader(hdc, "微信扫码配置", app.loginHover.back, app.loginHover.close, theme, titleFont, iconFont)
 
-	card := RECT{14, 48, 386, 384}
+	card := subviewCardRect()
 	fillRoundRect(hdc, card, 8, uintptr(theme.CardBg))
 	strokeRoundRect(hdc, card, 8, uintptr(theme.CardBg), uintptr(theme.CardBorder), 1)
 
@@ -653,8 +670,8 @@ func drawLoginView(hdc uintptr, width, height int32, app *WidgetApp, theme Theme
 	}
 
 	// 底部按钮
-	refreshBtn := RECT{14, 394, 195, 436}
-	doneBtn := RECT{205, 394, 386, 436}
+	refreshBtn := RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+	doneBtn := RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
 	drawIconTextButton(hdc, refreshBtn, "\uE72C", "刷新二维码", app.loginHover.refresh, false, false, smallFont, iconFont, theme)
 	drawIconTextButton(hdc, doneBtn, "\uE73E", "完成并返回", app.loginHover.done, true, false, smallFont, iconFont, theme)
 }

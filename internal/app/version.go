@@ -2,7 +2,7 @@ package app
 
 // Version, Commit and BuildTime are replaced through -ldflags during release builds.
 var (
-	Version   = "1.15.0"
+	Version   = "1.17.0"
 	Commit    = "unknown"
 	BuildTime = "unknown"
 )

@@ -129,6 +129,33 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 
 成功提交引用回复后会默认回一条送达确认（“✅ 已送达 **Agent**，会话：…”），可用 `replyConfirmation: false` 关闭；该会话下一次任务完成也一定推送（豁免一次冷却）。如未收到确认或回答，再按下面的步骤排查。无法关联、去重状态不可用、路由过期、命令明确失败或投递未确认时，错误会直接发回微信。
 
+## Command Code 引用回复不可用
+
+Command Code 的 mod 只能把回复投递到**正在运行的 run**里，所以每次回答后需要一段"回复窗口"。
+该功能**实验性、默认关闭**（`commandCodeReplyWindowSec` 省略或为 0）。
+
+**开启后出现"界面卡住 / 手打的消息只进队列不被处理"**：这是窗口的固有副作用——它会在 `onStop` 里挂住
+还没结束的那一轮。把 `commandCodeReplyWindowSec` 设为 **0**（立即生效，无需重启 Command Code），
+或在当前会话执行 `/reload` 即可恢复。
+
+1. 确认配置里有 `commandCodeReplyWindowSec` 且值大于 0（1–600，例如 60）：
+
+   ```json
+   { "replyEnabled": true, "commandCodeReplyWindowSec": 60 }
+   ```
+
+2. 确认 `%USERPROFILE%\.config\agent-notify\commandcode.off` **不存在**（该 Agent 未被暂停），且 `replyEnabled` 为 true；
+   任一不满足时 mod 不会开窗口。
+3. 重启 Command Code 或执行 `/reload`——mod 每进程只加载一次，配置改动需要重新加载才生效。
+4. 通知页脚会写明时限（`*引用此消息可继续对话（60 秒内）*`）。**在这个时间内**引用回复才有效；
+   窗口期只是等待，不消耗 token。
+5. 各报错的含义：
+   - 「回复窗口已过（通知发出后 N 秒内可引用回复）」：通知发出后超过 N 秒才回复，等下一次通知再引用。
+   - 「回复窗口未开启」：`commandCodeReplyWindowSec` 为 0，或编辑后未重启 Command Code。
+   - 「目标会话未在运行」：该 sessionId 没有新鲜心跳，通常是会话已关闭或 mod 未加载。
+   - 「mod 未运行」：`%USERPROFILE%\.commandcode\mods\agent-notify.ts` 不存在或未被加载。
+6. 窗口开着时**每次回答都会多停最多 N 秒**，这是设计取舍；不需要引用回复时把 `commandCodeReplyWindowSec` 设为 0 即可。
+
 ## 二维码登录失败
 
 1. 确认窗口中已显示二维码，而不是“获取二维码失败”或“登录失败”。

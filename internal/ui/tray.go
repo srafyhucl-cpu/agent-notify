@@ -25,6 +25,7 @@ const (
 	IDM_TOGGLE_CODEX       = 3003
 	IDM_TOGGLE_ANTIGRAVITY = 3004
 	IDM_TOGGLE_DEVIN       = 3005
+	IDM_TOGGLE_COMMANDCODE = 3011
 	IDM_HISTORY            = 3006
 	IDM_SETTINGS           = 3007
 	IDM_TEST_PUSH          = 3008
@@ -180,6 +181,7 @@ var trayAgentCommands = []trayAgentCommand{
 	{ID: IDM_TOGGLE_CODEX, AgentID: agentmeta.Codex},
 	{ID: IDM_TOGGLE_ANTIGRAVITY, AgentID: agentmeta.Antigravity},
 	{ID: IDM_TOGGLE_DEVIN, AgentID: agentmeta.Devin},
+	{ID: IDM_TOGGLE_COMMANDCODE, AgentID: agentmeta.CommandCode},
 }
 
 func trayAgentIDForCommand(commandID int) (string, bool) {

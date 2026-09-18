@@ -4,6 +4,67 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是
 `internal/app/version.go` 的 `Version`。
 
+## [1.17.0] - 2026-09-19
+
+### Added
+
+- CommandCode 支持微信引用续聊：`commandCodeReplyWindowSec`（1–600 秒，0 = 不等待，**默认 0**）为每次回答留出
+  「回复窗口」，窗口内引用通知即可把回复作为新的用户指示续跑同一会话。
+  **该功能为实验性**：它通过在 `onStop` 里挂住尚未结束的那一轮来等待，窗口期内该会话界面会呈现"卡住"、
+  手打输入只进队列，直到窗口结束或收到引用回复；不需要时设为 0 即可恢复。
+- 通知页脚在开启窗口时写明时限：`*引用此消息可继续对话（60 秒内）*`。
+- 新增 `AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC` 环境覆盖与 `notify --reply-window <秒>` 参数。
+
+### Changed
+
+- CommandCode 的引用回复改为经 mod 的 `onStop` 把用户正文送进会话（`queueMessage` 在窗口内不会被消费，
+  实测模型只收到声明、收不到正文）；窗口内每 0.5 秒轮询本地收件箱，回复一到立刻续跑，不再干等剩余窗口。
+- 窗口只在「`commandCodeReplyWindowSec` > 0 + `replyEnabled` + 该 Agent 未被暂停」时开启；
+  关闭滑块或关闭引用回复时不会多等。
+- mod 状态改为**每会话一份**：Command Code 会为每个会话各调用一次 mod 工厂，模块级共享状态会让心跳指向错误会话。
+- 悬浮窗整体重新布局：窗口由 400×450 加高到 400×570，代理网格改为 2×3 且 CommandCode 独占整行，
+  修掉三列布局下「CommandCode / 已接入」被截断的问题；子视图（检查修复 / 历史 / 设置 / 登录）的主卡片与
+  底部按钮改为按窗口高度自适应，修复加高后第五张卡片与按钮被裁切的问题。
+- 悬浮窗与推送历史中的标题按纯文本展示：去掉 Markdown 加粗符 `**` 与状态徽标，不再出现 `**🟢 …**` 字样。
+- 设置页新增「CommandCode 回复窗口」输入项（0 = 关闭），提示行写明"等待时该会话暂停响应，不消耗 token"；
+  选项卡片改为铺满到按钮上方，不再留空带。保存时与其它设置项一起写入 `config.json`。
+- 推送历史每页由 5 条增至 6 条，详情卡片铺满可用高度；Agent 胶囊加宽到能容纳最长的显示名（CommandCode），
+  不再裁字。
+- 新增渲染快照脚手架 `internal/ui/ui_snapshot_test.go`（默认跳过，设 `AGENT_NOTIFY_SNAPSHOT_DIR` 后可为五个视图
+  输出 PNG），用于 UI 改动的目视复核与回归。
+
+### Fixed
+
+- 修复引用回复误报「目标会话未在运行」：进程重启留下的同会话僵死心跳排在前面时，检查会提前返回；
+  现在扫完整个心跳目录再判定，并定期清理僵死心跳。
+- 窗口已过的引用回复给出明确提示，不再静默丢弃；mod 不再对无法投递的回复回写成功。
+- 修复回复窗口在多会话下会互相挂起：`onStop` 等钩子是进程级注册、每个会话实例各注册一份，此前任何会话结束都会让
+  所有实例各挂 60 秒（表现为界面卡住、输入只排队）。现在只有拥有该 run 的会话实例才会动作，且窗口默认关闭。
+
+## [1.16.0] - 2026-09-18
+
+### Added
+
+- 新增第五个 Agent「CommandCode」的接入：安装器会把 Command Code mod 部署到用户级
+  `%USERPROFILE%\.commandcode\mods\agent-notify.ts`（并把安装目录绝对路径写进 `BAKED_BIN`），
+  mod 在每轮任务结束时调用 `agent-notify notify --agent commandcode` 推送微信通知。
+- `status`、`doctor`、`integration-status`、`toggle` 与悬浮窗支持第五个 Agent；新增
+  `commandcode.off` marker 与 `AGENT_NOTIFY_COMMANDCODE_*` 路径覆盖。
+- 新增 Command Code 接入状态检测：mod 文件归属、`BAKED_BIN` 指向的程序，以及 mod 心跳新鲜度。
+- 卸载器按归属标识（`agent-notify-commandcode-mod`）只删除 AgentNotify 自己部署的 mod。
+
+### Changed
+
+- OpenCode 的开关判定收敛为按 agent 的 marker 策略：显式 `--agent opencode` / `--agent commandcode`
+  都会在 CLI 侧强制执行各自的 `.off` 开关（此前 `notify --agent opencode` 不查 `opencode.off`）。
+- 悬浮窗代理网格由 2×2 改为 3×2，容纳第五张卡片；副标题与「展开全部」文案同步为 5 个 Agent。
+
+### Fixed
+
+- `tools/lint.ps1` 的 workflow 非 ASCII 校验此前因 `Get-ChildItem -Include` 未配合 `-Recurse`/通配
+  而枚举不到文件、静默空转；现改为按 `-Path <dir>\*` 枚举，并在枚举到 0 个文件时直接判失败。
+- `docs/ARCHITECTURE.md` 补充引用回复 at-most-once 的崩溃窗口语义说明。
+
 ## [1.15.0] - 2026-09-18
 
 ### Changed

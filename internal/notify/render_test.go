@@ -6,8 +6,16 @@ import (
 	"time"
 )
 
+func TestNotificationFooterShowsReplyWindow(t *testing.T) {
+	footer := notificationFooter("commandcode", time.Date(2026, time.September, 18, 14, 2, 0, 0, time.FixedZone("CST", 8*60*60)), 60)
+	const want = "—\n*引用此消息可继续对话（60 秒内）* · 09/18 14:02"
+	if footer != want {
+		t.Fatalf("footer = %q, want %q", footer, want)
+	}
+}
+
 func TestNotificationFooterUsesShortDividerAndUprightTime(t *testing.T) {
-	footer := notificationFooter("opencode", time.Date(2026, time.September, 18, 14, 2, 0, 0, time.FixedZone("CST", 8*60*60)))
+	footer := notificationFooter("opencode", time.Date(2026, time.September, 18, 14, 2, 0, 0, time.FixedZone("CST", 8*60*60)), 0)
 	const want = "—\n*引用此消息可继续对话* · 09/18 14:02"
 	if footer != want {
 		t.Fatalf("footer = %q, want %q", footer, want)

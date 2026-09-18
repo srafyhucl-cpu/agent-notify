@@ -470,6 +470,36 @@ func TestDispatcherDeduplicatesByQuotedMessage(t *testing.T) {
 	}
 }
 
+func TestDispatcherSuppressesReplayOfClaimWithoutTerminalState(t *testing.T) {
+	dispatcher, queue, failures := newTestDispatcher(t, config.AppConfig{ReplyEnabled: true})
+	if err := dispatcher.routes.Record(Route{
+		MessageID: "platform-crash",
+		BotID:     "bot-1",
+		UserID:    "user-1",
+		Agent:     "codex",
+		SessionID: "thread-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	message := quotedMessage(t, "reply-crash", "platform-crash", "继续")
+	key := inboundDedupKey("bot-1", "user-1", message, "platform-crash", "继续")
+	claimed, err := dispatcher.state.Claim(key)
+	if err != nil || !claimed {
+		t.Fatalf("pre-claim = %v, %v", claimed, err)
+	}
+
+	// 模拟进程在 Claim 之后、投递确认之前崩溃：状态里只有 claimed，没有 sent/failed。
+	// 游标重放或长轮询重投同一条入站消息时保持至多一次语义：不再投递，也不回报错误。
+	dispatcher.Handle(message)
+	if len(queue.threadIDs) != 0 {
+		t.Fatalf("claimed reply was dispatched again: %#v", queue.threadIDs)
+	}
+	if len(*failures) != 0 {
+		t.Fatalf("claimed reply produced a visible notice: %#v", *failures)
+	}
+}
+
 func TestDispatcherLogsSuccessfulDispatchWithoutReplyText(t *testing.T) {
 	dispatcher, queue, failures := newTestDispatcher(t, config.AppConfig{ReplyEnabled: true})
 	if err := dispatcher.routes.Record(Route{

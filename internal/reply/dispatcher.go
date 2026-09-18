@@ -113,6 +113,13 @@ func NewDispatcher(options DispatcherOptions) *Dispatcher {
 			},
 		}}
 	}
+	if _, ok := dispatcher.senders[agentmeta.CommandCode]; !ok {
+		dispatcher.senders[agentmeta.CommandCode] = CommandCodeReplySender{Queue: CommandCodeQueueRunner{
+			OnAsyncFailure: func(_ string, _ string, err error) {
+				dispatcher.fail("", fmt.Sprintf("发送到 Command Code 失败：%s", compactError(err)))
+			},
+		}}
+	}
 	return dispatcher
 }
 

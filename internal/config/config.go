@@ -16,6 +16,8 @@ const (
 	maxCooldownMinutes = 24 * 60
 	minClockHour       = 0
 	maxClockHour       = 23
+	// maxReplyWindowSec 限制 CommandCode 回复等待窗口，避免误配成近乎永久卡住。
+	maxReplyWindowSec = 600
 )
 
 type AppConfig struct {
@@ -23,10 +25,13 @@ type AppConfig struct {
 	CooldownMin  int    `json:"cooldownMin"`
 	ReplyEnabled bool   `json:"replyEnabled"`
 	// ReplyConfirmation 控制引用回复成功后是否回一条送达确认，默认开启。
-	ReplyConfirmation bool   `json:"replyConfirmation"`
-	DefaultAgent      string `json:"defaultAgent,omitempty"`
-	WidgetAgentMode   string `json:"widgetAgentMode,omitempty"`
-	Theme             string `json:"theme,omitempty"`
+	ReplyConfirmation bool `json:"replyConfirmation"`
+	// CommandCodeReplyWindowSec 是 CommandCode 回答后为"可引用回复"等待的秒数；
+	// 0（默认）表示不等待。等待期间只挂住 run，不产生任何模型调用，因而不消耗 token。
+	CommandCodeReplyWindowSec int    `json:"commandCodeReplyWindowSec,omitempty"`
+	DefaultAgent              string `json:"defaultAgent,omitempty"`
+	WidgetAgentMode           string `json:"widgetAgentMode,omitempty"`
+	Theme                     string `json:"theme,omitempty"`
 }
 
 var quietHoursPattern = regexp.MustCompile(`^\s*(\d{1,2})\s*-\s*(\d{1,2})\s*$`)
@@ -46,6 +51,11 @@ func DefaultConfig() AppConfig {
 	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_COOLDOWN_MIN")); raw != "" {
 		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
 			cfg.CooldownMin = value
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
+			cfg.CommandCodeReplyWindowSec = value
 		}
 	}
 	if raw := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_THEME")); raw != "" {
@@ -75,10 +85,12 @@ func LoadConfig(configPath string) (AppConfig, error) {
 		CooldownMin  *int    `json:"cooldownMin"`
 		ReplyEnabled *bool   `json:"replyEnabled"`
 		// ReplyConfirmation 缺省时为 true（默认开启）；显式 false 才关闭。
-		ReplyConfirmation *bool   `json:"replyConfirmation"`
-		DefaultAgent      *string `json:"defaultAgent"`
-		WidgetAgentMode   *string `json:"widgetAgentMode"`
-		Theme             *string `json:"theme"`
+		ReplyConfirmation *bool `json:"replyConfirmation"`
+		// CommandCodeReplyWindowSec 缺省为 0（不等待）。
+		CommandCodeReplyWindowSec *int    `json:"commandCodeReplyWindowSec"`
+		DefaultAgent              *string `json:"defaultAgent"`
+		WidgetAgentMode           *string `json:"widgetAgentMode"`
+		Theme                     *string `json:"theme"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return cfg, fmt.Errorf("decode config: %w", err)
@@ -94,6 +106,9 @@ func LoadConfig(configPath string) (AppConfig, error) {
 	}
 	if raw.ReplyConfirmation != nil {
 		cfg.ReplyConfirmation = *raw.ReplyConfirmation
+	}
+	if raw.CommandCodeReplyWindowSec != nil {
+		cfg.CommandCodeReplyWindowSec = *raw.CommandCodeReplyWindowSec
 	}
 	if raw.DefaultAgent != nil {
 		cfg.DefaultAgent = strings.ToLower(strings.TrimSpace(*raw.DefaultAgent))
@@ -117,6 +132,12 @@ func NormalizeConfig(cfg AppConfig) AppConfig {
 	}
 	if cfg.CooldownMin > maxCooldownMinutes {
 		cfg.CooldownMin = maxCooldownMinutes
+	}
+	if cfg.CommandCodeReplyWindowSec < 0 {
+		cfg.CommandCodeReplyWindowSec = 0
+	}
+	if cfg.CommandCodeReplyWindowSec > maxReplyWindowSec {
+		cfg.CommandCodeReplyWindowSec = maxReplyWindowSec
 	}
 	cfg.DefaultAgent = strings.ToLower(strings.TrimSpace(cfg.DefaultAgent))
 	cfg.WidgetAgentMode = strings.ToLower(strings.TrimSpace(cfg.WidgetAgentMode))

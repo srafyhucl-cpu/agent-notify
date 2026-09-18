@@ -27,7 +27,7 @@ import (
 
 const (
 	widgetWidth  = int32(400)
-	widgetHeight = int32(450)
+	widgetHeight = int32(570)
 
 	WM_USER_REFRESH = WM_USER + 1
 
@@ -78,6 +78,7 @@ type WidgetApp struct {
 	onCodex              bool
 	onAntigravity        bool
 	onDevin              bool
+	onCommandCode        bool
 	clawbotLoggedIn      bool
 	clawbotSessionReady  bool
 	clawbotStale         bool
@@ -88,6 +89,7 @@ type WidgetApp struct {
 	quietHours           string
 	replyEnabled         bool
 	cooldownMin          int
+	commandCodeWindowSec int
 	lastPushText         string
 	lastPushTitle        string
 	lastPushSummary      string
@@ -114,6 +116,7 @@ type WidgetApp struct {
 	loginState           loginDialogState
 	quietEdit            uintptr
 	cooldownEdit         uintptr
+	commandCodeEdit      uintptr
 	verifyEdit           uintptr
 	verifyPrompt         bool
 	editBrush            uintptr
@@ -144,6 +147,7 @@ type widgetLayout struct {
 	codex        RECT
 	antigravity  RECT
 	devin        RECT
+	commandCode  RECT
 	recent       RECT
 	test         RECT
 	settings     RECT
@@ -158,6 +162,7 @@ type widgetHoverState struct {
 	codex        bool
 	antigravity  bool
 	devin        bool
+	commandCode  bool
 	singleAgent  bool
 	modeToggle   bool
 	switchAgent  bool
@@ -175,7 +180,7 @@ type widgetHoverState struct {
 }
 
 func (s widgetHoverState) any() bool {
-	return s.openCode || s.codex || s.antigravity || s.devin || s.singleAgent || s.modeToggle || s.switchAgent || s.singleSwitch ||
+	return s.openCode || s.codex || s.antigravity || s.devin || s.commandCode || s.singleAgent || s.modeToggle || s.switchAgent || s.singleSwitch ||
 		s.themeToggle || s.minimize || s.close || s.recent || s.history || s.settings || s.test || s.hide || s.update || s.repair
 }
 
@@ -185,6 +190,7 @@ func widgetHoverAt(x, y int32, layout widgetLayout) widgetHoverState {
 		codex:        pointInRect(x, y, layout.codex),
 		antigravity:  pointInRect(x, y, layout.antigravity),
 		devin:        pointInRect(x, y, layout.devin),
+		commandCode:  pointInRect(x, y, layout.commandCode),
 		singleAgent:  pointInRect(x, y, layout.singleAgent),
 		modeToggle:   pointInRect(x, y, layout.modeToggle),
 		switchAgent:  pointInRect(x, y, layout.switchAgent),
@@ -211,19 +217,34 @@ func widgetLayoutRects() widgetLayout {
 		modeToggle:   RECT{270, 54, 386, 72},
 		switchAgent:  RECT{76, 92, 256, 128},
 		singleSwitch: RECT{326, 98, 372, 122},
-		singleAgent:  RECT{14, 78, 386, 222},
-		openCode:     RECT{14, 78, 195, 146},
-		codex:        RECT{205, 78, 386, 146},
-		antigravity:  RECT{14, 154, 195, 222},
-		devin:        RECT{205, 154, 386, 222},
-		recent:       RECT{14, 232, 386, 318},
-		test:         RECT{14, 328, 101, 384},
-		history:      RECT{109, 328, 196, 384},
-		settings:     RECT{204, 328, 291, 384},
-		hide:         RECT{299, 328, 386, 384},
-		update:       RECT{106, 394, 242, 436},
-		repair:       RECT{250, 394, 386, 436},
+		singleAgent:  RECT{14, 78, 386, 346},
+		openCode:     RECT{14, 78, 195, 162},
+		codex:        RECT{205, 78, 386, 162},
+		antigravity:  RECT{14, 170, 195, 254},
+		devin:        RECT{205, 170, 386, 254},
+		commandCode:  RECT{14, 262, 386, 346},
+		recent:       RECT{14, 354, 386, 440},
+		test:         RECT{14, 450, 101, 502},
+		history:      RECT{109, 450, 196, 502},
+		settings:     RECT{204, 450, 291, 502},
+		hide:         RECT{299, 450, 386, 502},
+		update:       RECT{106, 512, 242, 556},
+		repair:       RECT{250, 512, 386, 556},
 	}
+}
+
+// 子视图（检查修复 / 历史 / 设置 / 登录）共用的几何：主卡片铺满可用高度，底部两个按钮
+// 贴住窗口下沿，与主面板页脚同一节奏。绘制、命中测试与悬停共用同一组函数，避免三处漂移。
+func subviewCardRect() RECT {
+	return RECT{14, 48, 386, widgetHeight - 64}
+}
+
+func subviewLeftButton() RECT {
+	return RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+}
+
+func subviewRightButton() RECT {
+	return RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
 }
 
 // widgetTextLayout 集中定义悬浮窗内的文本区域，绘制与布局测试共用，避免文案改宽后溢出。
@@ -239,9 +260,9 @@ func widgetTextRects() widgetTextLayout {
 	return widgetTextLayout{
 		title:         RECT{14, 12, 230, 32},
 		subtitle:      RECT{14, 32, 290, 48},
-		footerVersion: RECT{14, 394, 98, 436},
-		footerUpdate:  RECT{106, 394, 242, 436},
-		footerHint:    RECT{250, 394, 386, 436},
+		footerVersion: RECT{14, 512, 98, 556},
+		footerUpdate:  RECT{106, 512, 242, 556},
+		footerHint:    RECT{250, 512, 386, 556},
 	}
 }
 
@@ -573,6 +594,9 @@ func (app *WidgetApp) switchView(view WidgetView) {
 		if app.cooldownEdit != 0 {
 			pShowWindow.Call(app.cooldownEdit, SW_HIDE)
 		}
+		if app.commandCodeEdit != 0 {
+			pShowWindow.Call(app.commandCodeEdit, SW_HIDE)
+		}
 	}
 	if app.currentView == WidgetViewLogin {
 		// 离开登录视图要真正结束扫码流程，否则后台会继续轮询并可能在没有界面的情况下写凭据。
@@ -591,6 +615,7 @@ func (app *WidgetApp) switchView(view WidgetView) {
 			app.quietHours = cfg.QuietHours
 			app.cooldownMin = cfg.CooldownMin
 			app.replyEnabled = cfg.ReplyEnabled
+			app.commandCodeWindowSec = cfg.CommandCodeReplyWindowSec
 		}
 		app.settingsError = ""
 		app.ensureSettingsEdits()
@@ -601,6 +626,10 @@ func (app *WidgetApp) switchView(view WidgetView) {
 		if app.cooldownEdit != 0 {
 			setWindowText(app.cooldownEdit, strconv.Itoa(app.cooldownMin))
 			pShowWindow.Call(app.cooldownEdit, SW_SHOW)
+		}
+		if app.commandCodeEdit != 0 {
+			setWindowText(app.commandCodeEdit, strconv.Itoa(app.commandCodeWindowSec))
+			pShowWindow.Call(app.commandCodeEdit, SW_SHOW)
 		}
 	case WidgetViewLogin:
 		if !app.clawbotLoggedIn {
@@ -648,6 +677,20 @@ func (app *WidgetApp) ensureSettingsEdits() {
 			app.window(), uintptr(IDC_SETTINGS_COOLDOWN), hInstance, 0,
 		)
 		pSendMessageW.Call(app.cooldownEdit, WM_SETFONT, font, 1)
+	}
+	if app.commandCodeEdit == 0 {
+		rect := scaleRect(RECT{246, 420, 372, 444})
+		app.commandCodeEdit, _, _ = pCreateWindowExW.Call(
+			0,
+			uintptr(unsafe.Pointer(StringToUTF16Ptr("EDIT"))),
+			uintptr(unsafe.Pointer(StringToUTF16Ptr(strconv.Itoa(app.commandCodeWindowSec)))),
+			WS_CHILD|ES_AUTOHSCROLL|ES_NUMBER,
+			uintptr(rect.Left), uintptr(rect.Top),
+			uintptr(rect.Right-rect.Left), uintptr(rect.Bottom-rect.Top),
+			app.window(), uintptr(IDC_SETTINGS_COMMANDCODE), hInstance, 0,
+		)
+		pSendMessageW.Call(app.commandCodeEdit, WM_SETFONT, font, 1)
+		pSendMessageW.Call(app.commandCodeEdit, EM_SETCUEBANNER, 0, uintptr(unsafe.Pointer(StringToUTF16Ptr("0 = 关闭"))))
 	}
 }
 
@@ -1008,7 +1051,7 @@ func (app *WidgetApp) isSingleAgentMode() bool {
 
 func (app *WidgetApp) focusedAgentID() string {
 	switch app.currentAgent {
-	case agentmeta.OpenCode, agentmeta.Codex, agentmeta.Antigravity, agentmeta.Devin:
+	case agentmeta.OpenCode, agentmeta.Codex, agentmeta.Antigravity, agentmeta.Devin, agentmeta.CommandCode:
 		return app.currentAgent
 	default:
 		return agentmeta.Antigravity
@@ -1016,7 +1059,7 @@ func (app *WidgetApp) focusedAgentID() string {
 }
 
 func (app *WidgetApp) nextAgent() {
-	agents := []string{agentmeta.Antigravity, agentmeta.OpenCode, agentmeta.Codex, agentmeta.Devin}
+	agents := []string{agentmeta.Antigravity, agentmeta.OpenCode, agentmeta.Codex, agentmeta.Devin, agentmeta.CommandCode}
 	for i, a := range agents {
 		if a == app.currentAgent {
 			app.currentAgent = agents[(i+1)%len(agents)]

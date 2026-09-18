@@ -27,6 +27,12 @@ Devin
               ├─ 跳过 stop_hook_active
               └─ last_assistant_message 提取摘要
 
+Command Code
+  └─ ~/.commandcode/mods/agent-notify.ts (mod)
+        └─ run_end → agent-notify.exe notify --agent commandcode
+              ├─ 写接入心跳（commandcode-reply-inbox/heartbeats）
+              └─ 失败全部吞掉，不影响 Command Code
+
 命令行 / 脚本
   └─ agent-notify.exe notify
 
@@ -63,10 +69,11 @@ Devin
 | `internal/notify` | 协议块解析、消息渲染、发送、JSONL 历史 | 默认不限长；显式 `MaxChars` 计入标题、正文和页脚 |
 | `internal/reply` | 引用路由、入站去重、按 Agent 注册的 `ReplySender` 分发 | 精确消息 ID、账号隔离、至多一次 Claim、无最近会话回退；Antigravity 调用官方 agentapi，OpenCode / Devin 复用本地 spool |
 | `internal/config` | 配置默认值、校验、原子保存、路径解析 | 所有路径可由 `AGENT_NOTIFY_*` 隔离 |
-| `internal/marker` | 四个 Agent 的 `.off` 开关 | 文件存在即暂停；不读取旧 marker |
+| `internal/marker` | 五个 Agent 的 `.off` 开关 | 文件存在即暂停；不读取旧 marker |
 | `internal/ui` | 原生 Win32 悬浮窗、设置、登录、历史、托盘 | 单实例、DPI 感知、双缓冲、会话状态实时刷新、`windowsgui` 发布模式 |
 | `plugin/agent-notify.ts` | OpenCode V2 插件 | 安装器写入 `BAKED_BIN`；发送通知并维护引用回复心跳、收件箱和 `session.prompt` / `promptAsync` 兼容投递 |
 | `plugin/devin-extension` | Devin 桌面端回复扩展 | ACP 会话直接向桌面端 `devin.exe acp` 子进程写 `session/prompt`（旧 Cascade 保留精确直发/聊天面板回退），维护心跳、持久收件箱、至多一次认领与结果回写 |
+| `plugin/commandcode-mod` | Command Code mod | 单文件 TypeScript，default 导出工厂；`run_end` 触发推送、写接入心跳；失败不得影响 Command Code |
 | `install.ps1` / `uninstall.ps1` | 文件分发、安装记录、快捷方式，以及 Codex / Antigravity / Devin 接入 | 共享 `tools/hook-config.ps1`；只改 AgentNotify 自己的 Hook，保留其他 JSON 配置 |
 
 ## OpenCode 数据流
@@ -187,7 +194,10 @@ Antigravity 的 CSRF token 和端口每次启动都会变化，因此不做缓�
 
 `internal/notify` 在通知发送成功后写入 `reply-routes.jsonl`。每条路由包含平台消息 ID、发送 `client_id`、bot ID、绑定用户 ID、Agent、线程或会话 ID、创建时间和过期时间。默认有效期为 30 天，账号作用域不匹配的旧路由不会被复用。
 
-`internal/reply.StateStore` 对入站消息先写入 `claimed`，再执行命令。Claim 与路由同样默认保留 30 天，并按 bot ID 和绑定用户隔离；即使进程在命令执行中崩溃，游标重放或长轮询重投也不会再次提交。没有入站 `msg_id` 时使用 `seq + 引用 ID + 文本哈希` 生成确定性回退键。
+`internal/reply.StateStore` 对入站消息先写入 `claimed`，再执行命令。Claim 与路由同样默认保留 30 天，并按 bot ID 和绑定用户隔离；即使进程在命令执行中崩溃，游标重放或长轮询重投也不会再次提交。
+该至多一次语义的代价是：若进程在写入 `claimed` 之后、投递确认之前崩溃，这条入站引用回复在 TTL（30 天）内不会再被处理，且不会向微信回报错误（进程已退出）。这是"宁可漏投一次也不重复执行"的取舍；用户重新发送一条新的引用回复会得到新的去重键，不受影响。
+
+没有入站 `msg_id` 时使用 `seq + 引用 ID + 文本哈希` 生成确定性回退键。
 
 路由与去重文件采用 JSON Lines、`0600` 权限和内核级文件锁。Windows 使用 `LockFileEx`，其他平台使用 `flock`，避免并发 CLI 或悬浮窗同时写入时丢记录。损坏的单行会被忽略，不影响其余路由。
 
@@ -231,6 +241,8 @@ OpenCode 的 Go 侧最多等待 10 秒同步结果；窗口内拿到失败会立
 | Antigravity Hook | `%USERPROFILE%\.gemini\config\hooks.json` |
 | Antigravity 会话标题 | `%USERPROFILE%\.gemini\antigravity\annotations\<conversationId>.pbtxt` |
 | Devin Hook | `%APPDATA%\devin\config.json` |
+| Command Code mod | `%USERPROFILE%\.commandcode\mods\agent-notify.ts` |
+| Command Code 接入心跳 | `%USERPROFILE%\.config\agent-notify\commandcode-reply-inbox\heartbeats` |
 | Devin 桌面端会话元数据（只读） | `%APPDATA%\devin\User\globalStorage\state.vscdb` |
 
 插件副本的 `BAKED_BIN` 指向安装目录里的 exe，安装到自定义目录时不需要额外环境变量。手动移动 exe 后需重跑 `install.ps1`，或用 `AGENT_NOTIFY_BIN` 覆盖。
@@ -353,7 +365,7 @@ Agent-notify/
 
 1. 安装入口名与位置：`agent-notify.exe`、`agent-notify.ts`、`agent-notify-install.json`。
 2. 所有用户可覆盖项统一使用 `AGENT_NOTIFY_*`。
-3. marker 文件名为 `opencode.off`、`codex.off`、`antigravity.off` 与 `devin.off`，存在即暂停。
+3. marker 文件名为 `opencode.off`、`codex.off`、`antigravity.off`、`devin.off` 与 `commandcode.off`，存在即暂停。
 4. ClawBot 登录、`context_token` 建立、凭据字段和发送消息结构。
 5. Codex notify 透传顺序：先上游，后推送；推送失败不得影响透传。
 6. `push.log` 保持稳定的 JSON Lines 结构。

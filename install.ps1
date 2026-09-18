@@ -22,6 +22,7 @@ param(
   [string]$InstallDir = (Join-Path $env:USERPROFILE 'bin'),
   [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugins'),
   [string]$DevinExtensionDir = (Join-Path $env:USERPROFILE '.devin\extensions\agent-notify'),
+  [string]$CommandCodeModDir = (Join-Path $env:USERPROFILE '.commandcode\mods'),
   [string]$CodexConfig = (Join-Path $env:USERPROFILE '.codex\config.toml'),
   [string]$AntigravityHooks = (Join-Path $env:USERPROFILE '.gemini\config\hooks.json'),
   [string]$DevinConfig = (Join-Path $env:APPDATA 'devin\config.json'),
@@ -29,6 +30,7 @@ param(
   [switch]$SkipAntigravityConfig,
   [switch]$SkipDevinConfig,
   [switch]$SkipDevinExtension,
+  [switch]$SkipCommandCodeMod,
   [switch]$SkipShortcuts,
   [switch]$SkipWidgetLaunch,
   [switch]$SkipLoginLaunch,
@@ -42,7 +44,7 @@ $PluginName = 'agent-notify.ts'
 $RecordName = 'agent-notify-install.json'
 
 # 归一化为绝对路径：相对路径会被写进插件与 Codex 配置，换工作目录后就失联。
-foreach ($pathParam in @('InstallDir', 'PluginDir', 'AntigravityHooks', 'DevinConfig', 'DevinExtensionDir', 'CodexConfig')) {
+foreach ($pathParam in @('InstallDir', 'PluginDir', 'AntigravityHooks', 'DevinConfig', 'DevinExtensionDir', 'CommandCodeModDir', 'CodexConfig')) {
   $currentValue = Get-Variable -Name $pathParam -ValueOnly -ErrorAction SilentlyContinue
   if (-not [string]::IsNullOrWhiteSpace($currentValue)) {
     Set-Variable -Name $pathParam -Value ([IO.Path]::GetFullPath($currentValue))
@@ -61,10 +63,11 @@ $HasDevinExtension = (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\pac
   (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\extension.js'))
 $HasDevinExtension = $HasDevinExtension -and
   (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\acp-bridge.js'))
+$HasCommandCodeMod = Test-Path (Join-Path $RepoRoot 'plugin\commandcode-mod\agent-notify.ts')
 $HasPackage = ((Test-Path (Join-Path $RepoRoot "bin\$ExeName")) -or
   ($ConfigureOnly -and (Test-Path (Join-Path $RepoRoot $ExeName)))) -and
   (Test-Path (Join-Path $RepoRoot "plugin\$PluginName")) -and
-  $HasDevinExtension
+  $HasDevinExtension -and $HasCommandCodeMod
 
 # 在线/远程运行模式：仓库不在本地时下载新名称的 main 分支压缩包。
 if ([string]::IsNullOrWhiteSpace($RepoRoot) -or (-not $HasSource -and -not $HasPackage)) {
@@ -299,7 +302,8 @@ try {
         'plugin\agent-notify.ts',
         'plugin\devin-extension\package.json',
         'plugin\devin-extension\extension.js',
-        'plugin\devin-extension\acp-bridge.js'
+        'plugin\devin-extension\acp-bridge.js',
+        'plugin\commandcode-mod\agent-notify.ts'
       )) {
       if (-not (Test-Path (Join-Path $RepoRoot $required))) {
         throw "仅配置模式的安装目录缺文件：$required"
@@ -312,7 +316,8 @@ try {
         'plugin\agent-notify.ts',
         'plugin\devin-extension\package.json',
         'plugin\devin-extension\extension.js',
-        'plugin\devin-extension\acp-bridge.js'
+        'plugin\devin-extension\acp-bridge.js',
+        'plugin\commandcode-mod\agent-notify.ts'
       )) {
       if (-not (Test-Path (Join-Path $RepoRoot $required))) {
         throw "仓库缺文件：$required"
@@ -395,6 +400,7 @@ try {
     'plugin/devin-extension/package.json'  = (Join-Path $RepoRoot 'plugin\devin-extension\package.json')
     'plugin/devin-extension/extension.js'  = (Join-Path $RepoRoot 'plugin\devin-extension\extension.js')
     'plugin/devin-extension/acp-bridge.js' = (Join-Path $RepoRoot 'plugin\devin-extension\acp-bridge.js')
+    'plugin/commandcode-mod/agent-notify.ts' = (Join-Path $RepoRoot 'plugin\commandcode-mod\agent-notify.ts')
   }
   $payloadInstalled = @()
   foreach ($relative in $payloadFiles.Keys) {
@@ -441,6 +447,22 @@ try {
     Install-FileAtomically -Source (Join-Path $devinExtensionSource 'extension.js') -Destination (Join-Path $DevinExtensionDir 'extension.js')
     Install-FileAtomically -Source (Join-Path $devinExtensionSource 'acp-bridge.js') -Destination (Join-Path $DevinExtensionDir 'acp-bridge.js')
     Write-Output "[install] 已安装 Devin 回复扩展：$DevinExtensionDir"
+  }
+
+  # Command Code mod：部署到用户级 mods 目录，并把安装路径写进 BAKED_BIN。
+  if (-not $SkipCommandCodeMod) {
+    New-Item -ItemType Directory -Force -Path $CommandCodeModDir | Out-Null
+    $installedMod = Join-Path $CommandCodeModDir $PluginName
+    Install-FileAtomically -Source (Join-Path $RepoRoot 'plugin\commandcode-mod\agent-notify.ts') -Destination $installedMod
+    $modText = [IO.File]::ReadAllText($installedMod)
+    $modBakedPath = $installedExe.Replace('\', '\\').Replace('"', '\"')
+    $modPatchedText = [regex]::Replace($modText, '(?m)^const BAKED_BIN = ".*"$', { param($match) 'const BAKED_BIN = "' + $modBakedPath + '"' })
+    if ($modPatchedText -eq $modText) {
+      Write-Output '[install] 警告：Command Code mod 缺少 BAKED_BIN 占位，将回退到 %USERPROFILE%\bin 或 PATH。'
+    } else {
+      [IO.File]::WriteAllText($installedMod, $modPatchedText, (New-Object System.Text.UTF8Encoding($false)))
+    }
+    Write-Output "[install] 已安装 Command Code mod：$installedMod"
   }
 
   # 4. 写安装记录（卸载按它精确清理；files 为相对 InstallDir 的正斜杠路径）

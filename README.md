@@ -1,13 +1,13 @@
 # AgentNotify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.15.0-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.17.0-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg?style=flat-square" alt="Go" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
 </p>
 
-AgentNotify 是面向 OpenCode、Codex、Antigravity、Devin 与命令行长任务的 Windows 通知工具。任务完成后，它通过 ClawBot 把标题和摘要发送到微信，并在本机保留结构化推送历史。
+AgentNotify 是面向 OpenCode、Codex、Antigravity、Devin、Command Code 与命令行长任务的 Windows 通知工具。任务完成后，它通过 ClawBot 把标题和摘要发送到微信，并在本机保留结构化推送历史。
 
 v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再依赖旧脚本、旧模块、旧配置或旧环境变量，也不读取任何旧名称的别名。
 
@@ -25,7 +25,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 - 通知默认不截断；需要人工限制时可显式传入 `--max-chars`。
 - 微信引用 AgentNotify 通知后可继续对应的 OpenCode、Codex、Antigravity 或 Devin 会话；目标只按原始平台消息 ID 和稳定会话 ID 精确匹配，不回退到最近会话。
 - 通用 CLI，可在编译、测试、训练或爬虫结束后主动推送。
-- 原生 Windows 悬浮窗：四个 Agent 的开关与运行状态、勿扰设置、推送历史、测试推送和托盘。
+- 原生 Windows 悬浮窗：五个 Agent 的开关与运行状态、勿扰设置、推送历史、测试推送和托盘。
 - 悬浮窗内置一键升级：检查最新 GitHub Release，静默下载并校验 `SHA256SUMS.txt`，优先直接运行新版 `Agent-notify-Setup-vX.Y.Z.exe`。
 - 设置窗内置 ClawBot 扫码登录、重新登录和退出登录，不再切换到独立控制台。
 - 悬浮窗、设置、登录和历史窗口均按 DPI 缩放并使用双缓冲绘制，支持多显示器 DPI 变化。
@@ -48,6 +48,7 @@ v1.0.0 是一次彻底重构：运行时只有一个 `agent-notify.exe`，不再
 | 运行程序 | `%LOCALAPPDATA%\Programs\Agent-notify\agent-notify.exe` |
 | OpenCode 插件 | `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts` |
 | Devin 回复扩展 | `%USERPROFILE%\.devin\extensions\agent-notify` |
+| Command Code mod | `%USERPROFILE%\.commandcode\mods\agent-notify.ts` |
 | Antigravity Hook | `%USERPROFILE%\.gemini\config\hooks.json` |
 | Devin Hook | `%APPDATA%\devin\config.json` |
 | 安装记录 | `%LOCALAPPDATA%\Programs\Agent-notify\agent-notify-install.json` |
@@ -198,11 +199,13 @@ agent-notify.exe notify --dry-run --title "长通知" --summary "完整正文" -
   "quietHours": "23-8",
   "cooldownMin": 10,
   "replyEnabled": false,
-  "replyConfirmation": true
+  "replyConfirmation": true,
+  "commandCodeReplyWindowSec": 0
 }
 ```
 
 - `quietHours` 为空表示关闭勿扰；格式为 `23-8`，结束时间不包含在静默时段内。
+- `commandCodeReplyWindowSec` 是 Command Code 每次回答后等待引用回复的秒数（0 = 不等待，1–600）；等待期间不消耗 token，详见 [Command Code 接入](#command-code-接入)。
 - `cooldownMin` 是 OpenCode 同一会话的去重窗口，默认 10 分钟，范围为 1 到 1440；改动即时生效，无需重启 OpenCode。用户引用回复后，该会话的下一次完成事件会豁免一次冷却，保证“引用必得回答”。
 - `replyEnabled` 控制微信引用回复，默认是 `false`。开启后仍只处理当前绑定用户的私聊引用回复。
 - `replyConfirmation` 控制引用回复成功后是否回一条“✅ 已送达 …”确认，默认是 `true`；设为 `false` 可关闭。
@@ -306,6 +309,49 @@ notify = [ "C:/Users/<name>/AppData/Local/Programs/Agent-notify/agent-notify.exe
 - 消息由 Devin 桌面端自身处理，不会另外启动 Agent 进程；本轮完成时仍由 Devin `Stop` Hook 推送结果。
 - 微信回复不读取 CLI 登录状态，也不需要 `devin auth status`，不写入或等待会话锁，也不要求工作区信任；扩展在本窗口存在 ACP 通道（或桌面端提供聊天动作）时报告就绪，通道缺失、存在多个候选或写入失败都会给出微信可读错误，不会把回复改投到新会话。
 - Hook 始终输出 `{}`，通知失败不会改变 Devin 的停止决策。
+
+## Command Code 接入
+
+安装器把 Command Code mod 部署到用户级 `%USERPROFILE%\.commandcode\mods\agent-notify.ts`，并把当前安装目录的
+绝对路径写进 mod 副本的 `BAKED_BIN`。Command Code 每加载一次 mod 就会写一次接入心跳；`status`、`doctor` 与
+悬浮窗按心跳判断"已接入 / 待重启 / 接入异常"。
+
+- 触发：Command Code 一轮回答结束时推送；标题取自会话标题，读取失败时退回 transcript 首条用户消息，再退回默认标题。
+- 推送开关：`%USERPROFILE%\.config\agent-notify\commandcode.off`，与其它 Agent 一致。
+- mod 只写心跳、只调用 `agent-notify notify --agent commandcode`；任何失败都被吞掉，绝不影响 Command Code 运行。
+- 改完 mod 需重启 Command Code 或执行 `/reload`（mods 每进程只加载一次）。
+
+### 引用续聊与「回复窗口」（实验性，默认关闭）
+
+Command Code 的 mod 只能在自己所在的会话里投递，而且**只有 run 还活着**时才能投递。回答一结束 run 就结束了，
+微信通知恰好发在那一刻——所以默认情况下"引用回复"没有投递时机。
+
+`commandCodeReplyWindowSec` 用来给每次回答**留出等待窗口**：
+
+```json
+{ "commandCodeReplyWindowSec": 60 }
+```
+
+> ⚠️ **实验性功能，默认 0（关闭）。** 它的实现方式是**在 `onStop` 里挂住还没结束的那一轮**去等微信回复，
+> 因此有明确的固有副作用：**窗口期内该会话"不算结束"，界面看起来是卡住的，你手打的输入只会进队列，
+> 要等窗口结束（或收到引用回复）才会被处理。** 不适合日常连续对话，建议只在"确实要用微信引用续聊"时临时开启。
+
+- 含义：回答结束后，mod 先发通知，再把 run 挂住最多 N 秒等微信引用回复；窗口内收到回复就把它作为**新的用户指示**
+  继续这一轮。窗口过后 run 正常结束。
+- **不消耗 token**：窗口期只是 mod 在 `onStop` 里等待（每 0.5 秒轮询一次本地文件），**不产生任何模型调用**；
+  只有真正收到回复而继续那一轮时才会调用模型。
+- 通知页脚会写明时限：`*引用此消息可继续对话（60 秒内）*`。
+- 值域 1–600 秒；**省略或设为 0（默认）表示不等待**——此时通知照常推送，引用回复会明确报错
+  「回复窗口未开启」，不会静默丢失，也不会卡住会话。
+- 只有"拥有这一轮的那个会话实例"会开窗口；该 Agent 被暂停（`commandcode.off` 存在）或全局 `replyEnabled`
+  为 false 时不会开窗口。
+- 卡住后如何恢复：把 `commandCodeReplyWindowSec` 设为 0（立即生效，无需重启），或在当前会话执行 `/reload`。
+
+### 已知限制
+
+- 窗口开着时**每次回答都会把该会话挂住最多 N 秒**；期间手打输入会排队（见上方警告）。
+- 窗口内引用回复会作为一条用户消息进入该会话；窗口已过的引用回复会得到明确提示，需等下一次通知再回复。
+- 多会话同时使用时的行为尚未充分验证（mod 的钩子是进程级注册、按会话各注册一份），建议一次只在一个会话里开启使用。
 
 ## 卸载
 

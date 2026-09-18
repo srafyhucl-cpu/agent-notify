@@ -17,6 +17,7 @@ param(
   [string]$InstallDir = (Join-Path $env:USERPROFILE 'bin'),
   [string]$PluginDir = (Join-Path $env:USERPROFILE '.config\opencode\plugins'),
   [string]$DevinExtensionDir = (Join-Path $env:USERPROFILE '.devin\extensions\agent-notify'),
+  [string]$CommandCodeModDir = (Join-Path $env:USERPROFILE '.commandcode\mods'),
   [string]$CodexConfig = (Join-Path $env:USERPROFILE '.codex\config.toml'),
   [string]$AntigravityHooks = (Join-Path $env:USERPROFILE '.gemini\config\hooks.json'),
   [string]$DevinConfig = (Join-Path $env:APPDATA 'devin\config.json'),
@@ -24,6 +25,7 @@ param(
   [switch]$SkipAntigravityConfig,
   [switch]$SkipDevinConfig,
   [switch]$SkipDevinExtension,
+  [switch]$SkipCommandCodeMod,
   [switch]$SkipCodexConfig,
   [switch]$SkipProcessStop
 )
@@ -108,6 +110,25 @@ if (Test-Path $pluginPath) {
   Write-Output "[uninstall] 已删除插件：$pluginPath"
 } else {
   Write-Output "[uninstall] 插件不存在，跳过：$pluginPath"
+}
+
+# 2.5 只删除归属校验通过的 Command Code mod，避免误删用户 mods 目录里的同名文件。
+if (-not $SkipCommandCodeMod) {
+  $modPath = Join-Path $CommandCodeModDir $PluginName
+  if (Test-Path -LiteralPath $modPath -PathType Leaf) {
+    try {
+      $modText = [IO.File]::ReadAllText($modPath)
+      if ($modText -notmatch 'agent-notify-commandcode-mod') {
+        throw 'mod 不属于 Agent-notify'
+      }
+      Remove-Item -LiteralPath $modPath -Force
+      Write-Output "[uninstall] 已删除 Command Code mod：$modPath"
+    } catch {
+      Write-Output "[uninstall] Command Code mod 归属校验失败，保持原样：$($_.Exception.Message)"
+    }
+  } else {
+    Write-Output "[uninstall] Command Code mod 不存在，跳过：$modPath"
+  }
 }
 
 # 3. 只删除经过 package.json 归属校验的 Devin 回复扩展。

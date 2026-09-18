@@ -10,6 +10,7 @@ const (
 	Codex       = "codex"
 	Antigravity = "antigravity"
 	Devin       = "devin"
+	CommandCode = "commandcode"
 )
 
 // Descriptor describes one supported agent's notification identity.
@@ -54,6 +55,14 @@ var descriptors = []Descriptor{
 		TitlePrefix:  "【Devin】",
 		DefaultTitle: "任务已完成",
 		FooterLabel:  "Devin",
+		Replyable:    true,
+	},
+	{
+		ID:           CommandCode,
+		DisplayName:  "CommandCode",
+		TitlePrefix:  "【CommandCode】",
+		DefaultTitle: "任务已完成",
+		FooterLabel:  "CommandCode",
 		Replyable:    true,
 	},
 }

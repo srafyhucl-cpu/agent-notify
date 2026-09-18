@@ -13,7 +13,7 @@ import (
 	"github.com/srafyhucl-cpu/agent-notify/internal/notify"
 )
 
-func TestHandleNotifyIgnoresOpenCodeMarker(t *testing.T) {
+func TestGenericNotifyIgnoresOpenCodeMarker(t *testing.T) {
 	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
 	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(t.TempDir(), "temp"))
 	t.Setenv("AGENT_NOTIFY_QUIET", "")
@@ -23,9 +23,55 @@ func TestHandleNotifyIgnoresOpenCodeMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := HandleNotify("", "测试", "hello", "", 500, true, true)
+	result := HandleNotify("", "测试", "hello", "", 500, true, true, 0)
 	if result.Status != notify.StatusDryRun {
 		t.Fatalf("generic notify status = %q, want %q", result.Status, notify.StatusDryRun)
+	}
+}
+
+func TestHandleNotifyEnforcesOpenCodeMarker(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(t.TempDir(), "temp"))
+	t.Setenv("AGENT_NOTIFY_QUIET", "")
+
+	paths := config.GetPaths()
+	if _, err := marker.SetMarker(paths.OpenCodeMarker, "Off"); err != nil {
+		t.Fatal(err)
+	}
+
+	result := HandleNotify("opencode", "测试", "hello", "session", 500, false, true, 0)
+	if result.Status != notify.StatusSkipped {
+		t.Fatalf("opencode marker-off status = %q, want %q", result.Status, notify.StatusSkipped)
+	}
+	history, err := notify.GetHistory(10, "")
+	if err != nil {
+		t.Fatalf("GetHistory: %v", err)
+	}
+	if len(history) != 1 || history[0].Status != notify.StatusSkipped || history[0].Agent != "opencode" {
+		t.Fatalf("marker-off history = %#v", history)
+	}
+}
+
+func TestHandleNotifyEnforcesCommandCodeMarker(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	t.Setenv("AGENT_NOTIFY_TEMP_DIR", filepath.Join(t.TempDir(), "temp"))
+	t.Setenv("AGENT_NOTIFY_QUIET", "")
+
+	paths := config.GetPaths()
+	if _, err := marker.SetMarker(paths.CommandCodeMarker, "Off"); err != nil {
+		t.Fatal(err)
+	}
+
+	result := HandleNotify("commandcode", "测试", "hello", "session", 500, false, true, 0)
+	if result.Status != notify.StatusSkipped {
+		t.Fatalf("commandcode marker-off status = %q, want %q", result.Status, notify.StatusSkipped)
+	}
+	history, err := notify.GetHistory(10, "")
+	if err != nil {
+		t.Fatalf("GetHistory: %v", err)
+	}
+	if len(history) != 1 || history[0].Status != notify.StatusSkipped || history[0].Agent != "commandcode" {
+		t.Fatalf("marker-off history = %#v", history)
 	}
 }
 
@@ -63,7 +109,7 @@ func TestHandleNotifyUsesGenericHistorySource(t *testing.T) {
 		t.Fatalf("SaveCredentials: %v", err)
 	}
 
-	result := HandleNotify("", "脚本完成", "summary", "", 500, false, true)
+	result := HandleNotify("", "脚本完成", "summary", "", 500, false, true, 0)
 	if result.Status != notify.StatusSuccess {
 		t.Fatalf("generic notify status = %q, error = %q", result.Status, result.Error)
 	}

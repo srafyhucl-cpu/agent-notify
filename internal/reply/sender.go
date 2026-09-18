@@ -22,6 +22,11 @@ type DevinQueue interface {
 	Queue(ctx context.Context, sessionID, text string) error
 }
 
+// CommandCodeQueue submits text into a running Command Code session through its mod.
+type CommandCodeQueue interface {
+	Queue(ctx context.Context, sessionID, text string) error
+}
+
 // ReplySender submits one user reply to a specific agent conversation.
 type ReplySender interface {
 	Send(ctx context.Context, sessionID, text string) error
@@ -59,6 +64,18 @@ type DevinReplySender struct {
 func (s DevinReplySender) Send(ctx context.Context, sessionID, text string) error {
 	if s.Queue == nil {
 		return errors.New("devin reply: queue is not configured")
+	}
+	return s.Queue.Queue(ctx, sessionID, text)
+}
+
+// CommandCodeReplySender adapts a Command Code queue implementation to ReplySender.
+type CommandCodeReplySender struct {
+	Queue CommandCodeQueue
+}
+
+func (s CommandCodeReplySender) Send(ctx context.Context, sessionID, text string) error {
+	if s.Queue == nil {
+		return errors.New("commandcode reply: queue is not configured")
 	}
 	return s.Queue.Queue(ctx, sessionID, text)
 }

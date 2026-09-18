@@ -49,7 +49,7 @@ func TestApplyRepairDone(t *testing.T) {
 
 // 配对码输入区必须落在登录卡片内且不与提交按钮重叠。
 func TestLoginVerifyRectsStayInsideCard(t *testing.T) {
-	card := RECT{14, 48, 386, 384}
+	card := subviewCardRect()
 	field, submit := loginVerifyRects()
 	for name, rect := range map[string]RECT{"输入框": field, "提交按钮": submit} {
 		if rect.Left < card.Left || rect.Right > card.Right || rect.Top < card.Top || rect.Bottom > card.Bottom {
@@ -67,7 +67,7 @@ func TestLoginVerifyRectsStayInsideCard(t *testing.T) {
 
 // 历史列表的行命中必须与绘制行一致：卡片底部空白、行间空隙与卡片外都不应选中条目。
 func TestHistoryRowIndexAtBounds(t *testing.T) {
-	listCard := RECT{14, 48, 386, 260}
+	listCard := RECT{14, 48, 386, 294}
 	cases := []struct {
 		name string
 		y    int32
@@ -75,8 +75,9 @@ func TestHistoryRowIndexAtBounds(t *testing.T) {
 	}{
 		{"第一行中心", 72, 0},
 		{"第五行中心", 232, 4},
+		{"第六行中心", 272, 5},
 		{"行间空隙", 91, -1},
-		{"末行下方的卡片空白", 256, -1},
+		{"末行下方的卡片空白", 292, -1},
 		{"卡片上方", 40, -1},
 		{"卡片下方", 300, -1},
 	}

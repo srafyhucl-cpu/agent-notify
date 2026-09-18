@@ -12,10 +12,10 @@ func TestResolveWidgetPosition(t *testing.T) {
 		wantY int32
 	}{
 		{"valid", "120,130", 120, 130},
-		{"negative", "-32000,-32000", 1030, 345},
-		{"off screen", "5000,5000", 1030, 345},
-		{"invalid", "abc,def", 1030, 345},
-		{"empty", "", 1030, 345},
+		{"negative", "-32000,-32000", 1030, 285},
+		{"off screen", "5000,5000", 1030, 285},
+		{"invalid", "abc,def", 1030, 285},
+		{"empty", "", 1030, 285},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

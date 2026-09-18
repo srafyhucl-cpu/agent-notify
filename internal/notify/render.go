@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -42,7 +43,7 @@ func renderNotification(opts NotifyOptions, now time.Time) renderedNotification 
 		formattedNotice := "> ⚠️ " + strings.ReplaceAll(notice, "\n", "\n> ")
 		summary = strings.TrimSpace(summary + notificationSeparator + formattedNotice)
 	}
-	footer := notificationFooter(opts.Agent, now)
+	footer := notificationFooter(opts.Agent, now, opts.ReplyWindowSec)
 
 	message := composeNotification(title, summary, footer)
 	if opts.MaxChars > 0 {
@@ -100,7 +101,7 @@ func stripStatusBadge(value string) string {
 	return strings.TrimSpace(strings.TrimLeft(value, "🟢⚠️🔴⚡ "))
 }
 
-func notificationFooter(agentName string, now time.Time) string {
+func notificationFooter(agentName string, now time.Time, replyWindowSec int) string {
 	descriptor, ok := agentmeta.Lookup(agentName)
 	if !ok {
 		// 通用通知没有 Agent 归属，保持无页脚（与旧行为一致）。
@@ -108,8 +109,13 @@ func notificationFooter(agentName string, now time.Time) string {
 	}
 	parts := make([]string, 0, 2)
 	if descriptor.Replyable {
+		hint := replyHintText
+		if replyWindowSec > 0 {
+			// 有等待窗口时写明时限，避免用户错过才来引用。
+			hint = fmt.Sprintf("%s（%d 秒内）", replyHintText, replyWindowSec)
+		}
 		// 只给提示文字加斜体，时间保持正体。
-		parts = append(parts, "*"+replyHintText+"*")
+		parts = append(parts, "*"+hint+"*")
 	}
 	parts = append(parts, now.Format(footerTimeLayout))
 	return notificationDivider + "\n" + strings.Join(parts, " · ")

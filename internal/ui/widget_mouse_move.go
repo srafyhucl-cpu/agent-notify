@@ -32,8 +32,8 @@ func (app *WidgetApp) handleMouseMove(hwnd uintptr, lParam uintptr) uintptr {
 
 func (app *WidgetApp) handleRepairMouseMove(hwnd uintptr, x, y int32) uintptr {
 	backRect, _, closeRect := subviewCommonHeader()
-	recheckBtn := RECT{14, 394, 195, 436}
-	doneBtn := RECT{205, 394, 386, 436}
+	recheckBtn := RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+	doneBtn := RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
 	prev := app.repairHover
 	app.repairHover = repairViewHover{
 		back:    pointInRect(x, y, backRect),
@@ -57,9 +57,9 @@ func (app *WidgetApp) handleHistoryMouseMove(hwnd uintptr, x, y int32) uintptr {
 	total := len(historyItems)
 	const pageSize = historyListPageSize
 	prevBtn, nextBtn, clearBtn := historyHeaderButtons(total, pageSize)
-	copyBtn := RECT{14, 394, 195, 436}
-	doneBtn := RECT{205, 394, 386, 436}
-	listCard := RECT{14, 48, 386, 260}
+	copyBtn := RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+	doneBtn := RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
+	listCard := RECT{14, 48, 386, 294}
 	rowIdx := historyRowIndexAt(x, y, listCard, pageSize)
 	if rowIdx >= 0 && (app.historyPageOffset+rowIdx) >= total {
 		rowIdx = -1
@@ -89,12 +89,12 @@ func (app *WidgetApp) handleSettingsMouseMove(hwnd uintptr, x, y int32) uintptr 
 	backRect, _, closeRect := subviewCommonHeader()
 	wechatCard := RECT{14, 48, 386, 104}
 	reloginBtn := RECT{wechatCard.Right - 100, wechatCard.Top + 12, wechatCard.Right - 12, wechatCard.Bottom - 12}
-	optCard := RECT{14, 112, 386, 384}
+	optCard := RECT{14, 112, 386, widgetHeight - 64}
 	replyTrack := RECT{optCard.Right - 64, optCard.Top + 134, optCard.Right - 18, optCard.Top + 158}
 	themePill := RECT{optCard.Right - 100, optCard.Top + 188, optCard.Right - 18, optCard.Top + 220}
 	agentPill := RECT{optCard.Right - 120, optCard.Top + 240, optCard.Right - 18, optCard.Top + 270}
-	saveBtn := RECT{14, 394, 195, 436}
-	doneBtn := RECT{205, 394, 386, 436}
+	saveBtn := RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+	doneBtn := RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
 	prev := app.settingsHover
 	app.settingsHover = settingsViewHover{
 		back:        pointInRect(x, y, backRect),
@@ -118,8 +118,8 @@ func (app *WidgetApp) handleSettingsMouseMove(hwnd uintptr, x, y int32) uintptr 
 
 func (app *WidgetApp) handleLoginMouseMove(hwnd uintptr, x, y int32) uintptr {
 	backRect, _, closeRect := subviewCommonHeader()
-	refreshBtn := RECT{14, 394, 195, 436}
-	doneBtn := RECT{205, 394, 386, 436}
+	refreshBtn := RECT{14, widgetHeight - 56, 195, widgetHeight - 14}
+	doneBtn := RECT{205, widgetHeight - 56, 386, widgetHeight - 14}
 	_, submitBtn := loginVerifyRects()
 	prev := app.loginHover
 	app.loginHover = loginViewHover{

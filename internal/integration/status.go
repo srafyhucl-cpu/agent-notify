@@ -22,6 +22,9 @@ const (
 
 	// RepairCodexWatch 表示可由 Agent-notify 安全恢复的 Codex notify 配置。
 	RepairCodexWatch = "codex_watch"
+
+	// commandCodeModMarker 是 Command Code mod 内用于归属校验的标识。
+	commandCodeModMarker = "agent-notify-commandcode-mod"
 )
 
 type State string
@@ -63,6 +66,7 @@ func CheckAll(options Options) []Status {
 		checkCodex(options.Paths, enabled(options.Enabled, agentmeta.Codex)),
 		checkAntigravity(options.Paths, enabled(options.Enabled, agentmeta.Antigravity)),
 		checkDevin(options.Paths, enabled(options.Enabled, agentmeta.Devin), now),
+		checkCommandCode(options.Paths, options.Executable, enabled(options.Enabled, agentmeta.CommandCode), now),
 	}
 }
 
@@ -249,6 +253,44 @@ func checkDevin(paths config.Paths, enabled bool, now time.Time) Status {
 		return status.pending("扩展已安装，但当前 Devin 进程尚未加载", "请完全退出并重启 Devin")
 	default:
 		return status.pending("扩展已安装，等待 Devin 加载", "请完全退出并重启 Devin")
+	}
+}
+
+// checkCommandCode 检查 Command Code 用户级 mod 是否已部署、指向有效程序并写入加载心跳。
+func checkCommandCode(paths config.Paths, executable string, enabled bool, now time.Time) Status {
+	status := newStatus(agentmeta.CommandCode, "CommandCode", enabled)
+	data, err := os.ReadFile(paths.CommandCodeModFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return status.notDetected("未安装 Command Code mod", "请重新运行 install.ps1")
+		}
+		return status.failure("读取 Command Code mod 失败："+err.Error(), "")
+	}
+	content := string(data)
+	if !strings.Contains(content, commandCodeModMarker) {
+		return status.failure("Command Code mod 不是 AgentNotify 创建的文件", "请重新运行 install.ps1")
+	}
+	binary := bakedPluginBinary(content)
+	if binary == "" {
+		binary = strings.TrimSpace(executable)
+	}
+	if binary == "" {
+		binary = defaultAgentNotifyBinary()
+	}
+	if binary == "" || !fileExists(binary) {
+		return status.failure("Command Code mod 指向的 agent-notify.exe 不存在", "请重新运行 install.ps1")
+	}
+
+	heartbeat := inspectHeartbeat(paths.CommandCodeReplyDir, now)
+	switch {
+	case heartbeat.fresh:
+		return status.connected("mod 已加载，任务完成通知可推送", "")
+	case heartbeat.invalid:
+		return status.failure("Command Code mod 心跳无效", "请重启 Command Code")
+	case heartbeat.present:
+		return status.pending("mod 已安装，但当前 Command Code 会话尚未加载", "请重启 Command Code 或执行 /reload")
+	default:
+		return status.pending("mod 已安装，等待 Command Code 加载", "请重启 Command Code 或执行 /reload")
 	}
 }
 

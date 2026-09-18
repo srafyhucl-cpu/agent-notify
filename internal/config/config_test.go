@@ -181,6 +181,9 @@ func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
 		"AGENT_NOTIFY_OPENCODE_MARKER_FILE",
 		"AGENT_NOTIFY_CODEX_MARKER_FILE",
 		"AGENT_NOTIFY_DEVIN_REPLY_DIR",
+		"AGENT_NOTIFY_COMMANDCODE_MARKER_FILE",
+		"AGENT_NOTIFY_COMMANDCODE_MOD_FILE",
+		"AGENT_NOTIFY_COMMANDCODE_REPLY_DIR",
 		"AGENT_NOTIFY_LOG_FILE",
 	} {
 		t.Setenv(key, "")
@@ -205,6 +208,15 @@ func TestGetPathsUsesCurrentUserProfileByDefault(t *testing.T) {
 	}
 	if paths.DevinReplyDir != filepath.Join(configDir, "devin-reply-inbox") {
 		t.Fatalf("DevinReplyDir = %q", paths.DevinReplyDir)
+	}
+	if paths.CommandCodeMarker != filepath.Join(configDir, "commandcode.off") {
+		t.Fatalf("CommandCodeMarker = %q", paths.CommandCodeMarker)
+	}
+	if paths.CommandCodeModFile != filepath.Join(home, ".commandcode", "mods", "agent-notify.ts") {
+		t.Fatalf("CommandCodeModFile = %q", paths.CommandCodeModFile)
+	}
+	if paths.CommandCodeReplyDir != filepath.Join(configDir, "commandcode-reply-inbox") {
+		t.Fatalf("CommandCodeReplyDir = %q", paths.CommandCodeReplyDir)
 	}
 	if paths.PluginFile != filepath.Join(home, ".config", "opencode", "plugins", "agent-notify.ts") {
 		t.Fatalf("PluginFile = %q", paths.PluginFile)
@@ -268,6 +280,26 @@ func TestWriteFileAtomicConcurrentWriters(t *testing.T) {
 	}
 	if len(leftovers) != 0 {
 		t.Fatalf("temporary files remain: %#v", leftovers)
+	}
+}
+
+// CommandCode 回复窗口秒数必须能落盘并读回：悬浮窗保存配置会整份重写 config.json，
+// 该字段若不在 AppConfig 里就会被静默丢掉。
+func TestCommandCodeReplyWindowRoundTrip(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC", "")
+	path := filepath.Join(t.TempDir(), "config_window.json")
+	if err := SaveConfig(AppConfig{CommandCodeReplyWindowSec: 45}, path); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	loaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.CommandCodeReplyWindowSec != 45 {
+		t.Fatalf("CommandCodeReplyWindowSec = %d, want 45", loaded.CommandCodeReplyWindowSec)
+	}
+	if norm := NormalizeConfig(AppConfig{CommandCodeReplyWindowSec: 9999}); norm.CommandCodeReplyWindowSec != 600 {
+		t.Fatalf("clamp = %d, want 600", norm.CommandCodeReplyWindowSec)
 	}
 }
 

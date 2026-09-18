@@ -23,6 +23,7 @@ func HandleToggle(agentName, mode string) error {
 		{name: "codex", path: paths.CodexMarker},
 		{name: "antigravity", path: paths.AntigravityMarker},
 		{name: "devin", path: paths.DevinMarker},
+		{name: "commandcode", path: paths.CommandCodeMarker},
 	}
 
 	selected := targets

@@ -16,6 +16,7 @@ type ProcessStatus struct {
 	CodexRunning       bool
 	AntigravityRunning bool
 	DevinRunning       bool
+	CommandCodeRunning bool
 }
 
 const (
@@ -53,6 +54,9 @@ func DetectProcesses() ProcessStatus {
 		}
 		if strings.Contains(nameLower, "devin") {
 			status.DevinRunning = true
+		}
+		if strings.Contains(nameLower, "commandcode") || strings.Contains(nameLower, "command-code") {
+			status.CommandCodeRunning = true
 		}
 		ret, _, _ = pProcess32NextW.Call(hSnap, uintptr(unsafe.Pointer(&entry)))
 		if ret == 0 {

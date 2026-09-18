@@ -48,6 +48,7 @@ Source: "{#RepoRoot}\plugin\agent-notify.ts"; DestDir: "{app}\plugin"; Flags: ig
 Source: "{#RepoRoot}\plugin\devin-extension\package.json"; DestDir: "{app}\plugin\devin-extension"; Flags: ignoreversion
 Source: "{#RepoRoot}\plugin\devin-extension\extension.js"; DestDir: "{app}\plugin\devin-extension"; Flags: ignoreversion
 Source: "{#RepoRoot}\plugin\devin-extension\acp-bridge.js"; DestDir: "{app}\plugin\devin-extension"; Flags: ignoreversion
+Source: "{#RepoRoot}\plugin\commandcode-mod\agent-notify.ts"; DestDir: "{app}\plugin\commandcode-mod"; Flags: ignoreversion
 Source: "{#RepoRoot}\install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\tools\hook-config.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion

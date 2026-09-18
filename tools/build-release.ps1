@@ -130,6 +130,7 @@ try {
     Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\package.json') 'Agent-notify/plugin/devin-extension/package.json'
     Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\extension.js') 'Agent-notify/plugin/devin-extension/extension.js'
     Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\acp-bridge.js') 'Agent-notify/plugin/devin-extension/acp-bridge.js'
+    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\commandcode-mod\agent-notify.ts') 'Agent-notify/plugin/commandcode-mod/agent-notify.ts'
     # VERSION is generated from the resolved --Version so packaged metadata can
     # never drift from the executable that was just built.
     $versionEntry = $archive.CreateEntry('Agent-notify/VERSION', [IO.Compression.CompressionLevel]::Optimal)
@@ -157,6 +158,7 @@ try {
     'codex.off',
     'antigravity.off',
     'devin.off',
+    'commandcode.off',
     'push.log',
     'opencode-sent.json',
     'agent-notify-install.json'

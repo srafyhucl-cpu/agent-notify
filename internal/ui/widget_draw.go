@@ -354,6 +354,9 @@ func drawAgentCard(hdc uintptr, card widgetAgentCard, baseFont, smallFont uintpt
 }
 
 func cleanRecentPushTitle(title, agentID string) string {
+	// 推送标题是 Markdown 加粗行（形如 `**🟢 Codex｜会话**`）；列表与详情都按纯文本展示，
+	// 因此去掉加粗符、状态徽标与 Agent 前缀。
+	title = strings.Trim(strings.TrimSpace(title), "*")
 	title = strings.TrimSpace(title)
 	for _, prefix := range []string{"🟢", "⚠️", "🔴", "⚪", "⚡", "✨"} {
 		title = strings.TrimPrefix(title, prefix)
@@ -370,7 +373,7 @@ func cleanRecentPushTitle(title, agentID string) string {
 			}
 		}
 	}
-	return strings.TrimSpace(title)
+	return strings.Trim(strings.TrimSpace(title), "*")
 }
 
 func drawRecentCard(hdc uintptr, rect RECT, app *WidgetApp, strongFont, smallFont, iconFont uintptr, theme ThemePalette) {
@@ -541,7 +544,7 @@ func drawViewContent(hdc uintptr, width, height int32, app *WidgetApp) {
 
 	pSelectObject.Call(hdc, smallFont)
 	pSetTextColor.Call(hdc, uintptr(theme.TextMuted))
-	subtitle := "4 个 Agent · ClawBot 微信通知"
+	subtitle := "5 个 Agent · ClawBot 微信通知"
 	if app.isSingleAgentMode() {
 		subtitle = app.focusedAgentHint()
 	}
@@ -567,7 +570,7 @@ func drawViewContent(hdc uintptr, width, height int32, app *WidgetApp) {
 			toggleColor = uintptr(theme.ButtonBorderHover)
 		}
 		pSetTextColor.Call(hdc, toggleColor)
-		DrawText(hdc, "展开全部 4 个 ▾", &layout.modeToggle, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+		DrawText(hdc, "展开全部 5 个 ▾", &layout.modeToggle, DT_RIGHT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 		cards := app.agentCards(layout)
 		if len(cards) > 0 {
@@ -575,7 +578,7 @@ func drawViewContent(hdc uintptr, width, height int32, app *WidgetApp) {
 		}
 	} else {
 		pSetTextColor.Call(hdc, uintptr(theme.TextMuted))
-		DrawText(hdc, "全部代理 (4 个)", &RECT{14, 54, 200, 72}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
+		DrawText(hdc, "全部代理 (5 个)", &RECT{14, 54, 200, 72}, DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX)
 
 		toggleColor := uintptr(theme.TextSecondary)
 		if app.hover.modeToggle {

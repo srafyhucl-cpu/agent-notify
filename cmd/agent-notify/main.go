@@ -109,7 +109,7 @@ func ensureConsole() {
 }
 
 func printHelp() {
-	fmt.Printf("AgentNotify v%s - OpenCode / Codex / Antigravity / Devin 微信任务通知\n\n", app.Version)
+	fmt.Printf("AgentNotify v%s - OpenCode / Codex / Antigravity / Devin / CommandCode 微信任务通知\n\n", app.Version)
 	fmt.Println("用法:")
 	fmt.Println("  agent-notify [命令] [选项]")
 	fmt.Println()
@@ -123,7 +123,7 @@ func printHelp() {
 	fmt.Println("  test        发送测试通知并验证完整链路")
 	fmt.Println("  doctor      检查配置、凭据、会话、网络和 Codex 接入")
 	fmt.Println("  reply-check 只读校验微信引用 ID 与通知发送记录是否精确对应")
-	fmt.Println("  toggle      开启或暂停 OpenCode / Codex / Antigravity / Devin 推送")
+	fmt.Println("  toggle      开启或暂停 OpenCode / Codex / Antigravity / Devin / CommandCode 推送")
 	fmt.Println("  watch       检查并恢复 Codex notify 配置")
 	fmt.Println("  history     查看最近推送记录（--json 供脚本消费）")
 	fmt.Println("  widget      启动桌面悬浮窗（无参数时默认）")
@@ -141,7 +141,7 @@ func printHelp() {
 func main() {
 	if len(os.Args) < 2 {
 		if stdinAvailable() {
-			result := agent.HandleNotify("", "【通知】任务完成", "", "", notify.DefaultMaxChars, false, false)
+			result := agent.HandleNotify("", "【通知】任务完成", "", "", notify.DefaultMaxChars, false, false, 0)
 			if result.Error != "" && result.Status != notify.StatusSkipped {
 				fmt.Fprintln(os.Stderr, result.Error)
 			}
@@ -440,31 +440,35 @@ func runStatus(args []string) {
 	codexOn := !marker.IsOff(paths.CodexMarker)
 	antigravityOn := !marker.IsOff(paths.AntigravityMarker)
 	devinOn := !marker.IsOff(paths.DevinMarker)
+	commandCodeOn := !marker.IsOff(paths.CommandCodeMarker)
 	integrations := collectIntegrationStatuses(paths)
 	history, _ := notify.GetHistory(1, paths.PushLog)
 
 	output := map[string]interface{}{
-		"version":            app.Version,
-		"commit":             app.Commit,
-		"configFile":         paths.ConfigFile,
-		"credentialFile":     paths.CredentialFile,
-		"clawbot":            status,
-		"quietHours":         cfg.QuietHours,
-		"cooldownMinutes":    cfg.CooldownMin,
-		"replyEnabled":       cfg.ReplyEnabled,
-		"openCodeEnabled":    openCodeOn,
-		"codexEnabled":       codexOn,
-		"antigravityEnabled": antigravityOn,
-		"devinEnabled":       devinOn,
-		"integrations":       integrations,
-		"pushLog":            paths.PushLog,
-		"lastPush":           firstHistory(history),
-		"pluginFile":         paths.PluginFile,
-		"pluginInstalled":    fileExists(paths.PluginFile),
-		"replyRouteFile":     paths.ReplyRouteFile,
-		"codexTitleLog":      paths.CodexTitleLog,
-		"antigravityHooks":   paths.AntigravityHooks,
-		"devinConfig":        paths.DevinConfig,
+		"version":                 app.Version,
+		"commit":                  app.Commit,
+		"configFile":              paths.ConfigFile,
+		"credentialFile":          paths.CredentialFile,
+		"clawbot":                 status,
+		"quietHours":              cfg.QuietHours,
+		"cooldownMinutes":         cfg.CooldownMin,
+		"replyEnabled":            cfg.ReplyEnabled,
+		"openCodeEnabled":         openCodeOn,
+		"codexEnabled":            codexOn,
+		"antigravityEnabled":      antigravityOn,
+		"devinEnabled":            devinOn,
+		"commandCodeEnabled":      commandCodeOn,
+		"integrations":            integrations,
+		"pushLog":                 paths.PushLog,
+		"lastPush":                firstHistory(history),
+		"pluginFile":              paths.PluginFile,
+		"pluginInstalled":         fileExists(paths.PluginFile),
+		"commandCodeModFile":      paths.CommandCodeModFile,
+		"commandCodeModInstalled": fileExists(paths.CommandCodeModFile),
+		"replyRouteFile":          paths.ReplyRouteFile,
+		"codexTitleLog":           paths.CodexTitleLog,
+		"antigravityHooks":        paths.AntigravityHooks,
+		"devinConfig":             paths.DevinConfig,
 	}
 	if cfgErr != nil {
 		output["configError"] = cfgErr.Error()
@@ -483,6 +487,7 @@ func runStatus(args []string) {
 	fmt.Printf("Codex 推送: %s\n", onOff(codexOn))
 	fmt.Printf("Antigravity 推送: %s\n", onOff(antigravityOn))
 	fmt.Printf("Devin 推送: %s\n", onOff(devinOn))
+	fmt.Printf("CommandCode 推送: %s\n", onOff(commandCodeOn))
 	for _, item := range integrations {
 		fmt.Printf("%s 接入: %s\n", item.Name, item.Label())
 		if item.Detail != "" {
@@ -498,6 +503,7 @@ func runStatus(args []string) {
 	fmt.Printf("配置文件: %s\n", paths.ConfigFile)
 	fmt.Printf("凭据文件: %s\n", paths.CredentialFile)
 	fmt.Printf("OpenCode 插件: %s\n", installedStatus(fileExists(paths.PluginFile)))
+	fmt.Printf("CommandCode mod: %s\n", installedStatus(fileExists(paths.CommandCodeModFile)))
 	fmt.Printf("Antigravity Hook: %s\n", paths.AntigravityHooks)
 	fmt.Printf("Devin Hook: %s\n", paths.DevinConfig)
 	fmt.Printf("推送日志: %s\n", paths.PushLog)
@@ -518,6 +524,7 @@ func collectIntegrationStatuses(paths config.Paths) []integration.Status {
 			agentmeta.Codex:       !marker.IsOff(paths.CodexMarker),
 			agentmeta.Antigravity: !marker.IsOff(paths.AntigravityMarker),
 			agentmeta.Devin:       !marker.IsOff(paths.DevinMarker),
+			agentmeta.CommandCode: !marker.IsOff(paths.CommandCodeMarker),
 		},
 		Now: time.Now(),
 	})
@@ -560,11 +567,12 @@ func runNotify(args []string) {
 	maxChars := flags.Int("max-chars", notify.DefaultMaxChars, "最终消息最大字符数，0 表示不限")
 	dryRun := flags.Bool("dry-run", false, "只输出消息，不发送")
 	noStdin := flags.Bool("no-stdin", false, "禁止读取 stdin")
+	replyWindow := flags.Int("reply-window", 0, "可引用回复的等待窗口秒数（>0 时写入通知页脚）")
 	if err := flags.Parse(args); err != nil {
 		return
 	}
 
-	result := agent.HandleNotify(*agentName, *title, *summary, *sessionID, *maxChars, *dryRun, *noStdin)
+	result := agent.HandleNotify(*agentName, *title, *summary, *sessionID, *maxChars, *dryRun, *noStdin, *replyWindow)
 	if result.Error != "" && result.Status != notify.StatusSkipped && !*dryRun {
 		fmt.Fprintln(os.Stderr, result.Error)
 	}
@@ -714,11 +722,12 @@ func runDoctor() int {
 	}
 
 	reportCheck(true, "推送开关", fmt.Sprintf(
-		"opencode=%s codex=%s antigravity=%s devin=%s",
+		"opencode=%s codex=%s antigravity=%s devin=%s commandcode=%s",
 		onOff(!marker.IsOff(paths.OpenCodeMarker)),
 		onOff(!marker.IsOff(paths.CodexMarker)),
 		onOff(!marker.IsOff(paths.AntigravityMarker)),
 		onOff(!marker.IsOff(paths.DevinMarker)),
+		onOff(!marker.IsOff(paths.CommandCodeMarker)),
 	))
 	if _, err := notify.GetHistory(1, paths.PushLog); err != nil {
 		reportCheck(false, "推送日志可读", err.Error())
@@ -776,7 +785,7 @@ func reportWarning(name, detail string) {
 
 func runToggle(args []string) int {
 	flags := flag.NewFlagSet("toggle", flag.ContinueOnError)
-	agentName := flags.String("agent", "all", "all、opencode、codex、antigravity 或 devin")
+	agentName := flags.String("agent", "all", "all、opencode、codex、antigravity、devin 或 commandcode")
 	on := flags.Bool("on", false, "开启")
 	off := flags.Bool("off", false, "关闭")
 	if err := flags.Parse(args); err != nil {

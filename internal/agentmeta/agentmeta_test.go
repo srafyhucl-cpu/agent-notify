@@ -4,10 +4,10 @@ import "testing"
 
 func TestAllAgentsAreStableAndReplyable(t *testing.T) {
 	all := All()
-	if len(all) != 4 {
-		t.Fatalf("All() length = %d, want 4", len(all))
+	if len(all) != 5 {
+		t.Fatalf("All() length = %d, want 5", len(all))
 	}
-	want := []string{OpenCode, Codex, Antigravity, Devin}
+	want := []string{OpenCode, Codex, Antigravity, Devin, CommandCode}
 	for index, descriptor := range all {
 		if descriptor.ID != want[index] {
 			t.Fatalf("All()[%d].ID = %q, want %q", index, descriptor.ID, want[index])
