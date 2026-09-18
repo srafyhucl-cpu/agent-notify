@@ -203,7 +203,7 @@ agent-notify.exe notify --dry-run --title "长通知" --summary "完整正文" -
 ```
 
 - `quietHours` 为空表示关闭勿扰；格式为 `23-8`，结束时间不包含在静默时段内。
-- `cooldownMin` 是 OpenCode 同一会话的去重窗口，默认 10 分钟，范围为 1 到 1440。
+- `cooldownMin` 是 OpenCode 同一会话的去重窗口，默认 10 分钟，范围为 1 到 1440；改动即时生效，无需重启 OpenCode。用户引用回复后，该会话的下一次完成事件会豁免一次冷却，保证“引用必得回答”。
 - `replyEnabled` 控制微信引用回复，默认是 `false`。开启后仍只处理当前绑定用户的私聊引用回复。
 - `replyConfirmation` 控制引用回复成功后是否回一条“✅ 已送达 …”确认，默认是 `true`；设为 `false` 可关闭。
 - 路由和去重 Claim 只保存在本机，默认保留 30 天；两类记录都按 ClawBot bot ID 和绑定用户 ID 隔离。

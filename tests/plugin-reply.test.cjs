@@ -150,6 +150,43 @@ function createReplyJob(id, overrides = {}) {
   };
 }
 
+// createGatedEventContext 构造一个可精确控制时序的插件上下文：
+// 每调用一次 release()，事件流才产出下一个 session.execution.succeeded 事件。
+function createGatedEventContext(sessionIDs) {
+  const waiters = [];
+  const subscribe = async function* ({ signal }) {
+    for (let index = 0; index < sessionIDs.length; index++) {
+      await new Promise((resolve) => {
+        waiters.push(resolve);
+      });
+      yield {
+        type: "session.execution.succeeded",
+        properties: { sessionID: sessionIDs[index] },
+      };
+    }
+    await new Promise((resolve) => {
+      signal.addEventListener("abort", resolve, { once: true });
+    });
+  };
+  return {
+    context: {
+      event: { subscribe },
+      session: {
+        context: async () => ({}),
+        get: async () => ({}),
+        prompt: async () => ({}),
+      },
+      client: { session: { promptAsync: async () => ({}) } },
+    },
+    release() {
+      const resolve = waiters.shift();
+      if (resolve) {
+        resolve();
+      }
+    },
+  };
+}
+
 function writeAtomic(target, value) {
   fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   const temporary = `${target}.tmp-${process.pid}`;
@@ -1133,6 +1170,121 @@ test("hung session metadata still delivers the notification", async () => {
     assert.match(log, new RegExp(`title fail sid=${sessionID} err=读取会话标题超时`));
     assert.match(log, new RegExp(`summary fail sid=${sessionID} err=读取会话摘要超时`));
     assert.match(log, new RegExp(`spawn sid=${sessionID}`));
+  } finally {
+    if (dispose) {
+      dispose();
+    }
+    restoreEnvironment();
+    temporary.cleanup();
+  }
+});
+
+// 冷却值每次都重新读取：改了环境变量/配置后无需重启插件即可生效（不再缓存）。
+test("cooldown change takes effect without restarting the plugin", async () => {
+  const temporary = createTemporaryDirectory(
+    "agent-notify-plugin-cooldown-",
+    replyArtifactDirectories,
+  );
+  const debugLogPath = path.join(temporary.directory, "opencode-debug.log");
+  const readLog = () => {
+    try {
+      return fs.readFileSync(debugLogPath, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const sessionID = "session-cooldown";
+  const restoreEnvironment = withEnvironmentVars({
+    AGENT_NOTIFY_OPENCODE_REPLY_DIR: temporary.directory,
+    AGENT_NOTIFY_OPENCODE_MARKER_FILE: path.join(temporary.directory, "opencode.off"),
+    AGENT_NOTIFY_TEMP_DIR: temporary.directory,
+    AGENT_NOTIFY_CONFIG_FILE: path.join(temporary.directory, "config.json"),
+    AGENT_NOTIFY_BIN: path.join(temporary.directory, "missing-agent-notify.exe"),
+    AGENT_NOTIFY_DEBUG: "1",
+    AGENT_NOTIFY_OFF: undefined,
+    AGENT_NOTIFY_DRYRUN: undefined,
+    // 0.001 分钟 = 60ms，方便在测试里跨过冷却窗口。
+    AGENT_NOTIFY_COOLDOWN_MIN: "0.001",
+  });
+  const gated = createGatedEventContext([sessionID, sessionID]);
+  let dispose;
+  try {
+    const plugin = loadPlugin();
+    dispose = await plugin.setup(gated.context);
+
+    gated.release();
+    await waitFor(() => readLog().includes(`pushed sid=${sessionID}`), "first push");
+    await delay(200); // 跨过 60ms 冷却
+
+    process.env.AGENT_NOTIFY_COOLDOWN_MIN = "60";
+    gated.release();
+    await waitFor(
+      () => readLog().includes(`skip: cooldown sid=${sessionID}`),
+      "cooldown applied after change",
+    );
+
+    const pushes = (readLog().match(new RegExp(`pushed sid=${sessionID}`, "g")) || []).length;
+    assert.equal(pushes, 1);
+  } finally {
+    if (dispose) {
+      dispose();
+    }
+    restoreEnvironment();
+    temporary.cleanup();
+  }
+});
+
+// 引用回复提交成功后，该会话的下一次完成事件豁免一次冷却；之后回到正常冷却。
+test("successful reply exempts the next completion from cooldown", async () => {
+  const temporary = createTemporaryDirectory(
+    "agent-notify-plugin-reply-exempt-",
+    replyArtifactDirectories,
+  );
+  const debugLogPath = path.join(temporary.directory, "opencode-debug.log");
+  const readLog = () => {
+    try {
+      return fs.readFileSync(debugLogPath, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const sessionID = "session-reply-exempt";
+  const restoreEnvironment = withEnvironmentVars({
+    AGENT_NOTIFY_OPENCODE_REPLY_DIR: temporary.directory,
+    AGENT_NOTIFY_OPENCODE_MARKER_FILE: path.join(temporary.directory, "opencode.off"),
+    AGENT_NOTIFY_TEMP_DIR: temporary.directory,
+    AGENT_NOTIFY_CONFIG_FILE: path.join(temporary.directory, "config.json"),
+    AGENT_NOTIFY_BIN: path.join(temporary.directory, "missing-agent-notify.exe"),
+    AGENT_NOTIFY_DEBUG: "1",
+    AGENT_NOTIFY_OFF: undefined,
+    AGENT_NOTIFY_DRYRUN: undefined,
+    AGENT_NOTIFY_COOLDOWN_MIN: "60",
+  });
+  let dispose;
+  try {
+    const job = createReplyJob("job-reply-exempt", { sessionID });
+    writeReplyJob(temporary.directory, job);
+    const gated = createGatedEventContext([sessionID, sessionID]);
+    const plugin = loadPlugin();
+    dispose = await plugin.setup(gated.context);
+
+    await waitFor(
+      () => readResult(temporary.directory, job.id)?.ok === true,
+      "reply submission result",
+    );
+
+    gated.release();
+    await waitFor(() => readLog().includes(`pushed sid=${sessionID}`), "reply-exempt push");
+    assert.match(readLog(), new RegExp(`reply-exempt sid=${sessionID}`));
+
+    // 第二次完成事件回到正常冷却：60 分钟窗口内应被跳过。
+    gated.release();
+    await waitFor(
+      () => readLog().includes(`skip: cooldown sid=${sessionID}`),
+      "cooldown restored after exemption",
+    );
+    const pushes = (readLog().match(new RegExp(`pushed sid=${sessionID}`, "g")) || []).length;
+    assert.equal(pushes, 1);
   } finally {
     if (dispose) {
       dispose();

@@ -95,6 +95,8 @@ const SESSION_TITLE_MAX_CHARS = 0
 const DEFAULT_SESSION_TITLE = "opencode会话"
 const SENT_STATE_MAX_ENTRIES = 500
 const DEFAULT_COOLDOWN_MIN = 10
+// 引用回复提交成功后，该会话的下一次完成事件豁免冷却（一次性），避免"引用必得回答"被冷却压掉。
+const REPLY_EXPECTATION_TTL_MS = 30 * MILLISECONDS_PER_MINUTE
 const PRIVATE_FILE_MODE = 0o600
 const PRIVATE_DIRECTORY_MODE = 0o700
 
@@ -157,8 +159,8 @@ interface ReplyJob {
 
 let fsMod: FsModule | null = null
 let debugLog: DebugLogger | null = null
-let cooldownMs: number | null = null
 let replyPumpRunning = false
+const replyExpectation = new Map<string, number>()
 
 function envValue(name: string): string {
   return (typeof process !== "undefined" && process.env[name]) || ""
@@ -222,10 +224,8 @@ function dbg(msg: string): void {
 }
 
 // 冷却时间来源优先级：环境变量 > config.json > 默认值。
+// 每次调用都重新读取，因此在设置里改了冷却（或改了环境变量）无需重启 OpenCode 即可生效。
 function cooldown(): number {
-  if (cooldownMs !== null) {
-    return cooldownMs
-  }
   let minutes = Number(envValue("AGENT_NOTIFY_COOLDOWN_MIN")) || 0
   if (!minutes && CONFIG_FILE && fsMod) {
     try {
@@ -242,8 +242,28 @@ function cooldown(): number {
   if (!(minutes > 0)) {
     minutes = DEFAULT_COOLDOWN_MIN
   }
-  cooldownMs = minutes * MILLISECONDS_PER_MINUTE
-  return cooldownMs
+  return minutes * MILLISECONDS_PER_MINUTE
+}
+
+// markReplyExpectation 记录"刚为这个会话提交了引用回复"，使其下一次完成事件豁免一次冷却。
+function markReplyExpectation(sessionID: string): void {
+  const now = Date.now()
+  replyExpectation.set(sessionID, now)
+  for (const [key, at] of replyExpectation) {
+    if (now - at > REPLY_EXPECTATION_TTL_MS) {
+      replyExpectation.delete(key)
+    }
+  }
+}
+
+// takeReplyExpectation 读取并清除豁免标记；过期标记按不存在处理。
+function takeReplyExpectation(sessionID: string): boolean {
+  const at = replyExpectation.get(sessionID)
+  if (at === undefined) {
+    return false
+  }
+  replyExpectation.delete(sessionID)
+  return Date.now() - at <= REPLY_EXPECTATION_TTL_MS
 }
 
 function markerOff(): boolean {
@@ -803,6 +823,7 @@ async function processReplyJobs(ctx: PluginContext, instanceID: string): Promise
         }
         try {
           await promptExistingSession(ctx, sessionID, text)
+          markReplyExpectation(sessionID)
           writeReplyResult(jobID, true)
           dbg(`reply sent sid=${sessionID}`)
         } catch (error) {
@@ -992,17 +1013,20 @@ async function handleTaskComplete(
   }
 
   const now = Date.now()
-  const wait = cooldown()
-  if (now - (lastSent.get(sessionID) || 0) < wait) {
-    dbg(`skip: cooldown sid=${sessionID}`)
-    return
-  }
   if (pending.has(sessionID)) {
     dbg(`skip: in-flight sid=${sessionID}`)
     return
   }
+  const wait = cooldown()
   const sent = readSent()
-  if (now - (Number(sent[sessionID]) || 0) < wait) {
+  const expectReply = takeReplyExpectation(sessionID)
+  if (expectReply) {
+    // 用户刚引用回复过：该会话的下一次完成事件豁免冷却，保证"引用必得回答"。
+    dbg(`reply-exempt sid=${sessionID}`)
+  } else if (now - (lastSent.get(sessionID) || 0) < wait) {
+    dbg(`skip: cooldown sid=${sessionID}`)
+    return
+  } else if (now - (Number(sent[sessionID]) || 0) < wait) {
     lastSent.set(sessionID, now)
     dbg(`skip: file-cooldown sid=${sessionID}`)
     return
