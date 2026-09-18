@@ -4,7 +4,13 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是
 `internal/app/version.go` 的 `Version`。
 
-## [Unreleased]
+## [1.15.0] - 2026-09-18
+
+### Changed
+
+- 产品显示名统一为 AgentNotify：悬浮窗标题、托盘提示与右键菜单、CLI 横幅与自检标题、接入状态文案、更新失败提示、安装与卸载提示、安装器名称与卸载列表、桌面与开始菜单快捷方式名。
+- 快捷方式改名为 `AgentNotify.lnk`。安装、卸载与安装器升级时会自动清理改名前的 `Agent-notify.lnk` 与 `Agent-notify 悬浮窗.lnk`，老用户升级不会留下两个图标。
+- 以下技术标识保持不变，避免影响老用户升级与更新链路：`agent-notify.exe`、安装目录 `%LOCALAPPDATA%\Programs\Agent-notify`、配置目录 `.config\agent-notify`、`AGENT_NOTIFY_*` 环境变量、Go 模块路径、插件与 Hook 文件名，以及发布产物名 `Agent-notify-Setup-vX.Y.Z.exe` / `Agent-notify-vX.Y.Z.zip`。
 
 ## [1.14.0] - 2026-09-18
 
@@ -149,7 +155,7 @@
 
 ### Fixed
 
-- 修复卸载会损坏 Codex 配置：不再用整份备份覆盖 `config.toml`，改为只定点还原 notify 行，保留安装后用户对配置的其它修改；无备份时只从 `--previous-notify` 链里摘掉 Agent-notify 片段，不再连带删除用户原有的 codex-computer-use 包装。
+- 修复卸载会损坏 Codex 配置：不再用整份备份覆盖 `config.toml`，改为只定点还原 notify 行，保留安装后用户对配置的其它修改；无备份时只从 `--previous-notify` 链里摘掉 AgentNotify 片段，不再连带删除用户原有的 codex-computer-use 包装。
 - 修复重新登录与常驻轮询之间的凭据竞态：旧 token 的失效响应只作用于发起该次轮询的凭据，轮询结果也不再整结构回写，避免把刚重新登录得到的新 token、游标与会话上下文覆盖回旧值。
 
 ## [1.6.2] - 2026-09-16
@@ -247,9 +253,9 @@
 
 - 新增 Antigravity 全局 `Stop` Hook：仅在 `fullyIdle=true` 且存在 `conversationId` 时发送通知，并从 transcript 尾部提取摘要；Hook 始终返回 `{}`，通知失败不会阻塞 Antigravity。
 - 新增 Devin 用户级 `Stop` Hook：使用 `session_id` 和 `last_assistant_message`，跳过 `stop_hook_active=true` 的重入事件；Hook 失败不会改变 Devin 的停止决策。
-- 新增 Antigravity / Devin 微信引用回复：Antigravity 使用桌面端官方 `language_server.exe agentapi`；Devin 使用随 Agent-notify 安装的桌面扩展，直接向桌面端 `devin.exe acp` 子进程写入 `session/prompt` 续写原会话；两者都不依赖对应 CLI 登录。
+- 新增 Antigravity / Devin 微信引用回复：Antigravity 使用桌面端官方 `language_server.exe agentapi`；Devin 使用随 AgentNotify 安装的桌面扩展，直接向桌面端 `devin.exe acp` 子进程写入 `session/prompt` 续写原会话；两者都不依赖对应 CLI 登录。
 - `status`、`doctor`、`toggle` 和悬浮窗统一支持四个 Agent；新增 `antigravity.off` / `devin.off` marker 与对应环境变量覆盖。
-- 安装和卸载脚本新增共享 `tools/hook-config.ps1`，以原子替换方式只维护 Agent-notify 自己的 Hook，保留其他 JSON 配置和 handler。
+- 安装和卸载脚本新增共享 `tools/hook-config.ps1`，以原子替换方式只维护 AgentNotify 自己的 Hook，保留其他 JSON 配置和 handler。
 
 ### Changed
 
