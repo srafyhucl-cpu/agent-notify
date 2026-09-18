@@ -4,6 +4,31 @@ package ui
 
 import "testing"
 
+func TestShouldAlertWechatBroken(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      wechatLinkState
+		alerted    bool
+		shownInRun bool
+		want       bool
+	}{
+		{"首次断开应提醒", wechatLinkBroken, false, false, true},
+		{"已提醒过不再提醒", wechatLinkBroken, true, false, false},
+		{"本次运行已弹过不再提醒", wechatLinkBroken, false, true, false},
+		{"等待首条不提醒", wechatLinkAwaitingFirst, false, false, false},
+		{"正常不提醒", wechatLinkOK, false, false, false},
+		{"未登录不提醒", wechatLinkNotLoggedIn, false, false, false},
+		{"登录失效不提醒", wechatLinkStale, false, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldAlertWechatBroken(tt.state, tt.alerted, tt.shownInRun); got != tt.want {
+				t.Fatalf("shouldAlertWechatBroken() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWechatLinkStateFor(t *testing.T) {
 	tests := []struct {
 		name         string

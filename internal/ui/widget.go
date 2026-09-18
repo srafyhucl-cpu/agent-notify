@@ -256,6 +256,13 @@ func debugLog(format string, args ...interface{}) {
 	diag.Append(paths.WidgetTraceLog, entry)
 }
 
+// errorLog 记录悬浮窗的可见错误。日志写入失败只影响诊断，不影响主流程。
+func errorLog(format string, args ...interface{}) {
+	paths := config.GetPaths()
+	entry := fmt.Sprintf("[%s] [PID:%d] %s\r\n", time.Now().Format("2006-01-02T15:04:05"), os.Getpid(), fmt.Sprintf(format, args...))
+	diag.Append(paths.WidgetErrorLog, entry)
+}
+
 func resolveWidgetPosition(raw string, screenWidth, screenHeight, winWidth, winHeight int32) (int32, int32) {
 	return resolveWidgetPositionInArea(raw, RECT{Right: screenWidth, Bottom: screenHeight}, winWidth, winHeight)
 }
@@ -875,6 +882,34 @@ func (app *WidgetApp) refreshState() {
 	if app.tray != nil {
 		statusColor, _ := app.health()
 		app.tray.UpdateState(trayStateForStatus(statusColor))
+	}
+	app.maybeAlertWechatBroken()
+}
+
+const (
+	wechatBrokenAlertTitle = "微信推送已断开"
+	wechatBrokenAlertBody  = "ClawBot 主动推送会话失效，任务通知暂时发不出去了。请在微信里给 ClawBot 发任意一条消息即可恢复。"
+)
+
+// maybeAlertWechatBroken 在「曾就绪但会话失效」首次出现时弹一次托盘气泡。
+// 会话恢复后 refreshState 会把 wechatAlertShown 复位，因此再次断开可以重新提醒。
+func (app *WidgetApp) maybeAlertWechatBroken() {
+	state := app.currentWechatLinkState()
+	if state != wechatLinkBroken {
+		app.wechatAlertShown = false
+		return
+	}
+	if !shouldAlertWechatBroken(state, app.clawbotAlerted, app.wechatAlertShown) {
+		return
+	}
+	// 悬浮窗还没建好托盘图标时不弹，也不记已弹标记，留给下一次刷新重试。
+	if app.tray == nil {
+		return
+	}
+	app.wechatAlertShown = true
+	app.tray.ShowAlert(wechatBrokenAlertTitle, wechatBrokenAlertBody)
+	if err := clawbot.MarkSessionAlerted(); err != nil {
+		errorLog("微信断开提醒标记写入失败: %v", err)
 	}
 }
 

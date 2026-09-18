@@ -103,3 +103,10 @@ func wechatLinkAccent(theme ThemePalette, state wechatLinkState) uint32 {
 		return theme.AccentWarning
 	}
 }
+
+// shouldAlertWechatBroken 判定是否应为「会话已断开」弹出提醒。
+// alerted 是持久化标记（跨重启去重），shownInRun 是进程内标记
+// （持久化写入失败时兜底，避免每 5 秒重复弹窗）。
+func shouldAlertWechatBroken(state wechatLinkState, alerted, shownInRun bool) bool {
+	return state == wechatLinkBroken && !alerted && !shownInRun
+}
