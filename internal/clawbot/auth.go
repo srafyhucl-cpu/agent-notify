@@ -408,9 +408,14 @@ func loadCredentials() (Credentials, error) {
 }
 
 // SaveCredentials writes credentials atomically with restrictive permissions.
+// 它同时是登录边界：新登录必须丢掉上一次登录的会话世代与提醒标记，
+// 否则会把「曾经就绪」的记忆带进新登录，误报成会话失效。
+// 运行期的会话状态写入走 updateCredentials，不受此重置影响。
 func SaveCredentials(creds Credentials) error {
 	credentialsMu.Lock()
 	defer credentialsMu.Unlock()
+	creds.SessionEstablishedAt = ""
+	creds.SessionAlertAt = ""
 	return saveCredentials(creds)
 }
 
@@ -512,6 +517,8 @@ func GetStatus() Status {
 	status.SessionReady = !status.Stale &&
 		strings.TrimSpace(credentials.ContextToken) != "" &&
 		strings.TrimSpace(credentials.ContextUserID) == strings.TrimSpace(credentials.ILinkUserID)
+	status.EverReady = !status.SessionReady && strings.TrimSpace(credentials.SessionEstablishedAt) != ""
+	status.Alerted = strings.TrimSpace(credentials.SessionAlertAt) != ""
 	return status
 }
 

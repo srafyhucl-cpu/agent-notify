@@ -239,6 +239,11 @@ func savePolledSession(base, next Credentials) error {
 		credentials.GetUpdatesBuf = next.GetUpdatesBuf
 		credentials.ContextToken = next.ContextToken
 		credentials.ContextUserID = next.ContextUserID
+		// 收到新的入站上下文即视为会话可用：刷新「曾就绪」时间并解除已提醒标记。
+		if strings.TrimSpace(next.ContextToken) != "" {
+			credentials.SessionEstablishedAt = time.Now().Format(time.RFC3339)
+			credentials.SessionAlertAt = ""
+		}
 		return nil
 	})
 }
@@ -253,6 +258,16 @@ func ClearSessionContext(expectedToken string) error {
 		}
 		credentials.ContextToken = ""
 		credentials.ContextUserID = ""
+		return nil
+	})
+}
+
+// MarkSessionAlerted 记录界面已针对当前这次「会话失效」提醒过用户。
+// 会话恢复（savePolledSession）会清空该标记，因此同一次断开会话只提醒一次，
+// 恢复后再次失效可以重新提醒。
+func MarkSessionAlerted() error {
+	return updateCredentials(func(credentials *Credentials) error {
+		credentials.SessionAlertAt = time.Now().Format(time.RFC3339)
 		return nil
 	})
 }

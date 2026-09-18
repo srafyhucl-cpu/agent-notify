@@ -131,3 +131,80 @@ func TestPollQRStatusUsesRedirectBaseAsFallback(t *testing.T) {
 		t.Fatalf("base URL = %q, want redirect host %q", credentials.BaseURL, target.URL)
 	}
 }
+
+func TestSaveCredentialsResetsSessionGeneration(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	if err := SaveCredentials(boundCredentials()); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+	// 用 updateCredentials 模拟运行期写入，绕过登录边界重置。
+	if err := updateCredentials(func(credentials *Credentials) error {
+		credentials.SessionEstablishedAt = "2026-09-17T15:00:00+08:00"
+		credentials.SessionAlertAt = "2026-09-17T16:40:00+08:00"
+		return nil
+	}); err != nil {
+		t.Fatalf("updateCredentials: %v", err)
+	}
+
+	if err := SaveCredentials(boundCredentials()); err != nil {
+		t.Fatalf("SaveCredentials relogin: %v", err)
+	}
+	got, err := LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if got.SessionEstablishedAt != "" || got.SessionAlertAt != "" {
+		t.Fatalf("重新登录后会话世代残留: %#v", got)
+	}
+}
+
+func TestClearSessionContextKeepsEstablishedMarker(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	if err := SaveCredentials(boundCredentials()); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+	if err := updateCredentials(func(credentials *Credentials) error {
+		credentials.SessionEstablishedAt = "2026-09-17T15:00:00+08:00"
+		return nil
+	}); err != nil {
+		t.Fatalf("updateCredentials: %v", err)
+	}
+
+	if err := ClearSessionContext("ctx-1"); err != nil {
+		t.Fatalf("ClearSessionContext: %v", err)
+	}
+	got, err := LoadCredentials()
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if got.ContextToken != "" || got.ContextUserID != "" {
+		t.Fatalf("会话上下文未清理: %#v", got)
+	}
+	if got.SessionEstablishedAt == "" {
+		t.Fatalf("prepare failed 清理丢失了「曾就绪」记忆: %#v", got)
+	}
+
+	status := GetStatus()
+	if status.SessionReady {
+		t.Fatalf("SessionReady = true, want false: %#v", status)
+	}
+	if !status.EverReady {
+		t.Fatalf("EverReady = false, want true: %#v", status)
+	}
+}
+
+func TestMarkSessionAlertedPersists(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_CONFIG_DIR", t.TempDir())
+	if err := SaveCredentials(boundCredentials()); err != nil {
+		t.Fatalf("SaveCredentials: %v", err)
+	}
+	if status := GetStatus(); status.Alerted {
+		t.Fatalf("Alerted 初始应为 false: %#v", status)
+	}
+	if err := MarkSessionAlerted(); err != nil {
+		t.Fatalf("MarkSessionAlerted: %v", err)
+	}
+	if status := GetStatus(); !status.Alerted {
+		t.Fatalf("Alerted = false, want true: %#v", status)
+	}
+}

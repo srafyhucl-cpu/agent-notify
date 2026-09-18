@@ -105,6 +105,11 @@ type Credentials struct {
 	ContextUserID string `json:"context_user_id,omitempty"`
 	GetUpdatesBuf string `json:"get_updates_buf,omitempty"`
 	StaleAt       string `json:"stale_at,omitempty"`
+	// SessionEstablishedAt 记录最近一次成功建立主动推送会话的时间。
+	// 登录边界会重置它；会话被服务端回收时保留，用于区分「从未就绪」和「曾经就绪后失效」。
+	SessionEstablishedAt string `json:"session_established_at,omitempty"`
+	// SessionAlertAt 记录最近一次因「会话失效」提醒过用户的时间，会话恢复时清空。
+	SessionAlertAt string `json:"session_alert_at,omitempty"`
 }
 
 // Status summarizes whether ClawBot credentials are available without exposing secrets.
@@ -116,6 +121,10 @@ type Status struct {
 	BaseURL      string `json:"baseURL,omitempty"`
 	ILinkBotID   string `json:"ilinkBotID,omitempty"`
 	UserHint     string `json:"userHint,omitempty"`
+	// EverReady 表示当前会话未就绪，但历史上建立过会话（即「曾经正常、现在失效」）。
+	EverReady bool `json:"everReady,omitempty"`
+	// Alerted 表示已针对当前这次断开提醒过用户。
+	Alerted bool `json:"alerted,omitempty"`
 }
 
 type baseInfo struct {

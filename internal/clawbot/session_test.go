@@ -49,6 +49,12 @@ func TestPollSessionOncePersistsContextAndCursor(t *testing.T) {
 	if err := SaveCredentials(credentials); err != nil {
 		t.Fatalf("SaveCredentials: %v", err)
 	}
+	if err := updateCredentials(func(credentials *Credentials) error {
+		credentials.SessionAlertAt = "2026-09-17T16:40:00+08:00"
+		return nil
+	}); err != nil {
+		t.Fatalf("updateCredentials: %v", err)
+	}
 
 	var received []string
 	status, err := PollSessionOnce(context.Background(), func(message InboundMessage) {
@@ -72,6 +78,12 @@ func TestPollSessionOncePersistsContextAndCursor(t *testing.T) {
 	}
 	if updated.GetUpdatesBuf != "cursor-1" {
 		t.Fatalf("cursor = %q, want cursor-1", updated.GetUpdatesBuf)
+	}
+	if updated.SessionEstablishedAt == "" {
+		t.Fatalf("收到微信消息后未记录会话世代: %#v", updated)
+	}
+	if updated.SessionAlertAt != "" {
+		t.Fatalf("会话恢复后未清空提醒标记: %#v", updated)
 	}
 }
 
