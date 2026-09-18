@@ -26,7 +26,7 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 | `reply-debug.log` | 引用分发器 | 成功分发（引用 ID、Agent、目标会话）、路由、状态和可见错误信息，不记录回复正文 |
 | `push.log` 中的 Antigravity / Devin 记录 | Hook / 发送器 | 与其他 Agent 共用推送历史和会话 ID；Hook 失败只跳过本次通知，不阻塞 Agent |
 | `codex-watch.log` | 悬浮窗看护 | Codex notify 行被恢复的时间 |
-| `widget-error.log` | 悬浮窗 | UI 或消息循环错误 |
+| `widget-error.log` | 悬浮窗 | UI 或消息循环错误，以及微信断开提醒标记写入失败 |
 | `widget-trace.log` | 悬浮窗 | 启动、窗口创建和退出追踪 |
 | `widget-alive.txt` | 悬浮窗 | 心跳时间 |
 | `widget-exit.txt` | 悬浮窗 | 用户主动退出标记 |
@@ -82,11 +82,15 @@ Start-Process $exe -ArgumentList "doctor" -Wait
    Start-Process "$env:LOCALAPPDATA\Programs\Agent-notify\agent-notify.exe" -ArgumentList "test" -Wait
    ```
 
-5. 查看 `%TEMP%\agent-notify\push.log`。`未登录` 表示凭据缺失、损坏或登录失效；`会话未建立` 表示已登录但还没有收到微信消息；`失败` 表示网络、HTTP 或 ClawBot 业务返回错误。
+5. 查看 `%TEMP%\agent-notify\push.log`。`未登录` 表示凭据缺失、损坏或登录失效；`会话未建立` 表示主动推送会话不可用（从未收到过微信消息，或曾经就绪但上下文被服务端回收）；`失败` 表示网络、HTTP 或 ClawBot 业务返回错误。
+
+6. 如果通知是因为主动推送会话失效而发不出去，悬浮窗会弹一次托盘气泡「微信推送已断开」，底部「微信」入口显示「推送已断」，设置页与微信配置页同步显示真实状态。按提示在微信中给 ClawBot 发送任意一条消息即可恢复；问题未解决时不会重复弹出同一提醒，恢复后再次断开才会再提醒一次。
 
 ## 主动推送会话未建立
 
-- 先运行 `agent-notify status`。`loginStatus` 为“已登录”且 `sessionReady` 为 `false` 时，属于尚未收到首条微信消息。
+- 先运行 `agent-notify status`。`loginStatus` 为“已登录”且 `sessionReady` 为 `false` 时，说明还没有可用的主动推送上下文。
+- 刚登录、从未建立过会话属于正常等待：悬浮窗显示「待发消息」「等待微信消息」，不弹气泡。
+- 曾经正常推送过、之后失效属于故障：悬浮窗显示「推送已断」「主动推送会话已失效」，并弹一次托盘气泡；微信配置页会给出恢复提示。
 - 在微信中给 ClawBot 发送任意文字，然后在终端运行 `agent-notify sync --timeout 10m`。
 - 也可以在悬浮窗设置页保持窗口开启；后台会话循环会自动读取消息并保存上下文。
 - 如果日志出现 `ret=-2 prepare failed`，说明登录仍有效但之前的主动推送上下文已被服务端拒绝；程序会清除旧上下文，给 ClawBot 发一条新消息即可恢复。
