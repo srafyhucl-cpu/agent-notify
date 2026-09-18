@@ -130,6 +130,43 @@ func (manager *TrayManager) UpdateState(state int) {
 	pShell_NotifyIconW.Call(NIM_MODIFY, uintptr(unsafe.Pointer(&data)))
 }
 
+const (
+	// NOTIFYICONDATAW 的 SzInfoTitle 与 SzInfo 容量含结尾 NUL，有效上限是 63 / 255。
+	notifInfoTitleLimit = 63
+	notifInfoBodyLimit  = 255
+)
+
+// truncateNotifText 把通知文案裁剪到 NOTIFYICONDATAW 能容纳的上限。
+// copy 到定长数组时超长会被静默截断，先显式裁剪，避免丢掉半个字形后难以排查。
+func truncateNotifText(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit])
+}
+
+// ShowAlert 通过托盘图标弹出一条气泡通知，由系统决定展示时长。
+// Win10/11 会把气泡并入通知中心，用户错过也能回看。
+func (manager *TrayManager) ShowAlert(title, body string) {
+	if manager.hwnd == 0 {
+		return
+	}
+	var data NOTIFYICONDATAW
+	data.CbSize = uint32(unsafe.Sizeof(data))
+	data.HWnd = manager.hwnd
+	data.UID = 1
+	data.UFlags = NIF_INFO
+	data.DwInfoFlags = NIIF_WARNING
+	if text, err := syscall.UTF16FromString(truncateNotifText(body, notifInfoBodyLimit)); err == nil {
+		copy(data.SzInfo[:], text)
+	}
+	if text, err := syscall.UTF16FromString(truncateNotifText(title, notifInfoTitleLimit)); err == nil {
+		copy(data.SzInfoTitle[:], text)
+	}
+	pShell_NotifyIconW.Call(NIM_MODIFY, uintptr(unsafe.Pointer(&data)))
+}
+
 func (manager *TrayManager) Destroy() {
 	var data NOTIFYICONDATAW
 	data.CbSize = uint32(unsafe.Sizeof(data))

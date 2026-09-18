@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/srafyhucl-cpu/agent-notify/internal/agentmeta"
@@ -86,5 +87,15 @@ func TestTrayStateFollowsHealthLevels(t *testing.T) {
 func connectedCodex() map[string]integration.Status {
 	return map[string]integration.Status{
 		agentmeta.Codex: {Agent: agentmeta.Codex, Enabled: true, State: integration.StateConnected},
+	}
+}
+
+func TestTruncateNotifText(t *testing.T) {
+	if got := truncateNotifText("微信推送已断开", notifInfoTitleLimit); got != "微信推送已断开" {
+		t.Fatalf("短文案被改动: %q", got)
+	}
+	long := strings.Repeat("断", 300)
+	if got := []rune(truncateNotifText(long, notifInfoBodyLimit)); len(got) != notifInfoBodyLimit {
+		t.Fatalf("截断长度 = %d, want %d", len(got), notifInfoBodyLimit)
 	}
 }
