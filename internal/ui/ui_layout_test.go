@@ -100,6 +100,68 @@ func TestWidgetTextFitsItsRects(t *testing.T) {
 	}
 }
 
+func TestWechatLabelsFitTheirRects(t *testing.T) {
+	layout := widgetLayoutRects()
+	card := wechatCardLabelRect()
+	checks := []struct {
+		name string
+		font func() uintptr
+		text string
+		rect RECT
+	}{
+		{"dock 正常", newSmallFont, "微信配置", layout.hide},
+		{"dock 未登录", newSmallFont, "微信未连", layout.hide},
+		{"dock 等待首条", newSmallFont, "待发消息", layout.hide},
+		{"dock 已断开", newSmallFont, "推送已断", layout.hide},
+		{"卡片未登录", newStrongFont, "ClawBot 微信未登录", card},
+		{"卡片登录失效", newStrongFont, "ClawBot 微信登录已失效", card},
+		{"卡片等待消息", newStrongFont, "等待微信消息", card},
+		{"卡片已断开", newStrongFont, "主动推送会话已失效", card},
+	}
+
+	for _, dpi := range []uint32{96, 144, 192} {
+		t.Run(fmt.Sprintf("%ddpi", dpi), func(t *testing.T) {
+			withUIDPI(t, dpi)
+			for _, check := range checks {
+				font := check.font()
+				measured := measureTextWidth(font, check.text)
+				pDeleteObject.Call(font)
+				if measured <= 0 {
+					t.Fatalf("%s：无法测量文本宽度", check.name)
+				}
+				limit := scaleFloat(check.rect.Right - check.rect.Left)
+				if measured > limit {
+					t.Fatalf("%s 在 %d DPI 溢出：文本 %q 需要 %d 像素，可用 %d", check.name, dpi, check.text, measured, limit)
+				}
+			}
+		})
+	}
+}
+
+func TestWechatLinkCardTextFits(t *testing.T) {
+	titleRect := RECT{28, 198, 372, 228}
+	states := []wechatLinkState{
+		wechatLinkOK, wechatLinkAwaitingFirst, wechatLinkBroken, wechatLinkStale,
+	}
+	for _, dpi := range []uint32{96, 144, 192} {
+		t.Run(fmt.Sprintf("%ddpi", dpi), func(t *testing.T) {
+			withUIDPI(t, dpi)
+			for _, state := range states {
+				_, title, _ := wechatLinkCardText(state)
+				font := newStrongFont()
+				measured := measureTextWidth(font, title)
+				pDeleteObject.Call(font)
+				if measured <= 0 {
+					t.Fatalf("state %d：无法测量标题宽度", state)
+				}
+				if limit := scaleFloat(titleRect.Right - titleRect.Left); measured > limit {
+					t.Fatalf("state %d 标题在 %d DPI 溢出：%q 需要 %d 像素，可用 %d", state, dpi, title, measured, limit)
+				}
+			}
+		})
+	}
+}
+
 func TestRelativeHistoryTime(t *testing.T) {
 	now := time.Date(2026, time.September, 12, 12, 0, 0, 0, time.Local)
 	tests := []struct {

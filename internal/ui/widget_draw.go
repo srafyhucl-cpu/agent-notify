@@ -602,12 +602,9 @@ func drawViewContent(hdc uintptr, width, height int32, app *WidgetApp) {
 	drawFluentDockButton(hdc, layout.history, "\uE81C", "推送历史", app.hover.history, false, 0, smallFont, iconFont, theme)
 	drawFluentDockButton(hdc, layout.settings, "\uE713", "系统设置", app.hover.settings, false, 0, smallFont, iconFont, theme)
 
-	wechatActive := !app.clawbotLoggedIn
-	wechatLabel := "微信配置"
-	if wechatActive {
-		wechatLabel = "微信未连"
-	}
-	drawFluentDockButton(hdc, layout.hide, "\uE8BD", wechatLabel, app.hover.hide, wechatActive, theme.AccentDanger, smallFont, iconFont, theme)
+	wechatState := app.currentWechatLinkState()
+	wechatLabel, wechatActive := wechatDockLabel(wechatState)
+	drawFluentDockButton(hdc, layout.hide, "\uE8BD", wechatLabel, app.hover.hide, wechatActive, wechatDockAccent(theme, wechatState), smallFont, iconFont, theme)
 
 	// [模块 5：底部状态条（版本号 + 升级 + 检查修复）]
 	verRect := text.footerVersion
@@ -643,6 +640,8 @@ func (app *WidgetApp) recentStatusColor(theme ThemePalette) uint32 {
 	switch app.lastPushStatus {
 	case notify.StatusSuccess:
 		return theme.AccentSuccess
+	case notify.StatusSessionMissing:
+		return theme.AccentWarning
 	case notify.StatusFailed, notify.StatusNotLoggedIn:
 		return theme.AccentDanger
 	default:

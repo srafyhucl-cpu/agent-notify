@@ -82,6 +82,9 @@ type WidgetApp struct {
 	clawbotSessionReady  bool
 	clawbotStale         bool
 	clawbotHint          string
+	clawbotEverReady     bool
+	clawbotAlerted       bool
+	wechatAlertShown     bool
 	quietHours           string
 	replyEnabled         bool
 	cooldownMin          int
@@ -825,6 +828,8 @@ func (app *WidgetApp) refreshState() {
 	app.clawbotSessionReady = clawbotStatus.SessionReady
 	app.clawbotStale = clawbotStatus.Stale
 	app.clawbotHint = clawbotStatus.UserHint
+	app.clawbotEverReady = clawbotStatus.EverReady
+	app.clawbotAlerted = clawbotStatus.Alerted
 	if cfg, err := config.LoadConfig(""); err == nil {
 		app.quietHours = cfg.QuietHours
 		app.replyEnabled = cfg.ReplyEnabled
@@ -873,18 +878,26 @@ func (app *WidgetApp) refreshState() {
 	}
 }
 
+// currentWechatLinkState 按当前字段计算微信链路状态。
+// 不缓存结果：health() 与绘制都可能在任何刷新时机被调用，
+// 缓存会让「没跑过 refreshState」的调用方拿到错误的零值状态。
+func (app *WidgetApp) currentWechatLinkState() wechatLinkState {
+	return wechatLinkStateFor(app.clawbotLoggedIn, app.clawbotStale, app.clawbotSessionReady, app.clawbotEverReady)
+}
+
 func (app *WidgetApp) health() (uint32, string) {
 	if app.setupError != "" {
 		return statusColorWarning, "接入异常"
 	}
-	if !app.clawbotLoggedIn {
+	switch app.currentWechatLinkState() {
+	case wechatLinkNotLoggedIn:
 		return statusColorStopped, "未登录"
-	}
-	if app.clawbotStale {
+	case wechatLinkStale:
 		return statusColorStopped, "登录已失效"
-	}
-	if !app.clawbotSessionReady {
+	case wechatLinkAwaitingFirst:
 		return statusColorWarning, "等待微信消息"
+	case wechatLinkBroken:
+		return statusColorWarning, "微信推送已断开"
 	}
 	errors, restarts, missing := app.agentIntegrationCounts()
 	if errors > 0 || missing > 0 {

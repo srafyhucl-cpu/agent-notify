@@ -408,6 +408,12 @@ type settingsViewHover struct {
 	done        bool
 }
 
+// wechatCardLabelRect 返回设置页 ClawBot 卡片标题文本区域，绘制与布局测试共用。
+func wechatCardLabelRect() RECT {
+	card := RECT{14, 48, 386, 104}
+	return RECT{card.Left + 32, card.Top + 14, card.Left + 250, card.Top + 40}
+}
+
 func drawSettingsView(hdc uintptr, width, height int32, app *WidgetApp, theme ThemePalette, titleFont, strongFont, baseFont, smallFont, iconFont uintptr) {
 	drawSubHeader(hdc, "系统设置", app.settingsHover.back, app.settingsHover.close, theme, titleFont, iconFont)
 
@@ -417,17 +423,12 @@ func drawSettingsView(hdc uintptr, width, height int32, app *WidgetApp, theme Th
 	strokeRoundRect(hdc, wechatCard, 8, uintptr(theme.CardBg), uintptr(theme.CardBorder), 1)
 
 	pSelectObject.Call(hdc, iconFont)
-	wechatDotCol := theme.AccentSuccess
-	wechatText := "ClawBot 微信会话正常"
-	if !app.clawbotLoggedIn {
-		wechatDotCol = theme.AccentDanger
-		wechatText = "ClawBot 微信未登录"
-	}
+	wechatText, wechatDotCol := wechatCardText(theme, app.currentWechatLinkState())
 	drawEllipseLogical(hdc, wechatCard.Left+14, wechatCard.Top+22, wechatCard.Left+24, wechatCard.Top+32, uintptr(wechatDotCol), uintptr(wechatDotCol))
 
 	pSelectObject.Call(hdc, strongFont)
 	pSetTextColor.Call(hdc, uintptr(theme.TextPrimary))
-	wechatLabelRect := RECT{wechatCard.Left + 32, wechatCard.Top + 14, wechatCard.Left + 250, wechatCard.Top + 40}
+	wechatLabelRect := wechatCardLabelRect()
 	DrawText(hdc, wechatText, &wechatLabelRect, DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
 	reloginBtn := RECT{wechatCard.Right - 100, wechatCard.Top + 12, wechatCard.Right - 12, wechatCard.Bottom - 12}
@@ -569,21 +570,42 @@ func drawLoginView(hdc uintptr, width, height int32, app *WidgetApp, theme Theme
 	_, bitmap, status, _, success, promptActive := app.loginState.snapshot()
 
 	if app.clawbotLoggedIn || success {
-		// 已登录成功状态
-		pSelectObject.Call(hdc, iconFont)
-		pSetTextColor.Call(hdc, uintptr(theme.AccentSuccess))
-		checkIconRect := RECT{card.Left + 14, card.Top + 60, card.Right - 14, card.Top + 140}
-		DrawText(hdc, "\uE73E", &checkIconRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+		// 已登录：按微信链路状态区分正常、等待第一条消息、会话已断开、登录已失效。
+		switch state := app.currentWechatLinkState(); state {
+		case wechatLinkOK, wechatLinkAwaitingFirst, wechatLinkBroken, wechatLinkStale:
+			icon, title, hint := wechatLinkCardText(state)
 
-		pSelectObject.Call(hdc, strongFont)
-		pSetTextColor.Call(hdc, uintptr(theme.TextPrimary))
-		sTitleRect := RECT{card.Left + 14, card.Top + 150, card.Right - 14, card.Top + 180}
-		DrawText(hdc, "ClawBot 微信已成功连接", &sTitleRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+			pSelectObject.Call(hdc, iconFont)
+			pSetTextColor.Call(hdc, uintptr(wechatLinkAccent(theme, state)))
+			stateIconRect := RECT{card.Left + 14, card.Top + 60, card.Right - 14, card.Top + 140}
+			DrawText(hdc, icon, &stateIconRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
 
-		pSelectObject.Call(hdc, smallFont)
-		pSetTextColor.Call(hdc, uintptr(theme.TextSecondary))
-		sHintRect := RECT{card.Left + 24, card.Top + 190, card.Right - 24, card.Top + 240}
-		DrawText(hdc, "主动推送链路正常。任务完成后将自动通过微信发送消息。", &sHintRect, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
+			pSelectObject.Call(hdc, strongFont)
+			pSetTextColor.Call(hdc, uintptr(theme.TextPrimary))
+			stateTitleRect := RECT{card.Left + 14, card.Top + 150, card.Right - 14, card.Top + 180}
+			DrawText(hdc, title, &stateTitleRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+
+			pSelectObject.Call(hdc, smallFont)
+			pSetTextColor.Call(hdc, uintptr(theme.TextSecondary))
+			stateHintRect := RECT{card.Left + 24, card.Top + 190, card.Right - 24, card.Top + 240}
+			DrawText(hdc, hint, &stateHintRect, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
+		default:
+			// 未登录等未覆盖状态：沿用原有成功卡片，不改变现有表现。
+			pSelectObject.Call(hdc, iconFont)
+			pSetTextColor.Call(hdc, uintptr(theme.AccentSuccess))
+			checkIconRect := RECT{card.Left + 14, card.Top + 60, card.Right - 14, card.Top + 140}
+			DrawText(hdc, "\uE73E", &checkIconRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+
+			pSelectObject.Call(hdc, strongFont)
+			pSetTextColor.Call(hdc, uintptr(theme.TextPrimary))
+			sTitleRect := RECT{card.Left + 14, card.Top + 150, card.Right - 14, card.Top + 180}
+			DrawText(hdc, "ClawBot 微信已成功连接", &sTitleRect, DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX)
+
+			pSelectObject.Call(hdc, smallFont)
+			pSetTextColor.Call(hdc, uintptr(theme.TextSecondary))
+			sHintRect := RECT{card.Left + 24, card.Top + 190, card.Right - 24, card.Top + 240}
+			DrawText(hdc, "主动推送链路正常。任务完成后将自动通过微信发送消息。", &sHintRect, DT_CENTER|DT_WORDBREAK|DT_NOPREFIX)
+		}
 	} else {
 		// 二维码区域 (180x180 居中)
 		qrBox := RECT{110, 68, 290, 248}
