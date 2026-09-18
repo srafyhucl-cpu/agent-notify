@@ -104,7 +104,8 @@ Start-Process $exe -ArgumentList "doctor" -Wait
 确认 Agent-notify 悬浮窗正在运行；引用消息由悬浮窗的 ClawBot 长轮询处理，完全退出托盘程序后不会触发 Agent。
 
 1. 只能引用 Agent-notify 自己推送的通知，并且必须是当前绑定微信用户的私聊消息。群聊、其他发送者和普通文本不会触发 Agent。
-2. 打开 `AGENT_NOTIFY_CLAWBOT_DEBUG=1` 并重启悬浮窗。发送一条通知、在微信中引用它回复一句话，然后运行 `agent-notify reply-check`。
+2. 打开 `AGENT_NOTIFY_CLAWBOT_DEBUG=1` 并重启悬浮窗。等一个真实 Agent（OpenCode / Codex / Antigravity / Devin）任务结束、收到带会话的推送后，在微信中引用它回复一句话，然后运行 `agent-notify reply-check`。
+   自检推送（`agent-notify test` 与托盘「发送测试推送」）没有会话 ID，不会写入引用路由，引用它只会收到「无法续聊」，不能用来验证本功能。
    该命令只读核对 scoped `sendmessage-result`、当前账号未过期的本地路由与 `getupdates-result`：退出码 `0` 表示引用 ID 全部精确匹配且路由可解析，`1` 表示存在无法对应的引用（不要开启），`2` 表示证据不足。
    PowerShell 脚本中建议用 `agent-notify reply-check --json | Out-String` 调用，确保等待进程结束并读取 `$LASTEXITCODE`。
    需要人工核对时仍可查看 `%TEMP%\agent-notify\clawbot-debug.log` 中的 `client_id`、`sendmessage-result` 和引用时解析出的消息 ID。
