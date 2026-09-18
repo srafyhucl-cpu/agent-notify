@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-09-18
+
+### Fixed
+
+- OpenCode 插件：改动冷却（`cooldownMin` / `AGENT_NOTIFY_COOLDOWN_MIN`）后即时生效，不再需要重启 OpenCode。
+- OpenCode 引用回复后的回答不再被会话冷却压掉：引用回复提交成功后，该会话的下一次完成事件豁免一次冷却，保证“引用必得回答”。
+
 ## [1.13.0] - 2026-09-18
 
 ### Added
