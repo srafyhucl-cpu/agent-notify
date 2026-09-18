@@ -97,7 +97,7 @@ Devin
 4. 检查 `codex.off`；关闭时只跳过推送，不影响上游透传。
 5. 摘要取 `last-assistant-message`；标题按 `threads.name → threads.title → threads.first_user_message → session_index.jsonl → payload 首条消息 → 跑完了` 顺序解析。
 6. 从 `thread-id`（兼容 `thread_id`）提取线程 ID；成功发送且 ID 非空时写入 30 天引用路由。
-7. 渲染 Markdown 通知（加粗标题行 `**🟢 Codex｜会话名**`、正文、`———` 分隔与页脚）后发送并写入结构化历史；引用回复命中路由后执行 `codex queue`，成功后回一条送达确认（`replyConfirmation` 可关），消息可写入尚未在前台打开的持久化线程。
+7. 渲染 Markdown 通知（加粗标题行 `**🟢 Codex｜会话名**`、正文、`—` 分隔与页脚）后发送并写入结构化历史；引用回复命中路由后执行 `codex queue`，成功后回一条送达确认（`replyConfirmation` 可关），消息可写入尚未在前台打开的持久化线程。
 
 `agent-notify watch` 与悬浮窗只会在 notify 行仍指向 `codex-computer-use.exe` 时恢复配置；自定义 notify 程序始终保留。
 

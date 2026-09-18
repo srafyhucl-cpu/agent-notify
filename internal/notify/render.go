@@ -9,9 +9,9 @@ import (
 
 const (
 	notificationSeparator = "\n\n"
-	// notificationDivider 用全角破折号：Markdown 客户端渲染为分隔线，纯文本客户端也是一条
-	// 干净的横线，两种情况都不刺眼。
-	notificationDivider  = "———"
+	// notificationDivider 用全角破折号做页脚前的短分隔符：纯文本客户端里是一条干净的短线，
+	// 不抢正文注意力。
+	notificationDivider  = "—"
 	notificationTitleBar = "｜"
 	// replyHintText 既用于页脚提示，也用于清理 Agent 误带的旧页脚。
 	replyHintText    = "引用此消息可继续对话"
@@ -108,10 +108,11 @@ func notificationFooter(agentName string, now time.Time) string {
 	}
 	parts := make([]string, 0, 2)
 	if descriptor.Replyable {
-		parts = append(parts, replyHintText)
+		// 只给提示文字加斜体，时间保持正体。
+		parts = append(parts, "*"+replyHintText+"*")
 	}
 	parts = append(parts, now.Format(footerTimeLayout))
-	return notificationDivider + "\n*" + strings.Join(parts, " · ") + "*"
+	return notificationDivider + "\n" + strings.Join(parts, " · ")
 }
 
 func composeNotification(title, summary, footer string) string {

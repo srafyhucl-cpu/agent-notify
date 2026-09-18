@@ -76,7 +76,7 @@ func cleanTrailingSummaryMarkers(text string) string {
 	return ""
 }
 
-// isDividerLine 判断一行是否只由 Markdown 分隔符组成（--- / ——— / *** 等）。
+// isDividerLine 判断一行是否只由 Markdown 分隔符组成（--- / — / *** 等）。
 func isDividerLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {

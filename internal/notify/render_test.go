@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+func TestNotificationFooterUsesShortDividerAndUprightTime(t *testing.T) {
+	footer := notificationFooter("opencode", time.Date(2026, time.September, 18, 14, 2, 0, 0, time.FixedZone("CST", 8*60*60)))
+	const want = "—\n*引用此消息可继续对话* · 09/18 14:02"
+	if footer != want {
+		t.Fatalf("footer = %q, want %q", footer, want)
+	}
+}
+
 func TestRenderNotificationFormat(t *testing.T) {
 	now := time.Date(2026, time.September, 13, 15, 18, 0, 0, time.FixedZone("CST", 8*60*60))
 	tests := []struct {
@@ -20,7 +28,7 @@ func TestRenderNotificationFormat(t *testing.T) {
 				Title:   "评估微信消息转发到Agent",
 				Summary: "摘要正文……",
 			},
-			message: "**🟢 Codex｜评估微信消息转发到Agent**\n\n摘要正文……\n\n———\n*引用此消息可继续对话 · 09/13 15:18*",
+			message: "**🟢 Codex｜评估微信消息转发到Agent**\n\n摘要正文……\n\n—\n*引用此消息可继续对话* · 09/13 15:18",
 		},
 		{
 			name: "opencode",
@@ -29,7 +37,7 @@ func TestRenderNotificationFormat(t *testing.T) {
 				Title:   "会话标题",
 				Summary: "摘要正文……",
 			},
-			message: "**🟢 OpenCode｜会话标题**\n\n摘要正文……\n\n———\n*引用此消息可继续对话 · 09/13 15:18*",
+			message: "**🟢 OpenCode｜会话标题**\n\n摘要正文……\n\n—\n*引用此消息可继续对话* · 09/13 15:18",
 		},
 	}
 
@@ -83,7 +91,7 @@ func TestRenderNotificationIncludesNotice(t *testing.T) {
 		Summary: "正文",
 		Notice:  "标题读取失败：数据库不可读。",
 	}, now)
-	want := "**⚠️ Codex｜标题**\n\n正文\n\n> ⚠️ 标题读取失败：数据库不可读。\n\n———\n*引用此消息可继续对话 · 09/13 15:18*"
+	want := "**⚠️ Codex｜标题**\n\n正文\n\n> ⚠️ 标题读取失败：数据库不可读。\n\n—\n*引用此消息可继续对话* · 09/13 15:18"
 	if rendered.Message != want {
 		t.Fatalf("Message = %q, want %q", rendered.Message, want)
 	}
@@ -144,8 +152,8 @@ func TestRenderNotificationDefaultTitles(t *testing.T) {
 		agent   string
 		message string
 	}{
-		{agent: "codex", message: "**🟢 Codex｜任务已完成**\n\n任务已完成。\n\n———\n*引用此消息可继续对话 · 09/13 15:18*"},
-		{agent: "opencode", message: "**🟢 OpenCode｜任务已完成**\n\n任务已完成。\n\n———\n*引用此消息可继续对话 · 09/13 15:18*"},
+		{agent: "codex", message: "**🟢 Codex｜任务已完成**\n\n任务已完成。\n\n—\n*引用此消息可继续对话* · 09/13 15:18"},
+		{agent: "opencode", message: "**🟢 OpenCode｜任务已完成**\n\n任务已完成。\n\n—\n*引用此消息可继续对话* · 09/13 15:18"},
 		{agent: "", message: "**🟢 通知｜任务已完成**\n\n任务已完成。"},
 	}
 	for _, testCase := range tests {

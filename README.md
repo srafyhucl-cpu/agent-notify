@@ -165,7 +165,7 @@ agent-notify.exe notify --dry-run --title "长通知" --summary "完整正文" -
 
 `notify` 未提供 `--summary` 且未指定 `--no-stdin` 时，会从标准输入读取摘要。发送前必须同时满足“已登录”和“主动推送会话已就绪”；仅扫码登录不会自动获得发送能力。
 
-通知以 Markdown 呈现（ClawBot 聊天界面支持渲染）：加粗标题行形如 `**🟢 Codex｜会话名**`（OpenCode / Antigravity / Devin 同理，读取失败时使用各自默认标题），正文保留 Agent 的 Markdown（标题、列表、代码块等），末尾用 `———` 分隔并附 `引用此消息可继续对话 · MM/DD HH:mm` 页脚；纯文本客户端也能正常阅读。`--max-chars 0` 表示不限长；正数会同时计入标题、正文和页脚。
+通知以 Markdown 呈现（ClawBot 聊天界面支持渲染）：加粗标题行形如 `**🟢 Codex｜会话名**`（OpenCode / Antigravity / Devin 同理，读取失败时使用各自默认标题），正文保留 Agent 的 Markdown（标题、列表、代码块等），末尾用一个短破折号 `—` 分隔，并附页脚 `*引用此消息可继续对话* · MM/DD HH:mm`（提示为斜体，时间保持正体）；纯文本客户端也能正常阅读。`--max-chars 0` 表示不限长；正数会同时计入标题、正文和页脚。
 
 ## 文件与配置
 

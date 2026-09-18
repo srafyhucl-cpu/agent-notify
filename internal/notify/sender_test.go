@@ -117,7 +117,7 @@ func TestSendNotificationSuccess(t *testing.T) {
 	if result.Status != StatusSuccess {
 		t.Fatalf("Status = %q, error = %q", result.Status, result.Error)
 	}
-	if !strings.HasPrefix(message, "**🟢 OpenCode｜任务完成**\n\nall good\n\n———\n*引用此消息可继续对话 · ") {
+	if !strings.HasPrefix(message, "**🟢 OpenCode｜任务完成**\n\nall good\n\n—\n*引用此消息可继续对话* · ") {
 		t.Fatalf("sent message = %q", message)
 	}
 
