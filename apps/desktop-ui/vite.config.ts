@@ -11,6 +11,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Playwright 的 tests/ 目录由独立的 @playwright/test 运行，不能被 Vitest 收集。
+    include: ["src/**/*.test.{ts,tsx}"],
     css: true,
   },
 });

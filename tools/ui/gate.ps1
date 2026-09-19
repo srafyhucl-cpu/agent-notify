@@ -3,6 +3,7 @@ $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $env:npm_config_cache = if ($env:npm_config_cache -like 'D:\*') { $env:npm_config_cache } else { 'D:\Temp\npm-cache' }
 $env:TEMP = if ($env:TEMP -like 'D:\*') { $env:TEMP } else { 'D:\Temp\agentnotify-temp' }
 $env:TMP = $env:TEMP
+$env:PLAYWRIGHT_BROWSERS_PATH = if ($env:PLAYWRIGHT_BROWSERS_PATH -like 'D:\*') { $env:PLAYWRIGHT_BROWSERS_PATH } else { 'D:\Tools\playwright-browsers' }
 New-Item -ItemType Directory -Force -Path $env:npm_config_cache,$env:TEMP | Out-Null
 
 Push-Location (Join-Path $root 'apps\desktop-ui')
@@ -19,6 +20,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Vitest failed' }
     npm run build
     if ($LASTEXITCODE -ne 0) { throw 'Vite build failed' }
+    npm run test:e2e
+    if ($LASTEXITCODE -ne 0) { throw 'Playwright UI checks failed' }
 }
 finally {
     Pop-Location

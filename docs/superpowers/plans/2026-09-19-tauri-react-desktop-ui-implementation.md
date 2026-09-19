@@ -992,7 +992,7 @@ git commit -m "feat(ui): 实现历史诊断与设置页面"
 - Consumes: mock HostBridge、六个页面和所有稳定状态。
 - Produces: 页面流程、空态、错误态、无数据、长文本、200% 缩放和可访问性自动化证据。
 
-- [ ] **Step 1: 建立固定测试夹具**
+- [x] **Step 1: 建立固定测试夹具**
 
 夹具至少提供：
 
@@ -1013,7 +1013,7 @@ export const channelStates = [
 export const longChineseText = "这是一个用于验证中文长文本、数字 1234567890 与错误信息换行的测试标题";
 ```
 
-- [ ] **Step 2: 编写 Playwright 流程测试**
+- [x] **Step 2: 编写 Playwright 流程测试**
 
 必须覆盖：
 
@@ -1025,7 +1025,7 @@ export const longChineseText = "这是一个用于验证中文长文本、数字
 - 键盘 Tab 顺序、Enter/Space 操作、Escape 关闭对话框。
 - 200% 缩放等价 viewport 下无水平溢出。
 
-- [ ] **Step 3: 增加长文本与布局断言**
+- [x] **Step 3: 增加长文本与布局断言**
 
 对以下区域测量并断言不重叠、不裁切：
 
@@ -1037,7 +1037,7 @@ export const longChineseText = "这是一个用于验证中文长文本、数字
 
 不能用 `white-space: nowrap` 配合裁切来通过测试。长单词使用 `overflow-wrap: anywhere`，固定格式控件设置稳定宽高。
 
-- [ ] **Step 4: 运行视觉与可访问性门禁**
+- [x] **Step 4: 运行视觉与可访问性门禁**
 
 Run:
 
@@ -1049,11 +1049,11 @@ npm --prefix .\apps\desktop-ui run test:visual
 
 Expected: 所有流程通过；视觉截图人工检查后作为基线提交；axe 无 serious/critical 问题。
 
-- [ ] **Step 5: 更新完整 UI 门禁**
+- [x] **Step 5: 更新完整 UI 门禁**
 
 在 `tools/ui/gate.ps1` 的 Vitest 后追加 Playwright 和视觉检查；渲染快照差异时失败，并要求人工确认后更新基线。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add apps/desktop-ui tools/ui/gate.ps1

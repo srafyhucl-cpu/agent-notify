@@ -164,18 +164,24 @@ export function HistoryTable({
                   <span role="cell" title={notification.agentId}>
                     {agentNames.get(notification.agentId) ?? notification.agentId}
                   </span>
-                  <button
-                    className="history-title-button"
-                    type="button"
-                    aria-pressed={selected}
-                    aria-label={notification.title}
-                    onClick={() => onSelect(notification.id)}
-                  >
-                    <span className="history-title-text">{notification.title}</span>
-                    <span className="history-session-text">
-                      {notification.sessionTitle ?? notification.sessionId ?? "无会话"}
-                    </span>
-                  </button>
+                  <span className="history-session-cell" role="cell">
+                    <button
+                      className="history-title-button"
+                      type="button"
+                      aria-pressed={selected}
+                      aria-label={notification.title}
+                      onClick={() => onSelect(notification.id)}
+                    >
+                      <span className="history-title-text">
+                        {notification.title}
+                      </span>
+                      <span className="history-session-text">
+                        {notification.sessionTitle ??
+                          notification.sessionId ??
+                          "无会话"}
+                      </span>
+                    </button>
+                  </span>
                   <span role="cell" title={channelAccount}>
                     {channelAccount}
                   </span>

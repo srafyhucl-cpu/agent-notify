@@ -35,6 +35,11 @@
   color: var(--color-text-muted);
 }
 
+.status-label,
+.delivery-state {
+  flex: 0 0 auto;
+}
+
 .status-label--success,
 .delivery-state--sent {
   color: var(--color-success);
@@ -87,6 +92,15 @@
   gap: var(--space-3);
   min-width: 0;
   margin-bottom: var(--space-3);
+}
+
+.section-heading > div {
+  min-width: 0;
+}
+
+.section-heading > .button {
+  flex: 0 0 auto;
+  max-width: 100%;
 }
 
 .overview-section-title {

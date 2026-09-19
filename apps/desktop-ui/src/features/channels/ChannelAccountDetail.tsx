@@ -81,7 +81,7 @@ export function ChannelAccountDetail({
           onClick={() => onLogout(account)}
         >
           <LogOut aria-hidden="true" size={15} />
-          退出账号 {account.displayName}
+          退出账号
         </button>
       </header>
 

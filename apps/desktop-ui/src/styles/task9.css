@@ -157,8 +157,14 @@
   background: #e7f0ed !important;
 }
 
+.history-session-cell {
+  display: block;
+  width: 100%;
+}
+
 .history-title-button {
   display: grid;
+  width: 100%;
   gap: 1px;
   min-width: 0;
   padding: 0;
