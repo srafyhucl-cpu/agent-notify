@@ -4,10 +4,12 @@ mod clock;
 mod delivery;
 mod error;
 mod ingest;
+mod observability;
 mod policy;
 pub mod ports;
 mod reply;
 mod retry;
+mod status;
 
 use agentnotify_domain::DomainArea;
 
@@ -26,6 +28,7 @@ pub use ports::{
 };
 pub use reply::{ReplyConfig, ReplyError, ReplyOutcome, ReplyRejection, ReplyService, ReplyTarget};
 pub use retry::RetryPolicy;
+pub use status::{AgentStatus, ChannelAccountStatus, StatusError, StatusOverview, StatusService};
 
 /// 每个应用用例都声明所属领域区域和稳定名称，便于监督与诊断。
 pub trait UseCase: Send + Sync {

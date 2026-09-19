@@ -136,7 +136,31 @@ impl DeliveryService {
         self
     }
 
+    #[tracing::instrument(
+        name = "delivery",
+        skip_all,
+        fields(
+            notification = tracing::field::Empty,
+            channel = tracing::field::Empty,
+            account = tracing::field::Empty,
+            delivery = tracing::field::Empty,
+            status = tracing::field::Empty,
+            attempt = tracing::field::Empty,
+        )
+    )]
     pub async fn process_next(&self) -> Result<ProcessOutcome, DeliveryError> {
+        let result = self.process_next_inner().await;
+        let status = match &result {
+            Ok(ProcessOutcome::Idle) => "idle",
+            Ok(ProcessOutcome::Completed { .. }) => "completed",
+            Ok(ProcessOutcome::Rescheduled { .. }) => "rescheduled",
+            Err(error) => error.code(),
+        };
+        tracing::Span::current().record("status", status);
+        result
+    }
+
+    async fn process_next_inner(&self) -> Result<ProcessOutcome, DeliveryError> {
         let now = self.clock.now();
         let lease_until = now
             .checked_add(self.lease_duration)
@@ -148,12 +172,22 @@ impl DeliveryService {
         else {
             return Ok(ProcessOutcome::Idle);
         };
+        tracing::Span::current().record(
+            "notification",
+            tracing::field::display(&lease.notification.id),
+        );
+        tracing::Span::current().record("attempt", lease.outbox.attempt_count);
         let target = self
             .targets
             .iter()
             .find(|target| target.account.enabled)
             .cloned()
             .ok_or(DeliveryError::NoTarget)?;
+        tracing::Span::current().record(
+            "channel",
+            tracing::field::display(&target.account.channel_id),
+        );
+        tracing::Span::current().record("account", tracing::field::display(&target.account.id));
         let channel = self
             .channels
             .get(&target.account.channel_id)
@@ -161,6 +195,7 @@ impl DeliveryService {
         let capabilities = channel.capabilities();
         let delivery_id = DeliveryId::new(self.id_generator.next_id())
             .map_err(|_| DeliveryError::InvalidIdentifier)?;
+        tracing::Span::current().record("delivery", tracing::field::display(&delivery_id));
         let mut delivery = Delivery::pending(
             delivery_id.clone(),
             lease.notification.id.clone(),

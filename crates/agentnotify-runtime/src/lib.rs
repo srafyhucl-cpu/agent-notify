@@ -1,7 +1,12 @@
 //! 运行时装配层，负责组件生命周期、监督和事件分发。
 
+mod event_bus;
+mod runtime;
+mod supervisor;
+mod telemetry;
+
 /// 运行时组件的可观察生命周期状态。
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum ComponentState {
     Starting,
     Running,
@@ -17,3 +22,14 @@ pub trait RuntimeComponent: Send + Sync {
 
     fn state(&self) -> ComponentState;
 }
+
+pub use event_bus::{EventBus, RuntimeEvent};
+pub use runtime::{
+    AppRuntime, DiagnosticItem, DiagnosticLevel, RuntimeConfig, RuntimeError, RuntimeHandle,
+    RuntimeSnapshot,
+};
+pub use supervisor::{ComponentFailure, ComponentSnapshot, RuntimeState, Supervisor};
+pub use telemetry::{
+    RedactingWriter, TelemetryConfig, TelemetryError, TelemetryGuard, init_telemetry,
+    redact_sensitive,
+};

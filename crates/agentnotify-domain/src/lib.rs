@@ -27,6 +27,7 @@ pub enum DomainArea {
     Delivery,
     Routing,
     Reply,
+    Status,
 }
 
 /// 领域规则只暴露业务标识，具体执行由上层用例编排。

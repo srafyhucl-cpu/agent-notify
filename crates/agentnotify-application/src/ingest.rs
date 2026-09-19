@@ -104,7 +104,32 @@ impl IngestService {
         }
     }
 
+    #[tracing::instrument(
+        name = "ingest",
+        skip_all,
+        fields(
+            agent = %envelope.agent_id,
+            event_hash = %crate::observability::hash_identifier(envelope.request_id.as_str()),
+            session_hash = tracing::field::Empty,
+            result = tracing::field::Empty,
+        )
+    )]
     pub async fn ingest(&self, envelope: AgentEventEnvelope) -> Result<IngestResult, IngestError> {
+        let result = self.ingest_inner(envelope).await;
+        let result_label = match &result {
+            Ok(IngestResult::Queued { .. }) => "queued",
+            Ok(IngestResult::Duplicate { .. }) => "duplicate",
+            Ok(IngestResult::Skipped { .. }) => "skipped",
+            Err(error) => error.code(),
+        };
+        tracing::Span::current().record("result", result_label);
+        result
+    }
+
+    async fn ingest_inner(
+        &self,
+        envelope: AgentEventEnvelope,
+    ) -> Result<IngestResult, IngestError> {
         let agent_id = envelope.agent_id.clone();
         let request_id = envelope.request_id.clone();
         let adapter =
@@ -114,6 +139,12 @@ impl IngestService {
                     agent_id: agent_id.clone(),
                 })?;
         let event = adapter.parse_event(envelope)?;
+        if let Some(session_id) = event.session_id.as_ref() {
+            tracing::Span::current().record(
+                "session_hash",
+                tracing::field::display(crate::observability::hash_identifier(session_id.as_str())),
+            );
+        }
         let ingest_key = event
             .idempotency_key
             .clone()

@@ -252,7 +252,49 @@ impl ReplyService {
         self
     }
 
+    #[tracing::instrument(
+        name = "reply",
+        skip_all,
+        fields(
+            intent_hash = %crate::observability::hash_identifier(message.id.as_str()),
+            route_result = tracing::field::Empty,
+            agent = tracing::field::Empty,
+            claim_state = tracing::field::Empty,
+        )
+    )]
     pub async fn handle(&self, message: InboundMessage) -> Result<ReplyOutcome, ReplyError> {
+        let result = self.handle_inner(message).await;
+        match &result {
+            Ok(ReplyOutcome::Accepted { agent_id, .. }) => {
+                tracing::Span::current().record("route_result", "accepted");
+                tracing::Span::current().record("agent", tracing::field::display(agent_id));
+                tracing::Span::current().record("claim_state", "Completed");
+            }
+            Ok(ReplyOutcome::AlreadyClaimed { state, .. }) => {
+                tracing::Span::current().record("route_result", "already_claimed");
+                tracing::Span::current().record("claim_state", state.as_str());
+            }
+            Ok(ReplyOutcome::Rejected(rejection)) => {
+                tracing::Span::current().record("route_result", rejection.code());
+                let claim_state = match rejection {
+                    ReplyRejection::AgentUnknown(_) => "Unknown",
+                    ReplyRejection::NoExactRoute
+                    | ReplyRejection::AmbiguousRoute
+                    | ReplyRejection::AgentMissing
+                    | ReplyRejection::AgentUnsupported
+                    | ReplyRejection::AgentFailed(_) => "Failed",
+                    _ => "none",
+                };
+                tracing::Span::current().record("claim_state", claim_state);
+            }
+            Err(error) => {
+                tracing::Span::current().record("route_result", error.code());
+            }
+        }
+        result
+    }
+
+    async fn handle_inner(&self, message: InboundMessage) -> Result<ReplyOutcome, ReplyError> {
         if !self.config.enabled {
             return Ok(ReplyOutcome::Rejected(ReplyRejection::Disabled));
         }

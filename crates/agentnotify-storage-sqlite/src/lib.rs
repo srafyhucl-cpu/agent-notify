@@ -1,5 +1,6 @@
 //! SQLite 持久化适配器层，对外只实现应用层定义的仓储端口。
 
+mod channel_account_store;
 mod claim_store;
 mod database;
 mod delivery_store;

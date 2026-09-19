@@ -69,6 +69,25 @@ impl SqliteStore {
         })
         .await
     }
+
+    pub async fn integrity_check(&self) -> Result<bool, StoreError> {
+        self.run(|connection| {
+            connection
+                .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .map(|result| result == "ok")
+                .map_err(|error| storage_error("检查 SQLite 完整性失败", error))
+        })
+        .await
+    }
+
+    pub async fn wal_checkpoint_truncate(&self) -> Result<(), StoreError> {
+        self.run(|connection| {
+            connection
+                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+                .map_err(|error| storage_error("执行 SQLite WAL checkpoint 失败", error))
+        })
+        .await
+    }
 }
 
 /// 按顺序执行尚未应用的迁移。已记录版本的 SQL 内容不可修改。
