@@ -4,10 +4,11 @@ use agentnotify_agent_sdk::{AgentEventEnvelope, AgentRegistry};
 use agentnotify_application::{
     ChannelAccountStore, Clock, DeliveryError, DeliveryService, DeliveryTarget, EventSink,
     IdGenerator, IngestError, IngestResult, IngestService, NotificationPolicy, ReplyConfig,
-    ReplyError, ReplyService, ReplyTarget, StatusError, StatusOverview, StatusService, StoreError,
+    ReplyError, ReplyService, ReplyTarget, StatusError, StatusOverview, StatusService, StatusStore,
+    StoreError,
 };
 use agentnotify_channel_sdk::{ChannelAccount, ChannelError, ChannelRegistry, InboundEmitter};
-use agentnotify_domain::InboundMessage;
+use agentnotify_domain::{InboundMessage, SafeError};
 use agentnotify_storage_sqlite::SqliteStore;
 use tokio::{
     sync::{mpsc, watch},
@@ -221,6 +222,25 @@ impl AppRuntime {
         let store = Arc::new(SqliteStore::open(&config.database_path)?);
         if !store.integrity_check().await? {
             return Err(RuntimeError::IntegrityCheckFailed);
+        }
+
+        let recovery = store.recover_interrupted_work(config.clock.now()).await?;
+        if recovery.interrupted_outbox > 0 || recovery.interrupted_claims > 0 {
+            tracing::warn!(
+                interrupted_outbox = recovery.interrupted_outbox,
+                interrupted_claims = recovery.interrupted_claims,
+                "启动时收敛了中断的投递与回复，记录不会自动重放"
+            );
+            let message = format!(
+                "上次运行中断，已标记 {} 个未确认投递和 {} 个未确认回复，未自动重试",
+                recovery.interrupted_outbox, recovery.interrupted_claims
+            );
+            store
+                .record_error(
+                    SafeError::new("runtime_recovered_interrupted_work", message)
+                        .expect("启动恢复错误常量必须有效"),
+                )
+                .await?;
         }
 
         let event_bus = Arc::new(EventBus::new());
