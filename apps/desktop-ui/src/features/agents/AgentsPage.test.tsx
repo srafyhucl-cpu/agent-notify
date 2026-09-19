@@ -309,3 +309,39 @@ describe("AppRouter host events", () => {
     });
   });
 });
+  it("preserves a configured secret when the draft input is left blank", async () => {
+    const user = userEvent.setup();
+    const agent = agentFixture({
+      id: "secret-agent",
+      displayName: "Secret Agent",
+      configSchema: {
+        type: "object",
+        properties: {
+          apiKey: { type: "secret-string", title: "API Key" },
+        },
+      },
+      config: {
+        apiKey: "already-stored",
+      },
+    });
+    const bridge = createMockHostBridge({
+      agents: [agent],
+    });
+
+    renderAgents(bridge);
+
+    expect(await screen.findByText("Secret Agent")).toBeVisible();
+    const form = screen.getByRole("form", { name: "Secret Agent 配置" });
+    await user.click(within(form).getByRole("button", { name: "保存配置" }));
+
+    await waitFor(() => {
+      expect(bridge.calls("update_agent_config")).toHaveLength(1);
+    });
+    expect(bridge.calls("update_agent_config")[0]?.payload).toEqual({
+      agentId: "secret-agent",
+      enabled: null,
+      config: {
+        apiKey: "already-stored",
+      },
+    });
+  });

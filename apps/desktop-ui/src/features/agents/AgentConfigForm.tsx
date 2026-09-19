@@ -49,9 +49,6 @@ export function AgentConfigForm({ agent, bridge }: AgentConfigFormProps) {
     setSubmitError(null);
 
     const config = { ...draft };
-    for (const name of secretNames) {
-      delete config[name];
-    }
     for (const [name, value] of Object.entries(secretValues)) {
       if (value !== "") {
         config[name] = value;
@@ -66,19 +63,15 @@ export function AgentConfigForm({ agent, bridge }: AgentConfigFormProps) {
       });
       const nextDraft = configRecord(updated.config);
       for (const name of secretNames) {
-        delete nextDraft[name];
+        if (name in config) {
+          nextDraft[name] = config[name];
+        } else {
+          delete nextDraft[name];
+        }
       }
       setDraft(nextDraft);
       setSecretValues({});
-      setSecretConfigured((current) => {
-        const next = { ...current };
-        for (const [name, value] of Object.entries(secretValues)) {
-          if (value !== "") {
-            next[name] = true;
-          }
-        }
-        return next;
-      });
+      setSecretConfigured(initialSecretState(nextDraft, secretNames));
     } catch (error) {
       setSubmitError(error);
     }

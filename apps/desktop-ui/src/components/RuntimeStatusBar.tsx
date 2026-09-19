@@ -1,11 +1,11 @@
 import { Pause, Play } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import type { HostBridge } from "../bridge";
-import type {
-  RuntimeSnapshotDto,
-  RuntimeSummaryDto,
-} from "../bridge/types";
+import type { RuntimeSummaryDto } from "../bridge/types";
+import { toUserError } from "../data/errors";
+import { useSetRuntimePausedMutation } from "../data/mutations";
+import { useSnapshot } from "../data/useSnapshot";
 import { InlineError } from "./InlineError";
 
 const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
@@ -39,53 +39,17 @@ export interface RuntimeStatusBarProps {
   bridge: HostBridge;
 }
 
-function errorMessage(error: unknown): string {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string" &&
-    error.message.trim()
-  ) {
-    return error.message;
-  }
-  return "运行时状态读取失败";
-}
-
 export function RuntimeStatusBar({ bridge }: RuntimeStatusBarProps) {
-  const [snapshot, setSnapshot] = useState<RuntimeSnapshotDto | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const mountedRef = useRef(true);
-
-  const loadSnapshot = useCallback(async () => {
-    setIsLoading(true);
-    setLoadError(null);
-    try {
-      const nextSnapshot = await bridge.invoke("get_snapshot", {});
-      if (mountedRef.current) {
-        setSnapshot(nextSnapshot);
-      }
-    } catch (error) {
-      if (mountedRef.current) {
-        setLoadError(errorMessage(error));
-      }
-    } finally {
-      if (mountedRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [bridge]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    void loadSnapshot();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [loadSnapshot]);
+  const snapshotQuery = useSnapshot(bridge);
+  const pauseMutation = useSetRuntimePausedMutation(bridge);
+  const [pauseError, setPauseError] = useState<unknown>(null);
+  const snapshot = snapshotQuery.data;
+  const isLoading = snapshotQuery.isPending && !snapshot;
+  const isUpdating = pauseMutation.isPending;
+  const loadError = snapshotQuery.error
+    ? toUserError(snapshotQuery.error)
+    : null;
+  const actionError = pauseError ? toUserError(pauseError) : null;
 
   const togglePaused = async () => {
     const runtime = snapshot?.runtime;
@@ -93,24 +57,11 @@ export function RuntimeStatusBar({ bridge }: RuntimeStatusBarProps) {
       return;
     }
 
-    const paused = !runtime.paused;
-    setIsUpdating(true);
-    setActionError(null);
+    setPauseError(null);
     try {
-      const nextRuntime = await bridge.invoke("set_runtime_paused", { paused });
-      if (mountedRef.current) {
-        setSnapshot((current) =>
-          current ? { ...current, runtime: nextRuntime } : current,
-        );
-      }
+      await pauseMutation.mutateAsync({ paused: !runtime.paused });
     } catch (error) {
-      if (mountedRef.current) {
-        setActionError(errorMessage(error));
-      }
-    } finally {
-      if (mountedRef.current) {
-        setIsUpdating(false);
-      }
+      setPauseError(error);
     }
   };
 
@@ -159,12 +110,12 @@ export function RuntimeStatusBar({ bridge }: RuntimeStatusBarProps) {
         <div className="runtime-status-error">
           <InlineError
             title="无法读取运行状态"
-            message={`${loadError}。请重新检查运行时状态。`}
+            message={`${loadError.message}。请重新检查运行时状态。`}
             action={
               <button
                 className="button button-secondary"
                 type="button"
-                onClick={() => void loadSnapshot()}
+                onClick={() => void snapshotQuery.refetch()}
               >
                 重新检查
               </button>
@@ -176,8 +127,8 @@ export function RuntimeStatusBar({ bridge }: RuntimeStatusBarProps) {
       {actionError ? (
         <div className="runtime-status-error">
           <InlineError
-            title="暂停操作未完成"
-            message={`${actionError}。请确认运行时状态后重试。`}
+            title={actionError.title}
+            message={`${actionError.message} 请确认运行时状态后重试。`}
           />
         </div>
       ) : null}
