@@ -1,8 +1,20 @@
-//! 渠道适配器协议与账号隔离边界。
+//! 渠道适配器协议、账号隔离和共享契约测试。
 
-/// 渠道适配器通过稳定名称声明其发送与回复路由能力。
-pub trait ChannelAdapterBoundary: Send + Sync {
-    fn adapter_name(&self) -> &'static str;
+mod account;
+mod adapter;
+mod contract;
+mod descriptor;
+mod login;
+mod registry;
 
-    fn supports_reply_routing(&self) -> bool;
-}
+pub use account::{ChannelAccount, ChannelHealth, SecretRef};
+pub use adapter::{
+    ChannelAdapter, ChannelError, ChannelTask, DeliveryReceipt, InboundEmitter, MessagePurpose,
+    OutboundMessage,
+};
+pub use contract::{assert_channel_contract, assert_channel_login_contract};
+pub use descriptor::{ChannelCapabilities, ChannelDescriptor, InboundMode};
+pub use login::{
+    BeginLoginRequest, ChannelLoginAdapter, LoginSession, LoginSessionId, LoginSessionState,
+};
+pub use registry::{ChannelRegistry, ChannelRegistryError};
