@@ -10,8 +10,13 @@ agentnotify-application = { path = "../agentnotify-application" }
 agentnotify-channel-sdk = { path = "../agentnotify-channel-sdk" }
 agentnotify-domain = { path = "../agentnotify-domain" }
 async-trait.workspace = true
+base64.workspace = true
+qrcode.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 time.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true

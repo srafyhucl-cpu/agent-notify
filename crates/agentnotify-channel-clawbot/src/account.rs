@@ -44,12 +44,7 @@ impl ClawBotAccount {
             display_name(&state),
             created_at,
         );
-        channel.config = serde_json::to_value(&state).map_err(|_| {
-            ChannelError::permanent("clawbot_account_state_invalid", "ClawBot 账号状态编码失败")
-        })?;
-        channel.cursor = serde_json::to_value(&cursor).map_err(|_| {
-            ChannelError::permanent("clawbot_account_cursor_invalid", "ClawBot 账号游标编码失败")
-        })?;
+        sync_serialized_state(&mut channel, &state, &cursor)?;
         channel.secret_ref = Some(bot_token_secret_ref(&channel.id)?);
         Ok(Self {
             channel,
@@ -122,6 +117,24 @@ impl ClawBotAccount {
 
     pub fn context_token_secret_ref(&self) -> Result<SecretRef, ChannelError> {
         context_token_secret_ref(&self.channel.id)
+    }
+
+    pub fn with_base_url(
+        mut self,
+        base_url: impl Into<String>,
+        updated_at: Timestamp,
+    ) -> Result<Self, ChannelError> {
+        let base_url = normalize_platform_id("base_url", &base_url.into())?;
+        self.state.base_url = base_url;
+        self.channel.updated_at = updated_at;
+        sync_serialized_state(&mut self.channel, &self.state, &self.cursor)?;
+        self.channel.display_name = display_name(&self.state);
+        Ok(self)
+    }
+
+    pub fn into_channel_account(mut self) -> Result<ChannelAccount, ChannelError> {
+        sync_serialized_state(&mut self.channel, &self.state, &self.cursor)?;
+        Ok(self.channel)
     }
 }
 
@@ -201,4 +214,18 @@ fn tail_hint(value: &str) -> String {
 
 fn display_name(state: &ClawBotAccountState) -> String {
     format!("ClawBot 微信 · ...{}", state.user_id_hint)
+}
+
+fn sync_serialized_state(
+    channel: &mut ChannelAccount,
+    state: &ClawBotAccountState,
+    cursor: &ClawBotCursor,
+) -> Result<(), ChannelError> {
+    channel.config = serde_json::to_value(state).map_err(|_| {
+        ChannelError::permanent("clawbot_account_state_invalid", "ClawBot 账号状态编码失败")
+    })?;
+    channel.cursor = serde_json::to_value(cursor).map_err(|_| {
+        ChannelError::permanent("clawbot_account_cursor_invalid", "ClawBot 账号游标编码失败")
+    })?;
+    Ok(())
 }

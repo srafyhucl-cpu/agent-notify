@@ -417,7 +417,7 @@ git commit -m "feat(clawbot): 增加渠道账号与密钥模型"
 - Consumes: `ChannelLoginAdapter`、ClawBot 登录 HTTP 契约、`SecretStore`。
 - Produces: 二维码状态机、配对码提交、账号落库、`WaitingFirstInbound` / `Paired` 状态事件。
 
-- [ ] **Step 1: 写状态机测试**
+- [x] **Step 1: 写状态机测试**
 
 ```rust
 #[test]
@@ -437,7 +437,7 @@ fn scaned_then_need_verify_then_confirmed_keeps_one_login_session() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -448,7 +448,7 @@ cargo test -p agentnotify-channel-clawbot --test login_http
 
 Expected: FAIL，登录实现不存在。
 
-- [ ] **Step 3: 实现 HTTP 客户端**
+- [x] **Step 3: 实现 HTTP 客户端**
 
 固定支持：
 
@@ -468,7 +468,7 @@ POST /ilink/bot/msg/notifystop
 - 连接超时 10 秒，普通请求总超时 20 秒，长轮询单独遵守服务端 `longpolling_timeout_ms`。
 - 日志对 token、authorization、cookie、context token 和消息正文递归脱敏。
 
-- [ ] **Step 4: 实现登录状态机**
+- [x] **Step 4: 实现登录状态机**
 
 状态和动作：
 
@@ -483,7 +483,7 @@ POST /ilink/bot/msg/notifystop
 
 二维码内容只在内存中生成 data URL；配对码提交后立即从 Rust 和 React 表单内存清零。登录任务取消或窗口关闭不删除已确认的登录账号。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 
