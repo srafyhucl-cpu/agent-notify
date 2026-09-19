@@ -63,6 +63,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentnotify-channel-clawbot"
+version = "0.1.0"
+dependencies = [
+ "agentnotify-application",
+ "agentnotify-channel-sdk",
+ "agentnotify-domain",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sha2",
+ "time",
+ "tokio",
+]
+
+[[package]]
 name = "agentnotify-channel-sdk"
 version = "0.1.0"
 dependencies = [

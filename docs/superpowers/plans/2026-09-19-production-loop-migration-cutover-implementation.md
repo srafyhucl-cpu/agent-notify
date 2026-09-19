@@ -301,7 +301,7 @@ git commit -m "feat(opencode): 实现原会话续聊与 V2 插件"
 - Consumes: `ChannelAdapter`、`ChannelLoginAdapter`、`SecretStore`、`ChannelAccountStore`。
 - Produces: `ClawBotChannel`，descriptor ID 固定为 `clawbot`。
 
-- [ ] **Step 1: 写账号隔离与密钥测试**
+- [x] **Step 1: 写账号隔离与密钥测试**
 
 ```rust
 #[tokio::test]
@@ -325,7 +325,7 @@ async fn logout_removes_secrets_without_removing_history() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -335,7 +335,7 @@ cargo test -p agentnotify-channel-clawbot --test account --test contract
 
 Expected: FAIL，ClawBot crate 不存在。
 
-- [ ] **Step 3: 实现 descriptor 与能力**
+- [x] **Step 3: 实现 descriptor 与能力**
 
 ```rust
 ChannelDescriptor {
@@ -356,7 +356,7 @@ ChannelCapabilities {
 }
 ```
 
-- [ ] **Step 4: 实现账号与 secret 引用**
+- [x] **Step 4: 实现账号与 secret 引用**
 
 账号 ID：
 
@@ -384,7 +384,7 @@ clawbot/<account-id>/context-token
 
 context token 只允许在与 `bot_id + user_id` 相同的账号下读取。切换账号必须清空内存中的旧账号状态，不沿用 pending login、cursor 或 route。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 

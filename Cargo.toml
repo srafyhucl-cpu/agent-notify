@@ -10,6 +10,7 @@ members = [
   "crates/agentnotify-storage-sqlite",
   "crates/agentnotify-agent-sdk",
   "crates/agentnotify-channel-sdk",
+  "crates/agentnotify-channel-clawbot",
   "crates/agentnotify-testkit",
 ]
 
