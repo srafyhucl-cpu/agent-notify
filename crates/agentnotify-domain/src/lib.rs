@@ -1,14 +1,18 @@
 //! 纯领域规则层，不依赖 I/O、数据库或操作系统 API。
 
+mod delivery;
 mod error;
 mod identifier;
+mod notification;
 mod timestamp;
 
+pub use delivery::{Delivery, DeliveryErrorKind, DeliveryReceiptState, DeliveryState, SafeError};
 pub use error::DomainError;
 pub use identifier::{
     AgentId, AgentSessionId, ChannelAccountId, ChannelId, DeliveryId, ExternalMessageId,
     InboundMessageId, NotificationId, RequestId,
 };
+pub use notification::{Notification, NotificationMetadata};
 pub use timestamp::Timestamp;
 
 /// 领域规则覆盖的稳定业务区域。
