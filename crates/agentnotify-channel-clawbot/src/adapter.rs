@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use agentnotify_application::{SecretError, SecretKind, SecretStore};
+use agentnotify_application::{ChannelAccountStore, SecretError, SecretKind, SecretStore};
 use agentnotify_channel_sdk::{
     ChannelAccount, ChannelAdapter, ChannelCapabilities, ChannelDescriptor, ChannelError,
     ChannelHealth, ChannelTask, DeliveryReceipt, InboundEmitter, OutboundMessage,
@@ -10,18 +10,37 @@ use agentnotify_domain::{ChannelAccountId, SafeError};
 use crate::{
     account::ClawBotAccount,
     descriptor::{MAX_TEXT_BYTES, capabilities, descriptor},
+    send::{ClawBotHttpSendTransport, ClawBotSendTransport, send_outbound},
     state::{ClawBotContext, ClawBotCredentials},
 };
 
-/// 第一阶段只实现账号与安全凭据边界；发送和长轮询由后续任务接入。
+/// ClawBot 账号、安全凭据与可靠出站边界；长轮询由后续任务接入。
 #[derive(Clone)]
 pub struct ClawBotChannel {
     secrets: Arc<dyn SecretStore>,
+    accounts: Option<Arc<dyn ChannelAccountStore>>,
+    sender: Arc<dyn ClawBotSendTransport>,
 }
 
 impl ClawBotChannel {
     pub fn new(secrets: Arc<dyn SecretStore>) -> Self {
-        Self { secrets }
+        Self::with_send_transport(secrets, Arc::new(ClawBotHttpSendTransport::new()))
+    }
+
+    pub fn with_send_transport(
+        secrets: Arc<dyn SecretStore>,
+        sender: Arc<dyn ClawBotSendTransport>,
+    ) -> Self {
+        Self {
+            secrets,
+            accounts: None,
+            sender,
+        }
+    }
+
+    pub fn with_account_store(mut self, accounts: Arc<dyn ChannelAccountStore>) -> Self {
+        self.accounts = Some(accounts);
+        self
     }
 
     pub async fn save_credentials(
@@ -104,14 +123,18 @@ impl ChannelAdapter for ClawBotChannel {
 
     async fn send(
         &self,
-        _account: ChannelAccount,
+        account: ChannelAccount,
         message: OutboundMessage,
     ) -> Result<DeliveryReceipt, ChannelError> {
         validate_outbound(&message)?;
-        Err(ChannelError::permanent(
-            "clawbot_send_not_implemented",
-            "ClawBot 发送能力尚未接入",
-        ))
+        send_outbound(
+            self.secrets.as_ref(),
+            self.accounts.as_deref(),
+            self.sender.as_ref(),
+            account,
+            message,
+        )
+        .await
     }
 
     async fn inspect(&self, account: ChannelAccount) -> ChannelHealth {

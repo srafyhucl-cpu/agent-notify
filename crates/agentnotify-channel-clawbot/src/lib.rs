@@ -6,6 +6,9 @@ mod client;
 mod descriptor;
 mod login;
 mod qr;
+mod render;
+mod response;
+mod send;
 mod state;
 
 pub use account::{
@@ -16,6 +19,11 @@ pub use client::{ClawBotAuthTransport, ClawBotHttpClient, QrCodeResponse, QrStat
 pub use descriptor::{CLAWBOT_CHANNEL_ID, MAX_TEXT_BYTES, capabilities, descriptor};
 pub use login::{ClawBotLoginAdapter, LoginDecision, LoginMachine};
 pub use qr::qr_data_url;
+pub use render::{NotificationRenderInput, render_notification};
+pub use response::parse_message_id;
+pub use send::{
+    ClawBotHttpResponse, ClawBotHttpSendTransport, ClawBotSendRequest, ClawBotSendTransport,
+};
 pub use state::{
     ClawBotAccountState, ClawBotContext, ClawBotCredentials, ClawBotCursor, DEFAULT_BASE_URL,
 };

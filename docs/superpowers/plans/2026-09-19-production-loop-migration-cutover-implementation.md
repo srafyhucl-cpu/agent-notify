@@ -515,7 +515,7 @@ git commit -m "feat(clawbot): 实现扫码登录与首条会话绑定"
 - Consumes: `ChannelAdapter::send`、账号 context token。
 - Produces: 标准 Markdown Outbound、`DeliveryReceipt`、稳定 client ID 与平台 message ID。
 
-- [ ] **Step 1: 写回执和失败映射测试**
+- [x] **Step 1: 写回执和失败映射测试**
 
 ```rust
 #[test]
@@ -536,7 +536,7 @@ async fn timeout_maps_to_unknown() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -546,7 +546,7 @@ cargo test -p agentnotify-channel-clawbot --test send --test response
 
 Expected: FAIL，发送实现不存在。
 
-- [ ] **Step 3: 渲染标准通知**
+- [x] **Step 3: 渲染标准通知**
 
 通知保持 Markdown：
 
@@ -564,7 +564,7 @@ Expected: FAIL，发送实现不存在。
 - footer 可由设置关闭，但引用提示不能伪造。
 - URL 和引用 footer 不包含 token。
 
-- [ ] **Step 4: 实现发送与错误分类**
+- [x] **Step 4: 实现发送与错误分类**
 
 请求：
 
@@ -595,7 +595,7 @@ Expected: FAIL，发送实现不存在。
 - `ret=-2 prepare failed` → 清空 context token，返回 `DeliveryReceipt { state: Skipped, error: session_missing }`。
 - 成功但解析不到稳定 message ID → `DeliveryReceipt { state: Unknown }`，不能建立 ReplyRoute。
 
-- [ ] **Step 5: 归一化稳定路由 ID**
+- [x] **Step 5: 归一化稳定路由 ID**
 
 回执优先顺序：
 
@@ -606,7 +606,7 @@ Expected: FAIL，发送实现不存在。
 
 若多个来源不一致，返回 `Unknown` 并不建立路由。请求 `client_id` 只在平台没有返回 message ID 时作为兼容回执保存，不能与另一个不同的 message ID 同时充当同一路由别名。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 
