@@ -3,7 +3,9 @@
 mod delivery;
 mod error;
 mod identifier;
+mod inbound;
 mod notification;
+mod routing;
 mod timestamp;
 
 pub use delivery::{Delivery, DeliveryErrorKind, DeliveryReceiptState, DeliveryState, SafeError};
@@ -12,7 +14,10 @@ pub use identifier::{
     AgentId, AgentSessionId, ChannelAccountId, ChannelId, DeliveryId, ExternalMessageId,
     InboundMessageId, NotificationId, RequestId,
 };
+pub use inbound::InboundMessageInput;
+pub use inbound::{ClaimKey, ClaimOutcome, ClaimState, InboundClaim, InboundMessage};
 pub use notification::{Notification, NotificationMetadata};
+pub use routing::{ReplyRoute, RouteKey};
 pub use timestamp::Timestamp;
 
 /// 领域规则覆盖的稳定业务区域。
