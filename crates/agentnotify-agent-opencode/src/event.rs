@@ -1,5 +1,5 @@
 use agentnotify_agent_sdk::{AgentError, AgentEventEnvelope, NormalizedAgentEvent};
-use agentnotify_domain::{AgentId, AgentSessionId, NotificationMetadata, SafeError, Timestamp};
+use agentnotify_domain::{AgentId, AgentSessionId, NotificationMetadata, Timestamp};
 use serde_json::Value;
 
 use crate::descriptor::OPENCODE_AGENT_ID;
@@ -87,8 +87,4 @@ fn parse_metadata(value: Option<&Value>) -> Result<NotificationMetadata, AgentEr
         entries.push((key.clone(), value.to_owned()));
     }
     NotificationMetadata::new(entries).map_err(|_| AgentError::InvalidEvent)
-}
-
-pub fn safe_error(code: &str, message: &str) -> AgentError {
-    AgentError::Failed(SafeError::new(code, message).expect("适配器错误常量必须是有效安全错误"))
 }

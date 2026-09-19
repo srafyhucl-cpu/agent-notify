@@ -157,7 +157,7 @@ git commit -m "feat(opencode): 增加 Agent 事件适配器"
 - Consumes: OpenCode 插件 heartbeat、`ctx.session.prompt` / `promptAsync` 兼容接口、`agentnotify-ingress.exe`。
 - Produces: `OpenCodeAgent::resume` 和新的单文件 V2 插件。
 
-- [ ] **Step 1: 写 resume 状态测试**
+- [x] **Step 1: 写 resume 状态测试**
 
 ```rust
 #[tokio::test]
@@ -186,7 +186,7 @@ async fn plugin_failure_returns_safe_agent_error() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -197,7 +197,7 @@ node --test .\plugin\rust\agent-notify.test.cjs
 
 Expected: FAIL，resume 实现和插件不存在。
 
-- [ ] **Step 3: 实现原子回复任务**
+- [x] **Step 3: 实现原子回复任务**
 
 - 任务 ID 使用 UUID v4。
 - `pending/<job-id>.json`：
@@ -220,7 +220,7 @@ Expected: FAIL，resume 实现和插件不存在。
 - 超时返回 `Unknown`；`processing` 文件保留，后续由插件标记“处理中断，不自动重试”。
 - 不启动新的 OpenCode 进程，不读取 CLI 登录状态。
 
-- [ ] **Step 4: 创建 V2 插件**
+- [x] **Step 4: 创建 V2 插件**
 
 新插件沿用现有 OpenCode V2 协议，但事件发送改为：
 
@@ -253,7 +253,7 @@ const event = {
 - 冷却状态仍由插件与核心共同防重，但核心的 ingest key 才是最终幂等依据。
 - 不再调用 `agent-notify.exe notify`，也不解析或修改 Go 版配置。
 
-- [ ] **Step 5: 编写插件状态机测试**
+- [x] **Step 5: 编写插件状态机测试**
 
 Node 测试覆盖：
 
@@ -265,7 +265,7 @@ Node 测试覆盖：
 - prompt 超时写“未确认，不自动重试”。
 - 插件 dispose 清理自己的 heartbeat。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 

@@ -1,0 +1,730 @@
+/**
+ * Agent-notify OpenCode V2 插件。
+ *
+ * 单文件、零顶层 import，直接通过 agentnotify-ingress.exe 提交完成事件；
+ * 同时维护本地引用回复收件箱和插件心跳。所有失败都会被吞掉，不能阻断 OpenCode。
+ */
+
+const HOME_DIR =
+  (typeof process !== "undefined" &&
+    (process.env.USERPROFILE || process.env.HOME)) ||
+  ""
+const CONFIG_DIR =
+  (typeof process !== "undefined" && process.env.AGENT_NOTIFY_CONFIG_DIR) ||
+  (HOME_DIR ? `${HOME_DIR}/.config/agent-notify` : "")
+const REPLY_DIR =
+  (typeof process !== "undefined" &&
+    process.env.AGENT_NOTIFY_OPENCODE_REPLY_DIR) ||
+  (CONFIG_DIR ? `${CONFIG_DIR}/opencode-reply-inbox` : "")
+const TEMP_DIR =
+  (typeof process !== "undefined" &&
+    (process.env.AGENT_NOTIFY_TEMP_DIR ||
+      (process.env.TEMP ? `${process.env.TEMP}/agent-notify` : ""))) ||
+  ""
+const DEBUG_LOG_FILE = TEMP_DIR ? `${TEMP_DIR}/opencode-debug.log` : ""
+const BAKED_INGRESS = ""
+
+const PENDING_DIR = `${REPLY_DIR}/pending`
+const PROCESSING_DIR = `${REPLY_DIR}/processing`
+const RESULT_DIR = `${REPLY_DIR}/results`
+const HEARTBEAT_DIR = `${REPLY_DIR}/heartbeats`
+
+const MILLISECONDS_PER_SECOND = 1000
+const HEARTBEAT_INTERVAL_MS = 5 * MILLISECONDS_PER_SECOND
+const HEARTBEAT_MAX_AGE_MS = 30 * MILLISECONDS_PER_SECOND
+const HEARTBEAT_FUTURE_SKEW_MS = 5 * MILLISECONDS_PER_SECOND
+const JOB_TTL_MS = 10 * 60 * MILLISECONDS_PER_SECOND
+const INGRESS_CHILD_TIMEOUT_MS = 25 * MILLISECONDS_PER_SECOND
+const INGRESS_CALLBACK_TIMEOUT_MS = 30 * MILLISECONDS_PER_SECOND
+const DEFAULT_PROMPT_TIMEOUT_MS = 30 * MILLISECONDS_PER_SECOND
+const SESSION_FETCH_TIMEOUT_MS = 10 * MILLISECONDS_PER_SECOND
+const ERROR_MAX_CHARS = 300
+const PRIVATE_FILE_MODE = 0o600
+
+type FsModule = typeof import("node:fs")
+type JsonRecord = Record<string, unknown>
+type DebugLogger = (message: string) => void
+type PromptBinding =
+  | {
+      send: (input: {
+        sessionID: string
+        text: string
+        delivery: "steer"
+      }) => Promise<unknown>
+      session: SessionApi
+    }
+  | {
+      send: (input: unknown) => Promise<unknown>
+      session: SessionApi
+      shape: "legacy" | "direct"
+    }
+
+interface SessionApi {
+  context(input: { sessionID: string }): Promise<unknown>
+  get(input: { sessionID: string }): Promise<unknown>
+  prompt?(input: {
+    sessionID: string
+    text: string
+    delivery: "steer"
+  }): Promise<unknown>
+  promptAsync?(input: unknown): Promise<unknown>
+}
+
+interface PluginContext {
+  event: {
+    subscribe(options: { signal: AbortSignal }): AsyncIterable<unknown>
+  }
+  session: SessionApi
+  client?: {
+    session?: SessionApi
+  }
+}
+
+interface ReplyJob {
+  id: string
+  sessionID: string
+  text: string
+  createdAt: string
+  expiresAt: string
+  owner?: string
+}
+
+let fsMod: FsModule | null = null
+let debugLog: DebugLogger | null = null
+let replyPumpRunning = false
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null
+}
+
+function envValue(name: string): string {
+  return (typeof process !== "undefined" && process.env[name]) || ""
+}
+
+function errorMessage(error: unknown): string {
+  if (typeof error === "string") {
+    return error.trim()
+  }
+  if (isRecord(error)) {
+    for (const key of ["message", "reason", "code"]) {
+      const value = error[key]
+      if (typeof value === "string" && value.trim()) {
+        return value.trim()
+      }
+    }
+  }
+  return error == null ? "" : String(error).trim()
+}
+
+function dbg(message: string): void {
+  try {
+    debugLog?.(message)
+  } catch {
+    // 日志失败不影响 OpenCode。
+  }
+}
+
+async function fsAsync(): Promise<FsModule | null> {
+  if (fsMod) {
+    return fsMod
+  }
+  try {
+    fsMod = await import("node:fs")
+  } catch {
+    fsMod = null
+  }
+  return fsMod
+}
+
+function exists(path: string): boolean {
+  try {
+    return Boolean(fsMod && path && fsMod.existsSync(path))
+  } catch {
+    return false
+  }
+}
+
+function resolveIngressTarget(): string {
+  const configured = envValue("AGENT_NOTIFY_INGRESS_BIN")
+  if (configured) {
+    return configured
+  }
+  if (exists(BAKED_INGRESS)) {
+    return BAKED_INGRESS
+  }
+  const installed = HOME_DIR ? `${HOME_DIR}\\bin\\agentnotify-ingress.exe` : ""
+  if (exists(installed)) {
+    return installed
+  }
+  return "agentnotify-ingress.exe"
+}
+
+function promptTimeoutMs(): number {
+  const configured = Number(envValue("AGENT_NOTIFY_OPENCODE_REPLY_TIMEOUT_MS"))
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_PROMPT_TIMEOUT_MS
+}
+
+function replyPrompt(ctx: PluginContext): PromptBinding | undefined {
+  if (typeof ctx.session?.prompt === "function") {
+    return { send: ctx.session.prompt, session: ctx.session }
+  }
+  const clientSession = ctx.client?.session
+  if (typeof clientSession?.promptAsync === "function") {
+    return {
+      send: clientSession.promptAsync,
+      session: clientSession,
+      shape: "legacy",
+    }
+  }
+  if (typeof ctx.session?.promptAsync === "function") {
+    return {
+      send: ctx.session.promptAsync,
+      session: ctx.session,
+      shape: "direct",
+    }
+  }
+  return undefined
+}
+
+function newInstanceID(): string {
+  const random = Math.random().toString(36).slice(2, 10)
+  return `${process.pid}-${Date.now().toString(36)}-${random}`
+}
+
+function writeAtomic(path: string, value: unknown): void {
+  if (!fsMod) {
+    throw new Error("fs unavailable")
+  }
+  const temporary = `${path}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
+  let descriptor: number | null = null
+  try {
+    descriptor = fsMod.openSync(temporary, "w", PRIVATE_FILE_MODE)
+    fsMod.writeFileSync(descriptor, JSON.stringify(value))
+    fsMod.fsyncSync(descriptor)
+    fsMod.closeSync(descriptor)
+    descriptor = null
+    fsMod.renameSync(temporary, path)
+  } catch (error) {
+    if (descriptor !== null) {
+      try {
+        fsMod.closeSync(descriptor)
+      } catch {
+        // descriptor 已关闭。
+      }
+    }
+    try {
+      fsMod.unlinkSync(temporary)
+    } catch {
+      // 临时文件不存在。
+    }
+    throw error
+  }
+}
+
+function ensureReplyDirs(): void {
+  if (!fsMod || !REPLY_DIR) {
+    return
+  }
+  for (const directory of [
+    REPLY_DIR,
+    PENDING_DIR,
+    PROCESSING_DIR,
+    RESULT_DIR,
+    HEARTBEAT_DIR,
+  ]) {
+    fsMod.mkdirSync(directory, { recursive: true, mode: 0o700 })
+    try {
+      fsMod.chmodSync(directory, 0o700)
+    } catch {
+      // Windows 或无 chmod 的文件系统保持平台默认权限。
+    }
+  }
+}
+
+function writeHeartbeat(ctx: PluginContext, instanceID: string): void {
+  try {
+    if (!fsMod || !HEARTBEAT_DIR || !instanceID) {
+      return
+    }
+    ensureReplyDirs()
+    writeAtomic(`${HEARTBEAT_DIR}/${instanceID}.json`, {
+      ready: Boolean(replyPrompt(ctx)),
+      timestamp: new Date().toISOString(),
+    })
+  } catch (error) {
+    dbg(`heartbeat fail: ${errorMessage(error)}`)
+  }
+}
+
+function clearHeartbeat(instanceID: string): void {
+  try {
+    if (fsMod && HEARTBEAT_DIR && instanceID) {
+      fsMod.unlinkSync(`${HEARTBEAT_DIR}/${instanceID}.json`)
+    }
+  } catch {
+    // dispose 清理失败不能影响 OpenCode。
+  }
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    promise,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+    }
+  })
+}
+
+async function promptExistingSession(
+  ctx: PluginContext,
+  job: ReplyJob,
+): Promise<void> {
+  const binding = replyPrompt(ctx)
+  if (!binding) {
+    throw new Error("当前 OpenCode 版本不支持会话 prompt")
+  }
+  if ("shape" in binding) {
+    const parts = [{ type: "text", text: job.text }]
+    const request =
+      binding.shape === "legacy"
+        ? {
+            path: { id: job.sessionID },
+            body: { parts },
+            throwOnError: true,
+          }
+        : { sessionID: job.sessionID, parts, throwOnError: true }
+    await withTimeout(
+      binding.send.call(binding.session, request),
+      promptTimeoutMs(),
+      "引用回复提交超时，未自动重试以避免重复执行",
+    )
+    return
+  }
+  await withTimeout(
+    binding.send.call(binding.session, {
+      sessionID: job.sessionID,
+      text: job.text,
+      delivery: "steer",
+    }),
+    promptTimeoutMs(),
+    "引用回复提交超时，未自动重试以避免重复执行",
+  )
+}
+
+function writeResult(jobID: string, ok: boolean, error = ""): void {
+  try {
+    if (!fsMod || !jobID) {
+      return
+    }
+    ensureReplyDirs()
+    writeAtomic(`${RESULT_DIR}/${jobID}.json`, {
+      ok,
+      error: error.slice(0, ERROR_MAX_CHARS),
+    })
+  } catch (error) {
+    dbg(`result fail job=${jobID}: ${errorMessage(error)}`)
+  }
+}
+
+function safeJobError(error: unknown, text: string): string {
+  let detail = errorMessage(error) || "引用回复执行失败"
+  for (const value of text ? [text, JSON.stringify(text).slice(1, -1)] : []) {
+    if (value) {
+      detail = detail.split(value).join("[REDACTED]")
+    }
+  }
+  return detail.slice(0, ERROR_MAX_CHARS)
+}
+
+function recoverProcessingJobs(): void {
+  if (!fsMod || !PROCESSING_DIR) {
+    return
+  }
+  let names: string[] = []
+  try {
+    names = fsMod.readdirSync(PROCESSING_DIR).filter((name) => name.endsWith(".json"))
+  } catch {
+    return
+  }
+  const now = Date.now()
+  for (const name of names) {
+    const processingPath = `${PROCESSING_DIR}/${name}`
+    if (exists(`${RESULT_DIR}/${name}`)) {
+      try {
+        fsMod.unlinkSync(processingPath)
+      } catch {
+        // 文件已被其他实例清理。
+      }
+      continue
+    }
+    try {
+      const age = now - fsMod.statSync(processingPath).mtimeMs
+      if (age < HEARTBEAT_MAX_AGE_MS) {
+        continue
+      }
+      const jobID = name.replace(/\.json$/, "")
+      writeResult(jobID, false, "引用回复处理中断，未自动重试以避免重复执行")
+      fsMod.unlinkSync(processingPath)
+    } catch (error) {
+      dbg(`stale job fail file=${name}: ${errorMessage(error)}`)
+    }
+  }
+}
+
+async function processReplyJobs(
+  ctx: PluginContext,
+  instanceID: string,
+): Promise<void> {
+  if (replyPumpRunning || !fsMod || !REPLY_DIR || !instanceID) {
+    return
+  }
+  replyPumpRunning = true
+  try {
+    ensureReplyDirs()
+    if (!replyPrompt(ctx)) {
+      return
+    }
+    recoverProcessingJobs()
+    const names = fsMod
+      .readdirSync(PENDING_DIR)
+      .filter((name) => name.endsWith(".json"))
+      .sort()
+
+    for (const name of names) {
+      const pendingPath = `${PENDING_DIR}/${name}`
+      const processingPath = `${PROCESSING_DIR}/${name}`
+      const jobID = name.replace(/\.json$/, "")
+      if (exists(`${RESULT_DIR}/${name}`)) {
+        try {
+          fsMod.unlinkSync(pendingPath)
+        } catch {
+          // 重复 job 已被另一个实例处理。
+        }
+        continue
+      }
+      try {
+        fsMod.renameSync(pendingPath, processingPath)
+      } catch {
+        continue
+      }
+
+      try {
+        const parsed = JSON.parse(fsMod.readFileSync(processingPath, "utf8"))
+        if (!isRecord(parsed) || parsed.id !== jobID) {
+          writeResult(jobID, false, "引用回复任务格式无效")
+          continue
+        }
+        const job = parsed as unknown as ReplyJob
+        job.owner = instanceID
+        writeAtomic(processingPath, job)
+        const expiresAt = Date.parse(job.expiresAt)
+        if (
+          typeof job.sessionID !== "string" ||
+          !job.sessionID.trim() ||
+          typeof job.text !== "string" ||
+          !job.text.trim()
+        ) {
+          writeResult(jobID, false, "引用回复任务字段不完整")
+          continue
+        }
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+          writeResult(jobID, false, "引用回复任务已过期")
+          continue
+        }
+        try {
+          await promptExistingSession(ctx, job)
+          writeResult(jobID, true)
+        } catch (error) {
+          writeResult(jobID, false, safeJobError(error, job.text))
+        }
+      } catch (error) {
+        writeResult(jobID, false, `引用回复任务读取失败：${safeJobError(error, "")}`)
+      } finally {
+        try {
+          fsMod.unlinkSync(processingPath)
+        } catch {
+          // 处理中断时保留 processing，供后续恢复窗口写出未知结果。
+        }
+      }
+    }
+  } catch (error) {
+    dbg(`reply pump fail: ${errorMessage(error)}`)
+  } finally {
+    replyPumpRunning = false
+  }
+}
+
+function hashText(value: string): string {
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0")
+}
+
+function eventIdentity(event: unknown, sessionID: string): string {
+  if (isRecord(event)) {
+    for (const key of ["id", "eventID", "eventId"]) {
+      const value = event[key]
+      if (typeof value === "string" && value.trim()) {
+        return value.trim()
+      }
+    }
+    const properties = event.properties
+    if (isRecord(properties)) {
+      for (const key of ["id", "eventID", "eventId"]) {
+        const value = properties[key]
+        if (typeof value === "string" && value.trim()) {
+          return value.trim()
+        }
+      }
+    }
+    try {
+      const encoded = JSON.stringify(event)
+      if (encoded) {
+        return `event-${hashText(encoded)}`
+      }
+    } catch {
+      // 非序列化事件使用会话 ID 作为最后回退。
+    }
+  }
+  return `session-${sessionID}`
+}
+
+function completionEnvelope(
+  sessionID: string,
+  title: string,
+  body: string,
+  event: unknown,
+): JsonRecord {
+  return {
+    protocolVersion: 1,
+    kind: "agent.event",
+    requestId: crypto.randomUUID(),
+    agentId: "opencode",
+    payload: {
+      eventType: "session.completed",
+      idempotencyKey: `opencode:${sessionID}:${eventIdentity(event, sessionID)}`,
+      occurredAt: new Date().toISOString(),
+      sessionId: sessionID,
+      title: `【opencode】${title || "会话"}`,
+      body,
+      metadata: {},
+    },
+  }
+}
+
+function submitIngress(envelope: JsonRecord): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let settled = false
+    const done = () => {
+      if (!settled) {
+        settled = true
+        resolve()
+      }
+    }
+    const timer = setTimeout(done, INGRESS_CALLBACK_TIMEOUT_MS)
+    import("node:child_process")
+      .then(({ execFile }) => {
+        const child = execFile(
+          resolveIngressTarget(),
+          [],
+          { timeout: INGRESS_CHILD_TIMEOUT_MS, windowsHide: true },
+          (error) => {
+            clearTimeout(timer)
+            if (error) {
+              dbg(`ingress exit: ${errorMessage(error)}`)
+            }
+            done()
+          },
+        )
+        child.on("error", (error) => {
+          clearTimeout(timer)
+          dbg(`ingress error: ${errorMessage(error)}`)
+          done()
+        })
+        try {
+          child.stdin?.end(JSON.stringify(envelope))
+        } catch (error) {
+          dbg(`ingress stdin: ${errorMessage(error)}`)
+          done()
+        }
+      })
+      .catch((error) => {
+        clearTimeout(timer)
+        dbg(`ingress import: ${errorMessage(error)}`)
+        done()
+      })
+  })
+}
+
+async function sessionTitle(session: SessionApi, sessionID: string): Promise<string> {
+  const response = await withTimeout(
+    session.get({ sessionID }),
+    SESSION_FETCH_TIMEOUT_MS,
+    "读取会话标题超时",
+  )
+  const data =
+    isRecord(response) && isRecord(response.data) ? response.data : response
+  const title = isRecord(data) ? data.title : undefined
+  return typeof title === "string" && title.trim() ? title.trim() : "会话"
+}
+
+async function lastAssistantText(
+  session: SessionApi,
+  sessionID: string,
+): Promise<string> {
+  const response = await withTimeout(
+    session.context({ sessionID }),
+    SESSION_FETCH_TIMEOUT_MS,
+    "读取会话摘要超时",
+  )
+  const data = Array.isArray(response)
+    ? response
+    : isRecord(response)
+      ? response.data
+      : undefined
+  if (!Array.isArray(data)) {
+    return ""
+  }
+  for (let index = data.length - 1; index >= 0; index -= 1) {
+    const item = data[index]
+    if (!isRecord(item)) {
+      continue
+    }
+    const infoRole = isRecord(item.info) ? item.info.role : undefined
+    const role =
+      typeof infoRole === "string"
+        ? infoRole
+        : typeof item.role === "string"
+          ? item.role
+          : item.type
+    if (role !== "assistant") {
+      continue
+    }
+    if (typeof item.text === "string" && item.text.trim()) {
+      return item.text.trim()
+    }
+    for (const bucket of [item.parts, item.content]) {
+      if (!Array.isArray(bucket)) {
+        continue
+      }
+      const text = bucket
+        .filter(
+          (part) =>
+            isRecord(part) &&
+            part.type === "text" &&
+            typeof part.text === "string" &&
+            part.text.trim(),
+        )
+        .map((part) => String((part as JsonRecord).text))
+        .join("\n")
+        .trim()
+      if (text) {
+        return text
+      }
+    }
+  }
+  return ""
+}
+
+async function dispatchCompletion(
+  ctx: PluginContext,
+  sessionID: string,
+  event: unknown,
+): Promise<void> {
+  if (typeof sessionID !== "string" || !sessionID.trim()) {
+    return
+  }
+  try {
+    const [title, body] = await Promise.all([
+      sessionTitle(ctx.session, sessionID).catch(() => "会话"),
+      lastAssistantText(ctx.session, sessionID).catch(() => ""),
+    ])
+    if (!body) {
+      dbg(`skip completion without body sid=${sessionID}`)
+      return
+    }
+    await submitIngress(completionEnvelope(sessionID, title, body, event))
+  } catch (error) {
+    dbg(`completion fail sid=${sessionID}: ${errorMessage(error)}`)
+  }
+}
+
+const __test = {
+  dispatchCompletion,
+  processReplyJobs,
+  completionEnvelope,
+  eventIdentity,
+  replyPrompt,
+}
+
+export { __test }
+export default {
+  id: "agent-notify",
+  setup: async (ctx: PluginContext) => {
+    await fsAsync()
+    if (envValue("AGENT_NOTIFY_DEBUG") === "1" && fsMod && DEBUG_LOG_FILE) {
+      try {
+        fsMod.mkdirSync(TEMP_DIR, { recursive: true })
+        debugLog = (message) =>
+          fsMod?.appendFileSync(
+            DEBUG_LOG_FILE,
+            `${new Date().toISOString()} ${message}\n`,
+          )
+      } catch {
+        debugLog = null
+      }
+    }
+    ensureReplyDirs()
+
+    const instanceID = newInstanceID()
+    writeHeartbeat(ctx, instanceID)
+    void processReplyJobs(ctx, instanceID)
+    const heartbeatTimer = setInterval(() => {
+      writeHeartbeat(ctx, instanceID)
+      void processReplyJobs(ctx, instanceID)
+    }, HEARTBEAT_INTERVAL_MS)
+
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        for await (const event of ctx.event.subscribe({
+          signal: controller.signal,
+        })) {
+          if (!isRecord(event) || event.type !== "session.execution.succeeded") {
+            continue
+          }
+          const properties = isRecord(event.properties) ? event.properties : {}
+          const sessionID =
+            typeof properties.sessionID === "string"
+              ? properties.sessionID
+              : typeof event.sessionID === "string"
+                ? event.sessionID
+                : ""
+          void dispatchCompletion(ctx, sessionID, event)
+        }
+      } catch {
+        // 订阅结束是 dispose 的正常路径。
+      }
+    })()
+
+    return () => {
+      clearInterval(heartbeatTimer)
+      controller.abort()
+      clearHeartbeat(instanceID)
+    }
+  },
+}

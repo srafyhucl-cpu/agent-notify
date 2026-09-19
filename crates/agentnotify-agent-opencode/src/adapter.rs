@@ -6,7 +6,7 @@ use agentnotify_domain::AgentSessionId;
 
 use crate::{
     descriptor::{capabilities, descriptor},
-    event::{parse_event, safe_error},
+    event::parse_event,
     reply_inbox::{OpenCodeReplyInbox, health_for},
 };
 
@@ -26,6 +26,20 @@ impl OpenCodeAgent {
 
     pub fn inbox(&self) -> &OpenCodeReplyInbox {
         &self.inbox
+    }
+
+    pub async fn resume_with_timeout(
+        &self,
+        session_id: &AgentSessionId,
+        text: &str,
+        timeout: std::time::Duration,
+    ) -> Result<ResumeReceipt, AgentError> {
+        self.inbox
+            .resume_with_timeout(session_id, text, timeout)
+            .await?;
+        Ok(ResumeReceipt {
+            session_id: session_id.clone(),
+        })
     }
 }
 
@@ -48,16 +62,13 @@ impl AgentAdapter for OpenCodeAgent {
 
     async fn resume(
         &self,
-        _session_id: &AgentSessionId,
+        session_id: &AgentSessionId,
         text: &str,
     ) -> Result<ResumeReceipt, AgentError> {
-        if text.trim().is_empty() {
-            return Err(AgentError::InvalidInput);
-        }
-        match safe_error("opencode_resume_unavailable", "OpenCode 原会话续聊尚未就绪") {
-            AgentError::Failed(error) => Err(AgentError::Unknown(error)),
-            other => Err(other),
-        }
+        self.inbox.resume(session_id, text).await?;
+        Ok(ResumeReceipt {
+            session_id: session_id.clone(),
+        })
     }
 
     async fn inspect(&self) -> AgentHealth {
