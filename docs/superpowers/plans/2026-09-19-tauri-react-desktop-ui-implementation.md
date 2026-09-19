@@ -532,7 +532,7 @@ git commit -m "feat(host): 增加主窗口托盘与单实例生命周期"
 - Consumes: HostBridge 和 runtime snapshot。
 - Produces: `/overview`、`/agents`、`/channels`、`/history`、`/diagnostics`、`/settings` 六个路由和统一页面骨架。
 
-- [ ] **Step 1: 写导航与可访问性测试**
+- [x] **Step 1: 写导航与可访问性测试**
 
 ```tsx
 it("exposes all primary destinations with keyboard-readable names", async () => {
@@ -544,7 +544,7 @@ it("exposes all primary destinations with keyboard-readable names", async () => 
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -554,7 +554,7 @@ npm --prefix .\apps\desktop-ui run test -- --run AppShell
 
 Expected: FAIL，AppShell 不存在。
 
-- [ ] **Step 3: 定义设计令牌**
+- [x] **Step 3: 定义设计令牌**
 
 `tokens.css` 使用亮色中性基调：
 
@@ -590,7 +590,7 @@ Expected: FAIL，AppShell 不存在。
 
 状态色只表达 `正常 / 等待 / 异常 / 暂停`。正文使用系统 UI 字体，标题和正文均不得用 viewport 单位缩放。
 
-- [ ] **Step 4: 实现工作台布局**
+- [x] **Step 4: 实现工作台布局**
 
 - 左侧导航固定宽度 208px，六个目的地。
 - 顶部状态带显示 runtime 状态、暂停控制和当前版本。
@@ -600,7 +600,7 @@ Expected: FAIL，AppShell 不存在。
 - 错误条显示影响范围与下一步动作。
 - 加载态保持列宽和行高稳定，不使用跳动的居中 spinner。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 

@@ -1,11 +1,19 @@
-export function App() {
+import { BrowserRouter } from "react-router-dom";
+
+import { createTauriHostBridge } from "../bridge";
+import type { HostBridge } from "../bridge";
+import { AppRouter } from "./router";
+
+const defaultBridge = createTauriHostBridge();
+
+export interface AppProps {
+  bridge?: HostBridge;
+}
+
+export function App({ bridge = defaultBridge }: AppProps = {}) {
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <span className="app-brand">AgentNotify</span>
-        <span className="app-window-label">工作台</span>
-      </header>
-      <main className="workbench" aria-label="AgentNotify 工作台" />
-    </div>
+    <BrowserRouter>
+      <AppRouter bridge={bridge} />
+    </BrowserRouter>
   );
 }
