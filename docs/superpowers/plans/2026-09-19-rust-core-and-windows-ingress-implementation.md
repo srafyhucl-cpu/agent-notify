@@ -49,7 +49,7 @@
 
 **Interfaces:**
 - Consumes: 无。
-- Produces: 根 workspace 与八个 Rust crate；每份执行计划的 Cargo 命令都以这些包名工作。
+- Produces: 根 workspace 与七个当前 Rust crate；`agentnotify-ingress` 由后续 Task 14 加入后才成为第八个包；每份执行计划的 Cargo 命令都以这些包名工作。
 
 - [ ] **Step 1: 验证 Windows Rust 工具链，缺少时安装到 D 盘**
 
@@ -94,6 +94,7 @@ members = [
 
 [workspace.package]
 edition = "2024"
+version = "0.1.0"
 license = "MIT"
 rust-version = "1.85"
 
@@ -130,20 +131,25 @@ profile = "minimal"
 ```powershell
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
-$env:CARGO_HOME = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { 'D:\Tools\cargo' }
-$env:RUSTUP_HOME = if ($env:RUSTUP_HOME) { $env:RUSTUP_HOME } else { 'D:\Tools\rustup' }
-$env:CARGO_TARGET_DIR = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { 'D:\Temp\agentnotify-rust-target' }
-$env:TEMP = if ($env:TEMP -like 'D:\*') { $env:TEMP } else { 'D:\Temp\agentnotify-temp' }
+$env:CARGO_HOME = 'D:\Tools\cargo'
+$env:RUSTUP_HOME = 'D:\Tools\rustup'
+$env:CARGO_TARGET_DIR = 'D:\Temp\agentnotify-rust-target'
+$env:TEMP = 'D:\Temp\agentnotify-temp'
 $env:TMP = $env:TEMP
+$env:PATH = (Join-Path $env:CARGO_HOME 'bin') + ';' + $env:PATH
 New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR,$env:TEMP | Out-Null
+$cargo = Join-Path $env:CARGO_HOME 'bin\cargo.exe'
+if (-not (Test-Path -LiteralPath $cargo -PathType Leaf)) {
+    throw "找不到 cargo.exe：$cargo。请先把 Rust 工具链安装到 D 盘。"
+}
 
 Push-Location $root
 try {
-    cargo fmt --all --check
+    & $cargo fmt --all --check
     if ($LASTEXITCODE -ne 0) { throw 'cargo fmt 失败' }
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    & $cargo clippy --workspace --all-targets --all-features -- -D warnings
     if ($LASTEXITCODE -ne 0) { throw 'cargo clippy 失败' }
-    cargo test --workspace --all-features
+    & $cargo test --workspace --all-features
     if ($LASTEXITCODE -ne 0) { throw 'cargo test 失败' }
 }
 finally {
@@ -171,7 +177,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 cargo metadata --no-deps --format-version 1
 ```
 
-Expected: 三条命令退出码均为 `0`，`Cargo.lock` 已生成，metadata 包含八个成员包。
+Expected: 三条命令退出码均为 `0`，`Cargo.lock` 已生成，metadata 包含七个当前成员包；`agentnotify-ingress` 由后续 Task 14 加入后才成为第八个包。
 
 - [ ] **Step 5: 提交**
 
