@@ -633,7 +633,7 @@ git commit -m "feat(ui): 增加工作台骨架与设计令牌"
 - Consumes: `HostBridge`。
 - Produces: `queryKeys`、`useSnapshot`、`useHostEvent`、`toUserError`，以及配置、登录、投递、历史和诊断 mutation hooks。
 
-- [ ] **Step 1: 写事件失效测试**
+- [x] **Step 1: 写事件失效测试**
 
 ```tsx
 it("invalidates snapshot and deliveries when delivery.changed arrives", async () => {
@@ -650,7 +650,7 @@ it("invalidates snapshot and deliveries when delivery.changed arrives", async ()
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -660,7 +660,7 @@ npm --prefix .\apps\desktop-ui run test -- --run events
 
 Expected: FAIL，事件层不存在。
 
-- [ ] **Step 3: 配置 TanStack Query**
+- [x] **Step 3: 配置 TanStack Query**
 
 - `staleTime` 按资源设置：snapshot 5 秒，历史 30 秒，诊断按需刷新。
 - 窗口隐藏时降低轮询；显示时立即 refetch。
@@ -669,7 +669,7 @@ Expected: FAIL，事件层不存在。
 - Query 统一保留上一成功快照，避免页面闪烁。
 - 历史列表和诊断日志不进入全局内存缓存超过 200 条摘要。
 
-- [ ] **Step 4: 实现错误文案规则**
+- [x] **Step 4: 实现错误文案规则**
 
 `toUserError(error)` 输出：
 
@@ -684,7 +684,7 @@ type UserError = {
 
 所有错误必须包含中文 `message`；`401` 类错误不得显示原始响应；凭据错误提示重新登录；数据库错误提示备份并查看 Diagnostics；Unknown 投递提示先检查原渠道，不提供自动重发按钮。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 
