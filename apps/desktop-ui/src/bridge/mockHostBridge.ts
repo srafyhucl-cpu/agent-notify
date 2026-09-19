@@ -182,6 +182,7 @@ function deliveryFixture(id: string, accountId: string): DeliveryDto {
     state: "Sent",
     externalMessageId: "external-message-1",
     error: null,
+    retryable: false,
     updatedAt: "2026-09-19T00:00:00Z",
   };
 }

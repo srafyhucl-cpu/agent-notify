@@ -215,6 +215,7 @@ pub struct DeliveryDto {
     pub state: DeliveryStateDto,
     pub external_message_id: Option<String>,
     pub error: Option<SafeErrorDto>,
+    pub retryable: bool,
     pub updated_at: String,
 }
 

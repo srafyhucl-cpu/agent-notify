@@ -62,6 +62,7 @@ function deliveryFixture(index: number): DeliveryDto {
             message: "渠道拒绝了这条消息，请检查账号权限",
           }
         : null,
+    retryable: index === 1,
     updatedAt: `2026-09-19T00:${String(index).padStart(2, "0")}:00Z`,
   };
 }

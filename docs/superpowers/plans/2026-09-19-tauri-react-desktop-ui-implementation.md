@@ -896,7 +896,7 @@ git commit -m "feat(ui): 实现动态渠道账号与登录流程"
 - Consumes: History、Diagnostics、Settings commands 和 snapshot 事件。
 - Produces: 可筛选历史、可执行诊断和非敏感设置页面。
 
-- [ ] **Step 1: 写筛选与 Unknown 测试**
+- [x] **Step 1: 写筛选与 Unknown 测试**
 
 ```tsx
 it("shows Unknown with an instruction instead of automatic retry", async () => {
@@ -912,7 +912,7 @@ it("shows Unknown with an instruction instead of automatic retry", async () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -922,7 +922,7 @@ npm --prefix .\apps\desktop-ui run test -- --run HistoryPage SettingsPage
 
 Expected: FAIL，页面不存在。
 
-- [ ] **Step 3: 实现 History**
+- [x] **Step 3: 实现 History**
 
 - 使用虚拟列表，首屏支持 10,000 条摘要不冻结。
 - 筛选：Agent、渠道、账号、状态、时间范围、正文/标题关键词。
@@ -931,7 +931,7 @@ Expected: FAIL，页面不存在。
 - `Failed + retryable` 可显式“重试”；`Unknown` 只显示检查指引，不允许自动重试。
 - 正文默认折叠；不在日志和前端错误埋点中发送正文。
 
-- [ ] **Step 4: 实现 Diagnostics**
+- [x] **Step 4: 实现 Diagnostics**
 
 诊断项固定来自 StatusService，不在 UI 粗拼：
 
@@ -945,7 +945,7 @@ Expected: FAIL，页面不存在。
 
 每一项显示 `正常 / 等待 / 异常 / 暂停`、中文说明、最近检查时间和一个可执行修复动作。修复动作只能调用已定义业务命令。
 
-- [ ] **Step 5: 实现 Settings**
+- [x] **Step 5: 实现 Settings**
 
 设置分组：
 
@@ -957,7 +957,7 @@ Expected: FAIL，页面不存在。
 
 修改有校验、保存状态和失败回滚。危险操作必须二次确认；不提供直接 SQL、任意路径或 secret 查看。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 

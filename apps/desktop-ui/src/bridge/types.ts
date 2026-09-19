@@ -163,6 +163,7 @@ export type DeliveryDto = {
 	state: DeliveryStateDto,
 	externalMessageId: string | null,
 	error: SafeErrorDto | null,
+	retryable: boolean,
 	updatedAt: string,
 };
 
