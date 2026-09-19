@@ -443,7 +443,7 @@ git commit -m "feat(host): 实现 Windows 平台端口"
 - Consumes: Tauri app builder、runtime handle、`get_snapshot` 和 `set_runtime_paused`。
 - Produces: 一个主窗口生命周期、托盘菜单、第二次启动唤起、登录自启动和暂停状态。
 
-- [ ] **Step 1: 写生命周期纯逻辑测试**
+- [x] **Step 1: 写生命周期纯逻辑测试**
 
 ```rust
 #[test]
@@ -463,7 +463,7 @@ fn quit_request_stops_runtime_before_exit() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -473,7 +473,7 @@ cargo test -p agentnotify-desktop --test lifecycle
 
 Expected: FAIL，生命周期类型不存在。
 
-- [ ] **Step 3: 实现单实例与主窗口行为**
+- [x] **Step 3: 实现单实例与主窗口行为**
 
 - 第二次启动只显示已有 `main` 窗口并获得焦点，不创建第二个 runtime。
 - 启动时先创建 hidden 窗口，runtime 完成后显示，避免白屏。
@@ -482,7 +482,7 @@ Expected: FAIL，生命周期类型不存在。
 - “退出”先调用 runtime shutdown，再退出进程；关闭窗口或系统托盘不可直接杀进程。
 - 不进入 Alt+Tab 不作为硬性要求；主窗口是正常应用窗口，托盘提供常驻入口。
 
-- [ ] **Step 4: 实现自启动与暂停**
+- [x] **Step 4: 实现自启动与暂停**
 
 - 自启动使用 Tauri autostart 插件注册当前用户登录启动，不写系统级 HKLM。
 - 用户在 Settings 中修改自启动后马上反馈结果。
@@ -490,7 +490,7 @@ Expected: FAIL，生命周期类型不存在。
 - 恢复后按原顺序继续。
 - 退出时不删除 spool、SQLite、Route 或 Claim。
 
-- [ ] **Step 5: 运行真实宿主 smoke**
+- [x] **Step 5: 运行真实宿主 smoke**
 
 Run:
 
@@ -501,7 +501,7 @@ cargo tauri dev --no-watch
 
 手工检查：窗口正常出现；关闭后托盘仍在；再次启动只唤起原窗口；暂停后状态栏变化；恢复后状态恢复；退出不留下进程。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add hosts/desktop-tauri

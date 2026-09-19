@@ -23,7 +23,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { version = "=2.0.0-rc.25", features = ["derive", "collect", "serde_json"] }
 specta-typescript = "=0.0.12"
-tauri = { version = "2", default-features = false, features = ["wry", "compression", "dynamic-acl"] }
+tauri = { version = "2", default-features = false, features = ["wry", "compression", "dynamic-acl", "tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 agentnotify-application = { path = "../../crates/agentnotify-application" }
 agentnotify-domain = { path = "../../crates/agentnotify-domain" }
@@ -32,6 +34,7 @@ sha2 = { workspace = true }
 futures = { workspace = true }
 tauri-plugin-notification = "2"
 tokio = { workspace = true }
+tracing = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Security_Credentials", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
