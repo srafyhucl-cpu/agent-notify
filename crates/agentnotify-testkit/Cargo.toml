@@ -1,0 +1,21 @@
+[package]
+name = "agentnotify-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentnotify-agent-sdk = { path = "../agentnotify-agent-sdk" }
+agentnotify-application = { path = "../agentnotify-application" }
+agentnotify-channel-sdk = { path = "../agentnotify-channel-sdk" }
+agentnotify-domain = { path = "../agentnotify-domain" }
+agentnotify-storage-sqlite = { path = "../agentnotify-storage-sqlite" }
+async-trait.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true

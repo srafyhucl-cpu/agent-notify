@@ -1,0 +1,18 @@
+[package]
+name = "agentnotify-application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentnotify-agent-sdk = { path = "../agentnotify-agent-sdk" }
+agentnotify-channel-sdk = { path = "../agentnotify-channel-sdk" }
+agentnotify-domain = { path = "../agentnotify-domain" }
+async-trait.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true

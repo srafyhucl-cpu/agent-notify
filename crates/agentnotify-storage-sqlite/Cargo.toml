@@ -1,0 +1,19 @@
+[package]
+name = "agentnotify-storage-sqlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+agentnotify-application = { path = "../agentnotify-application" }
+agentnotify-domain = { path = "../agentnotify-domain" }
+async-trait.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true

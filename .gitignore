@@ -18,3 +18,9 @@ SHA256SUMS.txt
 
 # 图标设计稿原图（大模型输出，本地保留即可；仓库里用的是 assets/icon-source.png）
 assets/icon-reference.png
+
+/target/
+/apps/desktop-ui/node_modules/
+/apps/desktop-ui/dist/
+/apps/desktop-ui/playwright-report/
+/apps/desktop-ui/test-results/
