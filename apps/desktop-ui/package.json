@@ -16,7 +16,7 @@
     "test:e2e": "playwright test --config tests/playwright.config.ts",
     "test:a11y": "playwright test --config tests/playwright.config.ts --grep @a11y",
     "test:visual": "playwright test --config tests/playwright.config.ts --grep @visual",
-    "bridge:generate": "cargo run -p agentnotify-desktop --bin export-bindings"
+    "bridge:generate": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../tools/rust/export-bindings.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

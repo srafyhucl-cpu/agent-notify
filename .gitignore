@@ -9,6 +9,8 @@ Desktop.ini
 node_modules/
 dist/
 bin/
+!hosts/desktop-tauri/src/bin/
+!hosts/desktop-tauri/src/bin/export-bindings.rs
 .agents/
 .commandcode/
 .freebuff/

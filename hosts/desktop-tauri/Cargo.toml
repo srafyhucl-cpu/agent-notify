@@ -18,7 +18,10 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+specta = { version = "=2.0.0-rc.25", features = ["derive", "collect", "serde_json"] }
+specta-typescript = "=0.0.12"
 tauri = { version = "2", default-features = false, features = ["wry", "compression", "dynamic-acl"] }
-
-[dev-dependencies]
-serde_json = "1"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
