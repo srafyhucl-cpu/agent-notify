@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "apps/ingress",
   "crates/agentnotify-domain",
   "crates/agentnotify-application",
   "crates/agentnotify-runtime",

@@ -38,6 +38,7 @@ pub struct RuntimeConfig {
     pub reply_config: ReplyConfig,
     pub app_version: String,
     pub platform: String,
+    pub ingress_spool_dir: Option<PathBuf>,
     pub telemetry: Option<TelemetryConfig>,
     pub inbound_capacity: usize,
     pub worker_idle_delay: Duration,
@@ -83,8 +84,14 @@ impl RuntimeConfig {
 pub enum RuntimeError {
     Store(StoreError),
     Reply(ReplyError),
+    IngressSpool {
+        code: &'static str,
+        message: &'static str,
+    },
     Telemetry(TelemetryError),
-    InvalidConfiguration { field: &'static str },
+    InvalidConfiguration {
+        field: &'static str,
+    },
     IntegrityCheckFailed,
     Ingest(IngestError),
 }
@@ -94,6 +101,7 @@ impl RuntimeError {
         match self {
             Self::Store(error) => error.code(),
             Self::Reply(error) => error.code(),
+            Self::IngressSpool { code, .. } => code,
             Self::Telemetry(error) => error.code(),
             Self::InvalidConfiguration { field } => field,
             Self::IntegrityCheckFailed => "database_integrity_failed",
@@ -105,6 +113,7 @@ impl RuntimeError {
         match self {
             Self::Store(error) => error.message(),
             Self::Reply(error) => error.message(),
+            Self::IngressSpool { message, .. } => message,
             Self::Telemetry(error) => error.message(),
             Self::InvalidConfiguration { .. } => "运行时配置无效",
             Self::IntegrityCheckFailed => "数据库完整性检查失败，运行时未启动",
@@ -136,6 +145,15 @@ impl From<ReplyError> for RuntimeError {
 impl From<IngestError> for RuntimeError {
     fn from(value: IngestError) -> Self {
         Self::Ingest(value)
+    }
+}
+
+impl From<agentnotify_ingress::SpoolError> for RuntimeError {
+    fn from(value: agentnotify_ingress::SpoolError) -> Self {
+        Self::IngressSpool {
+            code: value.code(),
+            message: value.message(),
+        }
     }
 }
 
@@ -239,6 +257,9 @@ impl AppRuntime {
             store.clone(),
             store.clone(),
         ));
+
+        crate::ingress::drain_before_start(config.ingress_spool_dir.as_deref(), ingest.clone())
+            .await?;
 
         let accounts = enabled_accounts(store.clone(), config.channels.clone()).await?;
         let initial_overview = status.snapshot().await.map_err(map_status_error)?;

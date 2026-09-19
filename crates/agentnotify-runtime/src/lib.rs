@@ -1,6 +1,7 @@
 //! 运行时装配层，负责组件生命周期、监督和事件分发。
 
 mod event_bus;
+mod ingress;
 mod runtime;
 mod supervisor;
 mod telemetry;

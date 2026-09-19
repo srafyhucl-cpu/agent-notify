@@ -59,6 +59,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentnotify-ingress"
+version = "0.1.0"
+dependencies = [
+ "agentnotify-agent-sdk",
+ "agentnotify-domain",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "agentnotify-runtime"
 version = "0.1.0"
 dependencies = [
@@ -66,6 +79,7 @@ dependencies = [
  "agentnotify-application",
  "agentnotify-channel-sdk",
  "agentnotify-domain",
+ "agentnotify-ingress",
  "agentnotify-storage-sqlite",
  "async-trait",
  "futures",

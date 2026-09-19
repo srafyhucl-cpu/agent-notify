@@ -10,6 +10,7 @@ agentnotify-agent-sdk = { path = "../agentnotify-agent-sdk" }
 agentnotify-application = { path = "../agentnotify-application" }
 agentnotify-channel-sdk = { path = "../agentnotify-channel-sdk" }
 agentnotify-domain = { path = "../agentnotify-domain" }
+agentnotify-ingress = { path = "../../apps/ingress" }
 agentnotify-storage-sqlite = { path = "../agentnotify-storage-sqlite" }
 async-trait.workspace = true
 futures.workspace = true
