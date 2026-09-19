@@ -637,7 +637,7 @@ git commit -m "feat(clawbot): 实现可靠出站与消息回执"
 - Consumes: `getupdates`、账号 cursor/context token、`InboundEmitter`。
 - Produces: 标准化 `InboundMessage`、持久化 cursor/context token、账号状态变化事件。
 
-- [ ] **Step 1: 写引用 ID 冲突与恢复测试**
+- [x] **Step 1: 写引用 ID 冲突与恢复测试**
 
 ```rust
 #[test]
@@ -655,7 +655,7 @@ fn same_message_id_in_different_accounts_stays_isolated() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -665,7 +665,7 @@ cargo test -p agentnotify-channel-clawbot --test inbound --test session
 
 Expected: FAIL，长轮询未实现。
 
-- [ ] **Step 3: 实现归一化**
+- [x] **Step 3: 实现归一化**
 
 引用 ID 来源兼容：
 
@@ -683,7 +683,7 @@ Expected: FAIL，长轮询未实现。
 - 无平台消息 ID 时保留 `seq + from_user_id + referenced IDs + text hash` 的确定性回退材料。
 - ClawBot 的 ClaimKey 必须兼容旧 Go 版算法，使导入后的 `reply-state.jsonl` 能拦截升级前已处理的重复消息。
 
-- [ ] **Step 4: 实现账号游标与会话恢复**
+- [x] **Step 4: 实现账号游标与会话恢复**
 
 `start(account, emit)` 每个账号一个任务：
 
@@ -696,7 +696,7 @@ Expected: FAIL，长轮询未实现。
 7. `ret=-14` 时停止轮询，清空 cursor/context，写入 stale_at，发布 Blocked。
 8. shutdown 时取消长轮询并最佳努力调用 `notifystop`，失败不改退出结果。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 

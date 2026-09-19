@@ -11,6 +11,7 @@ use crate::{
     account::ClawBotAccount,
     descriptor::{MAX_TEXT_BYTES, capabilities, descriptor},
     send::{ClawBotHttpSendTransport, ClawBotSendTransport, send_outbound},
+    session::{ClawBotHttpSessionTransport, ClawBotSessionTransport, run_session_task},
     state::{ClawBotContext, ClawBotCredentials},
 };
 
@@ -20,6 +21,7 @@ pub struct ClawBotChannel {
     secrets: Arc<dyn SecretStore>,
     accounts: Option<Arc<dyn ChannelAccountStore>>,
     sender: Arc<dyn ClawBotSendTransport>,
+    session: Arc<dyn ClawBotSessionTransport>,
 }
 
 impl ClawBotChannel {
@@ -35,11 +37,17 @@ impl ClawBotChannel {
             secrets,
             accounts: None,
             sender,
+            session: Arc::new(ClawBotHttpSessionTransport::new()),
         }
     }
 
     pub fn with_account_store(mut self, accounts: Arc<dyn ChannelAccountStore>) -> Self {
         self.accounts = Some(accounts);
+        self
+    }
+
+    pub fn with_session_transport(mut self, session: Arc<dyn ClawBotSessionTransport>) -> Self {
+        self.session = session;
         self
     }
 
@@ -115,10 +123,22 @@ impl ChannelAdapter for ClawBotChannel {
 
     async fn start(
         &self,
-        _account: ChannelAccount,
-        _emit: InboundEmitter,
+        account: ChannelAccount,
+        emit: InboundEmitter,
     ) -> Result<ChannelTask, ChannelError> {
-        Ok(ChannelTask::completed())
+        let accounts = self.accounts.clone().ok_or_else(|| {
+            ChannelError::permanent(
+                "clawbot_account_store_missing",
+                "ClawBot 渠道缺少账号存储，无法启动长轮询",
+            )
+        })?;
+        let secrets = self.secrets.clone();
+        let session = self.session.clone();
+        let (cancel, cancel_receiver) = tokio::sync::watch::channel(false);
+        let handle = tokio::spawn(async move {
+            run_session_task(secrets, accounts, session, account, emit, cancel_receiver).await
+        });
+        Ok(ChannelTask::new(handle, cancel))
     }
 
     async fn send(
