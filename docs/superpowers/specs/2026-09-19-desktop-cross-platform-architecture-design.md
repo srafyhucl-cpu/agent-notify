@@ -18,7 +18,7 @@ AgentNotify 的核心功能是接收不同 Agent 的任务完成消息，通过�
 4. 新渠道通过适配器接入，支持不同认证、发送能力、入站模式和回复规则。
 5. 推送与引用回复使用同一套可靠投递、路由和去重模型。
 6. 桌面应用保持小型、常驻、低资源占用，不引入 Electron、Chromium 或 Node 运行时。
-7. CLI、Agent Hook 和 AI 自动化调用都通过同一套稳定、幂等的命令接口进入应用核心。
+7. Agent Hook 和插件通过最小化内部事件入口进入应用核心；管理操作只由桌面 UI 发起。
 8. 用户配置、登录状态、历史、路由和密钥在后续平台迁移时保持明确、安全、可测试。
 
 ## 非目标
@@ -45,7 +45,7 @@ AgentNotify 的核心功能是接收不同 Agent 的任务完成消息，通过�
 | 渠道扩展 | 渠道工厂与账号实例注册表，能力由描述符声明 |
 | UI 通信 | 类型化命令与事件，Web 端只依赖 HostBridge |
 | 可靠投递 | 事务型 outbox、幂等键、未知结果不自动重发 |
-| 外部集成 | 当前使用 CLI + Windows 命名管道；CLI 同时是 AI 自动化的稳定入口 |
+| 外部集成 | Agent Hook/插件使用版本化事件入口；当前 Windows 使用命名管道和持久化 spool |
 
 ## 目标仓库结构
 
@@ -67,7 +67,7 @@ hosts/
   harmony-pc/                  HarmonyOS PC 预留宿主，当前不实现
 
 apps/
-  cli/                         Hook、CLI、本地 IPC 客户端
+  ingress/                     Hook/插件事件入口，不提供管理命令
   desktop-ui/                  React + TypeScript 共享 UI
 
 docs/
@@ -213,7 +213,7 @@ pub struct AgentCapabilities {
 }
 ```
 
-UI、状态页与 CLI 只读取描述符和能力，不维护 Agent 名称枚举。
+UI、状态页与事件入口只读取描述符和能力，不维护 Agent 名称枚举。
 
 ### 适配器
 
@@ -364,7 +364,7 @@ pub struct DeliveryReceipt {
 
 职责：
 
-1. 接收 Agent Hook、CLI 或外部适配器事件。
+1. 接收 Agent Hook、插件或外部适配器事件。
 2. 解析并标准化事件。
 3. 校验 Agent 开关、勿扰时段、去重窗口和协议块。
 4. 创建 Notification。
@@ -408,7 +408,7 @@ pub struct DeliveryReceipt {
 - 最近投递状态。
 - 可执行的修复动作。
 
-CLI、桌面 UI 和诊断页读取同一个模型，不各自拼接状态。
+桌面 UI 和诊断页读取同一个模型，不各自拼接状态。
 
 ## 本地运行时与进程模型
 
@@ -423,42 +423,20 @@ Windows 当前使用一个常驻进程：
 - runtime 持有 Agent Registry、Channel Registry、数据库连接和任务监督器。
 - macOS 与 HarmonyOS PC 若后续获得真实测试环境，可以拆成对应 UI/后台宿主，但必须共享同一套核心协议和唯一状态源。
 
-### CLI、Hook 与 AI 控制入口
+### Agent Hook 与内部事件入口
 
-CLI 是应用的一等接口，不是桌面 UI 的附属脚本。桌面 UI、Agent Hook 和 AI 自动化调用同一个 application service，不复制业务逻辑。
+当前不提供面向 AI、脚本或用户的管理 CLI，也不提供 MCP。桌面 UI 是唯一的配置、登录、渠道管理、历史查询和退出入口。
 
-当前 Windows 本地传输使用命名管道。后续 macOS 可使用 Unix Domain Socket，HarmonyOS 使用 Ability/IPC；这些只是新的传输适配器，不改变命令契约。
+Agent Hook 与插件仍需要一个最小内部入口，但它只允许提交任务完成事件，不提供通用管理能力：
 
-CLI 至少提供以下命令族：
+1. Agent 通过固定内部入口或本地 IPC 提交版本化 `AgentEventEnvelope`。
+2. Windows 上优先写入桌面核心的命名管道；桌面核心未运行时，事件写入持久化 spool 后立即退出。
+3. spool 在下次启动时由核心消费，并沿用同一套 Claim 和幂等键处理重复事件。
+4. 入口不接受状态查询、配置修改、渠道登录、历史删除、退出应用等管理请求。
+5. 入口不得执行 shell、读取任意路径或接收任意文件内容。
+6. 命名管道限制为当前用户 SID；事件大小、spool 大小和保留时间都有上限。
 
-| 命令族 | 用途 |
-|---|---|
-| `agentnotify status` | 应用、核心、Agent、渠道和投递状态总览 |
-| `agentnotify agent list/status/enable/disable` | Agent 管理和开关 |
-| `agentnotify channel list/status/login/logout/send/test` | 渠道账号管理、登录、测试和发送 |
-| `agentnotify notify` | 接收 Hook 或 AI 生成的标准化通知 |
-| `agentnotify history list/show` | 查询通知和逐渠道投递结果 |
-| `agentnotify config get/set` | 读取和修改非敏感配置 |
-| `agentnotify doctor` | 输出机器可读的诊断结果 |
-| `agentnotify app show/quit` | 显示或退出桌面进程 |
-
-面向 AI 的调用约束：
-
-1. 所有命令支持 `--json`，输出包含 `schemaVersion`、`requestId`、`ok`、`data`、`error` 和稳定错误码。
-2. 所有命令默认非交互；二维码登录、配对码等交互流程通过状态查询命令驱动，不阻塞 stdin。
-3. 写操作支持 `--request-id` 幂等键；发送和测试支持 `--dry-run`。
-4. 退出码区分参数错误、权限不足、核心未运行、业务失败和结果未知。
-5. AI 只能通过 CLI 或本地 IPC 调用 application service，不允许操作窗口控件、数据库或配置文件。
-6. 后续如需 MCP，只实现 CLI/application service 的 MCP 包装，不新增第二套业务逻辑。
-
-安全约束：
-
-- Windows 命名管道限制为当前用户 SID，拒绝其他本地用户连接。
-- 只读命令默认放行；修改密钥、退出登录、退出应用等敏感命令要求显式确认标志或本机授权令牌。
-- 日志和 JSON 错误不得回显 token、cookie、密码和完整凭据。
-- CLI 不提供任意 shell、任意文件读写或越过 Agent 路由的会话选择能力。
-
-本地协议使用带版本号的 JSON 消息：
+内部协议只包含事件类型、协议版本、幂等键和标准化负载：
 
 ```json
 {
@@ -469,15 +447,7 @@ CLI 至少提供以下命令族：
 }
 ```
 
-运行中的桌面核心在线时，CLI 直接提交事件。核心未运行时，CLI 把事件写入持久化 spool 后立即退出；下一次启动时核心消费 spool。这样 Agent Hook 不会因 UI 未启动或数据库锁而阻塞。
-
-管理类命令在线时通过命名管道调用核心。核心未运行时默认返回 `CORE_NOT_RUNNING`；只有显式传入 `--start-if-needed` 才允许启动隐藏桌面核心后重试。这样可以避免 AI 调用无意中弹出窗口或启动多个实例。
-
-复杂度边界：
-
-- CLI 只是 application service 的适配器，因此新增命令不会新增一套业务逻辑。
-- 主要工程量在稳定 JSON 契约、幂等键、退出码、命名管道授权和并发控制，属于中等但可控。
-- 如果要求 AI 操作 Win32 控件、模拟鼠标键盘或提供任意 shell，复杂度会显著上升，并且安全边界不可控；本方案明确禁止这类实现。
+这一入口只解决 Agent 与桌面程序的连接问题，不承担自动化控制面。未来只有在出现明确使用场景后，才重新评审管理 CLI 或 MCP。
 
 ### 未排期平台：HarmonyOS PC
 
@@ -669,8 +639,8 @@ Windows 首版：
 - 测试渠道收到消息。
 - 引用消息能精确路由回测试 Agent。
 - 应用重启后路由、Claim 和历史保持。
-- CLI 的 `--json`、退出码、幂等键和 `--dry-run` 契约稳定。
-- AI 可在无窗口、无交互输入的情况下完成查询、发送和控制。
+- Agent 内部事件入口可接收标准化事件，桌面核心离线时 spool 不阻塞 Hook 退出。
+- 重复事件、超限事件和损坏 spool 不会造成重复发送或进程崩溃。
 - 命名管道拒绝其他 Windows 用户连接。
 
 macOS 与 HarmonyOS PC 当前没有测试环境，不进入当前集成测试和发布门禁。获得真实设备后再按 `PlatformHost` 契约补测试。
@@ -683,9 +653,8 @@ macOS 与 HarmonyOS PC 当前没有测试环境，不进入当前集成测试和
 2. 实现 SQLite、outbox、路由、Claim。
 3. 实现 Agent 与渠道注册表。
 4. 迁移或重写一个真实 Agent 和一个真实渠道。
-5. 保持 CLI 与 Hook 快速返回语义。
-6. 实现 AI 可调用的非交互 CLI、JSON 输出、稳定退出码和幂等请求。
-7. 用集成测试证明推送、引用回复和 CLI 控制闭环。
+5. 保持 Agent Hook 快速返回语义，核心离线时使用持久化 spool。
+6. 用集成测试证明推送、引用回复和内部事件入口闭环。
 
 ### 第二阶段：React 桌面 UI
 
@@ -716,5 +685,6 @@ macOS 与 HarmonyOS PC 当前没有测试环境，不进入当前集成测试和
 4. Windows 的推送、历史、路由和引用回复具有稳定一致的领域语义。
 5. Windows 上所有内置适配器通过契约测试。
 6. Windows 完成真实 Agent、真实渠道和真实引用回复验收。
-7. CLI 能被 AI 以非交互方式稳定调用，JSON 契约、错误码和幂等语义有自动化测试。
-8. macOS 与 HarmonyOS PC 只保留可替换宿主边界，不纳入当前完成标准。
+7. Agent Hook 能通过内部事件入口稳定提交事件，核心离线时 spool 与下次启动消费有自动化测试。
+8. 当前不提供面向 AI 或用户的管理 CLI，也不把 CLI 作为完成条件。
+9. macOS 与 HarmonyOS PC 只保留可替换宿主边界，不纳入当前完成标准。
