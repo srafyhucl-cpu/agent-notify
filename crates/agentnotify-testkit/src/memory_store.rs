@@ -7,8 +7,8 @@ use agentnotify_application::{
 };
 use agentnotify_channel_sdk::{ChannelAccount, DeliveryReceipt};
 use agentnotify_domain::{
-    AgentId, ChannelAccountId, ChannelId, ClaimKey, ClaimOutcome, Delivery, DeliveryId,
-    InboundClaim, Notification, NotificationId, ReplyRoute, RouteKey, Timestamp,
+    AgentId, AgentSessionId, ChannelAccountId, ChannelId, ClaimKey, ClaimOutcome, Delivery,
+    DeliveryId, InboundClaim, Notification, NotificationId, ReplyRoute, RouteKey, Timestamp,
 };
 use tokio::sync::RwLock;
 
@@ -117,6 +117,24 @@ impl IngestStore for MemoryStore {
                 &notification.agent_id == agent_id && notification.ingest_key == ingest_key
             })
             .cloned())
+    }
+
+    async fn recent_notification_at(
+        &self,
+        agent_id: &AgentId,
+        session_id: &AgentSessionId,
+    ) -> Result<Option<Timestamp>, StoreError> {
+        Ok(self
+            .notifications
+            .read()
+            .await
+            .values()
+            .filter(|notification| {
+                &notification.agent_id == agent_id
+                    && notification.session_id.as_ref() == Some(session_id)
+            })
+            .map(|notification| notification.occurred_at)
+            .max())
     }
 }
 

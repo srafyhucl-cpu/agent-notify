@@ -25,6 +25,7 @@ dependencies = [
  "agentnotify-domain",
  "async-trait",
  "serde",
+ "serde_json",
  "thiserror",
  "time",
  "tokio",

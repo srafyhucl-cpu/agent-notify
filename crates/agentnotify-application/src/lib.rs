@@ -2,12 +2,19 @@
 
 mod clock;
 mod error;
+mod ingest;
+mod policy;
 pub mod ports;
 
 use agentnotify_domain::DomainArea;
 
 pub use clock::{Clock, IdGenerator};
 pub use error::{ApplicationError, StoreError};
+pub use ingest::{IngestError, IngestResult, IngestService};
+pub use policy::{
+    AgentNotificationConfig, NotificationPolicy, PolicyDecision, PolicyInput, QuietHours,
+    SkipReason,
+};
 pub use ports::{
     ChannelAccountStore, ClaimStore, DeliveryRecord, DeliveryStore, EventSink, IngestStore,
     OutboxItem, OutboxLease, OutboxState, RouteStore, SecretError, SecretKind, SecretStore,

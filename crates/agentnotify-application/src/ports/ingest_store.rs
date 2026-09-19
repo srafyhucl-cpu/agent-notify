@@ -1,4 +1,4 @@
-use agentnotify_domain::{AgentId, Notification};
+use agentnotify_domain::{AgentId, AgentSessionId, Notification, Timestamp};
 
 use crate::StoreError;
 
@@ -15,4 +15,10 @@ pub trait IngestStore: Send + Sync {
         agent_id: &AgentId,
         ingest_key: &str,
     ) -> Result<Option<Notification>, StoreError>;
+
+    async fn recent_notification_at(
+        &self,
+        agent_id: &AgentId,
+        session_id: &AgentSessionId,
+    ) -> Result<Option<Timestamp>, StoreError>;
 }

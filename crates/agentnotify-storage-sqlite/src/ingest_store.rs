@@ -1,5 +1,5 @@
 use agentnotify_application::{IngestStore, OutboxItem, StoreError};
-use agentnotify_domain::{AgentId, Notification, Timestamp};
+use agentnotify_domain::{AgentId, AgentSessionId, Notification, Timestamp};
 use rusqlite::{TransactionBehavior, params};
 
 use crate::SqliteStore;
@@ -88,6 +88,34 @@ impl IngestStore for SqliteStore {
                 params![agent_id.as_str(), ingest_key],
                 notification_from_row,
             )
+        })
+        .await
+    }
+
+    async fn recent_notification_at(
+        &self,
+        agent_id: &AgentId,
+        session_id: &AgentSessionId,
+    ) -> Result<Option<Timestamp>, StoreError> {
+        let agent_id = agent_id.clone();
+        let session_id = session_id.clone();
+        self.run(move |connection| {
+            query_optional(
+                connection,
+                "SELECT MAX(occurred_at) FROM notifications \
+                 WHERE agent_id = ?1 AND session_id = ?2",
+                params![agent_id.as_str(), session_id.as_str()],
+                |row| {
+                    let value: Option<String> = row
+                        .get(0)
+                        .map_err(|_| StoreError::corrupted("读取最近通知时间失败"))?;
+                    value
+                        .map(|value| Timestamp::parse_rfc3339(&value))
+                        .transpose()
+                        .map_err(|_| StoreError::corrupted("最近通知时间格式损坏"))
+                },
+            )
+            .map(|value| value.flatten())
         })
         .await
     }
