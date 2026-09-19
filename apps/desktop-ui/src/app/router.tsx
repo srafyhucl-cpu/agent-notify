@@ -10,6 +10,7 @@ import { EmptyState } from "../components/EmptyState";
 import { createQueryClient } from "../data/queryClient";
 import { useHostEvent } from "../data/useHostEvent";
 import { AgentsPage } from "../features/agents/AgentsPage";
+import { ChannelsPage } from "../features/channels/ChannelsPage";
 import { OverviewPage } from "../features/overview/OverviewPage";
 import { AppShell } from "./AppShell";
 import { navigationItems } from "./navigation";
@@ -46,8 +47,14 @@ function RoutedApp({ bridge }: AppRouterProps) {
         <Route index element={<Navigate replace to="/overview" />} />
         <Route path="/overview" element={<OverviewPage bridge={bridge} />} />
         <Route path="/agents" element={<AgentsPage bridge={bridge} />} />
+        <Route path="/channels" element={<ChannelsPage bridge={bridge} />} />
         {navigationItems
-          .filter((item) => item.path !== "/overview" && item.path !== "/agents")
+          .filter(
+            (item) =>
+              item.path !== "/overview" &&
+              item.path !== "/agents" &&
+              item.path !== "/channels",
+          )
           .map((item) => (
             <Route
               key={item.path}

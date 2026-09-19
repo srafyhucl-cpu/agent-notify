@@ -53,7 +53,9 @@ export interface MockHostBridge extends HostBridge {
 }
 
 const MOCK_QR_PAYLOAD =
-  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 21 21"><rect width="21" height="21" fill="#fff"/><path fill="#111" d="M1 1h7v7H1zm2 2v3h3V3zm10-2h7v7h-7zm2 2v3h3V3zM1 13h7v7H1zm2 2v3h3v-3zm8-2h2v2h-2zm4 1h2v2h-2zm2-1h2v2h-2zm-6 4h2v2h-2zm3 1h2v2h-2zm3 0h3v3h-3zm-7-9h2v2h-2zm4 0h2v3h-2zm-5 4h3v2H9zm5-1h2v2h-2zm3 1h2v3h-2z"/></svg>',
+  )}`;
 
 function runtimeSummary(paused = false): RuntimeSummaryDto {
   return {

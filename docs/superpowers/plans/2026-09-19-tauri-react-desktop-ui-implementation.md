@@ -800,7 +800,7 @@ git commit -m "feat(ui): 实现总览与动态 Agents 页面"
 - Consumes: `list_channel_accounts`、`begin_channel_login`、`submit_channel_login_code`、`logout_channel_account`、`enable/disable_channel_account`、`send_test_notification`、`channel.login.changed`。
 - Produces: 渠道账号列表、登录二维码/配对码对话框、账号隔离设置和测试发送。
 
-- [ ] **Step 1: 写登录状态机测试**
+- [x] **Step 1: 写登录状态机测试**
 
 ```tsx
 it("moves from qr to paired without reloading the page", async () => {
@@ -818,7 +818,7 @@ it("moves from qr to paired without reloading the page", async () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -828,7 +828,7 @@ npm --prefix .\apps\desktop-ui run test -- --run ChannelsPage
 
 Expected: FAIL，Channels 页面不存在。
 
-- [ ] **Step 3: 实现多账号列表**
+- [x] **Step 3: 实现多账号列表**
 
 - 每个账号显示渠道 descriptor、账号名、状态、绑定标识、最近入站、最近投递、启用开关。
 - 同一渠道允许多个账号；所有操作明确携带 `accountId`。
@@ -836,7 +836,7 @@ Expected: FAIL，Channels 页面不存在。
 - 删除或退出登录前显示影响：路由和游标会失效，历史保留。
 - 测试发送必须选具体账号，不提供隐式默认账号。
 
-- [ ] **Step 4: 实现登录对话框**
+- [x] **Step 4: 实现登录对话框**
 
 状态包括：
 
@@ -859,7 +859,7 @@ Failed
 - 过期时提供“刷新二维码”；被阻止时显示中文原因和重试动作。
 - 登录成功但尚未建立主动会话时显示“等待首条入站消息”，不能误报可发送。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 
