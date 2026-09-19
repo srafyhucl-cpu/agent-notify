@@ -17,6 +17,7 @@ import type {
 import { createMockHostBridge } from "../../bridge";
 import type { MockHostBridge } from "../../bridge";
 import { AppRouter } from "../../app/router";
+import { legacyMigrationFixture } from "../../test/fixtures";
 import { createQueryClient } from "../../data/queryClient";
 import { OverviewPage } from "../overview/OverviewPage";
 import { AgentsPage } from "./AgentsPage";
@@ -92,6 +93,7 @@ function snapshotWithAgents(
     components: [],
     diagnostics: [],
     ...overrides,
+    migration: overrides.migration ?? legacyMigrationFixture(),
   };
 }
 

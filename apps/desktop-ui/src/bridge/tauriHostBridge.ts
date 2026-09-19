@@ -87,6 +87,10 @@ async function dispatchCommand(
       return commands.retryDelivery(payload as CommandPayloadMap["retry_delivery"]);
     case "get_diagnostics":
       return commands.getDiagnostics(payload as CommandPayloadMap["get_diagnostics"]);
+    case "retry_legacy_migration":
+      return commands.retryLegacyMigration(
+        payload as CommandPayloadMap["retry_legacy_migration"],
+      );
     case "get_settings":
       return commands.getSettings(payload as CommandPayloadMap["get_settings"]);
     case "update_settings":

@@ -11,6 +11,7 @@ import type {
   EmptyPayload,
   HostEvent,
   LoginSessionDto,
+  LegacyMigrationDto,
   MutationAcceptedDto,
   NotificationDetailDto,
   NotificationListDto,
@@ -40,6 +41,7 @@ export interface MockHostBridgeOptions {
   notificationDetails?: Record<string, NotificationDetailDto>;
   settings?: SettingsDto;
   diagnostics?: DiagnosticsDto;
+  migration?: LegacyMigrationDto;
   updateStatus?: UpdateStatusDto;
   loginSession?: LoginSessionDto;
   errors?: Partial<Record<BusinessCommand, CommandError>>;
@@ -84,6 +86,17 @@ function defaultSnapshot(): RuntimeSnapshotDto {
     },
     components: [],
     diagnostics: [],
+    migration: defaultMigration(),
+  };
+}
+
+function defaultMigration(): LegacyMigrationDto {
+  return {
+    state: "NotConfigured",
+    sourceDetected: false,
+    reportFile: null,
+    report: null,
+    error: null,
   };
 }
 
@@ -366,7 +379,11 @@ export function createMockHostBridge(
             },
             components: [],
             items: [],
+            migration: options.migration ?? defaultMigration(),
           } satisfies DiagnosticsDto);
+        break;
+      case "retry_legacy_migration":
+        result = options.migration ?? defaultMigration();
         break;
       case "get_settings":
         result = options.settings ?? defaultSettings();

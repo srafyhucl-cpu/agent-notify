@@ -20,6 +20,7 @@ pub enum BusinessCommand {
     GetNotificationDetail,
     RetryDelivery,
     GetDiagnostics,
+    RetryLegacyMigration,
     GetSettings,
     UpdateSettings,
     SetRuntimePaused,
@@ -42,9 +43,19 @@ pub enum RuntimeLifecycleStateDto {
     Starting,
     Running,
     Paused,
+    MigrationRequired,
     Stopping,
     Stopped,
     Failed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+pub enum MigrationStateDto {
+    NotConfigured,
+    NotDetected,
+    Completed,
+    Partial,
+    Required,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -111,6 +122,61 @@ pub struct EmptyPayload {}
 pub struct SafeErrorDto {
     pub code: String,
     pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationWarningDto {
+    pub code: String,
+    pub file: String,
+    pub record: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationReportDto {
+    pub imported_at: Option<String>,
+    pub source_file_count: u32,
+    pub settings_imported: u32,
+    pub agent_configs_imported: u32,
+    pub accounts_imported: u32,
+    pub notifications_imported: u32,
+    pub deliveries_imported: u32,
+    pub routes_imported: u32,
+    pub claims_imported: u32,
+    pub skipped_records: u32,
+    pub warnings: Vec<MigrationWarningDto>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationIssueDto {
+    pub code: String,
+    pub message: String,
+    pub file: Option<String>,
+    pub field: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyMigrationDto {
+    pub state: MigrationStateDto,
+    pub source_detected: bool,
+    pub report_file: Option<String>,
+    pub report: Option<MigrationReportDto>,
+    pub error: Option<MigrationIssueDto>,
+}
+
+impl Default for LegacyMigrationDto {
+    fn default() -> Self {
+        Self {
+            state: MigrationStateDto::NotConfigured,
+            source_detected: false,
+            report_file: None,
+            report: None,
+            error: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -303,6 +369,7 @@ pub struct RuntimeSnapshotDto {
     pub overview: SnapshotOverviewDto,
     pub components: Vec<ComponentDto>,
     pub diagnostics: Vec<DiagnosticItemDto>,
+    pub migration: LegacyMigrationDto,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
@@ -313,6 +380,7 @@ pub struct DiagnosticsDto {
     pub storage: StorageStatusDto,
     pub components: Vec<ComponentDto>,
     pub items: Vec<DiagnosticItemDto>,
+    pub migration: LegacyMigrationDto,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]

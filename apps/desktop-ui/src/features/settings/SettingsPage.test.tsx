@@ -12,6 +12,7 @@ import type {
   SettingsDto,
 } from "../../bridge/types";
 import { createQueryClient } from "../../data/queryClient";
+import { legacyMigrationFixture } from "../../test/fixtures";
 import { DiagnosticsPage } from "../diagnostics/DiagnosticsPage";
 import { SettingsPage } from "./SettingsPage";
 
@@ -134,6 +135,7 @@ function diagnosticsFixture(): DiagnosticsDto {
         action: null,
       },
     ],
+    migration: legacyMigrationFixture(),
   };
 }
 

@@ -5,6 +5,7 @@ import type {
   DeliveryDto,
   DiagnosticItemDto,
   DiagnosticsDto,
+  LegacyMigrationDto,
   NotificationDetailDto,
   NotificationSummaryDto,
   SettingsDto,
@@ -206,6 +207,7 @@ export function diagnosticsFixture(
     },
     components: [],
     items: [],
+    migration: legacyMigrationFixture(),
     ...overrides,
   };
 }
@@ -222,6 +224,18 @@ export function settingsFixture(overrides: Partial<SettingsDto> = {}): SettingsD
     autoStart: false,
     startHidden: false,
     updateChannel: "Stable",
+    ...overrides,
+  };
+}
+export function legacyMigrationFixture(
+  overrides: Partial<LegacyMigrationDto> = {},
+): LegacyMigrationDto {
+  return {
+    state: "NotConfigured",
+    sourceDetected: false,
+    reportFile: null,
+    report: null,
+    error: null,
     ...overrides,
   };
 }

@@ -10,6 +10,7 @@ const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
   Starting: "启动中",
   Running: "运行中",
   Paused: "已暂停",
+  MigrationRequired: "迁移待处理",
   Stopping: "正在停止",
   Stopped: "已停止",
   Failed: "异常",

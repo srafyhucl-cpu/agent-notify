@@ -11,6 +11,7 @@ import { EmptyState } from "../components/EmptyState";
 import { InlineError } from "../components/InlineError";
 import { LoadingRows } from "../components/LoadingRows";
 import { createQueryClient } from "../data/queryClient";
+import { legacyMigrationFixture } from "../test/fixtures";
 import { AppRouter } from "./router";
 import { AppShell } from "./AppShell";
 import { navigationItems } from "./navigation";
@@ -36,6 +37,7 @@ function runtimeSnapshot(paused = false): RuntimeSnapshotDto {
     },
     components: [],
     diagnostics: [],
+    migration: legacyMigrationFixture(),
   };
 }
 
@@ -120,6 +122,7 @@ describe("AppShell", () => {
         },
         components: [],
         diagnostics: [],
+        migration: legacyMigrationFixture(),
       },
     });
 

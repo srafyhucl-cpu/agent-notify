@@ -888,7 +888,7 @@ git commit -m "feat(migration): 只读导入旧版配置路由与历史"
 - Consumes: `LegacyImport`、旧安装路径、runtime 启动状态。
 - Produces: 首启迁移、失败阻断、迁移报告和 UI 诊断。
 
-- [ ] **Step 1: 写启动阻断与回滚测试**
+- [x] **Step 1: 写启动阻断与回滚测试**
 
 ```rust
 #[tokio::test]
@@ -901,7 +901,7 @@ async fn invalid_legacy_credentials_block_write_mode_and_keep_old_files() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -912,7 +912,7 @@ npm --prefix .\apps\desktop-ui run test -- --run MigrationDiagnostics
 
 Expected: FAIL，迁移启动接线不存在。
 
-- [ ] **Step 3: 接入启动顺序**
+- [x] **Step 3: 接入启动顺序**
 
 runtime 启动顺序改为：
 
@@ -927,7 +927,7 @@ runtime 启动顺序改为：
 
 迁移状态属于 snapshot，不在 React 本地持久化。
 
-- [ ] **Step 4: 实现回滚保护**
+- [x] **Step 4: 实现回滚保护**
 
 - 新应用启动时获取当前用户独占锁 `AgentNotify.runtime.lock`。
 - 如果旧 Go 版正在运行，检测到 active widget/heartbeat 或进程锁时拒绝迁移并提示先退出旧版。
@@ -935,7 +935,7 @@ runtime 启动顺序改为：
 - 数据库写入成功但应用在切换前退出时，下次启动继续使用同一导入状态。
 - 回滚到旧版时不删除 SQLite；旧版继续读取原文件，两条链路不得同时运行。
 
-- [ ] **Step 5: UI 诊断接入**
+- [x] **Step 5: UI 诊断接入**
 
 Diagnostics 增加“旧数据迁移”项：
 
@@ -946,7 +946,7 @@ Diagnostics 增加“旧数据迁移”项：
 
 提供“查看迁移报告”和“重新检测”。不提供“删除旧数据”按钮。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 

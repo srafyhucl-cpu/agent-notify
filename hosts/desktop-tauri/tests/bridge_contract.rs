@@ -22,6 +22,7 @@ fn stable_command_names_are_exact_and_append_only() {
             "get_notification_detail",
             "retry_delivery",
             "get_diagnostics",
+            "retry_legacy_migration",
             "get_settings",
             "update_settings",
             "set_runtime_paused",
@@ -64,6 +65,7 @@ fn snapshot_dto_uses_camel_case_for_typescript_consumers() {
         overview: SnapshotOverviewDto::default(),
         components: Vec::new(),
         diagnostics: Vec::new(),
+        migration: Default::default(),
     };
 
     let json = serde_json::to_value(snapshot).expect("快照必须可序列化");

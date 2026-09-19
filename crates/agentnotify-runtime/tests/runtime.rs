@@ -172,6 +172,7 @@ async fn fixture() -> Fixture {
         _temp: temp,
         config: RuntimeConfig {
             database_path,
+            migration: None,
             agents: Arc::new(AgentRegistry::default()),
             channels: Arc::new(channels),
             clock: Arc::new(FixedClock),

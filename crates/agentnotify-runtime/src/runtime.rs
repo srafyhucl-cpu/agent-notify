@@ -21,14 +21,25 @@ use crate::{
 };
 use crate::{TelemetryConfig, TelemetryError, TelemetryGuard, init_telemetry};
 
+use crate::migration::{
+    MigrationConfig, MigrationFailure, MigrationSnapshot, MigrationState, prepare_migration,
+};
+
 const DEFAULT_INBOUND_CAPACITY: usize = 256;
 const DEFAULT_WORKER_IDLE_DELAY: Duration = Duration::from_millis(250);
 const DEFAULT_STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 const DEFAULT_CHANNEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
+struct SnapshotMetadata {
+    app_version: String,
+    platform: String,
+    migration: Arc<MigrationSnapshot>,
+}
+
 /// 运行时装配参数。所有适配器必须先在注册表中显式注册。
 pub struct RuntimeConfig {
     pub database_path: PathBuf,
+    pub migration: Option<MigrationConfig>,
     pub agents: Arc<AgentRegistry>,
     pub channels: Arc<ChannelRegistry>,
     pub clock: Arc<dyn Clock>,
@@ -96,6 +107,7 @@ pub enum RuntimeError {
     },
     IntegrityCheckFailed,
     Ingest(IngestError),
+    Migration(Box<MigrationFailure>),
 }
 
 impl RuntimeError {
@@ -108,6 +120,7 @@ impl RuntimeError {
             Self::InvalidConfiguration { field } => field,
             Self::IntegrityCheckFailed => "database_integrity_failed",
             Self::Ingest(error) => error.code(),
+            Self::Migration(error) => error.code.as_str(),
         }
     }
 
@@ -120,6 +133,7 @@ impl RuntimeError {
             Self::InvalidConfiguration { .. } => "运行时配置无效",
             Self::IntegrityCheckFailed => "数据库完整性检查失败，运行时未启动",
             Self::Ingest(error) => error.message(),
+            Self::Migration(error) => error.message.as_str(),
         }
     }
 }
@@ -165,6 +179,12 @@ impl From<TelemetryError> for RuntimeError {
     }
 }
 
+impl From<MigrationFailure> for RuntimeError {
+    fn from(value: MigrationFailure) -> Self {
+        Self::Migration(Box::new(value))
+    }
+}
+
 /// runtime 对外暴露的脱敏快照。
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct RuntimeSnapshot {
@@ -174,6 +194,7 @@ pub struct RuntimeSnapshot {
     pub overview: StatusOverview,
     pub components: Vec<ComponentSnapshot>,
     pub diagnostics: Vec<DiagnosticItem>,
+    pub migration: MigrationSnapshot,
 }
 
 impl RuntimeSnapshot {
@@ -223,6 +244,14 @@ impl AppRuntime {
         if !store.integrity_check().await? {
             return Err(RuntimeError::IntegrityCheckFailed);
         }
+
+        let migration = prepare_migration(config.migration.as_ref(), store.clone()).await?;
+        let runtime_lock = migration.lock;
+        let snapshot_metadata = SnapshotMetadata {
+            app_version: config.app_version.clone(),
+            platform: config.platform.clone(),
+            migration: Arc::new(migration.snapshot),
+        };
 
         let recovery = store.recover_interrupted_work(config.clock.now()).await?;
         if recovery.interrupted_outbox > 0 || recovery.interrupted_claims > 0 {
@@ -289,11 +318,12 @@ impl AppRuntime {
         let (inbound_sender, inbound_receiver) =
             mpsc::channel::<InboundMessage>(config.inbound_capacity());
         let (status_sender, status_receiver) = watch::channel(build_snapshot(
-            &config.app_version,
-            &config.platform,
+            &snapshot_metadata.app_version,
+            &snapshot_metadata.platform,
             RuntimeState::Starting,
             initial_overview,
             &supervisor,
+            &snapshot_metadata.migration,
         ));
 
         supervisor.set_runtime_state(RuntimeState::Running);
@@ -345,8 +375,7 @@ impl AppRuntime {
             run_status_refresher(
                 status,
                 supervisor.clone(),
-                config.app_version.clone(),
-                config.platform.clone(),
+                snapshot_metadata,
                 status_sender,
                 status_cancel,
                 config.status_refresh_interval(),
@@ -369,9 +398,77 @@ impl AppRuntime {
             stopped: false,
             host_platform: config.platform.clone(),
             host_version: config.app_version.clone(),
+            migration_required: false,
+            runtime_lock,
             _telemetry: telemetry,
         })
     }
+}
+
+/// 迁移失败时只构建可读取诊断的 runtime，不启动渠道、Outbox 或 ingress。
+pub async fn start_migration_diagnostics(
+    config: RuntimeConfig,
+    failure: MigrationFailure,
+) -> Result<RuntimeHandle, RuntimeError> {
+    if config.app_version.trim().is_empty() {
+        return Err(RuntimeError::InvalidConfiguration {
+            field: "app_version",
+        });
+    }
+    if config.platform.trim().is_empty() {
+        return Err(RuntimeError::InvalidConfiguration { field: "platform" });
+    }
+
+    let telemetry = config.telemetry.clone().map(init_telemetry).transpose()?;
+    let store = Arc::new(SqliteStore::open(&config.database_path)?);
+    if !store.integrity_check().await? {
+        return Err(RuntimeError::IntegrityCheckFailed);
+    }
+
+    let event_bus = Arc::new(EventBus::new());
+    let ingest = Arc::new(IngestService::new(
+        config.agents.clone(),
+        store.clone(),
+        event_bus.clone(),
+        config.clock.clone(),
+        config.id_generator.clone(),
+        config.notification_policy.clone(),
+    ));
+    let status = Arc::new(StatusService::new(
+        config.agents.clone(),
+        config.channels.clone(),
+        store.clone(),
+        store.clone(),
+    ));
+    let overview = status.snapshot().await.map_err(map_status_error)?;
+    let supervisor = Supervisor::new();
+    supervisor.set_runtime_state(RuntimeState::MigrationRequired);
+    let (cancel_sender, _cancel_receiver) = watch::channel(false);
+    let (status_sender, status_receiver) = watch::channel(build_snapshot(
+        &config.app_version,
+        &config.platform,
+        RuntimeState::MigrationRequired,
+        overview,
+        &supervisor,
+        &failure.snapshot,
+    ));
+    drop(status_sender);
+
+    Ok(RuntimeHandle {
+        supervisor,
+        event_bus,
+        status: status_receiver,
+        store,
+        ingest,
+        cancel_sender,
+        tasks: Vec::new(),
+        stopped: false,
+        host_platform: config.platform.clone(),
+        host_version: config.app_version.clone(),
+        migration_required: true,
+        runtime_lock: None,
+        _telemetry: telemetry,
+    })
 }
 
 pub struct RuntimeHandle {
@@ -385,6 +482,8 @@ pub struct RuntimeHandle {
     stopped: bool,
     host_platform: String,
     host_version: String,
+    migration_required: bool,
+    runtime_lock: Option<crate::migration::RuntimeLock>,
     _telemetry: Option<TelemetryGuard>,
 }
 
@@ -410,6 +509,13 @@ impl RuntimeHandle {
     }
 
     pub async fn ingest(&self, envelope: AgentEventEnvelope) -> Result<IngestResult, RuntimeError> {
+        if self.migration_required {
+            return Err(RuntimeError::Migration(Box::new(MigrationFailure {
+                code: "legacy_import_failed".into(),
+                message: "旧数据迁移未完成，当前运行时拒绝接收新事件".into(),
+                snapshot: Box::new(self.snapshot().migration),
+            })));
+        }
         Ok(self.ingest.ingest(envelope).await?)
     }
 
@@ -427,6 +533,7 @@ impl RuntimeHandle {
             task_status = "stopping",
         )
         .in_scope(|| tracing::info!("停止桌面运行时"));
+        self.runtime_lock.take();
         let _ = self.cancel_sender.send(true);
         for task in self.tasks.drain(..) {
             let _ = task.await;
@@ -571,8 +678,7 @@ async fn run_outbox_worker(
 async fn run_status_refresher(
     status: Arc<StatusService>,
     supervisor: Supervisor,
-    app_version: String,
-    platform: String,
+    metadata: SnapshotMetadata,
     sender: watch::Sender<RuntimeSnapshot>,
     mut cancel: watch::Receiver<bool>,
     interval: Duration,
@@ -585,11 +691,12 @@ async fn run_status_refresher(
             Ok(overview) => {
                 let state = supervisor.runtime_state();
                 let _ = sender.send(build_snapshot(
-                    &app_version,
-                    &platform,
+                    &metadata.app_version,
+                    &metadata.platform,
                     state,
                     overview,
                     &supervisor,
+                    &metadata.migration,
                 ));
             }
             Err(error) => {
@@ -646,6 +753,7 @@ fn build_snapshot(
     state: RuntimeState,
     overview: StatusOverview,
     supervisor: &Supervisor,
+    migration: &MigrationSnapshot,
 ) -> RuntimeSnapshot {
     let components = supervisor.components();
     let failed_components = components
@@ -679,6 +787,7 @@ fn build_snapshot(
                 "部分后台组件已停止，其他组件仍在运行".into()
             },
         },
+        migration_diagnostic(migration),
     ];
     RuntimeSnapshot {
         app_version: app_version.into(),
@@ -687,6 +796,39 @@ fn build_snapshot(
         overview,
         components,
         diagnostics,
+        migration: migration.clone(),
+    }
+}
+
+fn migration_diagnostic(migration: &MigrationSnapshot) -> DiagnosticItem {
+    let (level, message) = match migration.state {
+        MigrationState::NotConfigured => (DiagnosticLevel::Ok, "旧数据迁移未配置".into()),
+        MigrationState::NotDetected => (DiagnosticLevel::Ok, "未发现旧版 Agent-notify 数据".into()),
+        MigrationState::Completed => (DiagnosticLevel::Ok, "旧数据迁移已完成".into()),
+        MigrationState::Partial => (
+            DiagnosticLevel::Warning,
+            format!(
+                "旧数据已导入，跳过 {} 条损坏记录",
+                migration
+                    .report
+                    .as_ref()
+                    .map(|report| report.skipped_records)
+                    .unwrap_or_default()
+            ),
+        ),
+        MigrationState::Required => (
+            DiagnosticLevel::Error,
+            migration
+                .error
+                .as_ref()
+                .map(|error| error.message.clone())
+                .unwrap_or_else(|| "旧数据迁移未完成，当前处于只读诊断模式".into()),
+        ),
+    };
+    DiagnosticItem {
+        code: "legacy-migration".into(),
+        level,
+        message,
     }
 }
 

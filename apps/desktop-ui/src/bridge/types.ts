@@ -21,6 +21,7 @@ export const commands = {
 	getNotificationDetail: (payload: NotificationIdPayload) => __TAURI_INVOKE<NotificationDetailDto>("get_notification_detail", { payload }),
 	retryDelivery: (payload: DeliveryIdPayload) => __TAURI_INVOKE<DeliveryDto>("retry_delivery", { payload }),
 	getDiagnostics: (payload: EmptyPayload) => __TAURI_INVOKE<DiagnosticsDto>("get_diagnostics", { payload }),
+	retryLegacyMigration: (payload: EmptyPayload) => __TAURI_INVOKE<LegacyMigrationDto>("retry_legacy_migration", { payload }),
 	getSettings: (payload: EmptyPayload) => __TAURI_INVOKE<SettingsDto>("get_settings", { payload }),
 	updateSettings: (payload: SettingsDto) => __TAURI_INVOKE<SettingsDto>("update_settings", { payload }),
 	setRuntimePaused: (payload: SetRuntimePausedPayload) => __TAURI_INVOKE<RuntimeSummaryDto>("set_runtime_paused", { payload }),
@@ -70,7 +71,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status";
 
 export type ChannelAccountDto = {
 	id: string,
@@ -196,11 +197,20 @@ export type DiagnosticsDto = {
 	storage: StorageStatusDto,
 	components: ComponentDto[],
 	items: DiagnosticItemDto[],
+	migration: LegacyMigrationDto,
 };
 
 export type EmptyPayload = Record<string, never>;
 
 export type HostEvent = "snapshot.changed" | "delivery.changed" | "channel.login.changed";
+
+export type LegacyMigrationDto = {
+	state: MigrationStateDto,
+	sourceDetected: boolean,
+	reportFile: string | null,
+	report: MigrationReportDto | null,
+	error: MigrationIssueDto | null,
+};
 
 export type LoginSessionDto = {
 	id: string,
@@ -214,6 +224,35 @@ export type LoginSessionDto = {
 };
 
 export type LoginSessionStateDto = "Idle" | "Preparing" | "QrReady" | "WaitingScan" | "NeedVerifyCode" | "WaitingFirstInbound" | "Paired" | "Expired" | "Blocked" | "Failed";
+
+export type MigrationIssueDto = {
+	code: string,
+	message: string,
+	file: string | null,
+	field: string | null,
+};
+
+export type MigrationReportDto = {
+	importedAt: string | null,
+	sourceFileCount: number,
+	settingsImported: number,
+	agentConfigsImported: number,
+	accountsImported: number,
+	notificationsImported: number,
+	deliveriesImported: number,
+	routesImported: number,
+	claimsImported: number,
+	skippedRecords: number,
+	warnings: MigrationWarningDto[],
+};
+
+export type MigrationStateDto = "NotConfigured" | "NotDetected" | "Completed" | "Partial" | "Required";
+
+export type MigrationWarningDto = {
+	code: string,
+	file: string,
+	record: number | null,
+};
 
 export type MutationAcceptedDto = {
 	accepted: boolean,
@@ -267,13 +306,14 @@ export type QuietHoursDto = {
 	end: string,
 };
 
-export type RuntimeLifecycleStateDto = "Starting" | "Running" | "Paused" | "Stopping" | "Stopped" | "Failed";
+export type RuntimeLifecycleStateDto = "Starting" | "Running" | "Paused" | "MigrationRequired" | "Stopping" | "Stopped" | "Failed";
 
 export type RuntimeSnapshotDto = {
 	runtime: RuntimeSummaryDto,
 	overview: SnapshotOverviewDto,
 	components: ComponentDto[],
 	diagnostics: DiagnosticItemDto[],
+	migration: LegacyMigrationDto,
 };
 
 export type RuntimeSummaryDto = {

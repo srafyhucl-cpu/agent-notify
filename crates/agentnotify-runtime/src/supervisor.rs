@@ -16,6 +16,7 @@ pub enum RuntimeState {
     Starting,
     Running,
     Degraded,
+    MigrationRequired,
     Stopping,
     Stopped,
     Failed,

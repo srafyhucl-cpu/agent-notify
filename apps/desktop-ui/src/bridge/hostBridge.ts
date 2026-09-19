@@ -12,6 +12,7 @@ import type {
   DiagnosticsDto,
   EmptyPayload,
   HostEvent as GeneratedHostEvent,
+  LegacyMigrationDto,
   LoginSessionDto,
   MutationAcceptedDto,
   NotificationDetailDto,
@@ -47,6 +48,7 @@ export interface CommandPayloadMap {
   get_notification_detail: NotificationIdPayload;
   retry_delivery: DeliveryIdPayload;
   get_diagnostics: EmptyPayload;
+  retry_legacy_migration: EmptyPayload;
   get_settings: EmptyPayload;
   update_settings: SettingsDto;
   set_runtime_paused: SetRuntimePausedPayload;
@@ -69,6 +71,7 @@ export interface CommandResultMap {
   get_notification_detail: NotificationDetailDto;
   retry_delivery: DeliveryDto;
   get_diagnostics: DiagnosticsDto;
+  retry_legacy_migration: LegacyMigrationDto;
   get_settings: SettingsDto;
   update_settings: SettingsDto;
   set_runtime_paused: RuntimeSummaryDto;

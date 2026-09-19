@@ -154,6 +154,7 @@ pub fn runtime_config(database_path: std::path::PathBuf, shared: &SharedAdapters
 
     RuntimeConfig {
         database_path,
+        migration: None,
         agents: Arc::new(agents),
         channels: Arc::new(channels),
         clock: Arc::new(shared.clock.clone()),

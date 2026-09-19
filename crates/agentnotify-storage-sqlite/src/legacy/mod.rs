@@ -74,6 +74,11 @@ impl LegacyPaths {
         }
     }
 
+    /// 至少一个旧版源文件存在时才执行首次导入，避免空目录生成无意义状态。
+    pub fn has_sources(&self) -> bool {
+        self.source_files().iter().any(|(_, path)| path.is_file())
+    }
+
     fn agent_markers(&self) -> [(&'static str, &Path); 5] {
         [
             ("opencode", self.opencode_marker.as_path()),
@@ -115,6 +120,11 @@ impl LegacyImport {
             store,
             secrets,
         }
+    }
+
+    /// 读取已经持久化的导入报告，不重新读取旧文件或写数据库。
+    pub async fn existing_report(&self) -> Result<Option<ImportReport>, LegacyImportError> {
+        self.load_existing_report().await
     }
 
     /// 执行一次只读导入；已有 `legacyImportV1` 状态时直接返回原报告。

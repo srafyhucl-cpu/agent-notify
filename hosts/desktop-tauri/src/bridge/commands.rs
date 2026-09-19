@@ -5,7 +5,7 @@ use tauri::State;
 use super::dto::{
     AgentDto, BeginChannelLoginPayload, BeginChannelLoginResultDto, ChannelAccountDto,
     ChannelAccountIdPayload, ChannelListDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto,
-    EmptyPayload, LoginSessionDto, MutationAcceptedDto, NotificationDetailDto,
+    EmptyPayload, LegacyMigrationDto, LoginSessionDto, MutationAcceptedDto, NotificationDetailDto,
     NotificationFilterPayload, NotificationIdPayload, NotificationListDto, RuntimeSnapshotDto,
     RuntimeSummaryDto, SendTestNotificationPayload, SetRuntimePausedPayload, SettingsDto,
     SubmitChannelLoginCodePayload, TestNotificationResultDto, UpdateAgentConfigPayload,
@@ -75,6 +75,11 @@ pub trait HostCommandService: Send + Sync {
     -> Result<DeliveryDto, CommandError>;
 
     async fn get_diagnostics(&self, payload: EmptyPayload) -> Result<DiagnosticsDto, CommandError>;
+
+    async fn retry_legacy_migration(
+        &self,
+        payload: EmptyPayload,
+    ) -> Result<LegacyMigrationDto, CommandError>;
 
     async fn get_settings(&self, payload: EmptyPayload) -> Result<SettingsDto, CommandError>;
 
@@ -229,6 +234,15 @@ pub async fn get_diagnostics(
     payload: EmptyPayload,
 ) -> Result<DiagnosticsDto, CommandError> {
     state.service.get_diagnostics(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn retry_legacy_migration(
+    state: State<'_, BridgeState>,
+    payload: EmptyPayload,
+) -> Result<LegacyMigrationDto, CommandError> {
+    state.service.retry_legacy_migration(payload).await
 }
 
 #[tauri::command]

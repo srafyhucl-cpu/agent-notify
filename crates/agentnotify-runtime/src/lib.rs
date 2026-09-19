@@ -2,6 +2,7 @@
 
 mod event_bus;
 mod ingress;
+mod migration;
 mod platform;
 mod runtime;
 mod supervisor;
@@ -26,9 +27,13 @@ pub trait RuntimeComponent: Send + Sync {
 }
 
 pub use event_bus::{EventBus, RuntimeEvent};
+pub use migration::{
+    MigrationConfig, MigrationFailure, MigrationIssue, MigrationReportSummary, MigrationSnapshot,
+    MigrationState, MigrationWarning,
+};
 pub use runtime::{
     AppRuntime, DiagnosticItem, DiagnosticLevel, RuntimeConfig, RuntimeError, RuntimeHandle,
-    RuntimeSnapshot,
+    RuntimeSnapshot, start_migration_diagnostics,
 };
 pub use supervisor::{ComponentFailure, ComponentSnapshot, RuntimeState, Supervisor};
 pub use telemetry::{
