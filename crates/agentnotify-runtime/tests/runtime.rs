@@ -183,6 +183,7 @@ async fn fixture() -> Fixture {
             app_version: "0.1.0-test".into(),
             platform: "windows".into(),
             ingress_spool_dir: None,
+            ingress_pipe_enabled: false,
             telemetry: None,
             inbound_capacity: 16,
             worker_idle_delay: Duration::from_millis(5),

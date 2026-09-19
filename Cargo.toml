@@ -28,7 +28,8 @@ sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
 time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "fs", "process"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "fs", "process", "net", "io-util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "ansi"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_Threading"] }

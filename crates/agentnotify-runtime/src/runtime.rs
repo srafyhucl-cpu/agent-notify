@@ -39,6 +39,7 @@ pub struct RuntimeConfig {
     pub app_version: String,
     pub platform: String,
     pub ingress_spool_dir: Option<PathBuf>,
+    pub ingress_pipe_enabled: bool,
     pub telemetry: Option<TelemetryConfig>,
     pub inbound_capacity: usize,
     pub worker_idle_delay: Duration,
@@ -299,6 +300,14 @@ impl AppRuntime {
             );
         }
         drop(inbound_sender);
+
+        if config.ingress_pipe_enabled {
+            let ingress_cancel = cancel_receiver.clone();
+            tasks.push(supervisor.clone().spawn_component(
+                "ingress.pipe",
+                crate::platform::run_ingress_server(ingest.clone(), ingress_cancel),
+            ));
+        }
 
         let reply_cancel = cancel_receiver.clone();
         tasks.push(supervisor.clone().spawn_component(
