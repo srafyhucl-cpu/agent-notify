@@ -41,7 +41,7 @@
 - Consumes: `AgentAdapter`、`AgentDescriptor`、`AgentEventEnvelope`。
 - Produces: `OpenCodeAgent`，descriptor ID 固定为 `opencode`。
 
-- [ ] **Step 1: 写事件解析与契约测试**
+- [x] **Step 1: 写事件解析与契约测试**
 
 ```rust
 #[test]
@@ -71,7 +71,7 @@ async fn adapter_passes_agent_contract() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -81,7 +81,7 @@ cargo test -p agentnotify-agent-opencode
 
 Expected: FAIL，OpenCode crate 不存在。
 
-- [ ] **Step 3: 实现 descriptor 与事件解析**
+- [x] **Step 3: 实现 descriptor 与事件解析**
 
 Descriptor：
 
@@ -104,7 +104,7 @@ AgentCapabilities {
 
 只接受 `payload.eventType == "session.completed"`。缺失 sessionId、title 或 body 时返回 `AgentError::InvalidEvent`，不得用“最近会话”补全。事件归属为 `agentId=opencode`，其他 agent 的 envelope 返回 `InvalidEvent`。
 
-- [ ] **Step 4: 实现回复收件箱路径与健康检查**
+- [x] **Step 4: 实现回复收件箱路径与健康检查**
 
 收件箱默认路径保持兼容：
 
@@ -125,7 +125,7 @@ AgentCapabilities {
 
 健康检查不得启动 OpenCode、读取其会话数据库或写入收件箱。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 
