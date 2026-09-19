@@ -6,6 +6,7 @@ mod error;
 mod ingest;
 mod policy;
 pub mod ports;
+mod reply;
 mod retry;
 
 use agentnotify_domain::DomainArea;
@@ -23,6 +24,7 @@ pub use ports::{
     OutboxItem, OutboxLease, OutboxState, RouteStore, SecretError, SecretKind, SecretStore,
     SecretValue, StatusSnapshot, StatusStore,
 };
+pub use reply::{ReplyConfig, ReplyError, ReplyOutcome, ReplyRejection, ReplyService, ReplyTarget};
 pub use retry::RetryPolicy;
 
 /// 每个应用用例都声明所属领域区域和稳定名称，便于监督与诊断。
