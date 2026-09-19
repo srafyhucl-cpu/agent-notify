@@ -1,5 +1,16 @@
 //! 纯领域规则层，不依赖 I/O、数据库或操作系统 API。
 
+mod error;
+mod identifier;
+mod timestamp;
+
+pub use error::DomainError;
+pub use identifier::{
+    AgentId, AgentSessionId, ChannelAccountId, ChannelId, DeliveryId, ExternalMessageId,
+    InboundMessageId, NotificationId, RequestId,
+};
+pub use timestamp::Timestamp;
+
 /// 领域规则覆盖的稳定业务区域。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum DomainArea {
