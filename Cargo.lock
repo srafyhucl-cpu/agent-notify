@@ -198,8 +198,10 @@ dependencies = [
 name = "agentnotify-testkit"
 version = "0.1.0"
 dependencies = [
+ "agentnotify-agent-opencode",
  "agentnotify-agent-sdk",
  "agentnotify-application",
+ "agentnotify-channel-clawbot",
  "agentnotify-channel-sdk",
  "agentnotify-domain",
  "agentnotify-runtime",

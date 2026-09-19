@@ -22,5 +22,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 agentnotify-runtime = { path = "../agentnotify-runtime" }
+agentnotify-agent-opencode = { path = "../agentnotify-agent-opencode" }
+agentnotify-channel-clawbot = { path = "../agentnotify-channel-clawbot" }
 rusqlite.workspace = true
 tempfile.workspace = true

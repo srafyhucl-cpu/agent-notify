@@ -975,7 +975,7 @@ git commit -m "feat(runtime): 接入首启迁移与回滚保护"
 - Consumes: Rust Preview 应用、新 OpenCode 插件、真实 ClawBot 测试账号、真实 OpenCode。
 - Produces: 可复核的真实链路证据和未通过项。
 
-- [ ] **Step 1: 运行隔离契约测试**
+- [x] **Step 1: 运行隔离契约测试**
 
 ```rust
 #[tokio::test]
