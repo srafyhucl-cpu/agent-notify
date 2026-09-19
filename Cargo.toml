@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "apps/ingress",
+  "hosts/desktop-tauri",
   "crates/agentnotify-domain",
   "crates/agentnotify-application",
   "crates/agentnotify-runtime",

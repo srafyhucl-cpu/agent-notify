@@ -1,0 +1,13 @@
+{
+  "identifier": "main",
+  "description": "主窗口只允许显示、隐藏、聚焦和关闭自身。",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-set-focus"
+  ]
+}

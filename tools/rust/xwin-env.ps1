@@ -73,3 +73,5 @@ $env:TARGET_AR = 'llvm-lib'
 $env:TARGET_CC = 'clang-cl'
 $env:TARGET_CXX = 'clang-cl'
 Remove-Item 'Env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUNNER' -ErrorAction SilentlyContinue
+$env:RC = 'llvm-rc'
+$env:RC_x86_64_pc_windows_msvc = 'llvm-rc'

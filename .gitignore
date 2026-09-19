@@ -1,5 +1,6 @@
 .env
 *.log
+*.tsbuildinfo
 *.tmp
 *.bak-notify-wrapper
 Thumbs.db
@@ -24,3 +25,4 @@ assets/icon-reference.png
 /apps/desktop-ui/dist/
 /apps/desktop-ui/playwright-report/
 /apps/desktop-ui/test-results/
+/hosts/desktop-tauri/gen/
