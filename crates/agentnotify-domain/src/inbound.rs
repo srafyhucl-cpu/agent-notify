@@ -137,6 +137,20 @@ impl InboundMessage {
 pub struct ClaimKey(String);
 
 impl ClaimKey {
+    /// 从持久化记录恢复去重键。
+    pub fn new(value: impl Into<String>) -> Result<Self, DomainError> {
+        Self::parse(value)
+    }
+
+    /// 从持久化记录恢复去重键；旧版迁移键允许非当前格式。
+    pub fn parse(value: impl Into<String>) -> Result<Self, DomainError> {
+        let value = value.into();
+        if value.trim().is_empty() || value.trim() != value {
+            return Err(DomainError::InvalidValue { field: "claim_key" });
+        }
+        Ok(Self(value))
+    }
+
     /// 生成当前格式的去重键；提供 legacy_key 时保留旧键原值以兼容既有状态。
     pub fn from_inbound(message: &InboundMessage) -> Result<Self, DomainError> {
         if let Some(legacy_key) = &message.claim_material.legacy_key {

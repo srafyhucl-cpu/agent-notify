@@ -5,52 +5,69 @@ use agentnotify_domain::Timestamp;
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
+use crate::database::Database;
+
 const MIGRATION_0001: &str = include_str!("../migrations/0001_init.sql");
 const MIGRATION_0001_VERSION: i64 = 1;
 
-/// SQLite 存储适配器。连接在创建时即启用 WAL、外键和忙等待配置。
+/// SQLite 存储适配器。数据库连接由专用调度线程独占。
+#[derive(Clone)]
 pub struct SqliteStore {
-    connection: Connection,
+    database: Database,
 }
 
 impl SqliteStore {
+    /// 打开数据库并在返回前完成全部待应用迁移。
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let connection = Connection::open(path)
-            .map_err(|error| storage_error("打开 SQLite 数据库失败", error))?;
-        configure_connection(&connection)?;
-        Ok(Self { connection })
+        Ok(Self {
+            database: Database::open(path)?,
+        })
     }
 
-    pub fn migrate(&mut self) -> Result<(), StoreError> {
-        run_migrations(&mut self.connection)
+    pub(crate) async fn run<T, F>(&self, operation: F) -> Result<T, StoreError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<T, StoreError> + Send + 'static,
+    {
+        self.database.run(operation).await
     }
 
-    pub fn schema_version(&self) -> Result<i64, StoreError> {
-        self.connection
-            .query_row(
-                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(|error| storage_error("读取数据库版本失败", error))
+    pub async fn schema_version(&self) -> Result<i64, StoreError> {
+        self.run(|connection| {
+            connection
+                .query_row(
+                    "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|error| storage_error("读取数据库版本失败", error))
+        })
+        .await
     }
 
-    pub fn journal_mode(&self) -> Result<String, StoreError> {
-        self.connection
-            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
-            .map_err(|error| storage_error("读取 SQLite journal_mode 失败", error))
+    pub async fn journal_mode(&self) -> Result<String, StoreError> {
+        self.run(|connection| {
+            connection
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .map_err(|error| storage_error("读取 SQLite journal_mode 失败", error))
+        })
+        .await
     }
 
-    pub fn table_exists(&self, table: &str) -> Result<bool, StoreError> {
-        self.connection
-            .query_row(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
-                [table],
-                |_| Ok(()),
-            )
-            .optional()
-            .map(|value| value.is_some())
-            .map_err(|error| storage_error("检查数据库表失败", error))
+    pub async fn table_exists(&self, table: &str) -> Result<bool, StoreError> {
+        let table = table.to_owned();
+        self.run(move |connection| {
+            connection
+                .query_row(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map(|value| value.is_some())
+                .map_err(|error| storage_error("检查数据库表失败", error))
+        })
+        .await
     }
 }
 
@@ -111,7 +128,7 @@ pub fn run_migrations(connection: &mut Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn configure_connection(connection: &Connection) -> Result<(), StoreError> {
+pub(crate) fn configure_connection(connection: &Connection) -> Result<(), StoreError> {
     for pragma in [
         "PRAGMA journal_mode = WAL;",
         "PRAGMA foreign_keys = ON;",
@@ -125,7 +142,7 @@ fn configure_connection(connection: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn storage_error(context: &str, error: rusqlite::Error) -> StoreError {
+pub(crate) fn storage_error(context: &str, error: rusqlite::Error) -> StoreError {
     let _ = error;
     StoreError::new("sqlite_error", context)
 }
