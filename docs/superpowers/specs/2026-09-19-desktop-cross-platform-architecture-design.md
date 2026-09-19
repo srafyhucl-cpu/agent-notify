@@ -8,23 +8,23 @@
 
 AgentNotify 的核心功能是接收不同 Agent 的任务完成消息，通过不同消息渠道推送，并允许用户在原消息上回复，把内容精确送回到对应 Agent 会话。
 
-当前产品首先服务 Windows，后续需要扩展到 macOS 和 HarmonyOS PC。消息渠道需要扩展到飞书等平台，Agent 接入也需要持续增加。现有 Win32 自绘 UI、固定 Agent 列表和与 ClawBot 直接耦合的发送链路不适合作为长期扩展基础。
+当前只有 Windows 开发和测试环境，因此第一阶段只交付 Windows。macOS 和 HarmonyOS PC 暂时只保留架构边界，不纳入近期阶段计划；消息渠道需要扩展到飞书等平台，Agent 接入也需要持续增加。现有 Win32 自绘 UI、固定 Agent 列表和与 ClawBot 直接耦合的发送链路不适合作为长期扩展基础。
 
 ## 目标
 
-1. 以 Windows 为第一阶段交付平台，同时保证核心代码不依赖 Windows。
-2. 后续用同一套 Rust 核心和 React UI 扩展到 macOS 与 HarmonyOS PC。
+1. 当前只交付 Windows，同时保证 Rust 核心不依赖 Windows 专有实现。
+2. 为 macOS 和 HarmonyOS PC 预留宿主接口，但在有真实测试环境前不把它们列入阶段计划。
 3. 新 Agent 通过适配器接入，不让 UI、历史、路由和状态代码增加 Agent 专属分支。
 4. 新渠道通过适配器接入，支持不同认证、发送能力、入站模式和回复规则。
 5. 推送与引用回复使用同一套可靠投递、路由和去重模型。
 6. 桌面应用保持小型、常驻、低资源占用，不引入 Electron、Chromium 或 Node 运行时。
-7. 保留 CLI 与 Agent Hook 的快速、无界面调用方式。
-8. 用户配置、登录状态、历史、路由和密钥在平台迁移后保持明确、安全、可测试。
+7. CLI、Agent Hook 和 AI 自动化调用都通过同一套稳定、幂等的命令接口进入应用核心。
+8. 用户配置、登录状态、历史、路由和密钥在后续平台迁移时保持明确、安全、可测试。
 
 ## 非目标
 
 1. 本方案不把产品拆成微服务，也不提供多租户云端后台。
-2. 本方案不要求首版同时发布 Windows、macOS、HarmonyOS PC。
+2. 当前阶段不交付 macOS 和 HarmonyOS PC，也不为其安排发布门禁。
 3. 本方案不依赖 Tauri 的实验性 HarmonyOS 支持作为 Windows 首版的前置条件。
 4. 本方案不采用 Rust 动态库作为第三方插件 ABI。
 5. 本方案不允许 UI 直接读写配置、密钥、数据库或执行系统命令。
@@ -37,16 +37,15 @@ AgentNotify 的核心功能是接收不同 Agent 的任务完成消息，通过�
 | 应用形态 | 模块化单体，一个常驻桌面进程，窗口关闭后隐藏到托盘或菜单栏 |
 | 业务核心 | Rust 工作区，核心不依赖 Tauri、WebView、数据库或具体操作系统 |
 | 桌面 UI | React + TypeScript，构建为一个共享 Web 资源包 |
-| Windows/macOS 宿主 | Tauri 稳定版，分别承载 WebView2 与 WKWebView |
-| HarmonyOS PC 宿主 | 独立 ArkWeb/ArkTS 宿主，通过 NAPI 连接 Rust 核心 |
-| HarmonyOS 收敛路径 | Tauri OHOS 达到稳定发布条件后，可替换宿主，不改核心和共享 UI |
+| Windows 宿主 | Tauri 稳定版 + WebView2，当前唯一交付宿主 |
+| macOS/HarmonyOS 宿主 | 仅保留 `PlatformHost` 和共享 UI 边界，当前不实现、不排期 |
 | 本地状态 | SQLite WAL + 版本化迁移 |
-| 密钥 | Windows Credential Manager/DPAPI 与 macOS Keychain，HarmonyOS 使用系统安全存储 |
+| 密钥 | Windows 当前使用 Credential Manager/DPAPI；其他平台后续各自实现系统安全存储 |
 | Agent 扩展 | Rust 内置适配器注册表 + 受控外部适配器进程协议 |
 | 渠道扩展 | 渠道工厂与账号实例注册表，能力由描述符声明 |
 | UI 通信 | 类型化命令与事件，Web 端只依赖 HostBridge |
 | 可靠投递 | 事务型 outbox、幂等键、未知结果不自动重发 |
-| 外部集成 | Windows/macOS 使用 CLI、命名管道和 Unix Socket；HarmonyOS 使用 Ability/IPC 适配 |
+| 外部集成 | 当前使用 CLI + Windows 命名管道；CLI 同时是 AI 自动化的稳定入口 |
 
 ## 目标仓库结构
 
@@ -64,8 +63,8 @@ crates/
   agentnotify-testkit/         契约测试、假时钟、假渠道、夹具
 
 hosts/
-  desktop-tauri/               Windows、macOS 桌面宿主
-  harmony-pc/                  HarmonyOS PC ArkWeb/ArkTS 宿主
+  desktop-tauri/               Windows 当前宿主；macOS 后续在此扩展
+  harmony-pc/                  HarmonyOS PC 预留宿主，当前不实现
 
 apps/
   cli/                         Hook、CLI、本地 IPC 客户端
@@ -415,21 +414,49 @@ CLI、桌面 UI 和诊断页读取同一个模型，不各自拼接状态。
 
 ### 桌面进程
 
-Windows/macOS 首版使用一个常驻进程：
+Windows 当前使用一个常驻进程：
 
 - Tauri 窗口显示时提供完整 UI。
 - 窗口关闭只隐藏，不结束 Agent 与渠道任务。
 - 托盘或菜单栏提供显示窗口、暂停、退出。
 - 开机或登录时自动启动。
 - runtime 持有 Agent Registry、Channel Registry、数据库连接和任务监督器。
-- HarmonyOS 若受 Ability 生命周期约束，可以拆为 UI Ability 与后台扩展，但它们共享同一套核心协议和唯一状态源。
+- macOS 与 HarmonyOS PC 若后续获得真实测试环境，可以拆成对应 UI/后台宿主，但必须共享同一套核心协议和唯一状态源。
 
-### CLI 与 Hook
+### CLI、Hook 与 AI 控制入口
 
-CLI 是轻量客户端，不复制业务逻辑。Windows/macOS 使用：
+CLI 是应用的一等接口，不是桌面 UI 的附属脚本。桌面 UI、Agent Hook 和 AI 自动化调用同一个 application service，不复制业务逻辑。
 
-- Windows 命名管道。
-- macOS Unix Domain Socket。
+当前 Windows 本地传输使用命名管道。后续 macOS 可使用 Unix Domain Socket，HarmonyOS 使用 Ability/IPC；这些只是新的传输适配器，不改变命令契约。
+
+CLI 至少提供以下命令族：
+
+| 命令族 | 用途 |
+|---|---|
+| `agentnotify status` | 应用、核心、Agent、渠道和投递状态总览 |
+| `agentnotify agent list/status/enable/disable` | Agent 管理和开关 |
+| `agentnotify channel list/status/login/logout/send/test` | 渠道账号管理、登录、测试和发送 |
+| `agentnotify notify` | 接收 Hook 或 AI 生成的标准化通知 |
+| `agentnotify history list/show` | 查询通知和逐渠道投递结果 |
+| `agentnotify config get/set` | 读取和修改非敏感配置 |
+| `agentnotify doctor` | 输出机器可读的诊断结果 |
+| `agentnotify app show/quit` | 显示或退出桌面进程 |
+
+面向 AI 的调用约束：
+
+1. 所有命令支持 `--json`，输出包含 `schemaVersion`、`requestId`、`ok`、`data`、`error` 和稳定错误码。
+2. 所有命令默认非交互；二维码登录、配对码等交互流程通过状态查询命令驱动，不阻塞 stdin。
+3. 写操作支持 `--request-id` 幂等键；发送和测试支持 `--dry-run`。
+4. 退出码区分参数错误、权限不足、核心未运行、业务失败和结果未知。
+5. AI 只能通过 CLI 或本地 IPC 调用 application service，不允许操作窗口控件、数据库或配置文件。
+6. 后续如需 MCP，只实现 CLI/application service 的 MCP 包装，不新增第二套业务逻辑。
+
+安全约束：
+
+- Windows 命名管道限制为当前用户 SID，拒绝其他本地用户连接。
+- 只读命令默认放行；修改密钥、退出登录、退出应用等敏感命令要求显式确认标志或本机授权令牌。
+- 日志和 JSON 错误不得回显 token、cookie、密码和完整凭据。
+- CLI 不提供任意 shell、任意文件读写或越过 Agent 路由的会话选择能力。
 
 本地协议使用带版本号的 JSON 消息：
 
@@ -444,9 +471,17 @@ CLI 是轻量客户端，不复制业务逻辑。Windows/macOS 使用：
 
 运行中的桌面核心在线时，CLI 直接提交事件。核心未运行时，CLI 把事件写入持久化 spool 后立即退出；下一次启动时核心消费 spool。这样 Agent Hook 不会因 UI 未启动或数据库锁而阻塞。
 
-### HarmonyOS PC
+管理类命令在线时通过命名管道调用核心。核心未运行时默认返回 `CORE_NOT_RUNNING`；只有显式传入 `--start-if-needed` 才允许启动隐藏桌面核心后重试。这样可以避免 AI 调用无意中弹出窗口或启动多个实例。
 
-HarmonyOS 宿主不能假设存在同名可执行文件。平台适配需要提供：
+复杂度边界：
+
+- CLI 只是 application service 的适配器，因此新增命令不会新增一套业务逻辑。
+- 主要工程量在稳定 JSON 契约、幂等键、退出码、命名管道授权和并发控制，属于中等但可控。
+- 如果要求 AI 操作 Win32 控件、模拟鼠标键盘或提供任意 shell，复杂度会显著上升，并且安全边界不可控；本方案明确禁止这类实现。
+
+### 未排期平台：HarmonyOS PC
+
+HarmonyOS PC 当前没有测试环境，因此本节只保留未来兼容边界，不作为近期实现或发布条件。未来接入时，宿主需要提供：
 
 - Ability 或扩展进程作为事件入口。
 - ArkTS HostBridge 与 NAPI 连接 Rust 核心。
@@ -455,10 +490,11 @@ HarmonyOS 宿主不能假设存在同名可执行文件。平台适配需要提�
 - 平台允许的文件目录和数据库路径。
 - 不含 Windows/macOS 路径推断逻辑。
 
-若 Tauri OHOS 在目标发布时间前达到稳定版本，则优先把 `hosts/harmony-pc` 实现为 Tauri 宿主；否则使用 ArkWeb/ArkTS 宿主。两种实现的共享 UI 和 Rust 核心不变。
+未来若 Tauri OHOS 已达到稳定发布条件，可以优先使用 Tauri 宿主；否则使用 ArkWeb/ArkTS 宿主。无论选择哪种实现，都不修改共享 UI 和 Rust 核心。
 
 ## 跨平台宿主协议
 
+当前只实现 Windows 宿主。跨平台协议用于约束新代码边界，不表示其他平台已经排期。
 各平台宿主实现同一个 `PlatformHost`：
 
 ```rust
@@ -491,7 +527,7 @@ export interface HostBridge {
 }
 ```
 
-Windows/macOS 由 Tauri 实现，HarmonyOS 由 ArkWeb/ArkTS 实现。
+当前由 Windows Tauri 宿主实现。macOS 和 HarmonyOS PC 只有在具备真实测试环境并重新评审后，才实现对应宿主。
 
 ## UI 架构
 
@@ -633,17 +669,11 @@ Windows 首版：
 - 测试渠道收到消息。
 - 引用消息能精确路由回测试 Agent。
 - 应用重启后路由、Claim 和历史保持。
+- CLI 的 `--json`、退出码、幂等键和 `--dry-run` 契约稳定。
+- AI 可在无窗口、无交互输入的情况下完成查询、发送和控制。
+- 命名管道拒绝其他 Windows 用户连接。
 
-macOS：
-
-- Keychain、Unix Socket、菜单栏、自启动和签名链路。
-- 与 Windows 相同的应用层契约测试。
-
-HarmonyOS PC：
-
-- HAP 安装、ArkWeb 渲染、NAPI 调用、后台任务和系统安全存储。
-- 首次接入、真实渠道收发、引用回复和进程重启。
-- x86_64 与目标 ARM64 真机分别验证。
+macOS 与 HarmonyOS PC 当前没有测试环境，不进入当前集成测试和发布门禁。获得真实设备后再按 `PlatformHost` 契约补测试。
 
 ## 分阶段落地
 
@@ -654,7 +684,8 @@ HarmonyOS PC：
 3. 实现 Agent 与渠道注册表。
 4. 迁移或重写一个真实 Agent 和一个真实渠道。
 5. 保持 CLI 与 Hook 快速返回语义。
-6. 用集成测试证明推送和引用回复闭环。
+6. 实现 AI 可调用的非交互 CLI、JSON 输出、稳定退出码和幂等请求。
+7. 用集成测试证明推送、引用回复和 CLI 控制闭环。
 
 ### 第二阶段：React 桌面 UI
 
@@ -671,29 +702,19 @@ HarmonyOS PC：
 4. 落地外部 Agent 适配器协议。
 5. 用契约测试约束所有新增适配器。
 
-### 第四阶段：macOS
+### 暂未排期：macOS 与 HarmonyOS PC
 
-1. 完成 Tauri macOS 宿主。
-2. 接入 Keychain、Unix Socket、菜单栏和登录项。
-3. 完成签名、notarization 和更新。
-4. 对现有适配器执行 macOS 真实链路验收。
-
-### 第五阶段：HarmonyOS PC
-
-1. 建立 ArkWeb/ArkTS 宿主或采用稳定 Tauri OHOS 宿主。
-2. 通过 NAPI 嵌入 Rust 核心。
-3. 实现后台任务、系统安全存储和 Ability IPC。
-4. 分别验证 HarmonyOS PC 目标架构。
-5. 确认外部 Agent 与后台任务的平台限制并提供明确支持边界。
+当前不安排宿主实现、打包、签名、真机验收或发布时间。只有在具备真实测试设备和明确发布目标后，才重新评审并建立独立阶段计划。
 
 ## 完成标准
 
 架构迁移完成必须同时满足：
 
-1. Windows、macOS、HarmonyOS PC 的 UI 使用同一份 React 资源。
-2. 所有平台共用同一套 Rust domain、application、Agent 与渠道协议。
+1. Windows UI 使用 React，不再依赖 Win32 自绘页面。
+2. Rust domain、application、Agent 与渠道协议不依赖 Windows 专有实现。
 3. 新增 Agent 或渠道不修改 UI 页面和通知/回复核心服务。
-4. 推送、历史、路由和引用回复在三个平台具有一致的领域语义。
-5. 所有平台都能通过适配器契约测试。
-6. Windows 先完成真实 Agent、真实渠道和真实引用回复验收。
-7. macOS 与 HarmonyOS PC 在官方支持能力可用后再进入发布门禁。
+4. Windows 的推送、历史、路由和引用回复具有稳定一致的领域语义。
+5. Windows 上所有内置适配器通过契约测试。
+6. Windows 完成真实 Agent、真实渠道和真实引用回复验收。
+7. CLI 能被 AI 以非交互方式稳定调用，JSON 契约、错误码和幂等语义有自动化测试。
+8. macOS 与 HarmonyOS PC 只保留可替换宿主边界，不纳入当前完成标准。
