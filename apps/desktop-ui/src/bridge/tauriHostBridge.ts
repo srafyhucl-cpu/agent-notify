@@ -97,6 +97,10 @@ async function dispatchCommand(
       );
     case "quit_app":
       return commands.quitApp(payload as CommandPayloadMap["quit_app"]);
+    case "get_update_status":
+      return commands.getUpdateStatus(
+        payload as CommandPayloadMap["get_update_status"],
+      );
     default: {
       const neverCommand: never = command;
       throw new Error(`未处理命令: ${String(neverCommand)}`);

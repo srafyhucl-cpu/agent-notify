@@ -24,6 +24,7 @@ pub enum BusinessCommand {
     UpdateSettings,
     SetRuntimePaused,
     QuitApp,
+    GetUpdateStatus,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -90,6 +91,15 @@ pub enum ComponentStateDto {
 pub enum UpdateChannelDto {
     Stable,
     Beta,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+pub enum UpdateStateDto {
+    UpToDate,
+    Available,
+    ReadyToInstall,
+    Unsupported,
+    Failed,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -326,6 +336,18 @@ pub struct SettingsDto {
     pub auto_start: bool,
     pub start_hidden: bool,
     pub update_channel: UpdateChannelDto,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateStatusDto {
+    pub current_version: String,
+    pub available_version: Option<String>,
+    pub state: UpdateStateDto,
+    pub signed: bool,
+    pub preview: bool,
+    pub message: String,
+    pub checked_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]

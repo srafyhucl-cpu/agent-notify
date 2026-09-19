@@ -458,6 +458,7 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
                 <p>控制启动行为和更新通道。</p>
               </header>
               <UpdateSettings
+                bridge={bridge}
                 value={draft}
                 disabled={updateSettingsMutation.isPending}
                 onChange={patchDraft}

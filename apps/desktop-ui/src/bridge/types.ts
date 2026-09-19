@@ -25,6 +25,7 @@ export const commands = {
 	updateSettings: (payload: SettingsDto) => __TAURI_INVOKE<SettingsDto>("update_settings", { payload }),
 	setRuntimePaused: (payload: SetRuntimePausedPayload) => __TAURI_INVOKE<RuntimeSummaryDto>("set_runtime_paused", { payload }),
 	quitApp: (payload: EmptyPayload) => __TAURI_INVOKE<MutationAcceptedDto>("quit_app", { payload }),
+	getUpdateStatus: (payload: EmptyPayload) => __TAURI_INVOKE<UpdateStatusDto>("get_update_status", { payload }),
 };
 
 /** Events */
@@ -69,7 +70,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status";
 
 export type ChannelAccountDto = {
 	id: string,
@@ -345,6 +346,18 @@ export type UpdateAgentConfigPayload = {
 };
 
 export type UpdateChannelDto = "Stable" | "Beta";
+
+export type UpdateStateDto = "UpToDate" | "Available" | "ReadyToInstall" | "Unsupported" | "Failed";
+
+export type UpdateStatusDto = {
+	currentVersion: string,
+	availableVersion: string | null,
+	state: UpdateStateDto,
+	signed: boolean,
+	preview: boolean,
+	message: string,
+	checkedAt: string | null,
+};
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

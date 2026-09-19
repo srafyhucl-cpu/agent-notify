@@ -1079,7 +1079,7 @@ git commit -m "test(ui): 覆盖动态页面状态与视觉门禁"
 - Consumes: Tauri build、WindowsPlatformHost、当前 Release 与签名约定。
 - Produces: 独立命名的 Rust 测试安装包、启动 smoke、签名/校验 smoke；正式切换由后续生产闭环计划执行。
 
-- [ ] **Step 1: 写更新包拒绝测试**
+- [x] **Step 1: 写更新包拒绝测试**
 
 ```rust
 #[test]
@@ -1096,7 +1096,7 @@ fn updater_rejects_checksum_mismatch_and_unsigned_package_when_required() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1106,7 +1106,7 @@ cargo test -p agentnotify-desktop --test update_verify
 
 Expected: FAIL，更新校验模块不存在。
 
-- [ ] **Step 3: 实现独立构建与签名校验**
+- [x] **Step 3: 实现独立构建与签名校验**
 
 - Rust 测试包命名为 `Agent-notify-Rust-Preview-Setup-v<version>.exe`，不得覆盖当前正式安装器。
 - `build-desktop.ps1` 先运行 `tools/ui/gate.ps1`，再执行 Tauri build 和 Inno 打包。
@@ -1114,7 +1114,7 @@ Expected: FAIL，更新校验模块不存在。
 - 签名要求由宿主配置决定；正式版要求签名，预览测试允许显式关闭但 UI 必须显示“测试包未签名”。
 - 更新器不接受任意 URL 或任意安装命令参数。
 
-- [ ] **Step 4: 实现安装 smoke**
+- [x] **Step 4: 实现安装 smoke**
 
 `desktop-installer-smoke.ps1` 在隔离目录安装预览版并检查：
 
@@ -1135,7 +1135,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\desktop-installer-sm
 
 Expected: 安装 smoke 通过，当前正式安装入口未被替换。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add tools/ui hosts/desktop-tauri apps/desktop-ui installer tests

@@ -18,6 +18,7 @@ import type {
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
   SettingsDto,
+  UpdateStatusDto,
 } from "./types";
 import type {
   CommandPayloadMap,
@@ -39,6 +40,7 @@ export interface MockHostBridgeOptions {
   notificationDetails?: Record<string, NotificationDetailDto>;
   settings?: SettingsDto;
   diagnostics?: DiagnosticsDto;
+  updateStatus?: UpdateStatusDto;
   loginSession?: LoginSessionDto;
   errors?: Partial<Record<BusinessCommand, CommandError>>;
   delays?: Partial<Record<BusinessCommand, number>>;
@@ -97,6 +99,18 @@ function defaultSettings(): SettingsDto {
     autoStart: false,
     startHidden: false,
     updateChannel: "Stable",
+  };
+}
+
+function defaultUpdateStatus(): UpdateStatusDto {
+  return {
+    currentVersion: "2.0.0-dev.0",
+    availableVersion: null,
+    state: "Unsupported",
+    signed: false,
+    preview: true,
+    message: "当前为 Rust 预览包，未签名且不提供在线安装。",
+    checkedAt: null,
   };
 }
 
@@ -367,6 +381,9 @@ export function createMockHostBridge(
       }
       case "quit_app":
         result = accepted();
+        break;
+      case "get_update_status":
+        result = options.updateStatus ?? defaultUpdateStatus();
         break;
       default: {
         const neverCommand: never = command;

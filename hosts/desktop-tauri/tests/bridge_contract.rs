@@ -26,6 +26,7 @@ fn stable_command_names_are_exact_and_append_only() {
             "update_settings",
             "set_runtime_paused",
             "quit_app",
+            "get_update_status",
         ]
     );
 }

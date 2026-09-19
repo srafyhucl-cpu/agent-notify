@@ -26,6 +26,7 @@ import type {
   SubmitChannelLoginCodePayload,
   TestNotificationResultDto,
   UpdateAgentConfigPayload,
+  UpdateStatusDto,
 } from "./types";
 
 export type BusinessCommand = GeneratedBusinessCommand;
@@ -50,6 +51,7 @@ export interface CommandPayloadMap {
   update_settings: SettingsDto;
   set_runtime_paused: SetRuntimePausedPayload;
   quit_app: EmptyPayload;
+  get_update_status: EmptyPayload;
 }
 
 export interface CommandResultMap {
@@ -71,6 +73,7 @@ export interface CommandResultMap {
   update_settings: SettingsDto;
   set_runtime_paused: RuntimeSummaryDto;
   quit_app: MutationAcceptedDto;
+  get_update_status: UpdateStatusDto;
 }
 
 export interface EventPayloadMap {

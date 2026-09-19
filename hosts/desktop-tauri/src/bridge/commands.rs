@@ -9,6 +9,7 @@ use super::dto::{
     NotificationFilterPayload, NotificationIdPayload, NotificationListDto, RuntimeSnapshotDto,
     RuntimeSummaryDto, SendTestNotificationPayload, SetRuntimePausedPayload, SettingsDto,
     SubmitChannelLoginCodePayload, TestNotificationResultDto, UpdateAgentConfigPayload,
+    UpdateStatusDto,
 };
 use super::error::CommandError;
 
@@ -85,6 +86,11 @@ pub trait HostCommandService: Send + Sync {
     ) -> Result<RuntimeSummaryDto, CommandError>;
 
     async fn quit_app(&self, payload: EmptyPayload) -> Result<MutationAcceptedDto, CommandError>;
+
+    async fn get_update_status(
+        &self,
+        payload: EmptyPayload,
+    ) -> Result<UpdateStatusDto, CommandError>;
 }
 
 /// Tauri 管理的命令状态；后续宿主任务只负责注入新的服务实现。
@@ -259,4 +265,13 @@ pub async fn quit_app(
     payload: EmptyPayload,
 ) -> Result<MutationAcceptedDto, CommandError> {
     state.service.quit_app(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_update_status(
+    state: State<'_, BridgeState>,
+    payload: EmptyPayload,
+) -> Result<UpdateStatusDto, CommandError> {
+    state.service.get_update_status(payload).await
 }

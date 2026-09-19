@@ -10,10 +10,11 @@ Push-Location (Join-Path $root 'apps\desktop-ui')
 try {
     npm ci
     if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+    $stableBindingsBefore = (Get-FileHash -LiteralPath 'src\bridge\types.ts' -Algorithm SHA256).Hash
     npm run bridge:generate
     if ($LASTEXITCODE -ne 0) { throw 'HostBridge generation failed' }
-    git diff --exit-code -- src/bridge/types.ts
-    if ($LASTEXITCODE -ne 0) { throw 'HostBridge bindings are stale' }
+    $stableBindingsAfter = (Get-FileHash -LiteralPath 'src\bridge\types.ts' -Algorithm SHA256).Hash
+    if ($stableBindingsBefore -ne $stableBindingsAfter) { throw 'HostBridge bindings are stale' }
     npm run typecheck
     if ($LASTEXITCODE -ne 0) { throw 'TypeScript check failed' }
     npm run test -- --run

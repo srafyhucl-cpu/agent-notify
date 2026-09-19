@@ -149,6 +149,7 @@ function renderSettings(bridge: MockHostBridge) {
 
 describe("SettingsPage", () => {
   it("groups settings and marks commands without a stable business contract unavailable", async () => {
+    const user = userEvent.setup();
     const bridge = createMockHostBridge({
       settings: settingsFixture(),
       channels: channelsFixture(),
@@ -172,6 +173,14 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: "导出脱敏诊断包" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "备份数据库" })).toBeDisabled();
     expect(screen.getAllByText("当前版本不可用").length).toBeGreaterThanOrEqual(3);
+
+    await user.click(screen.getByRole("button", { name: "检查更新" }));
+    expect(
+      await screen.findByText(
+        "测试包未签名，仅供内部验证；正式版不会安装未签名更新。",
+      ),
+    ).toBeVisible();
+    expect(bridge.calls("get_update_status")).toHaveLength(1);
   });
 
   it("validates, saves, and reports a successful settings update", async () => {
