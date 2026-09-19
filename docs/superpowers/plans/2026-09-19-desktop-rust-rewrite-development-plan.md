@@ -296,7 +296,7 @@ export interface HostBridge {
 
 | 风险 | 影响 | 应对 |
 |---|---|---|
-| 当前机器未安装 Rust/MSVC，Tauri 构建链暂时不可运行 | 阻塞第一份计划 | Rust 核心计划 Task 1 先验证工具链；工具和缓存固定到 D 盘，缺少 MSVC 时明确失败而不是静默换工具链 |
+| 当前机器未安装 MSVC Build Tools，且当前账户无管理员权限 | 本地开发和正式打包的前置条件不同 | Rust 核心计划 Task 1 提供 D 盘 `cargo-xwin + LLVM` 本地回退以跑通测试；正式发布门禁使用 `gate.ps1 -RequireMsvc`，仍强制标准 Build Tools |
 | Tauri WebView 自动化能力弱于普通浏览器 | UI 回归不稳定 | UI 逻辑通过 HostBridge mock 用 Playwright 覆盖；Tauri 宿主单独做启动、托盘、权限和安装 smoke |
 | ClawBot 消息 ID 或在多账号下不稳定 | 回复误投或漏投 | 在真实链路完成 ID 对照；缺 ID、冲突、过期一律拒绝路由并保留 `Unknown` |
 | 旧 JSONL 数据存在损坏行 | 迁移中断或漏数据 | 逐行导入、跳过损坏行并报告计数；迁移记录使用确定性哈希保证幂等 |

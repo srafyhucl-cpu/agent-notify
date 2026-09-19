@@ -31,6 +31,8 @@
 - Create: `rust-toolchain.toml`
 - Create: `.gitignore`（追加 Rust 与前端忽略项）
 - Create: `tools/rust/gate.ps1`
+- Create: `tools/rust/bootstrap-xwin.ps1`
+- Create: `tools/rust/xwin-env.ps1`
 - Create: `crates/agentnotify-domain/Cargo.toml`
 - Create: `crates/agentnotify-domain/src/lib.rs`
 - Create: `crates/agentnotify-application/Cargo.toml`
@@ -73,7 +75,15 @@ Invoke-WebRequest 'https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-ms
 & 'D:\Tools\cargo\bin\rustup.exe' component add rustfmt clippy
 ```
 
-MSVC Build Tools 缺失时安装流程必须失败并提示安装“Desktop development with C++”。不要改用 GNU 工具链，因为 Tauri Windows 宿主固定使用 MSVC。
+正式发布必须使用 MSVC Build Tools 的“Desktop development with C++”，`gate.ps1 -RequireMsvc` 会在缺少 `link.exe` 时直接失败。不要改用 GNU 工具链，因为 Tauri Windows 宿主固定使用 MSVC ABI。
+
+当前无管理员权限的开发机可以在 D 盘使用 MSVC-compatible 本地回退：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\bootstrap-xwin.ps1
+```
+
+该脚本下载并校验固定版本的 `cargo-xwin` 与 LLVM，将 LLVM 通过 MSI 管理安装模式解包到 `D:\Tools`，再初始化 `D:\Tools\xwin-cache` 中的 MSVC CRT 与 Windows SDK。`gate.ps1` 只在找不到 `link.exe` 时使用这条回退链；它仍编译到 `x86_64-pc-windows-msvc`，不是 GNU 工具链。
 
 - [ ] **Step 2: 创建 workspace 清单**
 
@@ -129,8 +139,11 @@ profile = "minimal"
 创建 `tools/rust/gate.ps1`：
 
 ```powershell
+param([switch]$RequireMsvc)
+
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+$target = 'x86_64-pc-windows-msvc'
 $env:CARGO_HOME = 'D:\Tools\cargo'
 $env:RUSTUP_HOME = 'D:\Tools\rustup'
 $env:CARGO_TARGET_DIR = 'D:\Temp\agentnotify-rust-target'
@@ -140,17 +153,32 @@ $env:PATH = (Join-Path $env:CARGO_HOME 'bin') + ';' + $env:PATH
 New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR,$env:TEMP | Out-Null
 $cargo = Join-Path $env:CARGO_HOME 'bin\cargo.exe'
 if (-not (Test-Path -LiteralPath $cargo -PathType Leaf)) {
-    throw "找不到 cargo.exe：$cargo。请先把 Rust 工具链安装到 D 盘。"
+    throw "Cargo executable not found: $cargo. Install the Rust toolchain on D drive."
+}
+
+$msvcLink = Get-Command link.exe -ErrorAction SilentlyContinue
+if (-not $msvcLink) {
+    if ($RequireMsvc) {
+        throw 'MSVC link.exe not found. Install Desktop development with C++ before running the release gate.'
+    }
+
+    $xwinEnv = Join-Path $PSScriptRoot 'xwin-env.ps1'
+    if (-not (Test-Path -LiteralPath $xwinEnv -PathType Leaf)) {
+        throw 'MSVC link.exe and the local cargo-xwin fallback are unavailable.'
+    }
+
+    . $xwinEnv
+    Write-Warning 'MSVC link.exe not found; using the local cargo-xwin fallback.'
 }
 
 Push-Location $root
 try {
     & $cargo fmt --all --check
-    if ($LASTEXITCODE -ne 0) { throw 'cargo fmt 失败' }
-    & $cargo clippy --workspace --all-targets --all-features -- -D warnings
-    if ($LASTEXITCODE -ne 0) { throw 'cargo clippy 失败' }
-    & $cargo test --workspace --all-features
-    if ($LASTEXITCODE -ne 0) { throw 'cargo test 失败' }
+    if ($LASTEXITCODE -ne 0) { throw 'cargo fmt failed' }
+    & $cargo clippy --workspace --all-targets --all-features --target $target -- -D warnings
+    if ($LASTEXITCODE -ne 0) { throw 'cargo clippy failed' }
+    & $cargo test --workspace --all-features --target $target
+    if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
 }
 finally {
     Pop-Location
@@ -172,17 +200,18 @@ finally {
 Run:
 
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\bootstrap-xwin.ps1
 cargo generate-lockfile
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
-cargo metadata --no-deps --format-version 1
+cargo metadata --locked --no-deps --format-version 1
 ```
 
-Expected: 三条命令退出码均为 `0`，`Cargo.lock` 已生成，metadata 包含七个当前成员包；`agentnotify-ingress` 由后续 Task 14 加入后才成为第八个包。
+Expected: 引导脚本和门禁退出码均为 `0`，`Cargo.lock` 已生成并可由 `--locked` 验证，metadata 包含七个当前成员包；`agentnotify-ingress` 由后续 Task 14 加入后才成为第八个包。发布环境还应运行 `gate.ps1 -RequireMsvc`，确认标准 MSVC Build Tools 可用。
 
 - [ ] **Step 5: 提交**
 
 ```powershell
-git add Cargo.toml Cargo.lock rust-toolchain.toml .gitignore tools/rust/gate.ps1 crates
+git add Cargo.toml Cargo.lock rust-toolchain.toml .gitignore tools/rust crates
 git commit -m "build: 初始化 Rust workspace 与质量门禁"
 ```
 
