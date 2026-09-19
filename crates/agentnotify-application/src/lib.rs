@@ -1,6 +1,18 @@
 //! 应用用例与端口层，只编排领域规则，不直接访问具体基础设施。
 
+mod clock;
+mod error;
+pub mod ports;
+
 use agentnotify_domain::DomainArea;
+
+pub use clock::{Clock, IdGenerator};
+pub use error::{ApplicationError, StoreError};
+pub use ports::{
+    ChannelAccountStore, ClaimStore, DeliveryRecord, DeliveryStore, EventSink, IngestStore,
+    OutboxItem, OutboxLease, OutboxState, RouteStore, SecretError, SecretKind, SecretStore,
+    SecretValue, StatusSnapshot, StatusStore,
+};
 
 /// 每个应用用例都声明所属领域区域和稳定名称，便于监督与诊断。
 pub trait UseCase: Send + Sync {
