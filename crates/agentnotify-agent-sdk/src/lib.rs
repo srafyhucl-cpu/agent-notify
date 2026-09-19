@@ -1,8 +1,13 @@
-//! Agent 适配器协议与注册边界。
+//! Agent 适配器协议、注册表与共享契约测试。
 
-/// Agent 适配器只通过稳定名称和能力信息暴露自身。
-pub trait AgentAdapterBoundary: Send + Sync {
-    fn adapter_name(&self) -> &'static str;
+mod adapter;
+mod contract;
+mod descriptor;
+mod registry;
 
-    fn supports_resume(&self) -> bool;
-}
+pub use adapter::{
+    AgentAdapter, AgentError, AgentEventEnvelope, NormalizedAgentEvent, ResumeReceipt,
+};
+pub use contract::assert_agent_contract;
+pub use descriptor::{AgentCapabilities, AgentDescriptor, AgentHealth};
+pub use registry::{AgentRegistry, AgentRegistryError};
