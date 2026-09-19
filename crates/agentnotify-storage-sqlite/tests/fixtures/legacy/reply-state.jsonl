@@ -1,0 +1,5 @@
+{"key":"legacy-claim-key","status":"claimed","timestamp":"2026-09-18T13:00:00Z"}
+{"key":"legacy-sent-key","status":"sent","timestamp":"2026-09-18T13:10:00Z"}
+{"key":"legacy-failed-key","status":"failed","timestamp":"2026-09-18T13:20:00Z"}
+{"key":"legacy-expired-key","status":"claimed","timestamp":"2025-01-01T00:00:00Z"}
+{bad claim}

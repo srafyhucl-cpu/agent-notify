@@ -1,0 +1,10 @@
+{
+  "quietHours": "22-8",
+  "cooldownMin": 15,
+  "replyEnabled": true,
+  "replyConfirmation": false,
+  "commandCodeReplyWindowSec": 30,
+  "defaultAgent": "OpenCode",
+  "widgetAgentMode": "single",
+  "theme": "light"
+}

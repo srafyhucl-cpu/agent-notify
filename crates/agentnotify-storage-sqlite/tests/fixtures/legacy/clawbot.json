@@ -1,0 +1,12 @@
+{
+  "bot_token": "bot-token-fixture",
+  "ilink_bot_id": "bot-fixture-123456",
+  "baseurl": "https://example.invalid",
+  "ilink_user_id": "user-fixture-654321",
+  "context_token": "context-token-fixture",
+  "context_user_id": "user-fixture-654321",
+  "get_updates_buf": "cursor-fixture",
+  "stale_at": "2026-09-17T10:00:00Z",
+  "session_established_at": "2026-09-16T08:00:00Z",
+  "session_alert_at": "2026-09-17T10:30:00Z"
+}

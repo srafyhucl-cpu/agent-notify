@@ -735,7 +735,7 @@ git commit -m "feat(clawbot): 实现入站长轮询与账号恢复"
 - Consumes: 旧 `%USERPROFILE%\.config\agent-notify` JSON/JSONL、`SecretStore`、SQLite。
 - Produces: `LegacyImport::run(paths, store, secrets) -> ImportReport`、`settings.legacyImportV1` 状态。
 
-- [ ] **Step 1: 写完整映射和幂等测试**
+- [x] **Step 1: 写完整映射和幂等测试**
 
 ```rust
 #[tokio::test]
@@ -755,7 +755,7 @@ async fn import_is_idempotent_and_preserves_claim_suppression() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -765,7 +765,7 @@ cargo test -p agentnotify-storage-sqlite --test legacy_import
 
 Expected: FAIL，导入器不存在。
 
-- [ ] **Step 3: 映射配置与 Agent 开关**
+- [x] **Step 3: 映射配置与 Agent 开关**
 
 `config.json`：
 
@@ -791,7 +791,7 @@ marker 映射：
 
 未安装的 marker 不创建开关；Core Registry 中尚不存在的 Agent 仍可保留配置，但在 UI 中不伪造已接入状态。
 
-- [ ] **Step 4: 映射 ClawBot 凭据**
+- [x] **Step 4: 映射 ClawBot 凭据**
 
 读取 `clawbot.json`：
 
@@ -802,7 +802,7 @@ marker 映射：
 - 文件不存在时创建一个 disabled、未登录的 clawbot 账号，不生成假 token。
 - 文件损坏时本次导入失败，旧文件保留，UI 显示具体字段错误。
 
-- [ ] **Step 5: 映射 push.log**
+- [x] **Step 5: 映射 push.log**
 
 - 每行 JSON 独立导入；损坏行跳过并计数。
 - Notification ID：`legacy-<sha256(原始行)>`。
@@ -822,7 +822,7 @@ marker 映射：
 
 历史导入只用于查看，不重新创建 Outbox。
 
-- [ ] **Step 6: 映射 routes 与 claims**
+- [x] **Step 6: 映射 routes 与 claims**
 
 旧 route：
 
@@ -842,7 +842,7 @@ marker 映射：
 - `Timestamp + 30 天` 作为 expiresAt；已过期事件不导入。
 - 缺少 ClawBot 账号时，本次导入失败，不能把 Claim 归入其他账号。
 
-- [ ] **Step 7: 实现导入事务和报告**
+- [x] **Step 7: 实现导入事务和报告**
 
 导入顺序：
 
@@ -856,7 +856,7 @@ marker 映射：
 
 所有旧文件以只读方式打开，测试通过修改时间与内容 hash 证明未被改动。
 
-- [ ] **Step 8: 运行门禁并提交**
+- [x] **Step 8: 运行门禁并提交**
 
 Run:
 

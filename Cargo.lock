@@ -177,6 +177,7 @@ name = "agentnotify-storage-sqlite"
 version = "0.1.0"
 dependencies = [
  "agentnotify-application",
+ "agentnotify-channel-clawbot",
  "agentnotify-channel-sdk",
  "agentnotify-domain",
  "async-trait",

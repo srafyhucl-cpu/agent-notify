@@ -14,6 +14,8 @@ pub struct ClawBotAccountState {
     pub base_url: String,
     pub stale_at: Option<Timestamp>,
     pub session_established_at: Option<Timestamp>,
+    #[serde(default)]
+    pub session_alert_at: Option<Timestamp>,
 }
 
 impl ClawBotAccountState {
@@ -24,6 +26,7 @@ impl ClawBotAccountState {
             base_url: DEFAULT_BASE_URL.into(),
             stale_at: None,
             session_established_at: None,
+            session_alert_at: None,
         }
     }
 }

@@ -5,6 +5,7 @@ mod claim_store;
 mod database;
 mod delivery_store;
 mod ingest_store;
+mod legacy;
 mod migrations;
 mod recovery;
 mod route_store;
@@ -12,6 +13,7 @@ mod row_codec;
 mod sqlite_helpers;
 mod status_store;
 
+pub use legacy::{ImportReport, ImportWarning, LegacyImport, LegacyImportError, LegacyPaths};
 pub use migrations::{SqliteStore, run_migrations};
 pub use recovery::RecoverySummary;
 

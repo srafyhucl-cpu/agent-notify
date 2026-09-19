@@ -1,0 +1,3 @@
+{"messageID":"wx-message-1","clientID":"client-1","botID":"bot-fixture-123456","userID":"user-fixture-654321","agent":"opencode","sessionID":"session-1","title":"构建完成","createdAt":"2026-09-18T10:00:00Z","expiresAt":"2027-09-18T10:00:00Z"}
+{"messageID":"expired-route","botID":"bot-fixture-123456","userID":"user-fixture-654321","agent":"opencode","sessionID":"session-old","createdAt":"2025-01-01T00:00:00Z","expiresAt":"2025-02-01T00:00:00Z"}
+{bad route}

@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 agentnotify-application = { path = "../agentnotify-application" }
 agentnotify-domain = { path = "../agentnotify-domain" }
+agentnotify-channel-clawbot = { path = "../agentnotify-channel-clawbot" }
 agentnotify-channel-sdk = { path = "../agentnotify-channel-sdk" }
 async-trait.workspace = true
 rusqlite.workspace = true
