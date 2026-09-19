@@ -1,8 +1,10 @@
 pub mod bridge;
+pub mod platform;
 
 pub fn build_test_app() -> tauri::Builder<tauri::Wry> {
     let specta = bridge::specta_builder();
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
             specta.mount_events(app);

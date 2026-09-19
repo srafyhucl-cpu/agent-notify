@@ -352,7 +352,7 @@ git commit -m "feat(bridge): 增加类型化 HostBridge 契约"
 - Consumes: Rust 核心的 `PlatformHost`、`AppPaths`、`SecretStore`、`ProcessRunner`、`BackgroundTasks`、`LocalIpc`、`SystemUi`。
 - Produces: `WindowsPlatformHost`。
 
-- [ ] **Step 1: 写路径、密钥与进程测试**
+- [x] **Step 1: 写路径、密钥与进程测试**
 
 ```rust
 #[test]
@@ -371,7 +371,7 @@ async fn process_runner_rejects_empty_program() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -381,7 +381,7 @@ cargo test -p agentnotify-desktop --test platform_windows
 
 Expected: FAIL，WindowsPlatformHost 不存在。
 
-- [ ] **Step 3: 实现路径与系统 UI**
+- [x] **Step 3: 实现路径与系统 UI**
 
 默认路径：
 
@@ -396,7 +396,7 @@ spool:  %LOCALAPPDATA%\AgentNotify\spool
 
 `SystemUi` 只提供显示/隐藏主窗口、设置托盘状态、显示系统通知和打开 AgentNotify 自己的日志目录。任何路径参数先 canonicalize，并确认位于 `AppPaths` 内。
 
-- [ ] **Step 4: 实现 Credential Manager 与无 shell 进程执行**
+- [x] **Step 4: 实现 Credential Manager 与无 shell 进程执行**
 
 - `SecretStore` 使用 Windows Credential Manager，服务名固定 `AgentNotify`，账号键使用不可逆渠道账号引用。
 - `get` 找不到返回 `NotFound`，不返回空字符串。
@@ -406,11 +406,11 @@ spool:  %LOCALAPPDATA%\AgentNotify\spool
 - 超时或取消返回 `UnknownResult`，调用方不得自动重放。
 - 环境变量只允许显式 allowlist，不继承包含 token 的全量进程环境。
 
-- [ ] **Step 5: 实现后台任务包装**
+- [x] **Step 5: 实现后台任务包装**
 
 `BackgroundTasks` 使用 Tokio `JoinSet`，任务名称必须稳定；shutdown 时先取消，再在 5 秒内等待，超时任务记录 `Unknown` 并交给 runtime 标记。不得用 detached thread。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 
