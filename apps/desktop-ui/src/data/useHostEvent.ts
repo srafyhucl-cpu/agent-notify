@@ -14,6 +14,7 @@ export function useHostEvent(bridge: HostBridge) {
   useEffect(() => {
     const unsubscribeSnapshot = bridge.subscribe("snapshot.changed", () => {
       invalidate(queryClient, queryKeys.snapshot());
+      invalidate(queryClient, queryKeys.agents());
     });
 
     const unsubscribeDelivery = bridge.subscribe("delivery.changed", (event) => {

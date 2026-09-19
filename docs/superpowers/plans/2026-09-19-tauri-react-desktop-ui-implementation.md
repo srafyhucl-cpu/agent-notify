@@ -719,7 +719,7 @@ git commit -m "feat(ui): 增加查询事件与统一错误层"
 - Consumes: `get_snapshot`、`list_agents`、`update_agent_config`、descriptor capabilities、config schema。
 - Produces: Overview 页面和完全 descriptor 驱动的 Agents 列表、详情、开关与配置表单。
 
-- [ ] **Step 1: 写动态 Agent 测试**
+- [x] **Step 1: 写动态 Agent 测试**
 
 ```tsx
 it("renders a new agent without editing page business branches", async () => {
@@ -735,7 +735,7 @@ it("renders a new agent without editing page business branches", async () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -745,7 +745,7 @@ npm --prefix .\apps\desktop-ui run test -- --run AgentsPage
 
 Expected: FAIL，页面不存在。
 
-- [ ] **Step 3: 实现 Overview**
+- [x] **Step 3: 实现 Overview**
 
 Overview 固定信息顺序：
 
@@ -757,7 +757,7 @@ Overview 固定信息顺序：
 
 主操作只有“重新检查”和“暂停/恢复通知”。不使用统计大卡片矩阵，不放营销式欢迎语。
 
-- [ ] **Step 4: 实现 descriptor 驱动的 Agents 页面**
+- [x] **Step 4: 实现 descriptor 驱动的 Agents 页面**
 
 - 列表列：名称、通知、回复、接入状态、最近事件、配置。
 - 能力由 `capabilities` 控制按钮是否显示；UI 不读取固定 Agent ID。
@@ -767,7 +767,7 @@ Overview 固定信息顺序：
 - 开关修改调用 `update_agent_config`，成功后 invalidate snapshot；失败保持原值。
 - secret 字段只显示“已配置/未配置”；提交后清空本地输入。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 

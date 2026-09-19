@@ -1,10 +1,20 @@
+import {
+  QueryClientContext,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import { useContext, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import type { HostBridge } from "../bridge";
 import { EmptyState } from "../components/EmptyState";
+import { createQueryClient } from "../data/queryClient";
+import { useHostEvent } from "../data/useHostEvent";
+import { AgentsPage } from "../features/agents/AgentsPage";
+import { OverviewPage } from "../features/overview/OverviewPage";
 import { AppShell } from "./AppShell";
 import { navigationItems } from "./navigation";
 import type { NavigationItem } from "./navigation";
+import "../styles/task7.css";
 
 export interface AppRouterProps {
   bridge: HostBridge;
@@ -27,20 +37,38 @@ function WorkbenchPage({ item }: { item: NavigationItem }) {
   );
 }
 
-export function AppRouter({ bridge }: AppRouterProps) {
+function RoutedApp({ bridge }: AppRouterProps) {
+  useHostEvent(bridge);
+
   return (
     <Routes>
       <Route element={<AppShell bridge={bridge} />}>
         <Route index element={<Navigate replace to="/overview" />} />
-        {navigationItems.map((item) => (
-          <Route
-            key={item.path}
-            path={item.path}
-            element={<WorkbenchPage item={item} />}
-          />
-        ))}
+        <Route path="/overview" element={<OverviewPage bridge={bridge} />} />
+        <Route path="/agents" element={<AgentsPage bridge={bridge} />} />
+        {navigationItems
+          .filter((item) => item.path !== "/overview" && item.path !== "/agents")
+          .map((item) => (
+            <Route
+              key={item.path}
+              path={item.path}
+              element={<WorkbenchPage item={item} />}
+            />
+          ))}
         <Route path="*" element={<Navigate replace to="/overview" />} />
       </Route>
     </Routes>
+  );
+}
+
+export function AppRouter({ bridge }: AppRouterProps) {
+  const inheritedQueryClient = useContext(QueryClientContext);
+  const [fallbackQueryClient] = useState(createQueryClient);
+  const queryClient = inheritedQueryClient ?? fallbackQueryClient;
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RoutedApp bridge={bridge} />
+    </QueryClientProvider>
   );
 }
