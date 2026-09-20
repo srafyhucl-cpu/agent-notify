@@ -19,7 +19,10 @@ use agentnotify_channel_sdk::{ChannelAccount, ChannelAdapter, ChannelError};
 use agentnotify_domain::{ChannelAccountId, ChannelId, InboundMessage, Timestamp};
 use async_trait::async_trait;
 use serde_json::json;
-use tokio::{sync::mpsc, time::Instant};
+use tokio::{
+    sync::{Notify, mpsc},
+    time::Instant,
+};
 
 #[tokio::test]
 async fn cursor_is_committed_only_after_inbound_is_handled() {
@@ -39,7 +42,6 @@ async fn cursor_is_committed_only_after_inbound_is_handled() {
         .await
         .unwrap();
     wait_until("首次 getupdates", || transport.request_count() >= 1).await;
-    assert_eq!(transport.start_count(), 1);
     tokio::time::sleep(Duration::from_millis(40)).await;
 
     let account = fixture
@@ -54,6 +56,10 @@ async fn cursor_is_committed_only_after_inbound_is_handled() {
     let inbound = receiver.recv().await.expect("归一化消息应进入核心");
     assert_eq!(inbound.text, "继续");
     wait_for_cursor(&fixture.accounts, &fixture.account_id, "cursor-1").await;
+    wait_until("会话就绪后发送 notifystart", || {
+        transport.start_count() == 1
+    })
+    .await;
 
     let account = fixture
         .accounts
@@ -84,6 +90,76 @@ async fn cursor_is_committed_only_after_inbound_is_handled() {
         .expect("渠道任务应及时退出");
     assert!(result.is_ok());
     assert_eq!(transport.stop_count(), 1);
+}
+
+#[tokio::test]
+async fn notify_start_waits_until_session_context_is_established() {
+    let transport = Arc::new(ScriptedTransport::new(vec![Ok(ClawBotUpdates {
+        messages: Vec::new(),
+        cursor: "cursor-1".into(),
+    })]));
+    let fixture = Fixture::new_with_context(transport.clone(), false, None).await;
+    let (emit, mut receiver) = mpsc::channel(4);
+
+    let task = fixture
+        .channel
+        .start(fixture.account.clone(), emit)
+        .await
+        .unwrap();
+    wait_for_cursor(&fixture.accounts, &fixture.account_id, "cursor-1").await;
+    assert_eq!(transport.start_count(), 0);
+
+    transport.push(Ok(ClawBotUpdates {
+        messages: vec![inbound_message("message-1", "context-1", "继续")],
+        cursor: "cursor-2".into(),
+    }));
+    let _ = receiver.recv().await.expect("入站消息应进入核心");
+    wait_until("上下文建立后发送 notifystart", || {
+        transport.start_count() == 1
+    })
+    .await;
+
+    let context = fixture
+        .channel
+        .load_context(&fixture.account_id)
+        .await
+        .unwrap();
+    assert_eq!(context.context_token(), "context-1");
+    assert_eq!(transport.start_count(), 1);
+
+    let _ = task.shutdown().await;
+}
+
+#[tokio::test]
+async fn notify_start_failure_is_retried_on_next_successful_poll() {
+    let transport = Arc::new(ScriptedTransport::with_start_failures(
+        vec![Ok(ClawBotUpdates {
+            messages: vec![inbound_message("message-1", "context-1", "继续")],
+            cursor: "cursor-1".into(),
+        })],
+        1,
+    ));
+    let fixture = Fixture::new_with_context(transport.clone(), false, None).await;
+    let (emit, mut receiver) = mpsc::channel(4);
+
+    let task = fixture
+        .channel
+        .start(fixture.account.clone(), emit)
+        .await
+        .unwrap();
+    let _ = receiver.recv().await.expect("入站消息应进入核心");
+    wait_until("首次 notifystart 失败", || transport.start_count() == 1).await;
+
+    transport.push(Ok(ClawBotUpdates {
+        messages: Vec::new(),
+        cursor: "cursor-1".into(),
+    }));
+    wait_until("后续轮询重试 notifystart", || {
+        transport.start_count() == 2
+    })
+    .await;
+
+    let _ = task.shutdown().await;
 }
 
 #[tokio::test]
@@ -169,6 +245,14 @@ struct Fixture {
 
 impl Fixture {
     async fn new(transport: Arc<ScriptedTransport>, stale: bool) -> Self {
+        Self::new_with_context(transport, stale, Some("old-context")).await
+    }
+
+    async fn new_with_context(
+        transport: Arc<ScriptedTransport>,
+        stale: bool,
+        context_token: Option<&str>,
+    ) -> Self {
         let secrets = Arc::new(TestSecrets::default());
         let accounts = Arc::new(TestAccounts::default());
         let account = ClawBotAccount::from_platform_ids_at(
@@ -197,13 +281,16 @@ impl Fixture {
             .save_credentials(&account_id, &credentials)
             .await
             .unwrap();
-        channel
-            .save_context(
-                &account_id,
-                &agentnotify_channel_clawbot::ClawBotContext::new("old-context", "user-1").unwrap(),
-            )
-            .await
-            .unwrap();
+        if let Some(context_token) = context_token {
+            channel
+                .save_context(
+                    &account_id,
+                    &agentnotify_channel_clawbot::ClawBotContext::new(context_token, "user-1")
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+        }
 
         Self {
             channel,
@@ -218,18 +305,34 @@ impl Fixture {
 struct ScriptedTransport {
     responses: Mutex<VecDeque<Result<ClawBotUpdates, ChannelError>>>,
     requests: Mutex<Vec<ClawBotGetUpdatesRequest>>,
+    response_available: Notify,
+    start_failures: AtomicUsize,
     starts: AtomicUsize,
     stops: AtomicUsize,
 }
 
 impl ScriptedTransport {
     fn new(responses: Vec<Result<ClawBotUpdates, ChannelError>>) -> Self {
+        Self::with_start_failures(responses, 0)
+    }
+
+    fn with_start_failures(
+        responses: Vec<Result<ClawBotUpdates, ChannelError>>,
+        start_failures: usize,
+    ) -> Self {
         Self {
             responses: Mutex::new(responses.into()),
             requests: Mutex::new(Vec::new()),
+            response_available: Notify::new(),
+            start_failures: AtomicUsize::new(start_failures),
             starts: AtomicUsize::new(0),
             stops: AtomicUsize::new(0),
         }
+    }
+
+    fn push(&self, response: Result<ClawBotUpdates, ChannelError>) {
+        self.responses.lock().unwrap().push_back(response);
+        self.response_available.notify_waiters();
     }
 
     fn request_count(&self) -> usize {
@@ -256,16 +359,27 @@ impl ClawBotSessionTransport for ScriptedTransport {
         request: ClawBotGetUpdatesRequest,
     ) -> Result<ClawBotUpdates, ChannelError> {
         self.requests.lock().unwrap().push(request);
-        if let Some(response) = self.responses.lock().unwrap().pop_front() {
-            return response;
+        loop {
+            let notified = self.response_available.notified();
+            if let Some(response) = self.responses.lock().unwrap().pop_front() {
+                return response;
+            }
+            notified.await;
         }
-        std::future::pending::<()>().await;
-        unreachable!("pending future 不会完成")
     }
 
     async fn notify_start(&self, _request: ClawBotLifecycleRequest) -> Result<(), ChannelError> {
         self.starts.fetch_add(1, Ordering::SeqCst);
-        Ok(())
+        let remaining = self.start_failures.load(Ordering::SeqCst);
+        if remaining == 0 {
+            return Ok(());
+        }
+        self.start_failures.store(remaining - 1, Ordering::SeqCst);
+        Err(ChannelError::retryable(
+            "clawbot_notifystart_retryable",
+            "测试注入的 notifystart 失败",
+            None,
+        ))
     }
 
     async fn notify_stop(&self, _request: ClawBotLifecycleRequest) -> Result<(), ChannelError> {

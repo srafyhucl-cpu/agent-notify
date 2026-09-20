@@ -47,6 +47,12 @@ pub struct ClawBotUpdates {
     pub cursor: String,
 }
 
+/// 单轮入站处理结果：继续轮询表示游标已经持久化。
+enum PollOutcome {
+    Continue,
+    Stop,
+}
+
 /// 长轮询与生命周期请求的可替换边界，便于无网络验证游标恢复逻辑。
 #[async_trait]
 pub trait ClawBotSessionTransport: Send + Sync {
@@ -285,16 +291,16 @@ pub(crate) async fn run_session_task(
         base_url: credentials.base_url().to_owned(),
         bot_token: credentials.bot_token().to_owned(),
     };
-    if let Err(error) = transport.notify_start(lifecycle.clone()).await {
-        tracing::debug!(code = error.code(), "ClawBot notifystart 最佳努力失败");
-    }
 
+    // notifystart 只在会话上下文就绪后发送：过早调用会被服务端拒绝，
+    // 而失败不重试会导致主动推送无法在微信里展示。
     let result = run_poll_loop(
         secrets.clone(),
         accounts,
         transport.as_ref(),
         &account_id,
         &credentials,
+        &lifecycle,
         account.cursor().get_updates_buf.clone(),
         emit,
         &mut cancel,
@@ -314,11 +320,13 @@ async fn run_poll_loop(
     transport: &dyn ClawBotSessionTransport,
     account_id: &ChannelAccountId,
     credentials: &ClawBotCredentials,
+    lifecycle: &ClawBotLifecycleRequest,
     mut cursor: String,
     emit: InboundEmitter,
     cancel: &mut watch::Receiver<bool>,
 ) -> Result<(), ChannelError> {
     let mut retry_delay = INITIAL_RETRY_DELAY;
+    let mut announced = false;
     loop {
         if is_cancelled(cancel) {
             return Ok(());
@@ -356,11 +364,23 @@ async fn run_poll_loop(
                 )
                 .await
                 {
-                    Ok(true) => {
+                    Ok(PollOutcome::Continue) => {
                         cursor = next_cursor;
                         retry_delay = INITIAL_RETRY_DELAY;
+                        if !announced
+                            && announce_session_start(
+                                secrets.as_ref(),
+                                transport,
+                                account_id,
+                                credentials.user_id(),
+                                lifecycle,
+                            )
+                            .await
+                        {
+                            announced = true;
+                        }
                     }
-                    Ok(false) => return Ok(()),
+                    Ok(PollOutcome::Stop) => return Ok(()),
                     Err(error) if matches!(error, ChannelError::InvalidAccount(_)) => {
                         return Err(error);
                     }
@@ -401,7 +421,7 @@ async fn process_updates(
     cursor: &str,
     messages: Vec<ClawBotInboundMessage>,
     emit: &InboundEmitter,
-) -> Result<bool, ChannelError> {
+) -> Result<PollOutcome, ChannelError> {
     let now = Timestamp::now_utc();
     let mut next_context_token = None;
     for message in messages {
@@ -425,7 +445,7 @@ async fn process_updates(
             next_context_token = Some(context_token.to_owned());
         }
         if emit.send(normalized).await.is_err() {
-            return Ok(false);
+            return Ok(PollOutcome::Stop);
         }
     }
 
@@ -440,7 +460,54 @@ async fn process_updates(
         now,
     )
     .await?;
-    Ok(true)
+    Ok(PollOutcome::Continue)
+}
+
+/// 主动推送依赖入站会话上下文；上下文就绪后才发送 notifystart，失败则在后续轮询重试。
+async fn announce_session_start(
+    secrets: &dyn SecretStore,
+    transport: &dyn ClawBotSessionTransport,
+    account_id: &ChannelAccountId,
+    bound_user_id: &str,
+    lifecycle: &ClawBotLifecycleRequest,
+) -> bool {
+    match session_context_ready(secrets, account_id, bound_user_id).await {
+        Ok(true) => {}
+        Ok(false) => return false,
+        Err(error) => {
+            tracing::debug!(
+                code = error.code(),
+                "ClawBot 会话状态读取失败，暂缓 notifystart"
+            );
+            return false;
+        }
+    }
+    match transport.notify_start(lifecycle.clone()).await {
+        Ok(()) => true,
+        Err(error) => {
+            tracing::debug!(
+                code = error.code(),
+                "ClawBot notifystart 最佳努力失败，将在后续轮询重试"
+            );
+            false
+        }
+    }
+}
+
+async fn session_context_ready(
+    secrets: &dyn SecretStore,
+    account_id: &ChannelAccountId,
+    bound_user_id: &str,
+) -> Result<bool, ChannelError> {
+    let secret = match secrets.get(account_id, SecretKind::ContextToken).await {
+        Ok(secret) => secret,
+        Err(error) if secret_not_found(&error) => return Ok(false),
+        Err(error) => return Err(map_secret_error(error)),
+    };
+    match ClawBotContext::from_secret(&secret) {
+        Ok(context) => Ok(context.user_id() == bound_user_id),
+        Err(_) => Ok(false),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
