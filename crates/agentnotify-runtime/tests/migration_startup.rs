@@ -243,6 +243,7 @@ impl Fixture {
             delivery_targets: Vec::new(),
             reply_targets: Vec::new(),
             reply_config: ReplyConfig::default(),
+            target_provider: None,
             app_version: "2.0.0-test".into(),
             platform: "windows".into(),
             ingress_spool_dir: None,

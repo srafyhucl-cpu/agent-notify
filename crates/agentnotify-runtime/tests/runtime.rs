@@ -197,6 +197,7 @@ async fn fixture() -> Fixture {
             delivery_targets: Vec::new(),
             reply_targets: Vec::new(),
             reply_config: ReplyConfig::default(),
+            target_provider: None,
             app_version: "0.1.0-test".into(),
             platform: "windows".into(),
             ingress_spool_dir: None,

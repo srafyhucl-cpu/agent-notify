@@ -28,9 +28,17 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 agentnotify-application = { path = "../../crates/agentnotify-application" }
+agentnotify-agent-opencode = { path = "../../crates/agentnotify-agent-opencode" }
+agentnotify-agent-sdk = { path = "../../crates/agentnotify-agent-sdk" }
+agentnotify-channel-clawbot = { path = "../../crates/agentnotify-channel-clawbot" }
+agentnotify-channel-sdk = { path = "../../crates/agentnotify-channel-sdk" }
 agentnotify-domain = { path = "../../crates/agentnotify-domain" }
 agentnotify-ingress = { path = "../../apps/ingress" }
+agentnotify-runtime = { path = "../../crates/agentnotify-runtime" }
+agentnotify-storage-sqlite = { path = "../../crates/agentnotify-storage-sqlite" }
 sha2 = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
 futures = { workspace = true }
 tauri-plugin-notification = "2"
 tokio = { workspace = true }

@@ -99,9 +99,15 @@ dependencies = [
 name = "agentnotify-desktop"
 version = "0.1.0"
 dependencies = [
+ "agentnotify-agent-opencode",
+ "agentnotify-agent-sdk",
  "agentnotify-application",
+ "agentnotify-channel-clawbot",
+ "agentnotify-channel-sdk",
  "agentnotify-domain",
  "agentnotify-ingress",
+ "agentnotify-runtime",
+ "agentnotify-storage-sqlite",
  "async-trait",
  "futures",
  "serde",
@@ -116,8 +122,10 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-specta",
  "tempfile",
+ "time",
  "tokio",
  "tracing",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 

@@ -64,6 +64,7 @@ impl BeginLoginRequest {
 pub struct LoginSession {
     id: LoginSessionId,
     account_key: String,
+    account_id: Option<String>,
     state: LoginSessionState,
     qr_payload: Option<String>,
     created_at: Timestamp,
@@ -87,6 +88,7 @@ impl LoginSession {
         Ok(Self {
             id,
             account_key,
+            account_id: None,
             state,
             qr_payload: None,
             created_at,
@@ -100,6 +102,11 @@ impl LoginSession {
 
     pub fn account_key(&self) -> &str {
         &self.account_key
+    }
+
+    /// 登录确认并持久化账号后才会出现，未绑定时保持为空。
+    pub fn account_id(&self) -> Option<&str> {
+        self.account_id.as_deref()
     }
 
     pub fn state(&self) -> LoginSessionState {
@@ -116,6 +123,11 @@ impl LoginSession {
 
     pub fn error(&self) -> Option<&agentnotify_domain::SafeError> {
         self.error.as_ref()
+    }
+
+    pub fn with_account_id(mut self, account_id: impl Into<String>) -> Self {
+        self.account_id = Some(account_id.into());
+        self
     }
 
     pub fn with_qr_payload(mut self, qr_payload: impl Into<String>) -> Self {

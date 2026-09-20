@@ -334,8 +334,13 @@ async fn run_login_task(
 
         if is_binded_redirect(&status) {
             if let Ok(Some(credentials)) = load_credentials_for_session(&inner, &session_id).await {
-                if persist_credentials(&inner, &credentials).await.is_ok() {
-                    publish_state(&inner, &session_id, LoginSessionState::WaitingFirstInbound);
+                if let Ok(account_id) = persist_credentials(&inner, &credentials).await {
+                    publish_state_with_account_id(
+                        &inner,
+                        &session_id,
+                        LoginSessionState::WaitingFirstInbound,
+                        account_id.as_str(),
+                    );
                     return;
                 }
             }
@@ -364,11 +369,16 @@ async fn run_login_task(
                 publish_state(&inner, &session_id, LoginSessionState::WaitingScan);
             }
             LoginDecision::Confirmed(credentials) => {
-                if persist_credentials(&inner, &credentials).await.is_err() {
+                let Ok(account_id) = persist_credentials(&inner, &credentials).await else {
                     publish_state(&inner, &session_id, LoginSessionState::Failed);
                     return;
-                }
-                publish_state(&inner, &session_id, LoginSessionState::WaitingFirstInbound);
+                };
+                publish_state_with_account_id(
+                    &inner,
+                    &session_id,
+                    LoginSessionState::WaitingFirstInbound,
+                    account_id.as_str(),
+                );
                 return;
             }
             LoginDecision::Expired => {
@@ -394,20 +404,42 @@ async fn wait_for_poll(cancel: &mut watch::Receiver<bool>, duration: Duration) -
     }
 }
 
-fn publish_state(inner: &AdapterInner, session_id: &LoginSessionId, state: LoginSessionState) {
+fn publish_state_with_account_id(
+    inner: &AdapterInner,
+    session_id: &LoginSessionId,
+    state: LoginSessionState,
+    account_id: &str,
+) {
     let session = {
         let mut sessions = lock(&inner.sessions);
         let Some(current) = sessions.get(session_id).cloned() else {
             return;
         };
-        let next = replace_session_state(&current, state);
+        let next = replace_session_state(&current, state, Some(account_id));
         sessions.insert(session_id.clone(), next.clone());
         next
     };
     let _ = inner.events.send(session);
 }
 
-fn replace_session_state(current: &LoginSession, state: LoginSessionState) -> LoginSession {
+fn publish_state(inner: &AdapterInner, session_id: &LoginSessionId, state: LoginSessionState) {
+    let session = {
+        let mut sessions = lock(&inner.sessions);
+        let Some(current) = sessions.get(session_id).cloned() else {
+            return;
+        };
+        let next = replace_session_state(&current, state, None);
+        sessions.insert(session_id.clone(), next.clone());
+        next
+    };
+    let _ = inner.events.send(session);
+}
+
+fn replace_session_state(
+    current: &LoginSession,
+    state: LoginSessionState,
+    account_id: Option<&str>,
+) -> LoginSession {
     let keep_qr = matches!(
         state,
         LoginSessionState::Preparing
@@ -427,13 +459,16 @@ fn replace_session_state(current: &LoginSession, state: LoginSessionState) -> Lo
             next = next.with_qr_payload(qr_payload);
         }
     }
+    if let Some(account_id) = account_id.or(current.account_id()) {
+        next = next.with_account_id(account_id);
+    }
     next
 }
 
 async fn persist_credentials(
     inner: &AdapterInner,
     credentials: &ClawBotCredentials,
-) -> Result<(), ChannelError> {
+) -> Result<ChannelAccountId, ChannelError> {
     let account = ClawBotAccount::from_platform_ids(credentials.bot_id(), credentials.user_id())?
         .with_base_url(credentials.base_url(), Timestamp::now_utc())?;
     let account_id = account.id().clone();
@@ -447,7 +482,7 @@ async fn persist_credentials(
         .upsert(account.into_channel_account()?)
         .await
         .map_err(map_store_error)?;
-    Ok(())
+    Ok(account_id)
 }
 
 async fn local_tokens_for(

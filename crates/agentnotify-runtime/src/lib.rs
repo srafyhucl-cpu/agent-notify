@@ -32,8 +32,9 @@ pub use migration::{
     MigrationState, MigrationWarning,
 };
 pub use runtime::{
-    AppRuntime, DiagnosticItem, DiagnosticLevel, RuntimeConfig, RuntimeError, RuntimeHandle,
-    RuntimeSnapshot, start_migration_diagnostics,
+    AppRuntime, DiagnosticItem, DiagnosticLevel, ResolvedRuntimeTargets, RuntimeConfig,
+    RuntimeError, RuntimeHandle, RuntimeSnapshot, RuntimeTargetError, RuntimeTargetProvider,
+    start_migration_diagnostics,
 };
 pub use supervisor::{ComponentFailure, ComponentSnapshot, RuntimeState, Supervisor};
 pub use telemetry::{

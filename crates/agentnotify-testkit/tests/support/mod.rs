@@ -172,6 +172,7 @@ pub fn runtime_config(database_path: std::path::PathBuf, shared: &SharedAdapters
             send_confirmation: false,
             ..ReplyConfig::default()
         },
+        target_provider: None,
         app_version: "0.1.0-test".into(),
         platform: "windows".into(),
         ingress_spool_dir: None,

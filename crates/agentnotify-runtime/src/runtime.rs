@@ -21,6 +21,7 @@ use crate::{
 };
 use crate::{TelemetryConfig, TelemetryError, TelemetryGuard, init_telemetry};
 
+use time::Duration as TimeDuration;
 use crate::migration::{
     MigrationConfig, MigrationFailure, MigrationSnapshot, MigrationState, prepare_migration,
 };
@@ -29,6 +30,7 @@ const DEFAULT_INBOUND_CAPACITY: usize = 256;
 const DEFAULT_WORKER_IDLE_DELAY: Duration = Duration::from_millis(250);
 const DEFAULT_STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 const DEFAULT_CHANNEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const DEFAULT_REPLY_ROUTE_TTL_SECONDS: i64 = 24 * 60 * 60;
 
 struct SnapshotMetadata {
     app_version: String,
@@ -49,6 +51,7 @@ pub struct RuntimeConfig {
     pub delivery_targets: Vec<DeliveryTarget>,
     pub reply_targets: Vec<ReplyTarget>,
     pub reply_config: ReplyConfig,
+    pub target_provider: Option<Arc<dyn RuntimeTargetProvider>>,
     pub app_version: String,
     pub platform: String,
     pub ingress_spool_dir: Option<PathBuf>,
@@ -58,6 +61,52 @@ pub struct RuntimeConfig {
     pub worker_idle_delay: Duration,
     pub status_refresh_interval: Duration,
     pub channel_poll_interval: Duration,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedRuntimeTargets {
+    pub notification_policy: NotificationPolicy,
+    pub delivery_targets: Vec<DeliveryTarget>,
+    pub reply_targets: Vec<ReplyTarget>,
+    pub reply_config: ReplyConfig,
+    pub reply_route_ttl: TimeDuration,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeTargetError {
+    code: String,
+    message: String,
+}
+
+impl RuntimeTargetError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+
+    pub fn code(&self) -> &str {
+        &self.code
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl std::fmt::Display for RuntimeTargetError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.message())
+    }
+}
+
+impl std::error::Error for RuntimeTargetError {}
+
+#[async_trait::async_trait]
+pub trait RuntimeTargetProvider: Send + Sync {
+    /// 在迁移完成后解析启动目标，避免旧账号导入与新运行时启动竞争。
+    async fn resolve(&self) -> Result<ResolvedRuntimeTargets, RuntimeTargetError>;
 }
 
 impl RuntimeConfig {
@@ -108,6 +157,7 @@ pub enum RuntimeError {
     },
     IntegrityCheckFailed,
     Ingest(IngestError),
+    TargetProvider(RuntimeTargetError),
     Migration(Box<MigrationFailure>),
 }
 
@@ -121,6 +171,7 @@ impl RuntimeError {
             Self::InvalidConfiguration { field } => field,
             Self::IntegrityCheckFailed => "database_integrity_failed",
             Self::Ingest(error) => error.code(),
+            Self::TargetProvider(error) => error.code(),
             Self::Migration(error) => error.code.as_str(),
         }
     }
@@ -134,6 +185,7 @@ impl RuntimeError {
             Self::InvalidConfiguration { .. } => "运行时配置无效",
             Self::IntegrityCheckFailed => "数据库完整性检查失败，运行时未启动",
             Self::Ingest(error) => error.message(),
+            Self::TargetProvider(error) => error.message(),
             Self::Migration(error) => error.message.as_str(),
         }
     }
@@ -274,23 +326,39 @@ impl AppRuntime {
         }
 
         let event_bus = Arc::new(EventBus::new());
+        let resolved_targets = match config.target_provider.as_ref() {
+            Some(provider) => provider
+                .resolve()
+                .await
+                .map_err(RuntimeError::TargetProvider)?,
+            None => ResolvedRuntimeTargets {
+                notification_policy: config.notification_policy.clone(),
+                delivery_targets: config.delivery_targets.clone(),
+                reply_targets: config.reply_targets.clone(),
+                reply_config: config.reply_config.clone(),
+                reply_route_ttl: TimeDuration::seconds(DEFAULT_REPLY_ROUTE_TTL_SECONDS),
+            },
+        };
         let ingest = Arc::new(IngestService::new(
             config.agents.clone(),
             store.clone(),
             event_bus.clone(),
             config.clock.clone(),
             config.id_generator.clone(),
-            config.notification_policy.clone(),
+            resolved_targets.notification_policy.clone(),
         ));
-        let delivery = Arc::new(DeliveryService::new(
-            store.clone(),
-            config.channels.clone(),
-            config.delivery_targets.clone(),
-            config.clock.clone(),
-            config.id_generator.clone(),
-            event_bus.clone(),
-            Default::default(),
-        ));
+        let delivery = Arc::new(
+            DeliveryService::new(
+                store.clone(),
+                config.channels.clone(),
+                resolved_targets.delivery_targets.clone(),
+                config.clock.clone(),
+                config.id_generator.clone(),
+                event_bus.clone(),
+                Default::default(),
+            )
+            .with_route_ttl(resolved_targets.reply_route_ttl),
+        );
         let reply = Arc::new(ReplyService::new(
             store.clone(),
             store.clone(),
@@ -298,8 +366,8 @@ impl AppRuntime {
             config.agents.clone(),
             config.clock.clone(),
             event_bus.clone(),
-            config.reply_targets.clone(),
-            config.reply_config.clone(),
+            resolved_targets.reply_targets.clone(),
+            resolved_targets.reply_config.clone(),
             Some(store.clone()),
         )?);
         let status = Arc::new(StatusService::new(
