@@ -3,12 +3,13 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use tracing_subscriber::fmt::MakeWriter;
 
 const MAX_PENDING_LOG_BYTES: usize = 64 * 1024;
+const MAX_LOG_BYTES: u64 = 8 * 1024 * 1024;
 const SENSITIVE_KEYS: &[&str] = &[
     "token",
     "secret",
@@ -146,22 +147,30 @@ impl<W: Write> Drop for RedactingWriter<W> {
 
 #[derive(Clone)]
 struct SharedFile {
-    file: Arc<Mutex<File>>,
+    file: Arc<Mutex<Option<File>>>,
 }
 
 impl Write for SharedFile {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        self.file
+        let mut slot = self
+            .file
             .lock()
-            .map_err(|_| io::Error::other("日志文件锁不可用"))?
-            .write(buffer)
+            .map_err(|_| io::Error::other("日志文件锁不可用"))?;
+        match slot.as_mut() {
+            Some(file) => file.write(buffer),
+            None => Err(io::Error::other("日志文件尚未打开")),
+        }
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.file
+        let mut slot = self
+            .file
             .lock()
-            .map_err(|_| io::Error::other("日志文件锁不可用"))?
-            .flush()
+            .map_err(|_| io::Error::other("日志文件锁不可用"))?;
+        match slot.as_mut() {
+            Some(file) => file.flush(),
+            None => Ok(()),
+        }
     }
 }
 
@@ -173,9 +182,11 @@ impl<'a> MakeWriter<'a> for SharedFile {
     }
 }
 
-/// 初始化文件日志；现有全局 subscriber 已存在时返回错误。
+/// 初始化文件日志。同一进程内可重复调用：全局 subscriber 只安装一次，
+/// 后续调用把日志切换到新的日志文件，运行时重启不会因此失败。
 pub fn init_telemetry(config: TelemetryConfig) -> Result<TelemetryGuard, TelemetryError> {
     create_log_parent(&config.log_path)?;
+    rotate_oversized_log(&config.log_path)?;
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -184,18 +195,58 @@ pub fn init_telemetry(config: TelemetryConfig) -> Result<TelemetryGuard, Telemet
             code: "telemetry_open_failed",
             message: "打开应用日志文件失败".into(),
         })?;
-    let writer = SharedFile {
-        file: Arc::new(Mutex::new(file)),
-    };
-    tracing_subscriber::fmt()
-        .with_ansi(false)
-        .with_writer(writer)
-        .try_init()
-        .map_err(|_| TelemetryError {
-            code: "telemetry_init_failed",
-            message: "初始化应用日志失败".into(),
-        })?;
+    let sink = LOG_SINK.get_or_init(|| Arc::new(Mutex::new(None))).clone();
+    {
+        let mut current = sink.lock().map_err(|_| telemetry_init_failed())?;
+        *current = Some(file);
+    }
+    install_subscriber(&sink)?;
     Ok(TelemetryGuard)
+}
+
+/// 进程级日志接收端；运行时重启只替换其中的文件，subscriber 保持不变。
+static LOG_SINK: OnceLock<Arc<Mutex<Option<File>>>> = OnceLock::new();
+
+/// 全局 subscriber 只能安装一次，安装结果供后续初始化复用。
+static SUBSCRIBER_INSTALL: Mutex<Option<Result<(), TelemetryError>>> = Mutex::new(None);
+
+fn install_subscriber(sink: &Arc<Mutex<Option<File>>>) -> Result<(), TelemetryError> {
+    let mut state = SUBSCRIBER_INSTALL
+        .lock()
+        .map_err(|_| telemetry_init_failed())?;
+    if let Some(result) = state.as_ref() {
+        return result.clone();
+    }
+    let result = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_writer(SharedFile { file: sink.clone() })
+        .try_init()
+        .map_err(|_| telemetry_init_failed());
+    *state = Some(result.clone());
+    result
+}
+
+/// 启动时把超大日志轮换成一个历史文件，避免长期占用用户磁盘。
+fn rotate_oversized_log(path: &Path) -> Result<(), TelemetryError> {
+    let Ok(metadata) = fs::metadata(path) else {
+        return Ok(());
+    };
+    if metadata.len() <= MAX_LOG_BYTES {
+        return Ok(());
+    }
+    let rotated = path.with_extension("log.1");
+    let _ = fs::remove_file(&rotated);
+    fs::rename(path, &rotated).map_err(|_| TelemetryError {
+        code: "telemetry_rotate_failed",
+        message: "轮换应用日志文件失败".into(),
+    })
+}
+
+fn telemetry_init_failed() -> TelemetryError {
+    TelemetryError {
+        code: "telemetry_init_failed",
+        message: "初始化应用日志失败".into(),
+    }
 }
 
 fn create_log_parent(path: &Path) -> Result<(), TelemetryError> {

@@ -8,7 +8,7 @@ use agentnotify_channel_sdk::ChannelRegistry;
 use agentnotify_domain::Timestamp;
 use agentnotify_runtime::{
     AppRuntime, MigrationConfig, RuntimeConfig, RuntimeError, RuntimeHandle, RuntimeSnapshot,
-    RuntimeState as CoreRuntimeState, start_migration_diagnostics,
+    RuntimeState as CoreRuntimeState, TelemetryConfig, start_migration_diagnostics,
 };
 use agentnotify_storage_sqlite::{LegacyPaths, SqliteStore};
 use tokio::sync::Mutex;
@@ -20,6 +20,8 @@ use crate::lifecycle::LifecycleError;
 use crate::lifecycle::pause::RuntimeControl;
 use crate::lifecycle::window::RuntimeState;
 use crate::platform::AppPaths;
+
+const RUNTIME_LOG_FILE_NAME: &str = "runtime.log";
 
 pub struct SystemClock;
 
@@ -169,7 +171,9 @@ impl ProductionRuntimeCoordinator {
             platform: self.platform.clone(),
             ingress_spool_dir: Some(self.paths.spool_dir.clone()),
             ingress_pipe_enabled: self.ingress_pipe_enabled,
-            telemetry: None,
+            telemetry: Some(TelemetryConfig {
+                log_path: self.paths.log_dir.join(RUNTIME_LOG_FILE_NAME),
+            }),
             inbound_capacity: 256,
             worker_idle_delay: Duration::from_millis(250),
             status_refresh_interval: Duration::from_millis(100),
