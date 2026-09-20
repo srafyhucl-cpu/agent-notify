@@ -8,14 +8,18 @@ use std::{
 
 use agentnotify_agent_sdk::AgentRegistry;
 use agentnotify_application::{
-    ChannelAccountStore, Clock, IdGenerator, NotificationPolicy, ReplyConfig,
+    ChannelAccountStore, Clock, DeliveryTarget, IdGenerator, IngestStore, NotificationPolicy,
+    OutboxItem, ReplyConfig,
 };
 use agentnotify_channel_sdk::{
     ChannelAccount, ChannelAdapter, ChannelCapabilities, ChannelDescriptor, ChannelError,
     ChannelHealth, ChannelRegistry, ChannelTask, DeliveryReceipt, InboundEmitter, InboundMode,
     OutboundMessage,
 };
-use agentnotify_domain::{ChannelAccountId, ChannelId, SafeError, Timestamp};
+use agentnotify_domain::{
+    AgentId, ChannelAccountId, ChannelId, DeliveryState, ExternalMessageId, Notification,
+    NotificationId, NotificationMetadata, SafeError, Timestamp,
+};
 use agentnotify_runtime::{AppRuntime, RuntimeConfig};
 use agentnotify_storage_sqlite::SqliteStore;
 use tempfile::TempDir;
@@ -47,6 +51,7 @@ struct TestChannel {
     id: ChannelId,
     fail_start: bool,
     started: Notify,
+    sent: AtomicU64,
 }
 
 impl TestChannel {
@@ -55,7 +60,12 @@ impl TestChannel {
             id: ChannelId::new(id).unwrap(),
             fail_start,
             started: Notify::new(),
+            sent: AtomicU64::new(0),
         }
+    }
+
+    fn sent_count(&self) -> u64 {
+        self.sent.load(Ordering::SeqCst)
     }
 
     async fn wait_started(&self) {
@@ -113,10 +123,16 @@ impl ChannelAdapter for TestChannel {
         _account: ChannelAccount,
         _message: OutboundMessage,
     ) -> Result<DeliveryReceipt, ChannelError> {
-        Err(ChannelError::unsupported_capability(
-            "test_send",
-            "测试渠道不发送消息",
-        ))
+        let sequence = self.sent.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(DeliveryReceipt {
+            external_message_id: Some(
+                ExternalMessageId::new(format!("test-message-{sequence}")).unwrap(),
+            ),
+            external_thread_id: None,
+            state: DeliveryState::Sent,
+            error: None,
+            raw_safe_metadata: Default::default(),
+        })
     }
 
     async fn inspect(&self, _account: ChannelAccount) -> ChannelHealth {
@@ -237,4 +253,66 @@ async fn shutdown_waits_for_outbox_checkpoint() {
 
     assert!(!handle.is_running());
     assert!(handle.store().integrity_check().await.unwrap());
+}
+
+#[tokio::test]
+async fn outbox_pause_holds_pending_delivery_until_resumed() {
+    let Fixture {
+        _temp,
+        mut config,
+        healthy,
+        ..
+    } = fixture().await;
+    config.delivery_targets = vec![DeliveryTarget::new(
+        ChannelAccount::new(
+            ChannelAccountId::new("healthy-account").unwrap(),
+            ChannelId::new("healthy").unwrap(),
+            "健康测试账号",
+            FixedClock.now(),
+        ),
+        "conversation-1",
+    )];
+    let mut handle = AppRuntime::start(config).await.unwrap();
+    handle.set_outbox_paused(true);
+    assert!(handle.outbox_paused());
+
+    let notification = Notification::new(
+        NotificationId::new("notification-paused").unwrap(),
+        "pause-contract-1",
+        AgentId::new("test-agent").unwrap(),
+        None,
+        None,
+        "暂停测试",
+        "暂停期间不得调用渠道",
+        FixedClock.now(),
+        NotificationMetadata::default(),
+    )
+    .unwrap();
+    handle
+        .store()
+        .commit_ingest(
+            notification.clone(),
+            vec![OutboxItem::pending(
+                "outbox-paused",
+                notification.id.clone(),
+                FixedClock.now(),
+            )],
+        )
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert_eq!(healthy.sent_count(), 0, "暂停期间不得领取 Outbox");
+
+    handle.set_outbox_paused(false);
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while healthy.sent_count() == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("恢复后必须继续投递");
+    assert_eq!(healthy.sent_count(), 1);
+
+    handle.shutdown().await.unwrap();
 }

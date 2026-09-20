@@ -4,6 +4,7 @@ mod channel_account_store;
 mod claim_store;
 mod database;
 mod delivery_store;
+mod host_queries;
 mod ingest_store;
 mod legacy;
 mod migrations;
@@ -13,6 +14,10 @@ mod row_codec;
 mod sqlite_helpers;
 mod status_store;
 
+pub use host_queries::{
+    AgentConfigRecord, DeliveryViewRecord, NotificationDetailRecord, NotificationPage,
+    NotificationQuery, NotificationRecord,
+};
 pub use legacy::{ImportReport, ImportWarning, LegacyImport, LegacyImportError, LegacyPaths};
 pub use migrations::{SqliteStore, run_migrations};
 pub use recovery::RecoverySummary;

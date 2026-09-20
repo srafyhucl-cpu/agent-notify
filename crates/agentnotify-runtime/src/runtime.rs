@@ -37,6 +37,7 @@ struct SnapshotMetadata {
 }
 
 /// 运行时装配参数。所有适配器必须先在注册表中显式注册。
+#[derive(Clone)]
 pub struct RuntimeConfig {
     pub database_path: PathBuf,
     pub migration: Option<MigrationConfig>,
@@ -315,6 +316,7 @@ impl AppRuntime {
         let initial_overview = status.snapshot().await.map_err(map_status_error)?;
         let supervisor = Supervisor::new();
         let (cancel_sender, cancel_receiver) = watch::channel(false);
+        let (outbox_pause_sender, outbox_pause_receiver) = watch::channel(false);
         let (inbound_sender, inbound_receiver) =
             mpsc::channel::<InboundMessage>(config.inbound_capacity());
         let (status_sender, status_receiver) = watch::channel(build_snapshot(
@@ -367,7 +369,12 @@ impl AppRuntime {
         let delivery_cancel = cancel_receiver.clone();
         tasks.push(supervisor.clone().spawn_component(
             "delivery.outbox",
-            run_outbox_worker(delivery, delivery_cancel, config.worker_idle_delay()),
+            run_outbox_worker(
+                delivery,
+                outbox_pause_receiver,
+                delivery_cancel,
+                config.worker_idle_delay(),
+            ),
         ));
         let status_cancel = cancel_receiver.clone();
         tasks.push(supervisor.clone().spawn_component(
@@ -394,6 +401,7 @@ impl AppRuntime {
             store,
             ingest,
             cancel_sender,
+            outbox_pause: outbox_pause_sender,
             tasks,
             stopped: false,
             host_platform: config.platform.clone(),
@@ -444,6 +452,7 @@ pub async fn start_migration_diagnostics(
     let supervisor = Supervisor::new();
     supervisor.set_runtime_state(RuntimeState::MigrationRequired);
     let (cancel_sender, _cancel_receiver) = watch::channel(false);
+    let (outbox_pause, _outbox_pause_receiver) = watch::channel(false);
     let (status_sender, status_receiver) = watch::channel(build_snapshot(
         &config.app_version,
         &config.platform,
@@ -461,6 +470,7 @@ pub async fn start_migration_diagnostics(
         store,
         ingest,
         cancel_sender,
+        outbox_pause,
         tasks: Vec::new(),
         stopped: false,
         host_platform: config.platform.clone(),
@@ -478,6 +488,7 @@ pub struct RuntimeHandle {
     store: Arc<SqliteStore>,
     ingest: Arc<IngestService>,
     cancel_sender: watch::Sender<bool>,
+    outbox_pause: watch::Sender<bool>,
     tasks: Vec<JoinHandle<()>>,
     stopped: bool,
     host_platform: String,
@@ -506,6 +517,15 @@ impl RuntimeHandle {
 
     pub fn store(&self) -> Arc<SqliteStore> {
         self.store.clone()
+    }
+
+    pub fn outbox_paused(&self) -> bool {
+        *self.outbox_pause.borrow()
+    }
+
+    /// 只暂停新 Outbox 领取；渠道入站与本地接收仍保持工作。
+    pub fn set_outbox_paused(&self, paused: bool) {
+        self.outbox_pause.send_replace(paused);
     }
 
     pub async fn ingest(&self, envelope: AgentEventEnvelope) -> Result<IngestResult, RuntimeError> {
@@ -639,12 +659,28 @@ async fn run_inbound_consumer(
 
 async fn run_outbox_worker(
     delivery: Arc<DeliveryService>,
+    mut outbox_pause: watch::Receiver<bool>,
     mut cancel: watch::Receiver<bool>,
     idle_delay: Duration,
 ) -> Result<(), ComponentFailure> {
     loop {
         if *cancel.borrow() {
             return Ok(());
+        }
+        if *outbox_pause.borrow() {
+            tokio::select! {
+                changed = outbox_pause.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+                }
+                changed = cancel.changed() => {
+                    if changed.is_err() || *cancel.borrow() {
+                        return Ok(());
+                    }
+                }
+            }
+            continue;
         }
         match delivery.process_next().await {
             Ok(_) => {}

@@ -14,6 +14,7 @@ use fs2::FileExt;
 const DEFAULT_ACTIVITY_MAX_AGE: Duration = Duration::from_secs(30);
 
 /// 旧数据导入和单实例锁的启动参数。
+#[derive(Clone)]
 pub struct MigrationConfig {
     pub legacy_paths: LegacyPaths,
     pub secrets: Arc<dyn SecretStore>,
