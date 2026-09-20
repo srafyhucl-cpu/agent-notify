@@ -79,6 +79,33 @@ impl ProductionSettingsStore {
                 CommandError::new("settings_write_failed", format!("保存设置失败：{error}"))
             })
     }
+
+    /// 首次绑定时为新账号补默认目标；已有显式默认账号时保持不变。
+    pub async fn ensure_default_channel_account(
+        &self,
+        account_id: &str,
+    ) -> Result<bool, CommandError> {
+        let account_id = account_id.trim();
+        if account_id.is_empty() {
+            return Err(CommandError::new(
+                "default_channel_account_empty",
+                "默认通知账号不能为空",
+            ));
+        }
+
+        let mut settings = self.load_settings().await?;
+        if settings
+            .default_channel_account_id
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            return Ok(false);
+        }
+
+        settings.default_channel_account_id = Some(account_id.to_owned());
+        self.save_settings(&settings).await?;
+        Ok(true)
+    }
 }
 
 #[async_trait::async_trait]

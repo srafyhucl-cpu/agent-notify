@@ -57,6 +57,20 @@ impl EventForwarder {
                                 session_id = %session.id(),
                                 "新账号登录成功，重启桌面运行时以建立长轮询"
                             );
+                            match runtime_login
+                                .settings()
+                                .ensure_default_channel_account(account_id)
+                                .await
+                            {
+                                Ok(true) => tracing::info!(account_id, "新账号已设为默认通知账号"),
+                                Ok(false) => {}
+                                Err(error) => tracing::warn!(
+                                    account_id,
+                                    code = error.code(),
+                                    message = error.message(),
+                                    "新账号登录后更新默认通知账号失败"
+                                ),
+                            }
                             match runtime_login.start_or_restart().await {
                                 Ok(_) => {
                                     restarted_sessions.lock().await.insert(session_key);

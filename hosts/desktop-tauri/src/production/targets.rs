@@ -7,7 +7,7 @@ use agentnotify_application::{
 };
 use agentnotify_channel_clawbot::{CLAWBOT_CHANNEL_ID, ClawBotAccount, ClawBotCredentials};
 use agentnotify_channel_sdk::ChannelRegistry;
-use agentnotify_domain::ChannelId;
+use agentnotify_domain::{ChannelId, Timestamp};
 use agentnotify_runtime::{ResolvedRuntimeTargets, RuntimeTargetError, RuntimeTargetProvider};
 use agentnotify_storage_sqlite::SqliteStore;
 use time::Duration as TimeDuration;
@@ -115,16 +115,27 @@ impl RuntimeTargetProvider for ProductionTargetProvider {
             }
         }
 
-        // 确定性排序：优先默认账号，其余按 ID 字典序升序
+        // 显式默认账号始终优先；未选择时优先最近建立主动推送会话的账号，避免升级旧数据后命中失效账号。
         let default_acc_id = settings_dto.default_channel_account_id.as_deref();
         enabled_accounts.sort_by(|a, b| {
             let a_is_default = default_acc_id == Some(a.id.as_str());
             let b_is_default = default_acc_id == Some(b.id.as_str());
             match (a_is_default, b_is_default) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.id.as_str().cmp(b.id.as_str()),
+                (true, false) => return std::cmp::Ordering::Less,
+                (false, true) => return std::cmp::Ordering::Greater,
+                _ => {}
             }
+
+            if default_acc_id.is_none() {
+                match (session_established_at(a), session_established_at(b)) {
+                    (Some(left), Some(right)) if left != right => return right.cmp(&left),
+                    (Some(_), None) => return std::cmp::Ordering::Less,
+                    (None, Some(_)) => return std::cmp::Ordering::Greater,
+                    _ => {}
+                }
+            }
+
+            a.id.as_str().cmp(b.id.as_str())
         });
 
         let mut delivery_targets = Vec::new();
@@ -231,4 +242,9 @@ fn parse_hh_mm(s: &str) -> Option<(u16, u16)> {
     let h: u16 = parts[0].parse().ok()?;
     let m: u16 = parts[1].parse().ok()?;
     if h < 24 && m < 60 { Some((h, m)) } else { None }
+}
+fn session_established_at(account: &agentnotify_channel_sdk::ChannelAccount) -> Option<Timestamp> {
+    ClawBotAccount::from_channel_account(account.clone())
+        .ok()
+        .and_then(|account| account.state().session_established_at)
 }

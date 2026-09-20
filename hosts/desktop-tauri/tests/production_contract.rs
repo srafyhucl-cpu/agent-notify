@@ -123,6 +123,43 @@ async fn settings_store_round_trip_and_legacy_compatibility() {
 }
 
 #[tokio::test]
+async fn first_channel_account_becomes_default_without_overwriting_explicit_choice() {
+    let (_root, paths, store, _secret_store) = create_test_env("agentnotify-default-account-test-");
+    let settings_store = ProductionSettingsStore::new(store, &paths.config_dir);
+
+    assert!(
+        settings_store
+            .ensure_default_channel_account("clawbot-new")
+            .await
+            .expect("首次设置默认账号必须成功")
+    );
+
+    let settings = settings_store
+        .load_settings()
+        .await
+        .expect("读取设置必须成功");
+    assert_eq!(
+        settings.default_channel_account_id.as_deref(),
+        Some("clawbot-new")
+    );
+
+    assert!(
+        !settings_store
+            .ensure_default_channel_account("clawbot-other")
+            .await
+            .expect("已有默认账号时必须幂等返回")
+    );
+    let settings = settings_store
+        .load_settings()
+        .await
+        .expect("重新读取设置必须成功");
+    assert_eq!(
+        settings.default_channel_account_id.as_deref(),
+        Some("clawbot-new")
+    );
+}
+
+#[tokio::test]
 async fn target_provider_resolves_opencode_and_enabled_clawbot_accounts() {
     let (_root, paths, store, secret_store) = create_test_env("agentnotify-targets-test-");
     let settings_store = ProductionSettingsStore::new(store.clone(), &paths.config_dir);
@@ -540,4 +577,101 @@ async fn logout_channel_account_surfaces_error_when_channel_fails_or_account_mis
     assert_eq!(error.code, "account_not_found");
 
     let _ = service.quit_app(EmptyPayload {}).await;
+}
+#[tokio::test]
+async fn target_provider_uses_latest_established_account_as_compatible_fallback() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-target-fallback-test-");
+    let settings_store = ProductionSettingsStore::new(store.clone(), &paths.config_dir);
+
+    let mut agent_registry = agentnotify_agent_sdk::AgentRegistry::default();
+    let opencode_inbox = agentnotify_agent_opencode::OpenCodeReplyInbox::new(
+        paths.config_dir.join("opencode-reply-inbox"),
+    );
+    agent_registry
+        .register(Arc::new(agentnotify_agent_opencode::OpenCodeAgent::new(
+            opencode_inbox,
+        )))
+        .expect("注册 agent 必须成功");
+
+    let clawbot_channel = agentnotify_channel_clawbot::ClawBotChannel::new(secret_store.clone())
+        .with_account_store(store.clone());
+    let mut channel_registry = agentnotify_channel_sdk::ChannelRegistry::default();
+    channel_registry
+        .register(Arc::new(clawbot_channel))
+        .expect("注册 channel 必须成功");
+
+    let target_provider = ProductionTargetProvider::new(
+        store.clone(),
+        settings_store.clone(),
+        secret_store.clone(),
+        Arc::new(agent_registry),
+        Arc::new(channel_registry),
+    );
+
+    let older = make_clawbot_account("test-bot-old", "wx-user-old", "2026-09-19T01:00:00Z");
+    let newer = make_clawbot_account("test-bot-new", "wx-user-new", "2026-09-20T01:00:00Z");
+    let older_id = older.id.clone();
+    let newer_id = newer.id.clone();
+
+    for account in [older, newer] {
+        let credentials = serde_json::json!({
+            "bot_token": format!("token-{}", account.id),
+            "bot_id": format!("bot-{}", account.id),
+            "user_id": account.config["user_id_hint"].clone(),
+            "base_url": "https://ilinkai.weixin.qq.com"
+        });
+        let account_id = account.id.clone();
+        store.upsert(account).await.expect("upsert 账号必须成功");
+        secret_store
+            .set(
+                &account_id,
+                SecretKind::BotToken,
+                SecretValue::new(credentials.to_string()).expect("凭据必须有效"),
+            )
+            .await
+            .expect("写入密钥必须成功");
+    }
+
+    let resolved = target_provider.resolve().await.expect("解析目标必须成功");
+    assert_eq!(resolved.delivery_targets.len(), 2);
+    assert_eq!(
+        resolved.delivery_targets[0].account.id, newer_id,
+        "未显式选择时必须优先最近建立会话的账号"
+    );
+
+    let mut settings = settings_store
+        .load_settings()
+        .await
+        .expect("读取设置必须成功");
+    settings.default_channel_account_id = Some(older_id.to_string());
+    settings_store
+        .save_settings(&settings)
+        .await
+        .expect("保存默认账号必须成功");
+
+    let resolved = target_provider
+        .resolve()
+        .await
+        .expect("重新解析目标必须成功");
+    assert_eq!(
+        resolved.delivery_targets[0].account.id, older_id,
+        "显式默认账号必须优先于会话新旧"
+    );
+}
+
+fn make_clawbot_account(
+    bot_id: &str,
+    user_id: &str,
+    established_at: &str,
+) -> agentnotify_channel_sdk::ChannelAccount {
+    let mut account =
+        agentnotify_channel_clawbot::ClawBotAccount::from_platform_ids(bot_id, user_id)
+            .expect("构造 ClawBot 账号成功")
+            .into_channel_account()
+            .expect("转为 ChannelAccount 成功");
+    account.enabled = true;
+    account.config["session_established_at"] =
+        serde_json::to_value(Timestamp::parse_rfc3339(established_at).expect("时间必须有效"))
+            .expect("时间必须可序列化");
+    account
 }
