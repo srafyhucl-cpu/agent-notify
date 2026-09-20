@@ -280,14 +280,16 @@ limit 1;
 
   $parts = $row -split "`t"
   if ($parts[2] -ne 'Sent') {
-    throw "推送没有成功送达，状态=$($parts[2])"
+    throw "推送没有被 ClawBot 受理，状态=$($parts[2])"
   }
-  Write-Output "push=PASS"
+  # ClawBot 的 Sent 仅代表平台受理并返回消息 ID，不能证明微信端已展示。
+  Write-Output "push=PLATFORM_ACCEPTED"
   Write-Output "notification=$($parts[0])"
   Write-Output "sessionHash=$(Get-HashText $parts[1])"
   Write-Output "deliveryState=$($parts[2])"
   Write-Output "externalMessageIdHash=$(Get-HashText $parts[3])"
-  Write-Output "next=请在微信中引用刚收到的那条通知，回复：$ReplyText"
+  Write-Output "pushVisibility=manual_confirmation_required"
+  Write-Output "next=请先在微信端确认收到通知，再引用它回复：$ReplyText"
   exit 0
 }
 
