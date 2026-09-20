@@ -52,6 +52,14 @@ pub fn runtime_ready_action(runtime_ready: bool) -> RuntimeReadyAction {
     }
 }
 
+pub fn determine_runtime_ready_action(start_hidden: bool, autostart: bool) -> RuntimeReadyAction {
+    if start_hidden || autostart {
+        RuntimeReadyAction::KeepHidden
+    } else {
+        RuntimeReadyAction::ShowMain
+    }
+}
+
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), LifecycleError> {
     let window = app
         .get_webview_window(MAIN_WINDOW_LABEL)

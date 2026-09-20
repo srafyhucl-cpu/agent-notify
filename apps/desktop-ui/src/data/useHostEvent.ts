@@ -34,7 +34,7 @@ export function useHostEvent(bridge: HostBridge) {
       (event) => {
         invalidate(queryClient, queryKeys.snapshot());
         invalidate(queryClient, queryKeys.channels());
-        invalidate(queryClient, queryKeys.channelLogin(event.accountId));
+        invalidate(queryClient, queryKeys.channelLogin(event.accountId ?? undefined));
       },
     );
 

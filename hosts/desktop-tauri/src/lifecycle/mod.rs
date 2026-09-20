@@ -71,6 +71,16 @@ impl LifecycleController {
         runtime: Arc<dyn RuntimeControl>,
         settings: Arc<dyn PauseSettingsStore>,
     ) -> Result<RuntimeReadyAction, LifecycleError> {
+        self.attach_runtime_with_action(runtime, settings, RuntimeReadyAction::ShowMain)
+            .await
+    }
+
+    pub async fn attach_runtime_with_action(
+        &self,
+        runtime: Arc<dyn RuntimeControl>,
+        settings: Arc<dyn PauseSettingsStore>,
+        action: RuntimeReadyAction,
+    ) -> Result<RuntimeReadyAction, LifecycleError> {
         let pause = Arc::new(PauseCoordinator::initialize(runtime.clone(), settings).await?);
         let mut runtime_slot = self.inner.runtime.write().map_err(|_| {
             LifecycleError::new("lifecycle_state_unavailable", "生命周期状态不可用")
@@ -81,7 +91,7 @@ impl LifecycleController {
         *runtime_slot = Some(runtime);
         *pause_slot = Some(pause);
         self.inner.runtime_ready.store(true, Ordering::Release);
-        Ok(RuntimeReadyAction::ShowMain)
+        Ok(action)
     }
 
     pub fn runtime_state(&self) -> RuntimeState {

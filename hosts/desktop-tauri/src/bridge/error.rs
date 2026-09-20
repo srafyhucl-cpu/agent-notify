@@ -34,6 +34,14 @@ impl CommandError {
         self
     }
 
+    pub fn code(&self) -> &str {
+        &self.code
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     pub fn unavailable() -> Self {
         Self::new(
             "host_command_unavailable",

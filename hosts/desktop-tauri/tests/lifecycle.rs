@@ -12,8 +12,9 @@ use agentnotify_desktop::lifecycle::{
     single_instance::{SecondInstanceAction, second_instance_action},
     tray::{TrayMenuAction, tray_menu},
     window::{
-        LifecycleAction, RuntimeReadyAction, RuntimeState, WindowAction, replacement_for_quit,
-        runtime_ready_action, window_action_for_close,
+        LifecycleAction, RuntimeReadyAction, RuntimeState, WindowAction,
+        determine_runtime_ready_action, replacement_for_quit, runtime_ready_action,
+        window_action_for_close,
     },
 };
 
@@ -37,6 +38,22 @@ fn close_request_is_allowed_only_without_a_tray() {
 fn runtime_ready_shows_the_previously_hidden_main_window() {
     assert_eq!(runtime_ready_action(false), RuntimeReadyAction::KeepHidden);
     assert_eq!(runtime_ready_action(true), RuntimeReadyAction::ShowMain);
+    assert_eq!(
+        determine_runtime_ready_action(false, false),
+        RuntimeReadyAction::ShowMain
+    );
+    assert_eq!(
+        determine_runtime_ready_action(true, false),
+        RuntimeReadyAction::KeepHidden
+    );
+    assert_eq!(
+        determine_runtime_ready_action(false, true),
+        RuntimeReadyAction::KeepHidden
+    );
+    assert_eq!(
+        determine_runtime_ready_action(true, true),
+        RuntimeReadyAction::KeepHidden
+    );
 }
 
 #[test]
@@ -378,4 +395,19 @@ impl RuntimeControl for MemoryRuntime {
         self.shutdowns.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
+}
+
+#[tokio::test]
+async fn attach_runtime_with_action_preserves_action() {
+    let controller = agentnotify_desktop::lifecycle::LifecycleController::new();
+    let runtime = Arc::new(MemoryRuntime::default());
+    let settings = Arc::new(MemorySettings::default());
+
+    let action = controller
+        .attach_runtime_with_action(runtime, settings, RuntimeReadyAction::KeepHidden)
+        .await
+        .expect("attach 必须成功");
+
+    assert_eq!(action, RuntimeReadyAction::KeepHidden);
+    assert!(controller.is_runtime_ready());
 }

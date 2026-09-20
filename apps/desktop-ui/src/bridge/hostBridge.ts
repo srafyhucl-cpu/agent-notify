@@ -87,7 +87,7 @@ export interface EventPayloadMap {
     state?: DeliveryDto["state"] | null;
   };
   "channel.login.changed": {
-    accountId: string;
+    accountId?: string | null;
     sessionId?: string | null;
     state: LoginSessionDto["state"];
     message?: string | null;

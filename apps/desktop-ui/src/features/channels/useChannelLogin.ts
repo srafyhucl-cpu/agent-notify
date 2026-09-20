@@ -39,9 +39,11 @@ export function useChannelLogin(bridge: HostBridge) {
           const sessionMatch = event.sessionId
             ? entries.find(([, login]) => login.session.id === event.sessionId)
             : undefined;
-          const accountMatch = entries.find(
-            ([, login]) => login.session.accountId === event.accountId,
-          );
+          const accountMatch = event.accountId
+            ? entries.find(
+                ([, login]) => login.session.accountId === event.accountId,
+              )
+            : undefined;
           const pendingEntries = entries.filter(
             ([, login]) => login.session.accountId === null,
           );

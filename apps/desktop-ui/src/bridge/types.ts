@@ -118,7 +118,7 @@ export type ChannelListDto = {
 };
 
 export type ChannelLoginChangedEvent = {
-	accountId: string,
+	accountId: string | null,
 	sessionId: string | null,
 	state: LoginSessionStateDto,
 	message: string | null,

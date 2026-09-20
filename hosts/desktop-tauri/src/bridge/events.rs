@@ -24,7 +24,7 @@ pub struct DeliveryChangedEvent {
 #[serde(rename_all = "camelCase")]
 #[tauri_specta(event_name = "channel.login.changed")]
 pub struct ChannelLoginChangedEvent {
-    pub account_id: String,
+    pub account_id: Option<String>,
     pub session_id: Option<String>,
     pub state: LoginSessionStateDto,
     pub message: Option<String>,
