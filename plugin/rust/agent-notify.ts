@@ -2,6 +2,8 @@
  * Agent-notify OpenCode V2 插件。
  *
  * 单文件、零顶层 import，直接通过 agentnotify-ingress.exe 提交完成事件；
+ * 监听当前 OpenCode 的 session.idle / session.error / session.execution.failed，
+ * 兼容旧版 session.execution.succeeded；
  * 同时维护本地引用回复收件箱和插件心跳。所有失败都会被吞掉，不能阻断 OpenCode。
  */
 
@@ -40,10 +42,24 @@ const DEFAULT_PROMPT_TIMEOUT_MS = 30 * MILLISECONDS_PER_SECOND
 const SESSION_FETCH_TIMEOUT_MS = 10 * MILLISECONDS_PER_SECOND
 const ERROR_MAX_CHARS = 300
 const PRIVATE_FILE_MODE = 0o600
+const EVENT_SESSION_IDLE = "session.idle"
+const EVENT_SESSION_ERROR = "session.error"
+const EVENT_SESSION_EXECUTION_SUCCEEDED = "session.execution.succeeded"
+const EVENT_SESSION_EXECUTION_FAILED = "session.execution.failed"
+const FAILED_IDLE_SUPPRESSION_MS = 2 * MILLISECONDS_PER_SECOND
 
 type FsModule = typeof import("node:fs")
 type JsonRecord = Record<string, unknown>
 type DebugLogger = (message: string) => void
+type TerminalEventKind = "completed" | "failed"
+type IngressSubmitter = (envelope: JsonRecord) => Promise<void>
+
+interface AssistantMessage {
+  id: string
+  text: string
+  completedAt: string
+  error: string
+}
 type PromptBinding =
   | {
       send: (input: {
@@ -114,6 +130,71 @@ function errorMessage(error: unknown): string {
     }
   }
   return error == null ? "" : String(error).trim()
+}
+
+function stringField(value: unknown, key: string): string {
+  if (!isRecord(value)) {
+    return ""
+  }
+  const field = value[key]
+  return typeof field === "string" ? field.trim() : ""
+}
+
+function eventProperties(event: unknown): JsonRecord {
+  if (!isRecord(event)) {
+    return {}
+  }
+  if (isRecord(event.properties)) {
+    return event.properties
+  }
+  if (isRecord(event.data)) {
+    return event.data
+  }
+  return event
+}
+
+function terminalEventType(event: unknown): TerminalEventKind | undefined {
+  const type = stringField(event, "type")
+  if (type === EVENT_SESSION_ERROR) {
+    return "failed"
+  }
+  if (type === EVENT_SESSION_EXECUTION_FAILED) {
+    return "failed"
+  }
+  if (type === EVENT_SESSION_IDLE || type === EVENT_SESSION_EXECUTION_SUCCEEDED) {
+    return "completed"
+  }
+  return undefined
+}
+
+function eventSessionID(event: unknown): string {
+  const properties = eventProperties(event)
+  const fromProperties = stringField(properties, "sessionID")
+  if (fromProperties) {
+    return fromProperties
+  }
+  return stringField(event, "sessionID")
+}
+
+function sessionErrorMessage(error: unknown): string {
+  if (!isRecord(error)) {
+    return errorMessage(error)
+  }
+  const message = stringField(error, "message")
+  if (message) {
+    return message
+  }
+  if (isRecord(error.data)) {
+    const nested = sessionErrorMessage(error.data)
+    if (nested) {
+      return nested
+    }
+  }
+  return stringField(error, "name") || stringField(error, "type")
+}
+
+function eventError(event: unknown): unknown {
+  return eventProperties(event).error
 }
 
 function dbg(message: string): void {
@@ -503,11 +584,67 @@ function eventIdentity(event: unknown, sessionID: string): string {
   return `session-${sessionID}`
 }
 
+function explicitEventIdentity(event: unknown): string {
+  if (!isRecord(event)) {
+    return ""
+  }
+  for (const key of ["id", "eventID", "eventId"]) {
+    const value = event[key]
+    if (typeof value === "string" && value.trim()) {
+      return value.trim()
+    }
+  }
+  const properties = eventProperties(event)
+  for (const key of ["id", "eventID", "eventId"]) {
+    const value = properties[key]
+    if (typeof value === "string" && value.trim()) {
+      return value.trim()
+    }
+  }
+  return ""
+}
+
+function errorReference(error: unknown): string {
+  for (const key of ["ref", "messageID", "messageId", "id"]) {
+    const value = stringField(error, key)
+    if (value) {
+      return value
+    }
+  }
+  return ""
+}
+
+function terminalIdentity(
+  sessionID: string,
+  event: unknown,
+  message: AssistantMessage | undefined,
+  failure: string,
+): string {
+  if (message?.id) {
+    return `message:${message.id}`
+  }
+  const eventID = explicitEventIdentity(event)
+  if (eventID) {
+    return eventID
+  }
+  const reference = errorReference(eventError(event))
+  if (reference) {
+    return `message:${reference}`
+  }
+  if (failure) {
+    return `failure:${hashText(failure)}`
+  }
+  const completedAt = message?.completedAt || ""
+  const fingerprint = `${sessionID}\u0000${completedAt}\u0000${message?.text || ""}`
+  return `content:${hashText(fingerprint)}`
+}
+
 function completionEnvelope(
   sessionID: string,
   title: string,
   body: string,
   event: unknown,
+  identity = "",
 ): JsonRecord {
   return {
     protocolVersion: 1,
@@ -516,7 +653,7 @@ function completionEnvelope(
     agentId: "opencode",
     payload: {
       eventType: "session.completed",
-      idempotencyKey: `opencode:${sessionID}:${eventIdentity(event, sessionID)}`,
+      idempotencyKey: `opencode:${sessionID}:${identity.trim() || eventIdentity(event, sessionID)}`,
       occurredAt: new Date().toISOString(),
       sessionId: sessionID,
       title: `【opencode】${title || "会话"}`,
@@ -582,10 +719,40 @@ async function sessionTitle(session: SessionApi, sessionID: string): Promise<str
   return typeof title === "string" && title.trim() ? title.trim() : "会话"
 }
 
-async function lastAssistantText(
+const lastTerminalBySession = new Map<string, string>()
+const failedAtBySession = new Map<string, number>()
+const terminalQueues = new Map<string, Promise<void>>()
+
+function assistantText(item: JsonRecord): string {
+  if (typeof item.text === "string" && item.text.trim()) {
+    return item.text.trim()
+  }
+  for (const bucket of [item.parts, item.content]) {
+    if (!Array.isArray(bucket)) {
+      continue
+    }
+    const text = bucket
+      .filter(
+        (part) =>
+          isRecord(part) &&
+          part.type === "text" &&
+          typeof part.text === "string" &&
+          part.text.trim(),
+      )
+      .map((part) => String((part as JsonRecord).text))
+      .join("\n")
+      .trim()
+    if (text) {
+      return text
+    }
+  }
+  return ""
+}
+
+async function lastAssistantMessage(
   session: SessionApi,
   sessionID: string,
-): Promise<string> {
+): Promise<AssistantMessage | undefined> {
   const response = await withTimeout(
     session.context({ sessionID }),
     SESSION_FETCH_TIMEOUT_MS,
@@ -597,47 +764,135 @@ async function lastAssistantText(
       ? response.data
       : undefined
   if (!Array.isArray(data)) {
-    return ""
+    return undefined
   }
   for (let index = data.length - 1; index >= 0; index -= 1) {
     const item = data[index]
     if (!isRecord(item)) {
       continue
     }
-    const infoRole = isRecord(item.info) ? item.info.role : undefined
+    const info = isRecord(item.info) ? item.info : item
     const role =
-      typeof infoRole === "string"
-        ? infoRole
+      typeof info.role === "string"
+        ? info.role
         : typeof item.role === "string"
           ? item.role
           : item.type
     if (role !== "assistant") {
       continue
     }
-    if (typeof item.text === "string" && item.text.trim()) {
-      return item.text.trim()
-    }
-    for (const bucket of [item.parts, item.content]) {
-      if (!Array.isArray(bucket)) {
-        continue
-      }
-      const text = bucket
-        .filter(
-          (part) =>
-            isRecord(part) &&
-            part.type === "text" &&
-            typeof part.text === "string" &&
-            part.text.trim(),
-        )
-        .map((part) => String((part as JsonRecord).text))
-        .join("\n")
-        .trim()
-      if (text) {
-        return text
-      }
+    const time = isRecord(info.time) ? info.time : undefined
+    const completed = time?.completed
+    return {
+      id:
+        stringField(info, "id") ||
+        stringField(info, "messageID") ||
+        stringField(item, "id") ||
+        stringField(item, "messageID"),
+      text: assistantText(item),
+      completedAt:
+        typeof completed === "number" || typeof completed === "string"
+          ? String(completed)
+          : "",
+      error: sessionErrorMessage(info.error),
     }
   }
-  return ""
+  return undefined
+}
+
+function failureBody(error: string): string {
+  const detail = error.trim()
+  return detail
+    ? `任务执行失败：${detail}`
+    : "任务执行失败：OpenCode 未返回具体错误信息"
+}
+
+async function dispatchTerminalEvent(
+  ctx: PluginContext,
+  sessionID: string,
+  event: unknown,
+  submit: IngressSubmitter = submitIngress,
+  now = Date.now(),
+): Promise<void> {
+  const kind = terminalEventType(event)
+  if (!kind || typeof sessionID !== "string" || !sessionID.trim()) {
+    return
+  }
+  try {
+    const [title, message] = await Promise.all([
+      sessionTitle(ctx.session, sessionID).catch(() => "会话"),
+      lastAssistantMessage(ctx.session, sessionID).catch(() => undefined),
+    ])
+
+    if (kind === "completed") {
+      const failedAt = failedAtBySession.get(sessionID)
+      if (failedAt !== undefined) {
+        failedAtBySession.delete(sessionID)
+        if (now - failedAt <= FAILED_IDLE_SUPPRESSION_MS) {
+          dbg(`skip idle after failure sid=${sessionID}`)
+          return
+        }
+      }
+    }
+
+    const failure =
+      kind === "failed"
+        ? sessionErrorMessage(eventError(event)) || message?.error || ""
+        : message?.error || ""
+    const body = failure ? failureBody(failure) : message?.text.trim() || ""
+    if (!body) {
+      dbg(`skip terminal without body sid=${sessionID}`)
+      return
+    }
+
+    const identity = terminalIdentity(sessionID, event, message, failure)
+    if (lastTerminalBySession.get(sessionID) === identity) {
+      dbg(`skip duplicate terminal sid=${sessionID} key=${identity}`)
+      return
+    }
+
+    const displayTitle = failure ? `${title}（任务失败）` : title
+    await submit(
+      completionEnvelope(sessionID, displayTitle, body, event, identity),
+    )
+    lastTerminalBySession.set(sessionID, identity)
+    if (failure) {
+      failedAtBySession.set(sessionID, now)
+    }
+    if (lastTerminalBySession.size > 256) {
+      lastTerminalBySession.clear()
+    }
+    dbg(
+      `terminal submitted kind=${failure ? "failed" : "completed"} sid=${sessionID} key=${identity}`,
+    )
+  } catch (error) {
+    dbg(`terminal fail sid=${sessionID}: ${errorMessage(error)}`)
+  }
+}
+
+function enqueueTerminalEvent(
+  ctx: PluginContext,
+  sessionID: string,
+  event: unknown,
+): Promise<void> {
+  const previous = terminalQueues.get(sessionID) ?? Promise.resolve()
+  let current: Promise<void>
+  current = previous
+    .catch(() => undefined)
+    .then(() => dispatchTerminalEvent(ctx, sessionID, event))
+    .finally(() => {
+      if (terminalQueues.get(sessionID) === current) {
+        terminalQueues.delete(sessionID)
+      }
+    })
+  terminalQueues.set(sessionID, current)
+  return current
+}
+
+function resetTerminalStateForTests(): void {
+  lastTerminalBySession.clear()
+  failedAtBySession.clear()
+  terminalQueues.clear()
 }
 
 async function dispatchCompletion(
@@ -645,29 +900,18 @@ async function dispatchCompletion(
   sessionID: string,
   event: unknown,
 ): Promise<void> {
-  if (typeof sessionID !== "string" || !sessionID.trim()) {
-    return
-  }
-  try {
-    const [title, body] = await Promise.all([
-      sessionTitle(ctx.session, sessionID).catch(() => "会话"),
-      lastAssistantText(ctx.session, sessionID).catch(() => ""),
-    ])
-    if (!body) {
-      dbg(`skip completion without body sid=${sessionID}`)
-      return
-    }
-    await submitIngress(completionEnvelope(sessionID, title, body, event))
-  } catch (error) {
-    dbg(`completion fail sid=${sessionID}: ${errorMessage(error)}`)
-  }
+  await dispatchTerminalEvent(ctx, sessionID, event)
 }
 
 const __test = {
+  dispatchTerminalEvent,
   dispatchCompletion,
   processReplyJobs,
   completionEnvelope,
   eventIdentity,
+  terminalEventType,
+  eventSessionID,
+  resetTerminalStateForTests,
   replyPrompt,
 }
 
@@ -704,17 +948,13 @@ export default {
         for await (const event of ctx.event.subscribe({
           signal: controller.signal,
         })) {
-          if (!isRecord(event) || event.type !== "session.execution.succeeded") {
+          const kind = terminalEventType(event)
+          const sessionID = eventSessionID(event)
+          if (!kind || !sessionID) {
             continue
           }
-          const properties = isRecord(event.properties) ? event.properties : {}
-          const sessionID =
-            typeof properties.sessionID === "string"
-              ? properties.sessionID
-              : typeof event.sessionID === "string"
-                ? event.sessionID
-                : ""
-          void dispatchCompletion(ctx, sessionID, event)
+          dbg(`terminal event type=${stringField(event, "type")} sid=${sessionID}`)
+          void enqueueTerminalEvent(ctx, sessionID, event)
         }
       } catch {
         // 订阅结束是 dispose 的正常路径。

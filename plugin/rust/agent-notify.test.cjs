@@ -15,18 +15,20 @@ const pluginModule = import(
   pathToFileURL(path.join(__dirname, "agent-notify.ts")).href,
 )
 
-function fakeContext(promptImpl) {
+function fakeContext(promptImpl, contextImpl) {
   return {
     session: {
       get: async () => ({ data: { title: "插件测试" } }),
-      context: async () => ({
-        data: [
-          {
-            info: { role: "assistant" },
-            parts: [{ type: "text", text: "任务已完成" }],
-          },
-        ],
-      }),
+      context:
+        contextImpl ||
+        (async () => ({
+          data: [
+            {
+              info: { role: "assistant" },
+              parts: [{ type: "text", text: "任务已完成" }],
+            },
+          ],
+        })),
       prompt: promptImpl,
     },
     event: {
@@ -92,6 +94,159 @@ test("completion event has a stable idempotency key", async () => {
     second.payload.idempotencyKey,
     first.payload.idempotencyKey,
   )
+})
+
+test("session.idle submits once per assistant message", async () => {
+  const { __test } = await pluginModule
+  __test.resetTerminalStateForTests()
+  const submitted = []
+  const ctx = fakeContext(undefined, async () => ({
+    data: [
+      {
+        info: {
+          id: "msg-1",
+          role: "assistant",
+          time: { completed: 1789897200000 },
+        },
+        parts: [{ type: "text", text: "真实完成正文" }],
+      },
+    ],
+  }))
+  const event = {
+    type: "session.idle",
+    properties: { sessionID: "session-idle" },
+  }
+  const submit = async (envelope) => submitted.push(envelope)
+
+  assert.equal(__test.terminalEventType(event), "completed")
+  assert.equal(__test.eventSessionID(event), "session-idle")
+  await __test.dispatchTerminalEvent(ctx, "session-idle", event, submit)
+  await __test.dispatchTerminalEvent(ctx, "session-idle", event, submit)
+
+  assert.equal(submitted.length, 1)
+  assert.equal(submitted[0].payload.body, "真实完成正文")
+  assert.equal(
+    submitted[0].payload.idempotencyKey,
+    "opencode:session-idle:message:msg-1",
+  )
+})
+
+test("OpenCode V2 event payload and assistant context are supported", async () => {
+  const { __test } = await pluginModule
+  __test.resetTerminalStateForTests()
+  const submitted = []
+  const ctx = fakeContext(undefined, async () => ({
+    data: [
+      {
+        id: "msg-v2-assistant",
+        type: "assistant",
+        time: { completed: 1789897202000 },
+        content: [{ type: "text", text: "V2 assistant 正文" }],
+      },
+    ],
+  }))
+  const event = {
+    id: "evt-v2-idle",
+    type: "session.idle",
+    data: { sessionID: "session-v2" },
+  }
+  const submit = async (envelope) => submitted.push(envelope)
+
+  assert.equal(__test.terminalEventType(event), "completed")
+  assert.equal(__test.eventSessionID(event), "session-v2")
+  await __test.dispatchTerminalEvent(ctx, "session-v2", event, submit)
+
+  assert.equal(submitted.length, 1)
+  assert.equal(submitted[0].payload.sessionId, "session-v2")
+  assert.equal(submitted[0].payload.body, "V2 assistant 正文")
+  assert.equal(
+    submitted[0].payload.idempotencyKey,
+    "opencode:session-v2:message:msg-v2-assistant",
+  )
+})
+
+test("session.execution.failed reports V2 provider errors", async () => {
+  const { __test } = await pluginModule
+  __test.resetTerminalStateForTests()
+  const submitted = []
+  const ctx = fakeContext(undefined, async () => ({ data: [] }))
+  const event = {
+    id: "evt-v2-failed",
+    type: "session.execution.failed",
+    data: {
+      sessionID: "session-v2-failed",
+      error: {
+        type: "provider.no-route",
+        message: "Model unavailable: invalid/model",
+      },
+    },
+  }
+  const submit = async (envelope) => submitted.push(envelope)
+
+  assert.equal(__test.terminalEventType(event), "failed")
+  assert.equal(__test.eventSessionID(event), "session-v2-failed")
+  await __test.dispatchTerminalEvent(
+    ctx,
+    "session-v2-failed",
+    event,
+    submit,
+  )
+
+  assert.equal(submitted.length, 1)
+  assert.match(submitted[0].payload.title, /任务失败/)
+  assert.equal(
+    submitted[0].payload.body,
+    "任务执行失败：Model unavailable: invalid/model",
+  )
+  assert.equal(
+    submitted[0].payload.idempotencyKey,
+    "opencode:session-v2-failed:evt-v2-failed",
+  )
+})
+
+test("session.error reports failure and suppresses the same idle round", async () => {
+  const { __test } = await pluginModule
+  __test.resetTerminalStateForTests()
+  const submitted = []
+  const ctx = fakeContext(undefined, async () => ({
+    data: [
+      {
+        info: {
+          id: "msg-error",
+          role: "assistant",
+          time: { completed: 1789897201000 },
+        },
+        parts: [{ type: "text", text: "失败前的部分输出" }],
+      },
+    ],
+  }))
+  const submit = async (envelope) => submitted.push(envelope)
+  const errorEvent = {
+    type: "session.error",
+    properties: {
+      sessionID: "session-error",
+      error: { name: "APIError", data: { message: "provider unavailable" } },
+    },
+  }
+
+  await __test.dispatchTerminalEvent(
+    ctx,
+    "session-error",
+    errorEvent,
+    submit,
+    1000,
+  )
+  await __test.dispatchTerminalEvent(
+    ctx,
+    "session-error",
+    { type: "session.idle", properties: { sessionID: "session-error" } },
+    submit,
+    1500,
+  )
+
+  assert.equal(submitted.length, 1)
+  assert.match(submitted[0].payload.title, /任务失败/)
+  assert.match(submitted[0].payload.body, /provider unavailable/)
 })
 
 test("heartbeat, at-most-once claim, timeout and dispose are bounded", async () => {
