@@ -68,9 +68,14 @@ if (-not $SkipGate) {
 
 Push-Location $RepoRoot
 try {
-  & $cargo build -p agentnotify-desktop --release --locked --target x86_64-pc-windows-msvc
+  # Tauri 仅在启用 custom-protocol 时嵌入 frontendDist；普通 cargo release 会继续读取 devUrl。
+  & $cargo build -p agentnotify-desktop --release --locked --target x86_64-pc-windows-msvc --features tauri/custom-protocol
   if ($LASTEXITCODE -ne 0) {
     throw "Tauri host release build failed with exit code $LASTEXITCODE"
+  }
+  & $cargo build -p agentnotify-ingress --release --locked --target x86_64-pc-windows-msvc
+  if ($LASTEXITCODE -ne 0) {
+    throw "Ingress release build failed with exit code $LASTEXITCODE"
   }
 } finally {
   Pop-Location
@@ -79,6 +84,11 @@ try {
 $exePath = Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc\release\agentnotify-desktop.exe'
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
   throw "Tauri host executable not found: $exePath"
+}
+
+$ingressExePath = Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc\release\agentnotify-ingress.exe'
+if (-not (Test-Path -LiteralPath $ingressExePath -PathType Leaf)) {
+  throw "Ingress executable not found: $ingressExePath"
 }
 
 $signTool = $null
@@ -102,6 +112,10 @@ if ($signTool) {
   & $signTool sign $exePath
   if ($LASTEXITCODE -ne 0) {
     throw "宿主程序签名失败 exit=$LASTEXITCODE"
+  }
+  & $signTool sign $ingressExePath
+  if ($LASTEXITCODE -ne 0) {
+    throw "ingress 签名失败 exit=$LASTEXITCODE"
   }
 }
 
@@ -143,6 +157,7 @@ $isccArgs = @(
   "/DRepoRoot=$RepoRoot",
   "/DOutputDir=$OutputDir",
   "/DExePath=$exePath",
+  "/DIngressPath=$ingressExePath",
   "/DIconPath=$(Join-Path $RepoRoot 'hosts\desktop-tauri\icons\icon.ico')"
 )
 if ($signTool) {

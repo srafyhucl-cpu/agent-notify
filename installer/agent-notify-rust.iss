@@ -13,6 +13,9 @@
 #ifndef ExePath
   #error ExePath is required
 #endif
+#ifndef IngressPath
+  #error IngressPath is required
+#endif
 #ifndef IconPath
   #error IconPath is required
 #endif
@@ -48,6 +51,7 @@ SignTool=agentnotify
 
 [Files]
 Source: "{#ExePath}"; DestDir: "{app}"; DestName: "agentnotify-desktop.exe"; Flags: ignoreversion
+Source: "{#IngressPath}"; DestDir: "{app}"; DestName: "agentnotify-ingress.exe"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\AgentNotify Rust Preview"; Filename: "{app}\agentnotify-desktop.exe"

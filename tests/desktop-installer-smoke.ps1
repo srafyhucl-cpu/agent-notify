@@ -38,6 +38,9 @@ $issueScript = Get-Content -LiteralPath $issPath -Raw -Encoding utf8
 if (-not $issueScript.Contains('DestName: "agentnotify-desktop.exe"')) {
   throw '预览安装器脚本没有安装 agentnotify-desktop.exe'
 }
+if (-not $issueScript.Contains('DestName: "agentnotify-ingress.exe"')) {
+  throw '预览安装器脚本没有安装 agentnotify-ingress.exe'
+}
 
 if (-not $Execute) {
   Write-Output '[desktop-installer-smoke] 预览安装器结构检查通过'
@@ -105,6 +108,11 @@ try {
   $installedExe = Join-Path $installDir 'agentnotify-desktop.exe'
   if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
     throw "安装后找不到主程序：$installedExe"
+  }
+
+  $installedIngress = Join-Path $installDir 'agentnotify-ingress.exe'
+  if (-not (Test-Path -LiteralPath $installedIngress -PathType Leaf)) {
+    throw "安装后找不到 ingress：$installedIngress"
   }
 
   $env:AGENT_NOTIFY_CONFIG_DIR = Join-Path $dataRoot 'config'
