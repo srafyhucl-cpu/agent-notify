@@ -21,10 +21,10 @@ use crate::{
 };
 use crate::{TelemetryConfig, TelemetryError, TelemetryGuard, init_telemetry};
 
-use time::Duration as TimeDuration;
 use crate::migration::{
     MigrationConfig, MigrationFailure, MigrationSnapshot, MigrationState, prepare_migration,
 };
+use time::Duration as TimeDuration;
 
 const DEFAULT_INBOUND_CAPACITY: usize = 256;
 const DEFAULT_WORKER_IDLE_DELAY: Duration = Duration::from_millis(250);

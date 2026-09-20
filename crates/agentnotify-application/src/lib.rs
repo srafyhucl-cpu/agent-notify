@@ -14,7 +14,9 @@ mod status;
 use agentnotify_domain::DomainArea;
 
 pub use clock::{Clock, IdGenerator};
-pub use delivery::{DeliveryError, DeliveryService, DeliveryTarget, ProcessOutcome};
+pub use delivery::{
+    DeliveryError, DeliveryService, DeliveryTarget, ProcessOutcome, TARGET_ACCOUNT_ID_METADATA_KEY,
+};
 pub use error::{ApplicationError, StoreError};
 pub use ingest::{IngestError, IngestResult, IngestService};
 pub use policy::{

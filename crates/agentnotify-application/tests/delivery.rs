@@ -380,3 +380,144 @@ async fn permanent_error_marks_outbox_dead() {
         Some(OutboxState::Dead)
     );
 }
+
+#[tokio::test]
+async fn target_account_id_in_metadata_selects_matching_account() {
+    let now = timestamp("2026-09-19T09:00:00Z");
+    let metadata =
+        agentnotify_domain::NotificationMetadata::new([("targetAccountId", "account-2")]).unwrap();
+
+    let notification = Notification::new(
+        NotificationId::new("notif-target-1").unwrap(),
+        "event-target-1",
+        agentnotify_domain::AgentId::new("opencode").unwrap(),
+        None,
+        None,
+        "Target test",
+        "Target body",
+        now,
+        metadata,
+    )
+    .unwrap();
+
+    let lease = OutboxLease {
+        outbox: agentnotify_application::OutboxItem {
+            id: "outbox-target-1".into(),
+            notification_id: notification.id.clone(),
+            state: OutboxState::Leased,
+            available_at: now,
+            attempt_count: 1,
+            last_error: None,
+        },
+        notification,
+        owner: "test-owner".into(),
+        lease_until: now.checked_add(time::Duration::seconds(30)).unwrap(),
+    };
+    let store = Arc::new(TestStore::new(lease));
+    let mut registry = ChannelRegistry::default();
+    registry
+        .register(Arc::new(TestChannel {
+            id: ChannelId::new("test-channel").unwrap(),
+            mode: ChannelMode::Sent,
+        }))
+        .unwrap();
+
+    let account1 = ChannelAccount::new(
+        ChannelAccountId::new("account-1").unwrap(),
+        ChannelId::new("test-channel").unwrap(),
+        "账号1",
+        now,
+    );
+    let account2 = ChannelAccount::new(
+        ChannelAccountId::new("account-2").unwrap(),
+        ChannelId::new("test-channel").unwrap(),
+        "账号2",
+        now,
+    );
+
+    let service = DeliveryService::new(
+        store.clone(),
+        Arc::new(registry),
+        vec![
+            DeliveryTarget::new(account1, "conv-1"),
+            DeliveryTarget::new(account2, "conv-2"),
+        ],
+        Arc::new(FixedClock(now)),
+        Arc::new(TestIds),
+        Arc::new(TestSink),
+        RetryPolicy::default(),
+    );
+
+    let outcome = service.process_next().await.unwrap();
+    assert!(matches!(outcome, ProcessOutcome::Completed { .. }));
+    let delivery = store.delivery.lock().unwrap().clone().unwrap();
+    assert_eq!(delivery.account_id().as_str(), "account-2");
+}
+
+#[tokio::test]
+async fn target_account_id_not_found_fails_with_no_target() {
+    let now = timestamp("2026-09-19T09:00:00Z");
+    let metadata = agentnotify_domain::NotificationMetadata::new([(
+        "targetAccountId",
+        "non-existent-account",
+    )])
+    .unwrap();
+
+    let notification = Notification::new(
+        NotificationId::new("notif-target-2").unwrap(),
+        "event-target-2",
+        agentnotify_domain::AgentId::new("opencode").unwrap(),
+        None,
+        None,
+        "Target test",
+        "Target body",
+        now,
+        metadata,
+    )
+    .unwrap();
+
+    let lease = OutboxLease {
+        outbox: agentnotify_application::OutboxItem {
+            id: "outbox-target-2".into(),
+            notification_id: notification.id.clone(),
+            state: OutboxState::Leased,
+            available_at: now,
+            attempt_count: 1,
+            last_error: None,
+        },
+        notification,
+        owner: "test-owner".into(),
+        lease_until: now.checked_add(time::Duration::seconds(30)).unwrap(),
+    };
+    let store = Arc::new(TestStore::new(lease));
+    let mut registry = ChannelRegistry::default();
+    registry
+        .register(Arc::new(TestChannel {
+            id: ChannelId::new("test-channel").unwrap(),
+            mode: ChannelMode::Sent,
+        }))
+        .unwrap();
+
+    let account1 = ChannelAccount::new(
+        ChannelAccountId::new("account-1").unwrap(),
+        ChannelId::new("test-channel").unwrap(),
+        "账号1",
+        now,
+    );
+
+    let service = DeliveryService::new(
+        store.clone(),
+        Arc::new(registry),
+        vec![DeliveryTarget::new(account1, "conv-1")],
+        Arc::new(FixedClock(now)),
+        Arc::new(TestIds),
+        Arc::new(TestSink),
+        RetryPolicy::default(),
+    );
+
+    let result = service.process_next().await;
+    assert!(matches!(
+        result,
+        Err(agentnotify_application::DeliveryError::NoTarget)
+    ));
+}

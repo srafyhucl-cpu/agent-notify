@@ -111,7 +111,7 @@ impl ClawBotCredentials {
         })
     }
 
-    pub(crate) fn from_secret(value: &SecretValue) -> Result<Self, ChannelError> {
+    pub fn from_secret(value: &SecretValue) -> Result<Self, ChannelError> {
         let credentials =
             serde_json::from_str::<Self>(value.expose()).map_err(|_| invalid_credentials())?;
         credentials.validate()?;

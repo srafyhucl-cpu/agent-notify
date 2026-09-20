@@ -14,6 +14,7 @@ use crate::{Clock, DeliveryStore, EventSink, IdGenerator, OutboxLease, StoreErro
 
 const DEFAULT_REPLY_ROUTE_TTL_SECONDS: i64 = 24 * 60 * 60;
 const DEFAULT_LEASE_SECONDS: i64 = 30;
+pub const TARGET_ACCOUNT_ID_METADATA_KEY: &str = "targetAccountId";
 
 /// 首个生产闭环显式配置的渠道目标。
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -177,12 +178,25 @@ impl DeliveryService {
             tracing::field::display(&lease.notification.id),
         );
         tracing::Span::current().record("attempt", lease.outbox.attempt_count);
-        let target = self
-            .targets
-            .iter()
-            .find(|target| target.account.enabled)
-            .cloned()
-            .ok_or(DeliveryError::NoTarget)?;
+        let target = if let Some(target_account_id) = lease
+            .notification
+            .metadata
+            .get(TARGET_ACCOUNT_ID_METADATA_KEY)
+        {
+            self.targets
+                .iter()
+                .find(|target| {
+                    target.account.enabled && target.account.id.as_str() == target_account_id
+                })
+                .cloned()
+                .ok_or(DeliveryError::NoTarget)?
+        } else {
+            self.targets
+                .iter()
+                .find(|target| target.account.enabled)
+                .cloned()
+                .ok_or(DeliveryError::NoTarget)?
+        };
         tracing::Span::current().record(
             "channel",
             tracing::field::display(&target.account.channel_id),
