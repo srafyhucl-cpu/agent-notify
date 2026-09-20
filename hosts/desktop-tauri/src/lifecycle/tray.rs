@@ -93,6 +93,14 @@ impl TrayMenuState {
     }
 }
 
+pub fn sync_tray_paused(app: &AppHandle<Wry>, paused: bool) -> Result<(), LifecycleError> {
+    if let Some(state) = app.try_state::<TrayMenuState>() {
+        state.apply_paused(paused)?;
+    }
+    let _ = app.emit(TRAY_STATE_EVENT, if paused { "paused" } else { "running" });
+    Ok(())
+}
+
 pub fn install(app: &AppHandle<Wry>) -> Result<(), LifecycleError> {
     let paused = app.state::<LifecycleController>().inner().is_paused();
     let model = tray_menu(paused);

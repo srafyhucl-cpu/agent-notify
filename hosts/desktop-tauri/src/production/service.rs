@@ -11,7 +11,7 @@ use agentnotify_domain::{
 use agentnotify_storage_sqlite::{
     DeliveryViewRecord, NotificationQuery, NotificationRecord, SqliteStore,
 };
-use tauri::{AppHandle, Wry};
+use tauri::{AppHandle, Manager, Wry};
 
 use super::events::{map_delivery_state, map_login_session_state};
 use super::runtime::ProductionRuntimeCoordinator;
@@ -19,6 +19,11 @@ use super::settings::ProductionSettingsStore;
 use crate::bridge::commands::HostCommandService;
 use crate::bridge::dto::*;
 use crate::bridge::error::CommandError;
+use crate::lifecycle::{
+    LifecycleController,
+    autostart::{TauriCurrentUserAutostart, set_autostart},
+    tray::sync_tray_paused,
+};
 
 pub struct ProductionHostCommandService {
     app: Option<AppHandle<Wry>>,
@@ -393,7 +398,9 @@ impl HostCommandService for ProductionHostCommandService {
         };
 
         if let Some(channel) = self.runtime.channel_registry().get(&account.channel_id) {
-            let _ = channel.logout(account.clone()).await;
+            channel.logout(account.clone()).await.map_err(|error| {
+                CommandError::new(error.code(), format!("渠道账号登出失败：{error}"))
+            })?;
         }
 
         account.enabled = false;
@@ -625,14 +632,28 @@ impl HostCommandService for ProductionHostCommandService {
         let id = DeliveryId::new(&payload.delivery_id)
             .map_err(|e| CommandError::new("invalid_delivery_id", e.to_string()))?;
 
-        // 重新排队 outbox 并获取最新投递视图
+        // 重新排队 outbox 并获取更新前记录
         let record = self
             .store
             .requeue_delivery(id)
             .await
             .map_err(|e| CommandError::new(e.code(), format!("重试投递失败：{e}")))?;
 
-        Ok(map_delivery_view_record(record))
+        // 重新查询该通知对应的最新投递记录
+        let latest = self
+            .store
+            .notification_detail(record.delivery.notification_id().clone())
+            .await
+            .map_err(|e| CommandError::new(e.code(), format!("查询最新投递状态失败：{e}")))?
+            .and_then(|detail| {
+                detail.deliveries.into_iter().find(|item| {
+                    item.delivery.channel_id() == record.delivery.channel_id()
+                        && item.delivery.account_id() == record.delivery.account_id()
+                })
+            })
+            .unwrap_or(record);
+
+        Ok(map_delivery_view_record(latest))
     }
 
     async fn get_diagnostics(
@@ -751,12 +772,28 @@ impl HostCommandService for ProductionHostCommandService {
     async fn update_settings(&self, payload: SettingsDto) -> Result<SettingsDto, CommandError> {
         let current = self.settings.load_settings().await?;
 
+        // 1. 若当前用户自启动发生变化，调用系统自启动服务
+        if let Some(app) = &self.app {
+            if current.auto_start != payload.auto_start {
+                let autostart = TauriCurrentUserAutostart::new(app.clone());
+                set_autostart(&autostart, payload.auto_start)
+                    .map_err(|e| CommandError::new(e.code(), e.to_string()))?;
+            }
+        }
+
         self.settings.save_settings(&payload).await?;
         self.runtime
             .set_outbox_paused(payload.notifications_paused)
             .await?;
 
-        // 仅在关键运行时配置发生变化时重启 runtime
+        // 2. 若暂停状态变更，同步托盘菜单与事件
+        if let Some(app) = &self.app {
+            if current.notifications_paused != payload.notifications_paused {
+                let _ = sync_tray_paused(app, payload.notifications_paused);
+            }
+        }
+
+        // 3. 仅在关键运行时配置发生变化时重启 runtime
         let needs_runtime_restart = current.reply_enabled != payload.reply_enabled
             || current.delivery_receipt_enabled != payload.delivery_receipt_enabled
             || current.route_ttl_seconds != payload.route_ttl_seconds
@@ -813,6 +850,11 @@ impl HostCommandService for ProductionHostCommandService {
             return Err(error);
         }
 
+        // 同步托盘菜单与托盘事件
+        if let Some(app) = &self.app {
+            let _ = sync_tray_paused(app, payload.paused);
+        }
+
         let snapshot = match self.runtime.current_snapshot().await {
             Some(s) => s,
             None => self.runtime.start_or_restart().await?,
@@ -831,15 +873,22 @@ impl HostCommandService for ProductionHostCommandService {
     }
 
     async fn quit_app(&self, _payload: EmptyPayload) -> Result<MutationAcceptedDto, CommandError> {
-        let _ = self.runtime.set_outbox_paused(true).await;
-        let _ = self.store.wal_checkpoint_truncate().await;
-
         if let Some(app) = &self.app {
             let app_clone = app.clone();
+            let runtime = self.runtime.clone();
+            let store = self.store.clone();
             tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                if let Some(controller) = app_clone.try_state::<LifecycleController>() {
+                    let _ = controller.shutdown_for_quit().await;
+                } else {
+                    let _ = runtime.shutdown_runtime().await;
+                }
+                let _ = store.wal_checkpoint_truncate().await;
                 app_clone.exit(0);
             });
+        } else {
+            let _ = self.runtime.shutdown_runtime().await;
+            let _ = self.store.wal_checkpoint_truncate().await;
         }
 
         Ok(MutationAcceptedDto {

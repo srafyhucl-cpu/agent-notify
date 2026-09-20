@@ -115,7 +115,8 @@ async fn bootstrap_internal(
         channel_registry.clone(),
     ));
 
-    let coordinator = Arc::new(ProductionRuntimeCoordinator::new(
+    let ingress_pipe_enabled = app.is_some();
+    let coordinator = Arc::new(ProductionRuntimeCoordinator::with_ingress_pipe(
         paths,
         store.clone(),
         settings.clone(),
@@ -126,6 +127,7 @@ async fn bootstrap_internal(
         target_provider,
         env!("CARGO_PKG_VERSION"),
         "windows",
+        ingress_pipe_enabled,
     ));
 
     let service = Arc::new(ProductionHostCommandService::new(

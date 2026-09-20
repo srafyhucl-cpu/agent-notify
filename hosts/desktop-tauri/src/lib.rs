@@ -79,6 +79,10 @@ pub fn build_app_with_lifecycle(lifecycle: LifecycleController) -> tauri::Builde
                         {
                             tracing::error!(%error, "接入生命周期控制器失败");
                         } else {
+                            let _ = lifecycle::tray::sync_tray_paused(
+                                &app_handle,
+                                lifecycle_clone.is_paused(),
+                            );
                             let _ = lifecycle::window::show_main_window_when_ready(
                                 &app_handle,
                                 &lifecycle_clone,

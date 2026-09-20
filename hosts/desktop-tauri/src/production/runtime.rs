@@ -51,6 +51,7 @@ pub struct ProductionRuntimeCoordinator {
     target_provider: Arc<ProductionTargetProvider>,
     app_version: String,
     platform: String,
+    ingress_pipe_enabled: bool,
 }
 
 impl ProductionRuntimeCoordinator {
@@ -67,6 +68,35 @@ impl ProductionRuntimeCoordinator {
         app_version: impl Into<String>,
         platform: impl Into<String>,
     ) -> Self {
+        Self::with_ingress_pipe(
+            paths,
+            store,
+            settings,
+            secret_store,
+            agent_registry,
+            channel_registry,
+            login_adapter,
+            target_provider,
+            app_version,
+            platform,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_ingress_pipe(
+        paths: AppPaths,
+        store: Arc<SqliteStore>,
+        settings: ProductionSettingsStore,
+        secret_store: Arc<dyn SecretStore>,
+        agent_registry: Arc<AgentRegistry>,
+        channel_registry: Arc<ChannelRegistry>,
+        login_adapter: Arc<ClawBotLoginAdapter>,
+        target_provider: Arc<ProductionTargetProvider>,
+        app_version: impl Into<String>,
+        platform: impl Into<String>,
+        ingress_pipe_enabled: bool,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(None)),
             restart_lock: Arc::new(Mutex::new(())),
@@ -80,6 +110,7 @@ impl ProductionRuntimeCoordinator {
             target_provider,
             app_version: app_version.into(),
             platform: platform.into(),
+            ingress_pipe_enabled,
         }
     }
 
@@ -137,11 +168,11 @@ impl ProductionRuntimeCoordinator {
             app_version: self.app_version.clone(),
             platform: self.platform.clone(),
             ingress_spool_dir: Some(self.paths.spool_dir.clone()),
-            ingress_pipe_enabled: true,
+            ingress_pipe_enabled: self.ingress_pipe_enabled,
             telemetry: None,
             inbound_capacity: 256,
             worker_idle_delay: Duration::from_millis(250),
-            status_refresh_interval: Duration::from_secs(2),
+            status_refresh_interval: Duration::from_millis(100),
             channel_poll_interval: Duration::from_millis(100),
         }
     }
@@ -149,12 +180,31 @@ impl ProductionRuntimeCoordinator {
     pub async fn start_or_restart(&self) -> Result<RuntimeSnapshot, CommandError> {
         let _guard = self.restart_lock.lock().await;
 
+        // 1. 先安全停用旧的运行时实例，释放独占锁与正在运行的任务
+        let old_handle = {
+            let mut slot = self.inner.lock().await;
+            slot.take()
+        };
+        if let Some(mut old) = old_handle {
+            if let Err(error) = old.shutdown().await {
+                tracing::warn!(%error, "停用旧运行时实例时出现警告");
+            }
+        }
+
+        // 2. 重新加载最新配置并启动新运行时
         let config = self.build_runtime_config();
         let start_result = AppRuntime::start(config.clone()).await;
 
         let handle = match start_result {
             Ok(handle) => handle,
             Err(RuntimeError::Migration(failure)) => {
+                // 如果是运行时锁被占用，说明外部实例仍存活，直接报错暴露，不降级为迁移模式
+                if failure.code == "runtime_lock_unavailable" {
+                    return Err(CommandError::new(
+                        failure.code,
+                        "运行时锁已被其他实例占用，无法启动",
+                    ));
+                }
                 tracing::warn!(
                     code = %failure.code,
                     message = %failure.message,
@@ -182,12 +232,7 @@ impl ProductionRuntimeCoordinator {
         let snapshot = handle.snapshot();
 
         let mut slot = self.inner.lock().await;
-        let old = slot.replace(handle);
-        drop(slot);
-
-        if let Some(mut old_handle) = old {
-            let _ = old_handle.shutdown().await;
-        }
+        *slot = Some(handle);
 
         Ok(snapshot)
     }
@@ -236,6 +281,18 @@ impl ProductionRuntimeCoordinator {
     pub async fn retry_legacy_migration(&self) -> Result<RuntimeSnapshot, CommandError> {
         self.start_or_restart().await
     }
+
+    pub async fn shutdown_runtime(&self) -> Result<(), CommandError> {
+        let _guard = self.restart_lock.lock().await;
+        let mut slot = self.inner.lock().await;
+        if let Some(mut handle) = slot.take() {
+            handle
+                .shutdown()
+                .await
+                .map_err(|error| CommandError::new(error.code(), error.to_string()))?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -277,13 +334,8 @@ impl RuntimeControl for ProductionRuntimeCoordinator {
     }
 
     async fn shutdown_runtime(&self) -> Result<(), LifecycleError> {
-        let mut slot = self.inner.lock().await;
-        if let Some(mut handle) = slot.take() {
-            handle
-                .shutdown()
-                .await
-                .map_err(|error| LifecycleError::new(error.code(), error.message()))?;
-        }
-        Ok(())
+        self.shutdown_runtime()
+            .await
+            .map_err(|error| LifecycleError::new(error.code, error.message))
     }
 }

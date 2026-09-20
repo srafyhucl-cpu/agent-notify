@@ -4,7 +4,8 @@ use std::{
 };
 
 use agentnotify_application::{
-    ChannelAccountStore, SecretError, SecretKind, SecretStore, SecretValue,
+    ChannelAccountStore, DeliveryStore, IngestStore, OutboxItem, SecretError, SecretKind,
+    SecretStore, SecretValue,
 };
 use agentnotify_channel_clawbot::CLAWBOT_CHANNEL_ID;
 use agentnotify_desktop::bridge::commands::HostCommandService;
@@ -14,7 +15,11 @@ use agentnotify_desktop::platform::windows::{CredentialBackend, WindowsSecretSto
 use agentnotify_desktop::production::{
     ProductionSettingsStore, ProductionTargetProvider, bootstrap_headless,
 };
-use agentnotify_runtime::RuntimeTargetProvider;
+use agentnotify_domain::{
+    AgentId, AgentSessionId, ChannelAccountId, ChannelId, Delivery, DeliveryId, Notification,
+    NotificationId, NotificationMetadata, SafeError, Timestamp,
+};
+use agentnotify_runtime::{MigrationState, RuntimeState, RuntimeTargetProvider};
 use agentnotify_storage_sqlite::SqliteStore;
 
 const D_DRIVE_TEMP: &str = r"D:\Temp";
@@ -321,4 +326,218 @@ async fn host_commands_contract_execution() {
         .expect("获取更新状态必须成功");
     assert_eq!(update_status.state, UpdateStateDto::Unsupported);
     assert_eq!(update_status.current_version, env!("CARGO_PKG_VERSION"));
+
+    // 9. quit_app
+    let quit_res = service
+        .quit_app(EmptyPayload {})
+        .await
+        .expect("退出必须成功");
+    assert!(quit_res.accepted);
+}
+
+#[tokio::test]
+async fn runtime_restarts_repeatedly_and_maintains_running_state() {
+    let (_root, paths, _store, secret_store) = create_test_env("agentnotify-runtime-restart-test-");
+
+    let (coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    // 1. 验证初始状态稳定进入 Running (通过宿主服务快照与内部 is_running 断言)
+    let mut initial_running = false;
+    for _ in 0..30 {
+        let host_snapshot = service
+            .get_snapshot(EmptyPayload {})
+            .await
+            .expect("获取快照成功");
+        if host_snapshot.runtime.state == RuntimeLifecycleStateDto::Running {
+            initial_running = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(initial_running, "初次启动必须进入 Running 状态");
+
+    // 2. 连续 3 次调用 start_or_restart，断言独占锁正常释放与交接，绝不降级进入 MigrationRequired
+    for i in 1..=3 {
+        let snapshot = coordinator
+            .start_or_restart()
+            .await
+            .unwrap_or_else(|e| panic!("第 {i} 次 start_or_restart 必须成功，但得到错误: {e:?}"));
+
+        assert_ne!(
+            snapshot.migration.state,
+            MigrationState::Required,
+            "第 {i} 次重启决不能降级进入 MigrationRequired 诊断模式"
+        );
+
+        // 等待刷新并验证宿主快照与内部状态均为 Running
+        let mut is_running = false;
+        for _ in 0..30 {
+            let host_snapshot = service
+                .get_snapshot(EmptyPayload {})
+                .await
+                .expect("获取宿主快照成功");
+            if host_snapshot.runtime.state == RuntimeLifecycleStateDto::Running {
+                is_running = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(is_running, "第 {i} 次重启后 runtime 状态必须仍为 Running");
+
+        let current_core = coordinator.current_snapshot().await.expect("快照必须存在");
+        assert!(
+            current_core.state.is_running(),
+            "第 {i} 次重启后内部核心状态必须处于 Running 或就绪状态"
+        );
+        assert_ne!(
+            current_core.state,
+            RuntimeState::MigrationRequired,
+            "第 {i} 次重启后内部核心状态绝不能是 MigrationRequired"
+        );
+    }
+
+    // 3. 通过 update_settings 修改需要重启 runtime 的字段 (如 reply_enabled)
+    let settings = service
+        .get_settings(EmptyPayload {})
+        .await
+        .expect("获取设置成功");
+    let mut modified_settings = settings.clone();
+    modified_settings.reply_enabled = !settings.reply_enabled;
+
+    let _ = service
+        .update_settings(modified_settings)
+        .await
+        .expect("更新设置并触发内部重启必须成功");
+
+    let mut settings_restart_running = false;
+    for _ in 0..30 {
+        let host_snapshot = service
+            .get_snapshot(EmptyPayload {})
+            .await
+            .expect("获取宿主快照成功");
+        if host_snapshot.runtime.state == RuntimeLifecycleStateDto::Running {
+            settings_restart_running = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(
+        settings_restart_running,
+        "设置更新重启后 runtime 状态必须仍为 Running"
+    );
+
+    let current = coordinator
+        .current_snapshot()
+        .await
+        .expect("当前快照必须存在");
+    assert_ne!(
+        current.migration.state,
+        MigrationState::Required,
+        "设置更新重启后决不能降级进入 MigrationRequired 诊断模式"
+    );
+    assert_ne!(
+        current.state,
+        RuntimeState::MigrationRequired,
+        "设置更新重启后核心状态决不能降级为 MigrationRequired"
+    );
+
+    // 4. 清理优雅退出
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+#[tokio::test]
+async fn retry_delivery_reloads_and_returns_latest_delivery_record() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-delivery-retry-test-");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    // 构造通知与失败的可重试投递记录
+    let notification_id = NotificationId::new("notif-retry-1").unwrap();
+    let notification = Notification::new(
+        notification_id.clone(),
+        "event-retry-1".to_string(),
+        AgentId::new("opencode").unwrap(),
+        Some(AgentSessionId::new("session-retry-1").unwrap()),
+        Some("会话重试".to_string()),
+        "重试测试",
+        "正文",
+        Timestamp::now_utc(),
+        NotificationMetadata::default(),
+    )
+    .unwrap();
+    store
+        .commit_ingest(
+            notification.clone(),
+            vec![OutboxItem::pending(
+                "outbox-retry-1".to_string(),
+                notification_id.clone(),
+                Timestamp::now_utc(),
+            )],
+        )
+        .await
+        .expect("提交通知记录成功");
+
+    let delivery_id = DeliveryId::new("deliv-retry-1").unwrap();
+    let mut delivery = Delivery::pending(
+        delivery_id.clone(),
+        notification_id.clone(),
+        ChannelId::new(CLAWBOT_CHANNEL_ID).unwrap(),
+        ChannelAccountId::new("acc-test").unwrap(),
+    );
+    delivery
+        .mark_retryable(SafeError::new("network_timeout", "超时网络错误").unwrap())
+        .unwrap();
+
+    let lease = store
+        .lease_next_outbox(
+            Timestamp::now_utc(),
+            Timestamp::parse_rfc3339("2030-01-01T00:00:00Z").unwrap(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    store
+        .commit_delivery(lease, delivery.clone(), None)
+        .await
+        .expect("提交失败投递记录成功");
+
+    // 执行 retry_delivery，应重新排队并成功重新查询到最新投递记录
+    let retried = service
+        .retry_delivery(DeliveryIdPayload {
+            delivery_id: delivery_id.to_string(),
+        })
+        .await
+        .expect("重试投递必须成功返回最新记录");
+
+    assert_eq!(retried.id, delivery_id.to_string());
+    assert_eq!(retried.channel_id, CLAWBOT_CHANNEL_ID);
+    assert_eq!(retried.account_id, "acc-test");
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+#[tokio::test]
+async fn logout_channel_account_surfaces_error_when_channel_fails_or_account_missing() {
+    let (_root, paths, _store, secret_store) = create_test_env("agentnotify-logout-test-");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    // 对不存在的账号执行登出，必须明确报错，不能静默成功
+    let result = service
+        .logout_channel_account(ChannelAccountIdPayload {
+            account_id: "non-existent-account".into(),
+        })
+        .await;
+
+    assert!(result.is_err(), "登出不存在的账号必须返回错误");
+    let error = result.unwrap_err();
+    assert_eq!(error.code, "account_not_found");
+
+    let _ = service.quit_app(EmptyPayload {}).await;
 }

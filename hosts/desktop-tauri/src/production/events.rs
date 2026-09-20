@@ -47,23 +47,27 @@ impl EventForwarder {
                 if session.state() == LoginSessionState::WaitingFirstInbound {
                     if let Some(account_id) = session.account_id() {
                         let session_key = format!("{}:{}", session.id().as_str(), account_id);
-                        let mut set = restarted_sessions.lock().await;
-                        if !set.contains(&session_key) {
-                            set.insert(session_key);
-                            drop(set);
-
+                        let should_restart = {
+                            let set = restarted_sessions.lock().await;
+                            !set.contains(&session_key)
+                        };
+                        if should_restart {
                             tracing::info!(
                                 account_id,
                                 session_id = %session.id(),
                                 "新账号登录成功，重启桌面运行时以建立长轮询"
                             );
-                            if let Err(error) = runtime_login.start_or_restart().await {
-                                tracing::error!(%error, "新账号登录后重建运行时失败");
-                            } else {
-                                let _ = (SnapshotChangedEvent {
-                                    reason: "channel_account_added".into(),
-                                })
-                                .emit(&app_login);
+                            match runtime_login.start_or_restart().await {
+                                Ok(_) => {
+                                    restarted_sessions.lock().await.insert(session_key);
+                                    let _ = (SnapshotChangedEvent {
+                                        reason: "channel_account_added".into(),
+                                    })
+                                    .emit(&app_login);
+                                }
+                                Err(error) => {
+                                    tracing::error!(%error, "新账号登录后重建运行时失败");
+                                }
                             }
                         }
                     }
