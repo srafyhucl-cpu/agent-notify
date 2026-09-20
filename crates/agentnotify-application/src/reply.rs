@@ -142,6 +142,30 @@ impl ReplyRejection {
             Self::AgentFailed(error) | Self::AgentUnknown(error) => error.message(),
         }
     }
+
+    /// 用户可见的拒绝原因。返回 `None` 表示不能向该会话回发提示：
+    /// 账号、发送者或会话未通过绑定校验时，禁止把内部原因暴露给来源方。
+    pub fn notice(&self) -> Option<String> {
+        let text = match self {
+            Self::NoExactRoute => {
+                "无法续聊：无可用会话记录，这条通知可能已超过有效期或未建立引用关联。".to_owned()
+            }
+            Self::AmbiguousRoute => {
+                "无法续聊：引用消息匹配到多个会话，已停止转发以避免误发。".to_owned()
+            }
+            Self::AgentMissing => Self::AgentMissing.message().to_owned(),
+            Self::AgentUnsupported => Self::AgentUnsupported.message().to_owned(),
+            Self::AgentFailed(error) => {
+                format!("无法续聊：发送到 Agent 失败（{}）。", error.message())
+            }
+            Self::AgentUnknown(error) => format!(
+                "无法续聊：结果未确认（{}）；系统未自动重试，请先在对应会话中确认，避免重复发送。",
+                error.message()
+            ),
+            _ => return None,
+        };
+        Some(text)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -355,17 +379,24 @@ impl ReplyService {
         let route = match self.resolve_route(&message).await? {
             Ok(route) => route,
             Err(rejection) => {
-                return self.reject_after_claim(&mut claim, rejection).await;
+                return self
+                    .reject_after_claim(target, &message, &mut claim, rejection)
+                    .await;
             }
         };
         let Some(agent) = self.agents.get(&route.agent_id) else {
             return self
-                .reject_after_claim(&mut claim, ReplyRejection::AgentMissing)
+                .reject_after_claim(target, &message, &mut claim, ReplyRejection::AgentMissing)
                 .await;
         };
         if !agent.capabilities().resume {
             return self
-                .reject_after_claim(&mut claim, ReplyRejection::AgentUnsupported)
+                .reject_after_claim(
+                    target,
+                    &message,
+                    &mut claim,
+                    ReplyRejection::AgentUnsupported,
+                )
                 .await;
         }
 
@@ -390,22 +421,34 @@ impl ReplyService {
                 self.claim_store.update_claim(claim).await?;
                 let claim_key = message.claim_key()?;
                 self.event_sink.reply_changed(&claim_key).await;
-                Ok(ReplyOutcome::Rejected(ReplyRejection::AgentUnknown(error)))
+                let rejection = ReplyRejection::AgentUnknown(error);
+                self.send_rejection_notice(target, &message, &rejection)
+                    .await;
+                Ok(ReplyOutcome::Rejected(rejection))
             }
             Err(AgentError::Unknown(error)) => {
                 claim.mark_unknown(self.clock.now())?;
                 self.claim_store.update_claim(claim).await?;
                 let claim_key = message.claim_key()?;
                 self.event_sink.reply_changed(&claim_key).await;
-                Ok(ReplyOutcome::Rejected(ReplyRejection::AgentUnknown(error)))
+                let rejection = ReplyRejection::AgentUnknown(error);
+                self.send_rejection_notice(target, &message, &rejection)
+                    .await;
+                Ok(ReplyOutcome::Rejected(rejection))
             }
             Err(AgentError::UnsupportedCapability) => {
-                self.reject_after_claim(&mut claim, ReplyRejection::AgentUnsupported)
-                    .await
+                self.reject_after_claim(
+                    target,
+                    &message,
+                    &mut claim,
+                    ReplyRejection::AgentUnsupported,
+                )
+                .await
             }
             Err(error) => {
                 let rejection = ReplyRejection::AgentFailed(agent_error_safe(error)?);
-                self.reject_after_claim(&mut claim, rejection).await
+                self.reject_after_claim(target, &message, &mut claim, rejection)
+                    .await
             }
         }
     }
@@ -434,12 +477,16 @@ impl ReplyService {
 
     async fn reject_after_claim(
         &self,
+        target: &ReplyTarget,
+        message: &InboundMessage,
         claim: &mut InboundClaim,
         rejection: ReplyRejection,
     ) -> Result<ReplyOutcome, ReplyError> {
         claim.mark_failed(self.clock.now())?;
         self.claim_store.update_claim(claim.clone()).await?;
         self.event_sink.reply_changed(&claim.key).await;
+        self.send_rejection_notice(target, message, &rejection)
+            .await;
         Ok(ReplyOutcome::Rejected(rejection))
     }
 
@@ -465,29 +512,66 @@ impl ReplyService {
             safe_metadata: Default::default(),
         };
         match channel.send(target.account.clone(), outbound).await {
-            Ok(receipt) if valid_confirmation_receipt(&receipt, &capabilities) => {}
+            Ok(receipt) if valid_notice_receipt(&receipt, &capabilities) => {}
             Ok(_) => {
-                self.record_confirmation_error(
+                self.record_notice_error(
                     SafeError::new("reply_confirmation_unconfirmed", "渠道未确认回复送达提示")
                         .expect("内置安全错误必须有效"),
                 )
                 .await;
             }
             Err(error) => {
-                self.record_confirmation_error(channel_error_safe(error))
-                    .await;
+                self.record_notice_error(channel_error_safe(error)).await;
             }
         }
     }
 
-    async fn record_confirmation_error(&self, error: SafeError) {
+    /// 拒绝后向绑定私聊回发可见原因；发送失败只记录，不改变 Claim 终态，也不重试。
+    async fn send_rejection_notice(
+        &self,
+        target: &ReplyTarget,
+        message: &InboundMessage,
+        rejection: &ReplyRejection,
+    ) {
+        let Some(text) = rejection.notice() else {
+            return;
+        };
+        let Ok(claim_key) = message.claim_key() else {
+            return;
+        };
+        let Some(channel) = self.channels.get(&target.account.channel_id) else {
+            return;
+        };
+        let capabilities = channel.capabilities();
+        let outbound = OutboundMessage {
+            purpose: MessagePurpose::ReplyRejection,
+            conversation_id: message.conversation_id.clone(),
+            text,
+            client_id: format!("reply-notice-{claim_key}"),
+            reply_to: message.external_message_id.clone(),
+            safe_metadata: Default::default(),
+        };
+        match channel.send(target.account.clone(), outbound).await {
+            Ok(receipt) if valid_notice_receipt(&receipt, &capabilities) => {}
+            Ok(_) => {
+                self.record_notice_error(
+                    SafeError::new("reply_notice_unconfirmed", "渠道未确认引用回复失败提示")
+                        .expect("内置安全错误必须有效"),
+                )
+                .await;
+            }
+            Err(error) => self.record_notice_error(channel_error_safe(error)).await,
+        }
+    }
+
+    async fn record_notice_error(&self, error: SafeError) {
         tracing::warn!(
             code = error.code(),
-            "回复送达确认失败，不影响已完成的 Agent 接纳"
+            "引用回复提示发送失败，不影响 Claim 终态"
         );
         if let Some(status_store) = &self.status_store {
             if let Err(store_error) = status_store.record_error(error).await {
-                tracing::warn!(code = store_error.code(), "记录回复送达确认错误失败");
+                tracing::warn!(code = store_error.code(), "记录引用回复提示错误失败");
             }
         }
     }
@@ -503,7 +587,7 @@ impl UseCase for ReplyService {
     }
 }
 
-fn valid_confirmation_receipt(
+fn valid_notice_receipt(
     receipt: &DeliveryReceipt,
     capabilities: &agentnotify_channel_sdk::ChannelCapabilities,
 ) -> bool {

@@ -17,6 +17,7 @@ pub enum MessagePurpose {
     Notification,
     Reply,
     ReplyConfirmation,
+    ReplyRejection,
 }
 
 /// 发往单个渠道账号的标准化消息。

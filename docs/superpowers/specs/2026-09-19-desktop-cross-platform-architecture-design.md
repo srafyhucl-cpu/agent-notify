@@ -395,6 +395,7 @@ pub struct DeliveryReceipt {
 5. 精确查询 ReplyRoute。
 6. 调用 AgentAdapter.resume。
 7. 标记 Claim 最终状态并可选发送送达确认。
+8. 已 Claim 的拒绝向绑定私聊发送用户可读原因；提示只做一次，不写入 ReplyRoute。
 
 任何一步不能确认目标时都返回用户可读错误，不回退到最近会话。
 

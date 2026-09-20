@@ -416,6 +416,137 @@ async fn missing_message_id_does_not_fall_back_to_recent_route() {
 }
 
 #[tokio::test]
+async fn missing_route_sends_visible_notice_without_new_route() {
+    let fixture = fixture(AgentMode::Success, ChannelMode::Sent, false);
+
+    let result = fixture
+        .service
+        .handle(inbound(Vec::new(), "继续检查"))
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        result,
+        ReplyOutcome::Rejected(ReplyRejection::NoExactRoute)
+    ));
+    assert_eq!(fixture.agent.resume_count(), 0);
+    assert_eq!(fixture.store.route_count(), 1);
+    let messages = fixture.channel.messages();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].purpose, MessagePurpose::ReplyRejection);
+    assert_eq!(messages[0].conversation_id, "user-1");
+    assert_eq!(messages[0].reply_to.as_ref().unwrap().as_str(), "reply-1");
+    assert!(
+        messages[0].text.contains("无可用会话记录"),
+        "{}",
+        messages[0].text
+    );
+}
+
+#[tokio::test]
+async fn ambiguous_reference_sends_visible_notice() {
+    let fixture = fixture(AgentMode::Success, ChannelMode::Sent, false);
+
+    let result = fixture
+        .service
+        .handle(inbound(vec!["external-1", "external-2"], "继续"))
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        result,
+        ReplyOutcome::Rejected(ReplyRejection::AmbiguousRoute)
+    ));
+    assert_eq!(fixture.agent.resume_count(), 0);
+    let messages = fixture.channel.messages();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].purpose, MessagePurpose::ReplyRejection);
+    assert!(
+        messages[0].text.contains("多个会话"),
+        "{}",
+        messages[0].text
+    );
+}
+
+#[tokio::test]
+async fn unsupported_agent_sends_visible_notice() {
+    let fixture = fixture(AgentMode::Unsupported, ChannelMode::Sent, false);
+
+    let result = fixture
+        .service
+        .handle(inbound(vec!["external-1"], "继续"))
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        result,
+        ReplyOutcome::Rejected(ReplyRejection::AgentUnsupported)
+    ));
+    let messages = fixture.channel.messages();
+    assert_eq!(messages.len(), 1);
+    assert!(
+        messages[0].text.contains("不支持继续会话"),
+        "{}",
+        messages[0].text
+    );
+}
+
+#[tokio::test]
+async fn unconfirmed_agent_result_sends_one_visible_notice() {
+    let fixture = fixture(AgentMode::Unknown, ChannelMode::Sent, false);
+    let message = inbound(vec!["external-1"], "继续");
+
+    fixture.service.handle(message.clone()).await.unwrap();
+    fixture.service.handle(message).await.unwrap();
+
+    let messages = fixture.channel.messages();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].purpose, MessagePurpose::ReplyRejection);
+    assert!(
+        messages[0].text.contains("未自动重试"),
+        "{}",
+        messages[0].text
+    );
+}
+
+#[tokio::test]
+async fn wrong_sender_never_receives_visible_notice() {
+    let fixture = fixture(AgentMode::Success, ChannelMode::Sent, false);
+    let mut message = inbound(vec!["external-1"], "继续");
+    message.sender_id = "stranger".into();
+
+    let result = fixture.service.handle(message).await.unwrap();
+
+    assert!(matches!(
+        result,
+        ReplyOutcome::Rejected(ReplyRejection::SenderNotAllowed)
+    ));
+    assert!(fixture.channel.messages().is_empty());
+}
+
+#[tokio::test]
+async fn notice_send_failure_keeps_failed_claim() {
+    let fixture = fixture(AgentMode::Success, ChannelMode::PermanentFailure, false);
+    let message = inbound(Vec::new(), "继续检查");
+
+    let result = fixture.service.handle(message.clone()).await.unwrap();
+
+    assert!(matches!(
+        result,
+        ReplyOutcome::Rejected(ReplyRejection::NoExactRoute)
+    ));
+    assert_eq!(
+        fixture
+            .store
+            .claim(&message.claim_key().unwrap())
+            .unwrap()
+            .state,
+        ClaimState::Failed
+    );
+    assert_eq!(fixture.store.errors().len(), 1);
+}
+
+#[tokio::test]
 async fn duplicate_inbound_is_not_submitted_twice() {
     let fixture = fixture(AgentMode::Success, ChannelMode::Sent, false);
     let message = inbound(vec!["external-1"], "  继续检查  ");

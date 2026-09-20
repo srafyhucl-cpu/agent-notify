@@ -1624,9 +1624,11 @@ Expected: FAIL，`ReplyService` 不存在。
 
 `AgentError::Unknown` 写 Claim `Unknown`；绝不重试。成功回执只能表示“已接纳到 Agent 队列”，不能表示 Agent 已完成回答。
 
-- [ ] **Step 4: 可选送达确认**
+- [ ] **Step 4: 可选送达确认与拒绝提示**
 
 当设置为开启时，ReplyService 通过同一渠道适配器发送 `MessagePurpose::ReplyConfirmation`。确认发送失败不改变已成功的 Claim，只写 tracing 和 StatusStore 的最近错误。确认消息不得写入 ReplyRoute。
+
+已 Claim 的拒绝（无可用路由、引用冲突，以及 Agent 缺失、不支持、失败或结果未确认）通过同一渠道发送 `MessagePurpose::ReplyRejection`，内容必须是绑定私聊里可读的原因；发送失败只写 tracing 和 StatusStore，不改变 Claim 终态，也不重试。账号、发送者或会话未通过绑定校验的拒绝不得回发提示，避免把内部原因暴露给非绑定用户。拒绝提示不得写入 ReplyRoute。
 
 - [ ] **Step 5: 运行测试并确认通过**
 
