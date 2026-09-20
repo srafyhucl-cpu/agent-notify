@@ -492,6 +492,12 @@ async fn retry_delivery_reloads_and_returns_latest_delivery_record() {
         .await
         .expect("Headless 装配与启动必须成功");
 
+    // 本用例直接租约 Outbox 验证 retry_delivery；先关闭运行时，避免后台 worker 抢先租约造成偶发失败。
+    _coordinator
+        .shutdown_runtime()
+        .await
+        .expect("关闭运行时必须成功");
+
     // 构造通知与失败的可重试投递记录
     let notification_id = NotificationId::new("notif-retry-1").unwrap();
     let notification = Notification::new(
