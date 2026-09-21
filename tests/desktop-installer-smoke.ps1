@@ -42,6 +42,47 @@ if (-not $issueScript.Contains('DestName: "agentnotify-ingress.exe"')) {
   throw '预览安装器脚本没有安装 agentnotify-ingress.exe'
 }
 
+if (-not $issueScript.Contains('Source: "{#RepoRoot}\plugin\rust\agent-notify.ts"')) {
+  throw '预览安装器脚本没有包含 OpenCode 插件模板'
+}
+if (-not $issueScript.Contains('install-opencode-v2.ps1')) {
+  throw '预览安装器脚本没有包含 OpenCode 插件安装助手'
+}
+if (-not $issueScript.Contains("WizardIsTaskSelected('opencode')")) {
+  throw '预览安装器脚本没有按任务接入 OpenCode 插件'
+}
+
+$pluginSmokeRoot = Join-Path 'D:\Temp' ('agentnotify-plugin-smoke-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $pluginSmokeRoot | Out-Null
+try {
+  $pluginSource = Join-Path $RepoRoot 'plugin\rust\agent-notify.ts'
+  $pluginInstaller = Join-Path $RepoRoot 'tools\hooks\install-opencode-v2.ps1'
+  $fakeIngress = Join-Path $pluginSmokeRoot 'agentnotify-ingress.exe'
+  $pluginDestination = Join-Path $pluginSmokeRoot 'plugins\agent-notify.ts'
+  [IO.File]::WriteAllBytes($fakeIngress, [byte[]](0x4d, 0x5a))
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $pluginInstaller `
+    -Source $pluginSource `
+    -Destination $pluginDestination `
+    -Ingress $fakeIngress
+  if ($LASTEXITCODE -ne 0) {
+    throw "OpenCode 插件安装助手失败 exit=$LASTEXITCODE"
+  }
+  $installedPlugin = Get-Content -LiteralPath $pluginDestination -Raw -Encoding utf8
+  $escapedIngress = $fakeIngress.Replace('\', '\\').Replace('"', '\"')
+  if (-not $installedPlugin.Contains("const BAKED_INGRESS = `"$escapedIngress`"")) {
+    throw 'OpenCode 插件安装助手没有写入 ingress 绝对路径'
+  }
+  if ($installedPlugin.Contains('const BAKED_INGRESS = ""')) {
+    throw 'OpenCode 插件安装助手没有替换空 ingress 标记'
+  }
+} finally {
+  $resolvedPluginSmokeRoot = [IO.Path]::GetFullPath($pluginSmokeRoot)
+  $allowedPluginSmokeRoot = [IO.Path]::GetFullPath('D:\Temp')
+  if ($resolvedPluginSmokeRoot.StartsWith($allowedPluginSmokeRoot, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $resolvedPluginSmokeRoot)) {
+    Remove-Item -LiteralPath $resolvedPluginSmokeRoot -Recurse -Force
+  }
+}
+
 if (-not $Execute) {
   Write-Output '[desktop-installer-smoke] 预览安装器结构检查通过'
   exit 0
@@ -98,6 +139,7 @@ try {
     '/SUPPRESSMSGBOXES',
     '/NORESTART',
     '/SP-',
+    '/MERGETASKS=!opencode',
     "/DIR=`"$installDir`""
   )
   $installResult = Start-Process -FilePath $Installer -ArgumentList $installArguments -Wait -PassThru
@@ -115,6 +157,14 @@ try {
     throw "安装后找不到 ingress：$installedIngress"
   }
 
+  $foreignInstance = @(Get-CimInstance Win32_Process -Filter "Name = 'agentnotify-desktop.exe'" |
+    Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ne $installedExe })
+  $skipRuntimeSmoke = $foreignInstance.Count -gt 0
+  if ($skipRuntimeSmoke) {
+    Write-Warning '检测到其他 AgentNotify 桌面实例，跳过启动与单实例检查，不终止用户进程。'
+  }
+
+  if (-not $skipRuntimeSmoke) {
   $env:AGENT_NOTIFY_CONFIG_DIR = Join-Path $dataRoot 'config'
   $env:AGENT_NOTIFY_DATA_DIR = Join-Path $dataRoot 'data'
   $env:AGENT_NOTIFY_LOG_DIR = Join-Path $dataRoot 'logs'
@@ -169,6 +219,7 @@ public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntP
   if ($remaining.Count -ne 0) {
     throw "退出后仍有残留进程：$($remaining.ProcessId -join ',')"
   }
+  }
 
   $uninstaller = Get-ChildItem -LiteralPath $installDir -Filter 'unins*.exe' -File | Select-Object -First 1
   if (-not $uninstaller) {
@@ -181,11 +232,14 @@ public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntP
   if (Test-Path -LiteralPath $installedExe) {
     throw '卸载后主程序仍存在。'
   }
-  if (-not (Test-Path -LiteralPath $env:AGENT_NOTIFY_CONFIG_DIR -PathType Container)) {
-    throw '卸载错误删除了用户配置目录。'
+  if (-not $skipRuntimeSmoke) {
+    if (-not (Test-Path -LiteralPath $env:AGENT_NOTIFY_CONFIG_DIR -PathType Container)) {
+      throw '卸载错误删除了用户配置目录。'
+    }
+    Write-Output '[desktop-installer-smoke] 安装、启动、单实例、关闭隐藏、退出和卸载检查通过'
+  } else {
+    Write-Output '[desktop-installer-smoke] 安装与卸载检查通过，启动交互已因已有实例跳过'
   }
-
-  Write-Output '[desktop-installer-smoke] 安装、启动、单实例、关闭隐藏、退出和卸载检查通过'
 } finally {
   foreach ($name in $environmentNames) {
     $original = $originalEnvironment[$name]

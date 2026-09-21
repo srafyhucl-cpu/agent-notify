@@ -49,9 +49,41 @@ ArchitecturesInstallIn64BitMode=x64compatible
 SignTool=agentnotify
 #endif
 
+[Tasks]
+Name: "opencode"; Description: "接入 OpenCode 通知插件"; GroupDescription: "集成："
+
 [Files]
 Source: "{#ExePath}"; DestDir: "{app}"; DestName: "agentnotify-desktop.exe"; Flags: ignoreversion
 Source: "{#IngressPath}"; DestDir: "{app}"; DestName: "agentnotify-ingress.exe"; Flags: ignoreversion
+Source: "{#RepoRoot}\plugin\rust\agent-notify.ts"; DestDir: "{app}\plugin"; DestName: "agent-notify.ts"; Flags: ignoreversion
+Source: "{#RepoRoot}\tools\hooks\install-opencode-v2.ps1"; DestDir: "{app}\tools\hooks"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\AgentNotify Rust Preview"; Filename: "{app}\agentnotify-desktop.exe"
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+  Parameters: String;
+begin
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('opencode') then
+  begin
+    Parameters := '-NoProfile -ExecutionPolicy Bypass -File "' +
+      ExpandConstant('{app}\tools\hooks\install-opencode-v2.ps1') + '" -Source "' +
+      ExpandConstant('{app}\plugin\agent-notify.ts') + '" -Destination "' +
+      ExpandConstant('{userprofile}\.config\opencode\plugins\agent-notify.ts') + '" -Ingress "' +
+      ExpandConstant('{app}\agentnotify-ingress.exe') + '"';
+    if not Exec(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Parameters,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then
+      RaiseException('无法启动 OpenCode 插件安装脚本');
+    if ResultCode <> 0 then
+      RaiseException('OpenCode 插件安装失败，退出码 ' + IntToStr(ResultCode));
+  end;
+end;
