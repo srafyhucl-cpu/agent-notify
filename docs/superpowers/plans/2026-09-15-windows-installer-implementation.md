@@ -1,5 +1,7 @@
 # Agent-notify Windows 标准安装器 Implementation Plan
 
+**状态：** 对应实现已随 v1.x 发布（安装器见 `installer/agent-notify.iss`，发布产物见 `agent-notify-releases` 仓库的 `Agent-notify-Setup-vX.Y.Z.exe`）；本计划复选框未回填，保留原文作为历史记录。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 为 Agent-notify 增加当前用户级 Windows 安装器、首次启动静默接入和基于安装器的应用内升级，同时保留现有 ZIP 与旧版更新兼容。

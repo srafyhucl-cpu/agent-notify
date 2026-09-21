@@ -1,5 +1,7 @@
 # 「微信会话已断开」可见提醒 Implementation Plan
 
+**状态：** 对应实现已随 v1.x 发布（`internal/ui/wechat_link.go` 的会话世代与托盘气泡提醒）；本计划复选框未回填，保留原文作为历史记录。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让「已登录但主动推送会话失效」在微信连接区域四处可见，并在首次出现时弹一次 Windows 托盘气泡提醒，同时区分「刚登录的正常等待」与「曾经正常、后来失效」。
