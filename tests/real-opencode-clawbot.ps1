@@ -288,11 +288,36 @@ function Get-LatestNotification {
   param([string]$Id)
   $escaped = Quote-Sql $Id
   $rows = @(Invoke-StateQuery @"
-select n.notification_id, n.session_id, n.ingest_key, d.state, coalesce(d.external_message_id, ''), d.updated_at
+select n.notification_id, n.session_id, n.ingest_key, d.state, coalesce(d.external_message_id, ''), d.updated_at,
+  coalesce(d.channel_id, ''), coalesce(d.account_id, '')
 from notifications n
 left join deliveries d on d.notification_id = n.notification_id
 where n.session_id = '$escaped'
 order by n.rowid desc
+limit 1;
+"@)
+  if ($rows.Count -eq 0) { return $null }
+  return ($rows[0] -split "`t")
+}
+
+# 计划 Step 3 要求 ReplyRoute 用平台返回的稳定 message ID，而不是标题或正文；
+# 这里按 (channel_id, account_id, external_message_id) 精确复算路由是否落在投递收到的 ID 上。
+function Get-RouteForDelivery {
+  param([string[]]$DeliveryRow)
+
+  if ($null -eq $DeliveryRow -or $DeliveryRow.Count -lt 8) { return $null }
+  $messageId = $DeliveryRow[4]
+  $channelId = $DeliveryRow[6]
+  $accountId = $DeliveryRow[7]
+  if ([string]::IsNullOrWhiteSpace($messageId) -or [string]::IsNullOrWhiteSpace($channelId) -or [string]::IsNullOrWhiteSpace($accountId)) { return $null }
+
+  $rows = @(Invoke-StateQuery @"
+select session_id, agent_id, created_at, expires_at
+from reply_routes
+where channel_id = '$(Quote-Sql $channelId)'
+  and account_id = '$(Quote-Sql $accountId)'
+  and external_message_id = '$(Quote-Sql $messageId)'
+order by rowid desc
 limit 1;
 "@)
   if ($rows.Count -eq 0) { return $null }
@@ -407,11 +432,42 @@ limit 1;
     throw "推送没有被 ClawBot 受理，状态=$($parts[2])"
   }
   # ClawBot 的 Sent 仅代表平台受理并返回消息 ID，不能证明微信端已展示。
+  $routeRow = Wait-ForState `
+    -Label 'ReplyRoute 建立' `
+    -Query {
+      $current = Get-LatestNotification $SessionId
+      if (-not $current) { return $null }
+      return (Get-RouteForDelivery -DeliveryRow $current)
+    } `
+    -IsTerminal {
+      param($value)
+      return $null -ne $value
+    }
+
+  # 计划 Step 3 第 4 条：路由必须挂在 ClawBot 返回的稳定 message ID 上，而不是标题或正文。
+  if ($routeRow[0] -ne $parts[1]) {
+    throw "ReplyRoute 未落在目标会话：routeSessionHash=$(Get-HashText $routeRow[0]) expectedSessionHash=$(Get-HashText $parts[1])"
+  }
+  if ($routeRow[1] -ne 'opencode') {
+    throw "ReplyRoute 的 agent 不是 opencode：agent=$($routeRow[1])"
+  }
+  $routeExpiresAt = [datetime]::MinValue
+  if (-not [datetime]::TryParse($routeRow[3], [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$routeExpiresAt)) {
+    throw "无法解析 ReplyRoute 过期时间：$($routeRow[3])"
+  }
+  if ($routeExpiresAt -le [datetime]::UtcNow) {
+    throw "ReplyRoute 已过期，无法用于引用回复验收：expiresAt=$($routeRow[3])"
+  }
+
   Write-Output "push=PLATFORM_ACCEPTED"
   Write-Output "notification=$($parts[0])"
   Write-Output "sessionHash=$(Get-HashText $parts[1])"
   Write-Output "deliveryState=$($parts[2])"
   Write-Output "externalMessageIdHash=$(Get-HashText $parts[3])"
+  Write-Output 'routeMatchesDelivery=true'
+  Write-Output "routeSessionHash=$(Get-HashText $routeRow[0])"
+  Write-Output "routeCreatedAt=$($routeRow[2])"
+  Write-Output "routeExpiresAt=$($routeRow[3])"
   Write-Output "pushVisibility=manual_confirmation_required"
   Write-Output "next=请先在微信端确认收到通知，再引用它回复：$ReplyText"
   exit 0
@@ -518,6 +574,13 @@ if ($notification) {
   Write-Output "deliveryState=$($notification[3])"
   Write-Output "externalMessageIdHash=$(Get-HashText $notification[4])"
   Write-Output "deliveryUpdatedAt=$($notification[5])"
+  if ([string]::IsNullOrWhiteSpace($notification[4])) {
+    Write-Output 'routeMatchesDelivery=UNKNOWN'
+  } elseif (Get-RouteForDelivery -DeliveryRow $notification) {
+    Write-Output 'routeMatchesDelivery=true'
+  } else {
+    Write-Output 'routeMatchesDelivery=false'
+  }
 } else {
   Write-Output 'notification=none'
 }
