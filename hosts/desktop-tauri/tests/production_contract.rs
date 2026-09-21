@@ -720,6 +720,105 @@ async fn target_provider_uses_latest_established_account_as_compatible_fallback(
     );
 }
 
+#[tokio::test]
+async fn list_channel_accounts_reports_stale_and_missing_credentials() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-channel-health-test-");
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store.clone())
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    // 1. 凭据仍在但会话已失效：健康状态必须 stale，并带可操作提示。
+    let mut stale = make_clawbot_account("test-bot-stale", "wx-user-stale", "2026-09-19T01:00:00Z");
+    stale.config["base_url"] = serde_json::json!("http://127.0.0.1:9");
+    stale.config["stale_at"] =
+        serde_json::to_value(Timestamp::now_utc()).expect("时间必须可序列化");
+    let stale_id = stale.id.clone();
+    store.upsert(stale).await.expect("upsert 会话失效账号成功");
+    secret_store
+        .set(
+            &stale_id,
+            SecretKind::BotToken,
+            SecretValue::new(
+                serde_json::json!({
+                    // 指向本机未监听端口，避免测试期间访问真实平台。
+                    "bot_token": "test-bot-token",
+                    "bot_id": "test-bot-stale",
+                    "user_id": "wx-user-stale",
+                    "base_url": "http://127.0.0.1:9"
+                })
+                .to_string(),
+            )
+            .expect("凭据必须有效"),
+        )
+        .await
+        .expect("写入密钥成功");
+
+    // 2. 完全没有凭据：健康状态必须不可用，并提示重新扫码。
+    let missing = make_clawbot_account(
+        "test-bot-missing",
+        "wx-user-missing",
+        "2026-09-19T01:00:00Z",
+    );
+    let missing_id = missing.id.clone();
+    store.upsert(missing).await.expect("upsert 无凭据账号成功");
+
+    let channels = service
+        .list_channel_accounts(EmptyPayload {})
+        .await
+        .expect("列出渠道账号必须成功");
+    let clawbot = channels
+        .channels
+        .iter()
+        .find(|channel| channel.id == CLAWBOT_CHANNEL_ID)
+        .expect("必须包含 ClawBot 渠道");
+
+    let stale_dto = clawbot
+        .accounts
+        .iter()
+        .find(|account| account.id.as_str() == stale_id.as_str())
+        .expect("必须包含会话失效账号");
+    assert!(stale_dto.health.stale, "会话失效的账号必须标记 stale");
+    let stale_detail = stale_dto
+        .health
+        .detail
+        .as_ref()
+        .expect("stale 账号必须带安全明细");
+    assert_eq!(stale_detail.code, "clawbot_session_stale");
+    assert!(
+        stale_detail.message.contains("重新扫码") && stale_detail.message.contains("发送消息恢复"),
+        "提示不可操作：{}",
+        stale_detail.message
+    );
+
+    let missing_dto = clawbot
+        .accounts
+        .iter()
+        .find(|account| account.id.as_str() == missing_id.as_str())
+        .expect("必须包含无凭据账号");
+    assert!(!missing_dto.health.available, "缺少凭据必须报告不可用");
+    let missing_detail = missing_dto
+        .health
+        .detail
+        .as_ref()
+        .expect("不可用账号必须带安全明细");
+    // 缺少凭据时渠道层给出的是“重新登录”，与 ret=-14 的“重新扫码”同属可操作提示。
+    assert!(
+        missing_detail.message.contains("重新登录") || missing_detail.message.contains("重新扫码"),
+        "提示不可操作：{}",
+        missing_detail.message
+    );
+
+    // 账号配置必须保持脱敏，不得出现任何凭据明文。
+    for account in &clawbot.accounts {
+        assert!(
+            !account.config.to_string().contains("test-bot-token"),
+            "渠道账号配置不得泄露凭据"
+        );
+    }
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
 fn make_clawbot_account(
     bot_id: &str,
     user_id: &str,
