@@ -124,6 +124,59 @@ describe("ChannelsPage", () => {
     ).toBeChecked();
   });
 
+  it("shows stale and unavailable account health with actionable messages", async () => {
+    const stale = accountFixture("account-stale", {
+      health: {
+        available: true,
+        stale: true,
+        detail: {
+          code: "clawbot_session_stale",
+          message: "ClawBot 会话已失效，请重新扫码或发送消息恢复",
+        },
+      },
+    });
+    const invalid = accountFixture("account-invalid", {
+      health: {
+        available: false,
+        stale: false,
+        detail: {
+          code: "clawbot_invalid_account",
+          message: "ClawBot 登录状态已失效，请重新扫码",
+        },
+      },
+    });
+    const disabled = accountFixture("account-disabled", { enabled: false });
+    const bridge = createMockHostBridge({
+      channels: [channelFixture([stale, invalid, disabled])],
+    });
+
+    renderChannels(bridge);
+
+    function rowFor(name: string): HTMLElement {
+      const row = screen.getByText(name).closest("tr");
+      if (!row) {
+        throw new Error(`找不到账号行：${name}`);
+      }
+      return row as HTMLElement;
+    }
+
+    expect(await screen.findByText("账号 account-stale")).toBeVisible();
+    const staleRow = rowFor("账号 account-stale");
+    expect(within(staleRow).getByText("状态已过期")).toBeVisible();
+    expect(
+      within(staleRow).getByText("ClawBot 会话已失效，请重新扫码或发送消息恢复"),
+    ).toBeVisible();
+
+    const invalidRow = rowFor("账号 account-invalid");
+    expect(within(invalidRow).getByText("登录异常")).toBeVisible();
+    expect(
+      within(invalidRow).getByText("ClawBot 登录状态已失效，请重新扫码"),
+    ).toBeVisible();
+
+    const disabledRow = rowFor("账号 account-disabled");
+    expect(within(disabledRow).getByText("已停用")).toBeVisible();
+  });
+
   it("isolates account details and refetches when the selected account changes", async () => {
     const user = userEvent.setup();
     const first = accountFixture("account-a");
