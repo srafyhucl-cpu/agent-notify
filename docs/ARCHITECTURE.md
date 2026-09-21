@@ -78,7 +78,7 @@ Command Code
 
 ## OpenCode 数据流
 
-1. 插件订阅 `session.execution.succeeded`。
+1. 插件订阅当前版本的 `session.idle` / `session.error`，并兼容旧版 `session.execution.succeeded`。
 2. 取会话标题和最近一条 assistant 文本；两项读取各自默认 10 秒超时，超时退回默认标题或空摘要，不影响推送。
 3. 检查 `AGENT_NOTIFY_OFF`、`opencode.off`、内存冷却与跨进程状态冷却。
 4. 调用 `agent-notify.exe notify --agent opencode --title ... --summary ... --session ... --no-stdin`。

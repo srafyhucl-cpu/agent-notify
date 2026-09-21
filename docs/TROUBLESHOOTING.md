@@ -182,7 +182,7 @@ Command Code 的 mod 只能把回复投递到**正在运行的 run**里，所以
    - `skip: marker-off`：`opencode.off` 存在，可在悬浮窗或 `toggle` 中开启。
    - `skip: cooldown`：同一会话仍在冷却窗口。
    - `skip: file-cooldown`：其他 OpenCode 实例已推送同一会话。
-   - 没有 `session.execution.succeeded`：当前 OpenCode 版本可能改了事件名或插件未加载。
+   - 没有 `session.idle` / `session.error`（旧版为 `session.execution.succeeded`）：当前 OpenCode 版本可能改了事件名或插件未加载。
 4. 检查插件路径是否为 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`。
 5. 点击悬浮窗“检查修复”，或重新运行最新版 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装；然后重启 OpenCode，确保插件是当前版本。ZIP 或源码环境改用对应的 `install.ps1`。
 6. 如果程序装在自定义目录，检查插件副本里的 `BAKED_BIN` 是否指向实际 exe；重新接入会刷新它，也可以用 `AGENT_NOTIFY_BIN` 临时覆盖。
