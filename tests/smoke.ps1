@@ -107,6 +107,8 @@ $env:AGENT_NOTIFY_DEVIN_REPLY_DIR = Join-Path $smokeRoot 'devin-reply'
 $env:AGENT_NOTIFY_COMMANDCODE_MOD_FILE = Join-Path $smokeRoot 'commandcode-mods\agent-notify.ts'
 $env:AGENT_NOTIFY_COMMANDCODE_REPLY_DIR = Join-Path $smokeRoot 'commandcode-reply'
 
+# 白名单逐个删除无法覆盖每次运行新增的文件；只有全绿时才允许递归清理自建沙箱。
+$smokePassed = $false
 try {
   # 3. notify DryRun 渲染
   $dry = & $exePath notify --dry-run --title '【smoke】' --summary 'hello **bold** smoke' --no-stdin 2>&1
@@ -549,6 +551,7 @@ model = "gpt-5"
   Assert-True ($stripped -match '(?m)^model = "gpt-5"\s*$') "无备份卸载破坏了其它配置：$stripped"
   Write-Output '[ok] uninstall strips codex chain without backup'
   Write-Output '[ok] uninstall sandbox clean'
+  $smokePassed = $true
 } finally {
   $env:AGENT_NOTIFY_CONFIG_DIR = $null
   $env:AGENT_NOTIFY_TEMP_DIR = $null
@@ -556,6 +559,20 @@ model = "gpt-5"
   $env:AGENT_NOTIFY_CREDENTIAL_FILE = $null
   $env:AGENT_NOTIFY_ANTIGRAVITY_DRYRUN = $null
   $env:AGENT_NOTIFY_DEVIN_DRYRUN = $null
+
+  # 白名单逐个删除无法覆盖每次运行新增的文件；全绿时先兜底删除自建沙箱根目录。
+  # 路径必须同时通过临时根前缀与 GUID 目录名校验，失败时保留现场供排查。
+  if ($smokePassed -and (Test-Path -LiteralPath $smokeRoot)) {
+    $resolvedSmokeRoot = [IO.Path]::GetFullPath($smokeRoot)
+    $tempRoot = [IO.Path]::GetFullPath((Join-Path $driveRoot 'Temp')) + [IO.Path]::DirectorySeparatorChar
+    $insideTempRoot = $resolvedSmokeRoot.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)
+    $expectedName = (Split-Path $resolvedSmokeRoot -Leaf) -match '^agent-notify-smoke-[0-9a-f]{32}$'
+    if ($insideTempRoot -and $expectedName) {
+      Remove-Item -LiteralPath $resolvedSmokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    } else {
+      Write-Warning "拒绝清理不符合命名约束的 smoke 根目录：$resolvedSmokeRoot"
+    }
+  }
 
   # 清理沙箱：只逐个删除明确的文件路径，再逐个删除已空目录
   $explicitFiles = @(
