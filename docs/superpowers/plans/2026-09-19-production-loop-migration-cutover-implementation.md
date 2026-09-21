@@ -1101,7 +1101,7 @@ git commit -m "test(e2e): 完成 OpenCode 与 ClawBot 真实闭环验收"
 - Consumes: 已通过真实验收的 `agentnotify-desktop.exe`、`agentnotify-ingress.exe`、OpenCode V2 插件、迁移器。
 - Produces: 正式 `2.0.0` Windows 安装包、签名校验和唯一发布入口。
 
-- [ ] **Step 1: 写正式包内容断言**
+- [x] **Step 1: 写正式包内容断言**
 
 `installer-smoke.ps1` 增加：
 
@@ -1112,7 +1112,7 @@ git commit -m "test(e2e): 完成 OpenCode 与 ClawBot 真实闭环验收"
 - 首次升级保留用户数据并执行迁移。
 - 卸载只删除程序文件，不删除 SQLite、旧迁移源和迁移报告。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1122,7 +1122,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\installer-smoke.ps1 
 
 Expected: FAIL，正式 Inno 脚本仍指向旧 Go 程序。
 
-- [ ] **Step 3: 切换版本事实来源**
+- [x] **Step 3: 切换版本事实来源**
 
 - 正式版版本改为 `2.0.0`。
 - `VERSION` 成为唯一版本来源。
@@ -1131,7 +1131,7 @@ Expected: FAIL，正式 Inno 脚本仍指向旧 Go 程序。
 - 更新 `AGENTS.md`，删除“版本号只认 `internal/app/version.go`”的旧规则，改为 `VERSION` 唯一来源。
 - 在切换提交完成前不得先修改旧 Go 版本源。
 
-- [ ] **Step 4: 替换安装交付**
+- [x] **Step 4: 替换安装交付**
 
 正式安装器：
 
@@ -1152,7 +1152,7 @@ agentnotify-ingress.exe
 
 旧 Go 二进制不再随正式包发布，但上一稳定 Release 仍保留。
 
-- [ ] **Step 5: 运行发布门禁**
+- [x] **Step 5: 运行发布门禁**
 
 Run:
 
@@ -1167,7 +1167,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\signature-gate.tests
 
 Expected: 所有门禁通过，安装器与主程序签名指纹符合内置信任指纹，ZIP 不包含旧 UI 入口。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add installer tools VERSION AGENTS.md README.md CHANGELOG.md .github tests
@@ -1201,7 +1201,7 @@ git commit -m "release: 切换 Windows 正式入口到 Tauri 桌面版"
 6. 再次升级 Rust 版，验证不会重复迁移或重放 Claim。
 7. 验证两个版本任何时刻都不同时运行。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1245,7 +1245,7 @@ README 必须改为：
 
 本任务不删除旧源码。删除旧 UI 是回滚窗口结束后的独立变更，必须重新评审。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add docs/superpowers/specs/2026-09-19-windows-rust-cutover.md CHANGELOG.md README.md AGENTS.md tests/rollback-smoke.ps1
