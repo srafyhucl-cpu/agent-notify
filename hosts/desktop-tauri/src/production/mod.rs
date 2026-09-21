@@ -1,3 +1,4 @@
+mod agents;
 pub mod events;
 pub mod runtime;
 pub mod service;
@@ -6,8 +7,6 @@ pub mod targets;
 
 use std::sync::Arc;
 
-use agentnotify_agent_opencode::{OpenCodeAgent, OpenCodeReplyInbox};
-use agentnotify_agent_sdk::AgentRegistry;
 use agentnotify_application::SecretStore;
 use agentnotify_channel_clawbot::{ClawBotChannel, ClawBotHttpClient, ClawBotLoginAdapter};
 use agentnotify_channel_sdk::ChannelRegistry;
@@ -16,6 +15,8 @@ use tauri::{AppHandle, Wry};
 
 use crate::bridge::error::CommandError;
 use crate::platform::AppPaths;
+
+use agents::{build_agent_registry, seed_disabled_agent_configs};
 
 pub use events::EventForwarder;
 pub use runtime::ProductionRuntimeCoordinator;
@@ -79,12 +80,10 @@ async fn bootstrap_internal(
 
     let settings = ProductionSettingsStore::new(store.clone(), &paths.config_dir);
 
-    // 注册 OpenCode Agent
-    let mut agent_registry = AgentRegistry::default();
-    let opencode_inbox = OpenCodeReplyInbox::new(paths.config_dir.join("opencode-reply-inbox"));
-    agent_registry
-        .register(Arc::new(OpenCodeAgent::new(opencode_inbox)))
-        .map_err(|e| CommandError::new("agent_register_failed", e.to_string()))?;
+    // 注册全部 Agent；应用自身的收件箱走 AppPaths，外部 Agent 目录由适配器解析真实安装位置
+    let agent_registry = build_agent_registry(&paths)?;
+    // 新接入的适配器先补一条“默认关闭”的配置行，用户在界面启用后才会推送
+    seed_disabled_agent_configs(&store, &agent_registry).await?;
     let agent_registry = Arc::new(agent_registry);
 
     // 注册 ClawBot Channel

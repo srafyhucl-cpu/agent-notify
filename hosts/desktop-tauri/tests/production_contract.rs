@@ -24,6 +24,22 @@ use agentnotify_storage_sqlite::SqliteStore;
 
 const D_DRIVE_TEMP: &str = r"D:\Temp";
 
+/// 生产组合根必须注册的全部 Agent；`AgentRegistry::all()` 按 Agent ID 排序。
+const EXPECTED_AGENT_IDS: [&str; 5] = ["antigravity", "codex", "commandcode", "devin", "opencode"];
+/// 新接入的四个适配器；它们必须先默认关闭，由用户在界面启用。
+const NEW_AGENT_IDS: [&str; 4] = ["antigravity", "codex", "commandcode", "devin"];
+
+fn agent_ids(agents: &[AgentDto]) -> Vec<&str> {
+    agents.iter().map(|agent| agent.id.as_str()).collect()
+}
+
+fn find_agent<'a>(agents: &'a [AgentDto], agent_id: &str) -> &'a AgentDto {
+    agents
+        .iter()
+        .find(|agent| agent.id == agent_id)
+        .unwrap_or_else(|| panic!("注册表必须包含 Agent {agent_id}"))
+}
+
 #[derive(Default)]
 struct MemoryCredentialBackend {
     values: Mutex<BTreeMap<String, String>>,
@@ -279,17 +295,18 @@ async fn host_commands_contract_execution() {
 
     assert_eq!(snapshot.runtime.state, RuntimeLifecycleStateDto::Running);
     assert!(!snapshot.runtime.paused);
-    assert_eq!(snapshot.overview.agents.len(), 1);
-    assert_eq!(snapshot.overview.agents[0].id, "opencode");
+    assert_eq!(agent_ids(&snapshot.overview.agents), EXPECTED_AGENT_IDS);
 
     // 2. list_agents
     let agents = service
         .list_agents(EmptyPayload {})
         .await
         .expect("列出 agents 必须成功");
-    assert_eq!(agents.len(), 1);
-    assert_eq!(agents[0].id, "opencode");
-    assert!(agents[0].enabled);
+    assert_eq!(agent_ids(&agents), EXPECTED_AGENT_IDS);
+    assert!(
+        agents.iter().find(|a| a.id == "opencode").unwrap().enabled,
+        "OpenCode 保持旧默认启用"
+    );
 
     // 3. update_agent_config
     let updated_agent = service
@@ -370,6 +387,242 @@ async fn host_commands_contract_execution() {
         .await
         .expect("退出必须成功");
     assert!(quit_res.accepted);
+}
+
+/// 生产组合根注册五个适配器：id 稳定有序、能力与各自 crate 定义一致、新适配器默认不启用。
+#[tokio::test]
+async fn bootstrap_registers_all_agent_adapters_with_conservative_defaults() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-agents-test-");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let agents = service
+        .list_agents(EmptyPayload {})
+        .await
+        .expect("列出 agents 必须成功");
+    assert_eq!(
+        agent_ids(&agents),
+        EXPECTED_AGENT_IDS,
+        "注册表必须按 Agent ID 稳定有序"
+    );
+
+    for agent in &agents {
+        assert!(
+            agent.capabilities.notify
+                && agent.capabilities.resume
+                && agent.capabilities.session_title
+                && agent.capabilities.hook_installer,
+            "{} 必须支持通知、续聊、会话标题与 Hook 安装",
+            agent.id
+        );
+        assert!(!agent.display_name.is_empty(), "{}", agent.id);
+        // 只有 Command Code 的续聊受回复窗口约束，与 crate 的 capabilities() 一致。
+        assert_eq!(
+            agent.capabilities.reply_window,
+            agent.id == "commandcode",
+            "{}",
+            agent.id
+        );
+    }
+
+    // descriptor 的展示名来自各自 crate，界面按注册表展示。
+    for (agent_id, display_name) in [
+        ("antigravity", "Antigravity"),
+        ("codex", "Codex"),
+        ("commandcode", "CommandCode"),
+        ("devin", "Devin"),
+        ("opencode", "OpenCode"),
+    ] {
+        assert_eq!(
+            find_agent(&agents, agent_id).display_name,
+            display_name,
+            "{agent_id}"
+        );
+    }
+
+    // 保守默认：新适配器必须先默认关闭，只有 OpenCode 保持“无配置行即启用”的历史行为。
+    for agent in &agents {
+        assert_eq!(
+            agent.enabled,
+            agent.id == "opencode",
+            "{} 不得默认启用",
+            agent.id
+        );
+    }
+
+    // 补齐形状：新适配器有 enabled=false 的空配置行，OpenCode 不补行。
+    let configs = store
+        .agent_configs()
+        .await
+        .expect("查询 Agent 配置必须成功");
+    assert!(
+        !configs.contains_key("opencode"),
+        "OpenCode 不补配置行，保持无行即启用的旧行为"
+    );
+    for agent_id in NEW_AGENT_IDS {
+        let record = configs
+            .get(agent_id)
+            .unwrap_or_else(|| panic!("{agent_id} 必须补齐默认关闭的配置行"));
+        assert!(!record.enabled, "{agent_id} 必须默认关闭");
+        assert_eq!(record.config, serde_json::json!({}), "{agent_id}");
+    }
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// 补齐逻辑只插入缺失行：迁移写入的关闭状态与用户改过的配置都必须原样保留。
+#[tokio::test]
+async fn bootstrap_never_overwrites_existing_agent_configs() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-agents-preserve-test-");
+
+    // 模拟迁移按 devin.off 写入的关闭行，以及用户在界面里启用的 Codex 配置。
+    store
+        .upsert_agent_config("devin", false, &serde_json::json!({}))
+        .await
+        .expect("写入 Devin 关闭行必须成功");
+    store
+        .upsert_agent_config(
+            "codex",
+            true,
+            &serde_json::json!({ "codexHome": r"D:\custom-codex" }),
+        )
+        .await
+        .expect("写入 Codex 配置必须成功");
+    let before = store
+        .agent_configs()
+        .await
+        .expect("查询 Agent 配置必须成功");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let agents = service
+        .list_agents(EmptyPayload {})
+        .await
+        .expect("列出 agents 必须成功");
+    assert!(
+        !find_agent(&agents, "devin").enabled,
+        "Devin 现有配置为关闭时不得被改回启用"
+    );
+    let codex = find_agent(&agents, "codex");
+    assert!(codex.enabled, "用户显式启用的 Codex 不得被补齐逻辑关掉");
+    assert_eq!(
+        codex.config,
+        serde_json::json!({ "codexHome": r"D:\custom-codex" })
+    );
+
+    let after = store
+        .agent_configs()
+        .await
+        .expect("重新查询 Agent 配置必须成功");
+    assert_eq!(
+        after.get("devin"),
+        before.get("devin"),
+        "已有行必须原样保留"
+    );
+    assert_eq!(
+        after.get("codex"),
+        before.get("codex"),
+        "已有行必须原样保留"
+    );
+    assert!(
+        after.contains_key("antigravity") && after.contains_key("commandcode"),
+        "缺失的配置行仍要补齐"
+    );
+    assert!(!after["commandcode"].enabled);
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// 新适配器的回复收件箱必须落在隔离根下：写入隔离根的新鲜心跳只会被隔离根上的适配器读到，
+/// 真实用户目录（`%USERPROFILE%\.config\agent-notify`）不参与、也不会被写入。
+#[tokio::test]
+async fn new_agent_reply_inboxes_are_isolated_under_app_paths() {
+    let (_root, paths, _store, secret_store) =
+        create_test_env("agentnotify-agents-isolation-test-");
+
+    let (coordinator, service) = bootstrap_headless(paths.clone(), secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    // 注册阶段不得创建任何收件箱目录。
+    for inbox_dir in [
+        "opencode-reply-inbox",
+        "devin-reply-inbox",
+        "commandcode-reply-inbox",
+    ] {
+        assert!(
+            !paths.config_dir.join(inbox_dir).exists(),
+            "注册阶段不得创建收件箱目录 {inbox_dir}"
+        );
+    }
+
+    // 隔离根里的新鲜心跳 ready=false：只有读到隔离根才会得到 devin_desktop_unsupported；
+    // 若仍然读真实用户目录（本机与 CI 上都没有新鲜心跳），会得到
+    // devin_extension_not_running 或 devin_extension_offline。
+    let devin_heartbeats = paths
+        .config_dir
+        .join("devin-reply-inbox")
+        .join("heartbeats");
+    std::fs::create_dir_all(&devin_heartbeats).expect("创建隔离心跳目录必须成功");
+    std::fs::write(
+        devin_heartbeats.join("isolation-probe.json"),
+        serde_json::json!({
+            "ready": false,
+            "timestamp": Timestamp::now_utc().to_rfc3339(),
+        })
+        .to_string(),
+    )
+    .expect("写入隔离心跳必须成功");
+
+    let devin = coordinator
+        .agent_registry()
+        .get(&AgentId::new("devin").expect("固定有效标识"))
+        .expect("Devin 适配器必须已注册");
+    let error = devin
+        .resume(
+            &AgentSessionId::new("isolation-probe-session").expect("固定有效标识"),
+            "引用回复探针",
+        )
+        .await
+        .expect_err("隔离心跳 ready=false 时必须明确报错");
+    assert_eq!(
+        error.code(),
+        "devin_desktop_unsupported",
+        "Devin 收件箱必须指向隔离根，而不是真实用户目录"
+    );
+
+    // 支持性证据：隔离根里的新鲜心跳让 Command Code 的接入状态变为可用。
+    let commandcode_heartbeats = paths
+        .config_dir
+        .join("commandcode-reply-inbox")
+        .join("heartbeats");
+    std::fs::create_dir_all(&commandcode_heartbeats).expect("创建隔离心跳目录必须成功");
+    std::fs::write(
+        commandcode_heartbeats.join("isolation-probe.json"),
+        serde_json::json!({
+            "ready": true,
+            "timestamp": Timestamp::now_utc().to_rfc3339(),
+            "sessionId": "isolation-probe-session",
+            "windowOpen": true,
+        })
+        .to_string(),
+    )
+    .expect("写入隔离心跳必须成功");
+
+    let agents = service
+        .list_agents(EmptyPayload {})
+        .await
+        .expect("列出 agents 必须成功");
+    assert!(
+        find_agent(&agents, "commandcode").health.available,
+        "Command Code 适配器必须读到隔离根里的心跳"
+    );
+
+    let _ = service.quit_app(EmptyPayload {}).await;
 }
 
 #[tokio::test]

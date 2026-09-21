@@ -28,6 +28,10 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 agentnotify-application = { path = "../../crates/agentnotify-application" }
+agentnotify-agent-antigravity = { path = "../../crates/agentnotify-agent-antigravity" }
+agentnotify-agent-codex = { path = "../../crates/agentnotify-agent-codex" }
+agentnotify-agent-commandcode = { path = "../../crates/agentnotify-agent-commandcode" }
+agentnotify-agent-devin = { path = "../../crates/agentnotify-agent-devin" }
 agentnotify-agent-opencode = { path = "../../crates/agentnotify-agent-opencode" }
 agentnotify-agent-sdk = { path = "../../crates/agentnotify-agent-sdk" }
 agentnotify-channel-clawbot = { path = "../../crates/agentnotify-channel-clawbot" }
