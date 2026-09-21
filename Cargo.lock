@@ -15,6 +15,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "agentnotify-agent-antigravity"
+version = "2.0.0"
+dependencies = [
+ "agentnotify-agent-sdk",
+ "agentnotify-domain",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "agentnotify-agent-codex"
 version = "2.0.0"
 dependencies = [
@@ -53,6 +68,19 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "agentnotify-antigravity-hook"
+version = "2.0.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
  "time",
  "tokio",
  "uuid",

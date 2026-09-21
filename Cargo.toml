@@ -2,8 +2,10 @@
 resolver = "3"
 members = [
   "apps/ingress",
+  "apps/hooks/antigravity",
   "apps/hooks/codex",
   "hosts/desktop-tauri",
+  "crates/agentnotify-agent-antigravity",
   "crates/agentnotify-agent-codex",
   "crates/agentnotify-agent-opencode",
   "crates/agentnotify-domain",
@@ -41,4 +43,4 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "ansi"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Pipes", "Win32_System_Threading"] }

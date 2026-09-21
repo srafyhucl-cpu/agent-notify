@@ -254,7 +254,7 @@ git commit -m "feat(codex): 增加 Codex 适配器与兼容 Hook"
 - Consumes: Antigravity Stop JSON、transcript JSONL、annotations、运行中的 `language_server.exe agentapi`。
 - Produces: `AntigravityAgent` 与 Antigravity Hook。
 
-- [ ] **Step 1: 写 fullyIdle 与精确会话测试**
+- [x] **Step 1: 写 fullyIdle 与精确会话测试**
 
 ```rust
 #[test]
@@ -272,7 +272,7 @@ fn conversation_id_is_the_only_resume_target() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -282,14 +282,14 @@ cargo test -p agentnotify-agent-antigravity
 
 Expected: FAIL，Antigravity 包不存在。
 
-- [ ] **Step 3: 实现事件和标题解析**
+- [x] **Step 3: 实现事件和标题解析**
 
 - 只处理 `fullyIdle=true` 且 conversationId 非空的事件。
 - transcript 只读取尾部有界字节；无法解析时摘要为空，不阻塞 Stop。
 - 标题优先 annotations `<conversationId>.pbtxt`，失败后使用 transcript 首条用户请求，再退回默认标题。
 - Hook 始终输出 Antigravity 要求的 `{}`。
 
-- [ ] **Step 4: 实现精确回复**
+- [x] **Step 4: 实现精确回复**
 
 - 发现当前运行的 language server：安装目录、PID 和命令行中的 CSRF token。
 - 只连接本机 HTTP 端点。
@@ -297,11 +297,11 @@ Expected: FAIL，Antigravity 包不存在。
 - token 和端口不落盘、不进入错误消息。
 - 找不到唯一进程或会话返回 `AgentError::Unavailable`，不启动新语言服务，不用最近会话。
 
-- [ ] **Step 5: 安装 Hook**
+- [x] **Step 5: 安装 Hook**
 
 安装器维护现有 Antigravity `agent-notify` 顶层键，同目录 launcher 调用 `agentnotify-antigravity-hook.exe`。不修改其他 Hook、权限或事件。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 
