@@ -52,6 +52,20 @@ function Resolve-FirstLeaf {
   return ''
 }
 
+# OpenCode 桌面端把 CLI 放在 %APPDATA%\ai.opencode.desktop\cli\<版本>\opencode-cli.exe，
+# 版本目录会随升级新增；这里取版本号最大的一个，避免写死版本号后升级即失效。
+function Resolve-OpenCodeDesktopCli {
+  $root = Join-Path $env:APPDATA 'ai.opencode.desktop\cli'
+  if (-not (Test-Path -LiteralPath $root)) { return '' }
+  $directories = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+    Sort-Object -Property @{ Expression = { try { [version]$_.Name } catch { [version]'0.0.0' } } } -Descending)
+  foreach ($directory in $directories) {
+    $leaf = Join-Path $directory.FullName 'opencode-cli.exe'
+    if (Test-Path -LiteralPath $leaf -PathType Leaf) { return $leaf }
+  }
+  return ''
+}
+
 if ([string]::IsNullOrWhiteSpace($IngressPath)) {
   $IngressPath = Resolve-FirstLeaf @(
     (Join-Path $env:USERPROFILE 'bin\agentnotify-ingress.exe'),
@@ -60,7 +74,7 @@ if ([string]::IsNullOrWhiteSpace($IngressPath)) {
 }
 if ([string]::IsNullOrWhiteSpace($OpenCodeCli)) {
   $OpenCodeCli = Resolve-FirstLeaf @(
-    (Join-Path $env:APPDATA 'ai.opencode.desktop\cli\2.0.11\opencode-cli.exe'),
+    (Resolve-OpenCodeDesktopCli),
     (Get-Command opencode-cli.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
     (Get-Command opencode -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
   )
@@ -244,6 +258,10 @@ process.exit(result.status === null ? 1 : result.status);
     }
   } finally {
     Remove-Item -LiteralPath $bridgePath -Force -ErrorAction SilentlyContinue
+    # 只在本目录已空时删掉，避免递归删除或以清理为名误删他物。
+    if ((Test-Path -LiteralPath $bridgeRoot) -and -not (Get-ChildItem -LiteralPath $bridgeRoot -Force -ErrorAction SilentlyContinue)) {
+      [IO.Directory]::Delete($bridgeRoot, $false)
+    }
     if ($null -eq $previousIngress) { Remove-Item Env:AGENT_NOTIFY_E2E_INGRESS -ErrorAction SilentlyContinue } else { $env:AGENT_NOTIFY_E2E_INGRESS = $previousIngress }
     if ($null -eq $previousEvent) { Remove-Item Env:AGENT_NOTIFY_E2E_EVENT -ErrorAction SilentlyContinue } else { $env:AGENT_NOTIFY_E2E_EVENT = $previousEvent }
   }
