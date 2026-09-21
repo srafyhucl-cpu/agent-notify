@@ -19,11 +19,12 @@ $RepoRoot = Split-Path $PSScriptRoot -Parent
 if (-not $DistDir) { $DistDir = Join-Path $RepoRoot 'dist' }
 
 if (-not $Version) {
-  $versionFile = Join-Path $RepoRoot 'internal\app\version.go'
-  $match = Select-String -Path $versionFile -Pattern 'Version\s*=\s*"([^"]+)"' | Select-Object -First 1
-  if (-not $match) { throw "Could not read Version from $versionFile" }
-  $Version = $match.Matches[0].Groups[1].Value
+  $versionPath = Join-Path $RepoRoot 'VERSION'
+  if (-not (Test-Path -LiteralPath $versionPath -PathType Leaf)) { throw "找不到版本文件：$versionPath" }
+  $Version = ([IO.File]::ReadAllText($versionPath)).Trim()
+  if ([string]::IsNullOrWhiteSpace($Version)) { throw "VERSION 为空：$versionPath" }
 }
+$Version = $Version.Trim().TrimStart('v')
 
 $tag = "v$Version"
 $zipPath = Join-Path $DistDir "Agent-notify-$tag.zip"
@@ -45,23 +46,25 @@ $expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
 $installerThumbprint = Get-VerifiedSignatureThumbprint -Path $setupPath -ExpectedThumbprint $expectedThumbprint
 Write-Output "[publish] 安装器签名校验通过（$installerThumbprint）"
 
-# ZIP 内的主程序也要校验：解压到临时目录验证后立即清理。
+# ZIP 内的两个主程序都要校验：解压到临时目录验证后立即清理。
 $extractRoot = Join-Path ([IO.Path]::GetTempPath()) ('agent-notify-publish-' + [guid]::NewGuid().ToString('N'))
 try {
   Add-Type -AssemblyName System.IO.Compression.FileSystem
-  $entryName = 'Agent-notify/bin/agent-notify.exe'
-  $extractedExe = Join-Path $extractRoot 'agent-notify.exe'
   $archive = [IO.Compression.ZipFile]::OpenRead($zipPath)
   try {
-    $entry = $archive.Entries | Where-Object { $_.FullName -eq $entryName } | Select-Object -First 1
-    if (-not $entry) { throw "发布包缺少主程序：$entryName（$zipPath）" }
-    New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
-    [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $extractedExe, $true)
+    foreach ($leaf in @('agentnotify-desktop.exe', 'agentnotify-ingress.exe')) {
+      $entryName = "Agent-notify/bin/$leaf"
+      $entry = $archive.Entries | Where-Object { $_.FullName -eq $entryName } | Select-Object -First 1
+      if (-not $entry) { throw "发布包缺少主程序：$entryName（$zipPath）" }
+      New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+      $extractedExe = Join-Path $extractRoot $leaf
+      [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $extractedExe, $true)
+      $exeThumbprint = Get-VerifiedSignatureThumbprint -Path $extractedExe -ExpectedThumbprint $expectedThumbprint
+      Write-Output "[publish] ZIP 内 $leaf 签名校验通过（$exeThumbprint）"
+    }
   } finally {
     $archive.Dispose()
   }
-  $exeThumbprint = Get-VerifiedSignatureThumbprint -Path $extractedExe -ExpectedThumbprint $expectedThumbprint
-  Write-Output "[publish] ZIP 内主程序签名校验通过（$exeThumbprint）"
 } finally {
   if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force }
 }

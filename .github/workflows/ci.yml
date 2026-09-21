@@ -88,3 +88,31 @@ jobs:
         env:
           CGO_ENABLED: "1"
         run: go test -race ./...
+
+  rust:
+    name: Rust workspace
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop-ui/package-lock.json
+
+      - name: Build frontend assets
+        run: |
+          npm ci --prefix apps/desktop-ui
+          npm run build --prefix apps/desktop-ui
+
+      - name: Install Rust toolchain
+        shell: powershell
+        run: |
+          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc --no-self-update
+          rustup default stable
+          rustc --version
+
+      - name: Run Rust gate
+        shell: powershell
+        run: ./tools/rust/gate.ps1

@@ -19,15 +19,25 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop-ui/package-lock.json
+
+      - name: Install Rust toolchain
+        shell: powershell
+        run: |
+          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc --no-self-update
+          rustup default stable
+          rustc --version
+
       - name: Verify tag and application version
         shell: powershell
         run: |
           $tag = '${{ github.ref_name }}'.TrimStart('v')
-          $versionFile = 'internal\app\version.go'
-          $match = Select-String -Path $versionFile -Pattern 'Version\s*=\s*"([^"]+)"' | Select-Object -First 1
-          if (-not $match) { throw "Could not read Version from $versionFile" }
-          $version = $match.Matches[0].Groups[1].Value
-          if ($tag -ne $version) { throw "tag v$tag does not match application version $version" }
+          $version = (Get-Content -LiteralPath 'VERSION' -Raw).Trim()
+          if ($tag -ne $version) { throw "tag v$tag does not match VERSION $version" }
           Write-Output "Version verified: $version"
 
       - name: Verify version consistency

@@ -16,7 +16,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agentnotify-agent-opencode"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-domain",
@@ -32,7 +32,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-agent-sdk"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-domain",
  "async-trait",
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-application"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-channel-sdk",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-channel-clawbot"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-application",
  "agentnotify-channel-sdk",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-channel-sdk"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-domain",
  "async-trait",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-desktop"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-agent-opencode",
  "agentnotify-agent-sdk",
@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-domain"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "serde",
  "sha2",
@@ -142,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-ingress"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-domain",
@@ -159,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-runtime"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-application",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-storage-sqlite"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-application",
  "agentnotify-channel-clawbot",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-testkit"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "agentnotify-agent-opencode",
  "agentnotify-agent-sdk",

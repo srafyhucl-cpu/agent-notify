@@ -20,6 +20,9 @@
   #error IconPath is required
 #endif
 
+; AgentNotify Rust 预览安装器。
+; 2.0.0 起正式安装入口由 installer\agent-notify.iss 提供，本脚本仅供本地预览与联调使用：
+; 使用独立 AppId 与独立安装目录，不会覆盖正式安装。
 [Setup]
 AppId={{E34E8A9A-4D6B-4C0A-8E2A-8EC8D1A4D8E7}
 AppName=AgentNotify Rust Preview
@@ -50,7 +53,7 @@ SignTool=agentnotify
 #endif
 
 [Tasks]
-Name: "opencode"; Description: "接入 OpenCode 通知插件"; GroupDescription: "集成："
+Name: "opencode"; Description: "接入 OpenCode 通知插件"; GroupDescription: "集成："; Flags: unchecked
 
 [Files]
 Source: "{#ExePath}"; DestDir: "{app}"; DestName: "agentnotify-desktop.exe"; Flags: ignoreversion

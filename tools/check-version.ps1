@@ -1,14 +1,21 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  校验版本号在全部发布位置保持一致：以 internal/app/version.go 为准，也可用 -Version 指定（发版时传 tag）。
+  校验版本号在全部发布位置保持一致：以 VERSION 为唯一来源，也可用 -Version 指定（发版时传 tag）。
+
 .DESCRIPTION
-  检查 VERSION、cmd/agent-notify/agent-notify.manifest、README 徽章、internal/clawbot/types.go 的
-  BotAgent、plugin/devin-extension/package.json 以及 CHANGELOG 是否都包含该版本。
+  VERSION 自 2026-09-21 起成为唯一版本来源（此前是 internal/app/version.go）。检查：
+  VERSION、hosts/desktop-tauri/tauri.conf.json、Cargo.toml 的 [workspace.package] version、
+  README 徽章、plugin/devin-extension/package.json、CHANGELOG，以及安装包名规则。
   本地与 CI 共用同一入口：tools\lint.ps1 会调用它，release workflow 用 tag 调用它。
+
+  为什么不再检查 internal/app/version.go：Go 版 UI 已不再作为发布入口（Task 10 切换），
+  它保留在仓库中只为回滚窗口，版本号不再随产品发布变化。Cargo 版本直接读 Cargo.toml
+  而不调用 cargo metadata，是为了让 lint 不依赖 Rust 工具链、也不触发锁文件改写。
+
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-version.ps1
-  powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-version.ps1 -Version 1.8.0
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-version.ps1
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-version.ps1 -Version 2.0.1
 #>
 param(
   [string]$Version
@@ -18,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 $failures = New-Object System.Collections.Generic.List[string]
 
-function Read-VersionFile {
+function Read-TextFile {
   param([string]$RelativePath)
   $path = Join-Path $RepoRoot $RelativePath
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -28,13 +35,9 @@ function Read-VersionFile {
   return [IO.File]::ReadAllText($path)
 }
 
+$versionFileContent = Read-TextFile 'VERSION'
 if ([string]::IsNullOrWhiteSpace($Version)) {
-  $versionSource = Read-VersionFile 'internal\app\version.go'
-  $match = [regex]::Match($versionSource, 'Version\s*=\s*"([^"]+)"')
-  if (-not $match.Success) {
-    throw '无法从 internal/app/version.go 读取 Version'
-  }
-  $Version = $match.Groups[1].Value
+  $Version = $versionFileContent.Trim()
 }
 $Version = $Version.Trim().TrimStart('v')
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
@@ -42,36 +45,41 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 }
 $escaped = [regex]::Escape($Version)
 
-$versionSource = Read-VersionFile 'internal\app\version.go'
-if ($versionSource -notmatch ('Version\s*=\s*"' + $escaped + '"')) {
-  $failures.Add("internal/app/version.go 的 Version 不是 $Version")
-}
-
-if ((Read-VersionFile 'VERSION').Trim() -ne $Version) {
+if ($versionFileContent.Trim() -ne $Version) {
   $failures.Add("VERSION 不是 $Version")
 }
 
-$manifest = Read-VersionFile 'cmd\agent-notify\agent-notify.manifest'
-if ($manifest -notmatch ('version="' + $escaped + '\.0"')) {
-  $failures.Add("agent-notify.manifest 不是 $Version.0")
+$tauri = Read-TextFile 'hosts\desktop-tauri\tauri.conf.json'
+if ($tauri -notmatch ('(?m)^\s*"version"\s*:\s*"' + $escaped + '"\s*,?\s*$')) {
+  $failures.Add("hosts/desktop-tauri/tauri.conf.json 的顶层 version 不是 $Version")
 }
 
-if ((Read-VersionFile 'README.md') -notmatch ('badge/version-' + $escaped + '-')) {
+$cargo = Read-TextFile 'Cargo.toml'
+$cargoSection = [regex]::Match($cargo, '(?ms)^\[workspace\.package\][^\[]*')
+if (-not $cargoSection.Success) {
+  $failures.Add('Cargo.toml 缺少 [workspace.package] 段')
+} elseif ($cargoSection.Value -notmatch ('(?m)^\s*version\s*=\s*"' + $escaped + '"\s*$')) {
+  $failures.Add("Cargo.toml 的 [workspace.package] version 不是 $Version（CARGO_PKG_VERSION 由它决定）")
+}
+
+$readme = Read-TextFile 'README.md'
+if ($readme -notmatch ('badge/version-' + $escaped + '-')) {
   $failures.Add("README 版本徽章不是 $Version")
 }
 
-$types = Read-VersionFile 'internal\clawbot\types.go'
-if ($types -notmatch ('Agent-notify/' + $escaped + ' \(windows\)')) {
-  $failures.Add("clawbot BotAgent 不是 Agent-notify/$Version (windows)")
-}
-
-$package = Read-VersionFile 'plugin\devin-extension\package.json'
-if ($package -notmatch ('"version":\s*"' + $escaped + '"')) {
+$package = Read-TextFile 'plugin\devin-extension\package.json'
+if ($package -notmatch ('(?m)^\s*"version"\s*:\s*"' + $escaped + '"\s*,?\s*$')) {
   $failures.Add("Devin 扩展 package.json 版本不是 $Version")
 }
 
-if ((Read-VersionFile 'CHANGELOG.md') -notmatch ('(?m)^## \[' + $escaped + '\]')) {
+if ((Read-TextFile 'CHANGELOG.md') -notmatch ('(?m)^## \[' + $escaped + '\]')) {
   $failures.Add("CHANGELOG 缺少 $Version 段落")
+}
+
+# 安装包名必须仍然由 AppVersion 决定，发布产物才可被 update 模块按版本精确匹配。
+$installer = Read-TextFile 'installer\agent-notify.iss'
+if ($installer -notmatch '(?m)^OutputBaseFilename=Agent-notify-Setup-v\{#AppVersion\}\s*$') {
+  $failures.Add('安装器脚本的 OutputBaseFilename 不是 Agent-notify-Setup-v{#AppVersion}')
 }
 
 if ($failures.Count -gt 0) {

@@ -1,15 +1,21 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  Build Agent-notify-v<version>.zip without a directory staging tree.
+  构建 AgentNotify 正式发布产物：桌面端 + ingress 的 ZIP 与安装器，并生成 SHA256SUMS.txt。
 
 .DESCRIPTION
-  Version source: internal/app/version.go.
-  The archive always contains a top-level Agent-notify directory.
+  版本号唯一来源是仓库根 VERSION（可用 -Version 覆盖，发版时传 tag）。
+  产物内容为 Tauri 桌面版：agentnotify-desktop.exe、agentnotify-ingress.exe、
+  OpenCode V2 插件模板与安装助手；不再包含旧 Go 版 agent-notify.exe 与旧 Win32 UI。
+  构建缓存与临时目录固定在项目所在盘的 Temp 下，不使用 C 盘。
+
+.EXAMPLE
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-release.ps1 -Version 2.0.0
 #>
 param(
   [string]$Version,
-  [string]$OutDir
+  [string]$OutDir,
+  [switch]$SkipInstaller
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,61 +23,112 @@ $RepoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'signature-common.ps1')
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 
-if (-not $Version) {
-  $versionFile = Join-Path $RepoRoot 'internal\app\version.go'
-  $match = Select-String -Path $versionFile -Pattern 'Version\s*=\s*"([^"]+)"' | Select-Object -First 1
-  if (-not $match) { throw "Could not read Version from $versionFile" }
-  $Version = $match.Matches[0].Groups[1].Value
+$versionPath = Join-Path $RepoRoot 'VERSION'
+if (-not (Test-Path -LiteralPath $versionPath -PathType Leaf)) {
+  throw "找不到版本文件：$versionPath"
 }
-
-function Resolve-GoCommand {
-  $candidates = @()
-  if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_GO)) { $candidates += $env:AGENT_NOTIFY_GO }
-  $onPath = Get-Command go.exe -ErrorAction SilentlyContinue
-  if ($onPath) { $candidates += $onPath.Source }
-  foreach ($candidate in $candidates) {
-    if ($candidate -and (Test-Path $candidate)) { return $candidate }
-  }
-  return $null
+$fileVersion = [IO.File]::ReadAllText($versionPath).Trim()
+if ([string]::IsNullOrWhiteSpace($Version)) {
+  $Version = $fileVersion
 }
-
-$goExe = Resolve-GoCommand
-if (-not $goExe) { throw 'go.exe was not found' }
+$Version = $Version.Trim().TrimStart('v')
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+  throw "版本号格式无效：$Version（期望 x.y.z）"
+}
+if ($fileVersion -ne $Version) {
+  throw "VERSION 与调用方版本不一致：VERSION=$fileVersion，Version=$Version"
+}
 
 $driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
-$cacheRoot = Join-Path $driveRoot 'Temp\agent-notify-go'
-$env:GOPATH = $cacheRoot
-$env:GOMODCACHE = Join-Path $cacheRoot 'pkg\mod'
-$env:GOCACHE = Join-Path $cacheRoot 'build'
-$env:GOTMPDIR = Join-Path $cacheRoot 'tmp'
-New-Item -ItemType Directory -Force -Path $env:GOTMPDIR | Out-Null
+$target = 'x86_64-pc-windows-msvc'
+$env:CARGO_HOME = if ($env:CARGO_HOME -like 'D:\*') { $env:CARGO_HOME } else { 'D:\Tools\cargo' }
+$env:RUSTUP_HOME = if ($env:RUSTUP_HOME -like 'D:\*') { $env:RUSTUP_HOME } else { 'D:\Tools\rustup' }
+$env:CARGO_TARGET_DIR = if ($env:CARGO_TARGET_DIR -like 'D:\*') { $env:CARGO_TARGET_DIR } else { Join-Path $driveRoot 'Temp\agentnotify-rust-target' }
+$env:npm_config_cache = if ($env:npm_config_cache -like 'D:\*') { $env:npm_config_cache } else { Join-Path $driveRoot 'Temp\npm-cache' }
+$env:TEMP = if ($env:TEMP -like 'D:\*') { $env:TEMP } else { Join-Path $driveRoot 'Temp\agentnotify-temp' }
+$env:TMP = $env:TEMP
+$env:PATH = (Join-Path $env:CARGO_HOME 'bin') + ';' + $env:PATH
+New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR, $env:TEMP, $env:npm_config_cache | Out-Null
 
-$buildRoot = Join-Path $driveRoot ('Temp\agent-notify-build-' + [guid]::NewGuid().ToString('N'))
-$tempExe = Join-Path $buildRoot 'agent-notify.exe'
+$cargo = Join-Path $env:CARGO_HOME 'bin\cargo.exe'
+if (-not (Test-Path -LiteralPath $cargo -PathType Leaf)) {
+  throw "找不到 cargo：$cargo。请按 tools\rust\gate.ps1 的约定准备 D 盘 Rust 工具链。"
+}
+
+# 预检安装器工具链：缺 ISCC 时立刻失败，不要先花几分钟构建再报错。
+if (-not $SkipInstaller) {
+  $isccCandidates = @(
+    $env:AGENT_NOTIFY_ISCC,
+    (Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+    'D:\Temp\InnoSetup\ISCC.exe',
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+  )
+  $isccFound = $false
+  foreach ($candidate in $isccCandidates) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { $isccFound = $true; break }
+  }
+  if (-not $isccFound) {
+    throw '找不到 ISCC.exe（Inno Setup 6），无法构建正式安装器。请安装 Inno Setup 6 或设置 AGENT_NOTIFY_ISCC；只构建便携 ZIP 时可加 -SkipInstaller。'
+  }
+}
+
+# 只有本机确实装了 cargo-xwin + LLVM 时才启用回退：CI 运行器没有 link.exe 的 PATH，
+# 但装有 Visual Studio，rustc 能自行定位 MSVC，不能因此误触发回退。
+if (-not (Get-Command link.exe -ErrorAction SilentlyContinue)) {
+  $llvmHome = if ($env:AGENTNOTIFY_LLVM_HOME) { $env:AGENTNOTIFY_LLVM_HOME } else { 'D:\Tools\LLVM-23.1.1\LLVM' }
+  $xwinEnv = Join-Path $PSScriptRoot 'rust\xwin-env.ps1'
+  if ((Test-Path -LiteralPath (Join-Path $llvmHome 'bin\clang-cl.exe')) -and (Test-Path -LiteralPath $xwinEnv)) {
+    . $xwinEnv
+    Write-Warning '未找到 MSVC link.exe，使用本地 cargo-xwin 回退构建。'
+  }
+}
+
+$releaseDir = Join-Path $env:CARGO_TARGET_DIR "$target\release"
+$desktopExe = Join-Path $releaseDir 'agentnotify-desktop.exe'
+$ingressExe = Join-Path $releaseDir 'agentnotify-ingress.exe'
+$buildRoot = Join-Path $driveRoot ('Temp\agentnotify-release-' + [guid]::NewGuid().ToString('N'))
+$stagedDesktop = Join-Path $buildRoot 'agentnotify-desktop.exe'
+$stagedIngress = Join-Path $buildRoot 'agentnotify-ingress.exe'
 New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
 
 try {
-  $commit = 'unknown'
+  # 1) 前端资源必须先就绪：直接调用 cargo 不会执行 Tauri 的 beforeBuildCommand。
+  $uiRoot = Join-Path $RepoRoot 'apps\desktop-ui'
+  Push-Location $uiRoot
   try {
-    $commit = (& git rev-parse --short HEAD 2>$null).Trim()
-    if (-not $commit) { $commit = 'unknown' }
-  } catch {
-    $commit = 'unknown'
-  }
-  $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-  $module = 'github.com/srafyhucl-cpu/agent-notify/internal/app'
-  $ldflags = "-H windowsgui -s -w -X $module.Version=$Version -X $module.Commit=$commit -X $module.BuildTime=$buildTime"
-
-  Push-Location $RepoRoot
-  try {
-    & $goExe build -ldflags $ldflags -trimpath -o $tempExe '.\cmd\agent-notify\'
-    if ($LASTEXITCODE -ne 0) { throw "go build failed: exit=$LASTEXITCODE" }
+    & npm ci
+    if ($LASTEXITCODE -ne 0) { throw "npm ci 失败 exit=$LASTEXITCODE" }
+    & npm run build
+    if ($LASTEXITCODE -ne 0) { throw "前端构建失败 exit=$LASTEXITCODE" }
   } finally {
     Pop-Location
   }
+  $frontendDist = Join-Path $uiRoot 'dist\index.html'
+  if (-not (Test-Path -LiteralPath $frontendDist -PathType Leaf)) {
+    throw "前端产物缺失：$frontendDist"
+  }
 
-  # 与安装器共用同一签名工具约定（<tool> sign <file>）；设置 AGENT_NOTIFY_SIGNTOOL 后
-  # ZIP 内的主程序也会签名，并强制校验签名有效，避免"配了签名却发未签名包"。
+  # 2) 构建两个可执行文件。custom-protocol 让 Tauri 嵌入前端资源而不是读 devUrl。
+  Push-Location $RepoRoot
+  try {
+    & $cargo build -p agentnotify-desktop --release --locked --target $target --features tauri/custom-protocol
+    if ($LASTEXITCODE -ne 0) { throw "桌面端构建失败 exit=$LASTEXITCODE" }
+    & $cargo build -p agentnotify-ingress --release --locked --target $target
+    if ($LASTEXITCODE -ne 0) { throw "ingress 构建失败 exit=$LASTEXITCODE" }
+  } finally {
+    Pop-Location
+  }
+  foreach ($leaf in @($desktopExe, $ingressExe)) {
+    if (-not (Test-Path -LiteralPath $leaf -PathType Leaf)) {
+      throw "构建产物缺失：$leaf"
+    }
+  }
+  Copy-Item -LiteralPath $desktopExe -Destination $stagedDesktop -Force
+  Copy-Item -LiteralPath $ingressExe -Destination $stagedIngress -Force
+
+  # 3) 与安装器共用同一签名工具约定（<tool> sign <file>）；设置 AGENT_NOTIFY_SIGNTOOL 后
+  #    两个可执行文件都会签名，并强制校验指纹等于客户端内置的信任指纹。
   if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {
     $signTool = $env:AGENT_NOTIFY_SIGNTOOL.Trim()
     if (Test-Path -LiteralPath $signTool -PathType Leaf) {
@@ -81,31 +138,29 @@ try {
       if (-not $signCommand) { throw "找不到签名工具：$signTool" }
       $signTool = $signCommand.Source
     }
-    & $signTool sign $tempExe
-    if ($LASTEXITCODE -ne 0) { throw "主程序签名失败 exit=$LASTEXITCODE" }
-    # 指纹必须等于客户端内置的信任指纹，否则 1.11+ 客户端会因"签名者不匹配"拒绝更新。
     $expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
-    $actualThumbprint = Get-VerifiedSignatureThumbprint -Path $tempExe -ExpectedThumbprint $expectedThumbprint
-    Write-Output "[release] 已签名主程序（$actualThumbprint）"
+    foreach ($leaf in @($stagedDesktop, $stagedIngress)) {
+      & $signTool sign $leaf
+      if ($LASTEXITCODE -ne 0) { throw "签名失败（$leaf）exit=$LASTEXITCODE" }
+      $actualThumbprint = Get-VerifiedSignatureThumbprint -Path $leaf -ExpectedThumbprint $expectedThumbprint
+      Write-Output "[release] 已签名 $([IO.Path]::GetFileName($leaf))（$actualThumbprint）"
+    }
+  }
+
+  # 4) ZIP：便携与开发用途，内容与正式安装器一致，不含旧 Go 产物与用户状态。
+  $pluginSource = Join-Path $RepoRoot 'plugin\rust\agent-notify.ts'
+  $pluginSourceText = [IO.File]::ReadAllText($pluginSource)
+  if (-not [regex]::IsMatch($pluginSourceText, '(?m)^const BAKED_INGRESS = ""\s*$')) {
+    throw '发布用插件必须保持 BAKED_INGRESS 为空，由安装器绑定到目标机器。'
   }
 
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-  $zipName = "Agent-notify-v$Version.zip"
-  $zipPath = Join-Path $OutDir $zipName
+  $zipPath = Join-Path $OutDir "Agent-notify-v$Version.zip"
   if (Test-Path -LiteralPath $zipPath) { [IO.File]::Delete($zipPath) }
 
-  $pluginSource = Join-Path $RepoRoot 'plugin\agent-notify.ts'
-  $pluginSourceText = [IO.File]::ReadAllText($pluginSource)
-  if (-not [regex]::IsMatch($pluginSourceText, '(?m)^const BAKED_BIN = ""\s*$')) {
-    throw 'Release plugin must keep BAKED_BIN empty so the installer can bind it to the target machine.'
-  }
-
-	Add-Type -AssemblyName System.IO.Compression.FileSystem
-	Add-Type -AssemblyName System.IO.Compression
-	$archive = [IO.Compression.ZipFile]::Open(
-    $zipPath,
-    [IO.Compression.ZipArchiveMode]::Create
-  )
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  Add-Type -AssemblyName System.IO.Compression
+  $archive = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Create)
 
   function Add-ReleaseFile {
     param(
@@ -125,14 +180,11 @@ try {
   }
 
   try {
-    Add-ReleaseFile $archive $tempExe 'Agent-notify/bin/agent-notify.exe'
+    Add-ReleaseFile $archive $stagedDesktop 'Agent-notify/bin/agentnotify-desktop.exe'
+    Add-ReleaseFile $archive $stagedIngress 'Agent-notify/bin/agentnotify-ingress.exe'
     Add-ReleaseFile $archive $pluginSource 'Agent-notify/plugin/agent-notify.ts'
-    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\package.json') 'Agent-notify/plugin/devin-extension/package.json'
-    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\extension.js') 'Agent-notify/plugin/devin-extension/extension.js'
-    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\devin-extension\acp-bridge.js') 'Agent-notify/plugin/devin-extension/acp-bridge.js'
-    Add-ReleaseFile $archive (Join-Path $RepoRoot 'plugin\commandcode-mod\agent-notify.ts') 'Agent-notify/plugin/commandcode-mod/agent-notify.ts'
-    # VERSION is generated from the resolved --Version so packaged metadata can
-    # never drift from the executable that was just built.
+    Add-ReleaseFile $archive (Join-Path $RepoRoot 'tools\hooks\install-opencode-v2.ps1') 'Agent-notify/tools/hooks/install-opencode-v2.ps1'
+    # VERSION 由解析后的版本生成，包内元数据不可能与刚构建的程序不一致。
     $versionEntry = $archive.CreateEntry('Agent-notify/VERSION', [IO.Compression.CompressionLevel]::Optimal)
     $versionWriter = New-Object IO.StreamWriter($versionEntry.Open(), (New-Object Text.UTF8Encoding($false)))
     try {
@@ -140,10 +192,9 @@ try {
     } finally {
       $versionWriter.Dispose()
     }
-    foreach ($name in @('install.ps1', 'uninstall.ps1', 'README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'LICENSE', '.env.example')) {
+    foreach ($name in @('README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'LICENSE', '.env.example')) {
       Add-ReleaseFile $archive (Join-Path $RepoRoot $name) "Agent-notify/$name"
     }
-    Add-ReleaseFile $archive (Join-Path $RepoRoot 'tools\hook-config.ps1') 'Agent-notify/tools/hook-config.ps1'
     foreach ($name in @('ARCHITECTURE.md', 'TROUBLESHOOTING.md')) {
       Add-ReleaseFile $archive (Join-Path $RepoRoot "docs\$name") "Agent-notify/docs/$name"
     }
@@ -161,29 +212,35 @@ try {
     'commandcode.off',
     'push.log',
     'opencode-sent.json',
-    'agent-notify-install.json'
+    'agent-notify-install.json',
+    'agent-notify.exe'
   )
   $verificationArchive = [IO.Compression.ZipFile]::OpenRead($zipPath)
   try {
     foreach ($entry in $verificationArchive.Entries) {
       $leaf = [IO.Path]::GetFileName($entry.FullName)
       if ($forbiddenReleaseFiles -contains $leaf -or $leaf.EndsWith('.log', [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Release archive contains user state: $($entry.FullName)"
+        throw "Release archive contains forbidden entry: $($entry.FullName)"
       }
     }
   } finally {
     $verificationArchive.Dispose()
   }
 
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tools\build-installer.ps1') `
-    -Version $Version `
-    -OutDir $OutDir `
-    -ExePath $tempExe
-  if ($LASTEXITCODE -ne 0) { throw "安装器构建失败 exit=$LASTEXITCODE" }
+  if (-not $SkipInstaller) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tools\build-installer.ps1') `
+      -Version $Version `
+      -OutDir $OutDir `
+      -ExePath $stagedDesktop `
+      -IngressPath $stagedIngress
+    if ($LASTEXITCODE -ne 0) { throw "安装器构建失败 exit=$LASTEXITCODE" }
+  }
 
   $zipArtifact = Get-Item -LiteralPath $zipPath -ErrorAction Stop
-  $setupArtifact = Get-Item -LiteralPath (Join-Path $OutDir "Agent-notify-Setup-v$Version.exe") -ErrorAction Stop
-  $artifacts = @($zipArtifact, $setupArtifact)
+  $artifacts = @($zipArtifact)
+  if (-not $SkipInstaller) {
+    $artifacts += Get-Item -LiteralPath (Join-Path $OutDir "Agent-notify-Setup-v$Version.exe") -ErrorAction Stop
+  }
   $lines = foreach ($artifact in $artifacts) {
     $hash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash.ToLower()
     "$hash  $($artifact.Name)"
@@ -191,9 +248,10 @@ try {
   $sumPath = Join-Path $OutDir 'SHA256SUMS.txt'
   [IO.File]::WriteAllLines($sumPath, $lines, [Text.Encoding]::ASCII)
   Write-Output "[release] archive: $zipPath"
-  Write-Output "[release] installer: $($setupArtifact.FullName)"
+  if (-not $SkipInstaller) {
+    Write-Output "[release] installer: $($artifacts[1].FullName)"
+  }
   Write-Output "[release] sums:    $sumPath"
 } finally {
-  if (Test-Path -LiteralPath $tempExe) { [IO.File]::Delete($tempExe) }
-  if (Test-Path -LiteralPath $buildRoot) { [IO.Directory]::Delete($buildRoot, $false) }
+  if (Test-Path -LiteralPath $buildRoot) { [IO.Directory]::Delete($buildRoot, $true) }
 }

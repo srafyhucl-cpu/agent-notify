@@ -1,8 +1,30 @@
 # Changelog
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与
-[语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是
-`internal/app/version.go` 的 `Version`。
+[语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是仓库根目录的 `VERSION`
+（2.0.0 起；此前为 `internal/app/version.go`）。
+
+## [2.0.0] - 2026-09-21
+
+桌面端改用 Tauri + React 重写，替换原 Win32 自绘悬浮窗；正式安装入口切换为
+`agentnotify-desktop.exe` + `agentnotify-ingress.exe`。
+
+### Added
+
+- 工作台式主窗口：总览、Agents、Channels、History、Diagnostics、Settings。界面由 descriptor 与 JSON Schema 驱动，新增 Agent 或渠道不需要改页面分支。
+- Rust 核心运行时：SQLite WAL 状态库、事务型 Outbox、按「渠道 + 账号 + 渠道消息 ID」精确引用路由、入站至多一次 Claim。
+- 内部事件入口 `agentnotify-ingress.exe`：版本化事件协议、当前用户命名管道；核心离线时写入持久化 spool，并在下次启动消费。
+- 首次启动只读迁移：导入旧配置、登录状态、开关、推送历史、引用路由与 Claim；重复启动不重复迁移。
+
+### Changed
+
+- 安装器保留原 AppId 与标准安装目录，升级落回原位置；自启动与快捷方式指向新的桌面程序。
+- OpenCode 接入改为 V2 插件，任务完成事件经 `agentnotify-ingress.exe` 提交。
+- 版本号唯一来源从 `internal/app/version.go` 切换为仓库根 `VERSION`：`tools/sync-version.ps1` 同步各发布位置，`tools/check-version.ps1` 校验一致性。
+
+### Removed
+
+- 旧 Win32 悬浮窗不再作为发布入口；Go 版 `agent-notify.exe` 不再随正式包发布（上一稳定 Release 仍保留，供回滚使用）。
 
 ## [1.17.0] - 2026-09-19
 

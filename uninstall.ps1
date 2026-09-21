@@ -27,7 +27,10 @@ param(
   [switch]$SkipDevinExtension,
   [switch]$SkipCommandCodeMod,
   [switch]$SkipCodexConfig,
-  [switch]$SkipProcessStop
+  [switch]$SkipProcessStop,
+# 只清理 AgentNotify 写入的 Hook / 扩展 / mod，不删除任何程序文件与用户数据。
+# 供 Tauri 桌面版安装器在升级时调用：旧 Hook 指向的旧程序会被新安装器移除，先清干净避免报错。
+[switch]$HooksOnly
 )
 
 $ErrorActionPreference = 'Continue'
@@ -49,6 +52,17 @@ function Test-InsideDir {
     $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
     return $full.StartsWith($rootFull + '\', [StringComparison]::OrdinalIgnoreCase)
   } catch { return $false }
+}
+
+if ($HooksOnly) {
+  # 本模式不触碰安装目录：把与"删除程序"相关的目标指向不存在的临时路径，
+  # 使第 1 步（按安装记录删程序）与第 2 步（删 opencode 插件）自然成为空操作。
+  # Hook / 扩展 / mod 的路径与安装目录无关，仍然照常清理。
+  $SkipProcessStop = $true
+  $SkipShortcuts = $true
+  $InstallDir = Join-Path ([IO.Path]::GetTempPath()) ('agent-notify-hooks-only-' + [guid]::NewGuid().ToString('N'))
+  $PluginDir = $InstallDir
+  Write-Output '[uninstall] 仅清理旧版 Hook / 扩展 / mod，不删除任何程序文件与用户数据。'
 }
 
 # 0. 停掉安装目录里正在运行的悬浮窗，释放文件锁
