@@ -126,3 +126,51 @@ async fn successful_result_returns_accepted_receipt() {
     plugin.await.unwrap();
     assert_eq!(receipt.session_id.as_str(), "session-1");
 }
+
+/// 任务载荷的字段名是运行时与 OpenCode 插件之间的契约。插件按 OpenCode 自身约定读取
+/// `sessionID`；若写成 camelCase 的 `sessionId`，插件会判定“引用回复任务字段不完整”
+/// 并拒绝执行。该断言锁定字段名，避免真实链路再次整条失败。
+#[tokio::test]
+async fn job_payload_uses_plugin_field_names() {
+    let (_temp, inbox) = ready_inbox().await;
+    let session_id = AgentSessionId::new("session-1").unwrap();
+    let adapter = agentnotify_agent_opencode::OpenCodeAgent::new(inbox.clone());
+    let reader = tokio::spawn({
+        let inbox = inbox.clone();
+        async move {
+            let job_id = claim_pending_once(&inbox).await;
+            let raw = tokio::fs::read_to_string(
+                inbox
+                    .root()
+                    .join("processing")
+                    .join(format!("{job_id}.json")),
+            )
+            .await
+            .unwrap();
+            write_result(&inbox, &job_id, true, "").await;
+            raw
+        }
+    });
+
+    adapter
+        .resume_with_timeout(&session_id, "继续处理", Duration::from_secs(2))
+        .await
+        .unwrap();
+
+    let raw = reader.await.unwrap();
+    let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let object = value.as_object().unwrap();
+    assert_eq!(
+        object.get("sessionID").and_then(|value| value.as_str()),
+        Some("session-1"),
+        "插件按 sessionID 读取任务"
+    );
+    assert!(
+        object.get("sessionId").is_none(),
+        "不得写成 camelCase 的 sessionId"
+    );
+    assert!(object.get("createdAt").is_some());
+    assert!(object.get("expiresAt").is_some());
+    assert!(object.get("id").is_some());
+    assert!(object.get("text").is_some());
+}

@@ -273,6 +273,10 @@ struct Heartbeat {
 #[serde(rename_all = "camelCase")]
 struct WireJob<'a> {
     id: &'a str,
+    // 插件（plugin/rust/agent-notify.ts）按 OpenCode 自身约定读取 `sessionID`。
+    // camelCase 会写成 `sessionId`，插件据此判定“引用回复任务字段不完整”并拒绝执行，
+    // 真实链路曾因此整条失败，故此处显式锁定字段名。
+    #[serde(rename = "sessionID")]
     session_id: &'a str,
     text: &'a str,
     created_at: String,
