@@ -44,6 +44,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentnotify-agent-commandcode"
+version = "2.0.0"
+dependencies = [
+ "agentnotify-agent-sdk",
+ "agentnotify-domain",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "agentnotify-agent-devin"
 version = "2.0.0"
 dependencies = [

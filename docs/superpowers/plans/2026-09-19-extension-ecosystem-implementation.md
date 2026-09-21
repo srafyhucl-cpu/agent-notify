@@ -429,7 +429,7 @@ git commit -m "feat(devin): 增加桌面端适配器与 ACP 回复"
 - Consumes: Command Code `run_end` 事件、reply window 设置。
 - Produces: `CommandCodeAgent` 与 V2 mod。
 
-- [ ] **Step 1: 写回复窗口边界测试**
+- [x] **Step 1: 写回复窗口边界测试**
 
 ```rust
 #[test]
@@ -440,7 +440,7 @@ fn zero_reply_window_rejects_resume_without_blocking_run() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -451,7 +451,7 @@ node --test .\plugin\commandcode-v2\agent-notify.test.cjs
 
 Expected: FAIL，Command Code 适配器不存在。
 
-- [ ] **Step 3: 实现事件和回复窗口**
+- [x] **Step 3: 实现事件和回复窗口**
 
 - `run_end` 生成标准事件，标题优先会话标题，再 transcript 首条用户消息，再默认标题。
 - `reply_window_sec` 默认 0。
@@ -459,7 +459,7 @@ Expected: FAIL，Command Code 适配器不存在。
 - 1–600 时 mod 只等待本地 reply job，不消耗 token；等待期间用户输入行为必须在 UI/文档明确提示。
 - 窗口结束后引用回复返回明确错误，不落到下一次 run。
 
-- [ ] **Step 4: 实现 V2 mod**
+- [x] **Step 4: 实现 V2 mod**
 
 - 零顶层 import，单文件。
 - 调用 `agentnotify-ingress.exe` 提交事件。
@@ -468,7 +468,7 @@ Expected: FAIL，Command Code 适配器不存在。
 - pending → processing 使用原子 rename。
 - 任何故障不得影响 Command Code。
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 

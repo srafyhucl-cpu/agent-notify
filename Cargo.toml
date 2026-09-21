@@ -8,6 +8,7 @@ members = [
   "hosts/desktop-tauri",
   "crates/agentnotify-agent-antigravity",
   "crates/agentnotify-agent-codex",
+  "crates/agentnotify-agent-commandcode",
   "crates/agentnotify-agent-devin",
   "crates/agentnotify-agent-opencode",
   "crates/agentnotify-domain",
