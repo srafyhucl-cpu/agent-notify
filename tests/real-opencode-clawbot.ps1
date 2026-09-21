@@ -168,7 +168,11 @@ if ($Mode -eq 'Prepare') {
   Write-Output "  `$env:AGENT_NOTIFY_DATA_DIR = '$($roots.Data)'"
   Write-Output "  `$env:AGENT_NOTIFY_LOG_DIR = '$($roots.Log)'"
   Write-Output "  `$env:AGENT_NOTIFY_SPOOL_DIR = '$($roots.Spool)'"
-  Write-Output 'next=1) 退出正在运行的生产预览实例；2) 用上面的环境变量启动预览桌面程序；3) 在 Channels 中扫码绑定独立测试账号并先发一条消息建立会话；4) 再执行 -Mode Send。'
+  Write-Output 'next=1) 退出正在运行的 OpenCode 桌面端与生产预览实例；'
+  Write-Output 'next=2) 在同一个已设置上述环境变量的窗口里启动 OpenCode 与预览桌面程序，否则插件会把事件写进生产 spool；'
+  Write-Output 'next=3) 在 Channels 中扫码绑定另一个微信用户账号（换 Bot 或重绑同一账号无效）并先发一条消息建立会话；'
+  Write-Output 'next=4) 在 OpenCode 中开两个会话，分别作为 target 与 control；'
+  Write-Output 'next=5) 执行 -Mode Send，微信确认收到后引用回复，再用 -Mode VerifyReply -OtherSessionId 验收。'
   exit 0
 }
 
