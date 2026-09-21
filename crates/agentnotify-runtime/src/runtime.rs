@@ -288,7 +288,7 @@ impl AppRuntime {
             "host",
             platform = %config.platform,
             host_version = %config.app_version,
-            ipc_status = "disabled",
+            ipc_status = if config.ingress_pipe_enabled { "enabled" } else { "disabled" },
             task_status = "starting",
         )
         .in_scope(|| tracing::info!("启动桌面运行时"));
@@ -474,6 +474,7 @@ impl AppRuntime {
             stopped: false,
             host_platform: config.platform.clone(),
             host_version: config.app_version.clone(),
+            ingress_pipe_enabled: config.ingress_pipe_enabled,
             migration_required: false,
             runtime_lock,
             _telemetry: telemetry,
@@ -543,6 +544,7 @@ pub async fn start_migration_diagnostics(
         stopped: false,
         host_platform: config.platform.clone(),
         host_version: config.app_version.clone(),
+        ingress_pipe_enabled: config.ingress_pipe_enabled,
         migration_required: true,
         runtime_lock: None,
         _telemetry: telemetry,
@@ -561,6 +563,7 @@ pub struct RuntimeHandle {
     stopped: bool,
     host_platform: String,
     host_version: String,
+    ingress_pipe_enabled: bool,
     migration_required: bool,
     runtime_lock: Option<crate::migration::RuntimeLock>,
     _telemetry: Option<TelemetryGuard>,
@@ -617,7 +620,7 @@ impl RuntimeHandle {
             "host",
             platform = %self.host_platform,
             host_version = %self.host_version,
-            ipc_status = "disabled",
+            ipc_status = if self.ingress_pipe_enabled { "enabled" } else { "disabled" },
             task_status = "stopping",
         )
         .in_scope(|| tracing::info!("停止桌面运行时"));
