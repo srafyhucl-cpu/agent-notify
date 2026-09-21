@@ -110,6 +110,26 @@ Write-Output '[test] Go 单测 + 插件类型/状态机 + 冒烟全绿'
     $knownEmptyDir = Join-Path $testTempRoot 'agent-notify'
     if (Test-Path -LiteralPath $knownEmptyDir) {
       try {
+        # 运行时会话日志可能晚于冒烟清理写入（例如开启 AGENT_NOTIFY_CLAWBOT_DEBUG 时）。
+        # 按 internal/config/paths.go 的固定文件名逐个删除，再删空目录，避免残留。
+        $runtimeLogs = @(
+          'boot.log',
+          'clawbot-debug.log',
+          'codex-notify-debug.log',
+          'codex-title.log',
+          'codex-watch.log',
+          'push.log',
+          'reply-debug.log',
+          'setup.log',
+          'widget-error.log',
+          'widget-trace.log'
+        )
+        foreach ($logName in $runtimeLogs) {
+          $logPath = Join-Path $knownEmptyDir $logName
+          if (Test-Path -LiteralPath $logPath -PathType Leaf) {
+            Remove-Item -LiteralPath $logPath -Force
+          }
+        }
         [IO.Directory]::Delete($knownEmptyDir, $false)
       } catch {
         Write-Warning "测试临时子目录仍有残留，请检查：$knownEmptyDir"
