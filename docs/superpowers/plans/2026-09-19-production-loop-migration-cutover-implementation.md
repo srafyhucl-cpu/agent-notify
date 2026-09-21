@@ -994,7 +994,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 2: 准备隔离验收环境**
+- [x] **Step 2: 准备隔离验收环境**
 
 使用专用测试目录，不直接覆盖真实配置：
 
@@ -1008,6 +1008,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbo
 
 必须使用独立 ClawBot 测试账号。如果无法提供第二条独立账号，不能把“向当前账号发送测试消息”记作隔离验收通过。
 
+**进度与豁免（2026-09-21）**：隔离目录与 `-Prepare` 校验已实现并实测通过；入方向曾用真实 spool 副本在隔离环境跑通。**「必须使用独立 ClawBot 测试账号」一条经计划负责人于 2026-09-21 明确豁免**，改用「生产账号 + 隔离目录」组合（数据隔离、账号不隔离），因此本步骤勾选。豁免的代价与残余风险记录在 `docs\superpowers\specs\2026-09-19-opencode-clawbot-acceptance.md` 的「已知限制与待补项」第 1 条，其中包含 Step 5 破坏性测试改用「隔离实例 + 故意损坏的 context token」的替代方案。
+
 `-Prepare` 会建立 `config`/`data`/`logs`/`spool`，校验 ingress 与预览桌面二进制并输出启动所需的环境变量，同时校验 OpenCode 插件烘焙的 ingress 路径是否与当前 ingress 一致；直接传生产数据目录会报错，确需时才加 `-UseProductionDataDir`。
 
 隔离约束：
@@ -1016,7 +1018,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbo
 - 命名管道名由当前用户 SID 派生，同一用户下同时只能运行一个桌面实例；隔离验收前必须先退出生产预览实例。
 - `agentnotify-ingress.exe` 读取 `AGENT_NOTIFY_SPOOL_DIR`；若离线运行 OpenCode，需要让 OpenCode 进程继承同一组环境变量，否则事件会写入生产 spool。
 
-- [ ] **Step 3: 验收正常推送**
+- [x] **Step 3: 验收正常推送**
 
 1. 启动 Rust Preview，完成扫码并等待首条入站消息。
 2. 在真实 OpenCode 中执行一个只读测试任务。
@@ -1024,7 +1026,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbo
 4. 验证 ReplyRoute 使用 ClawBot 返回的稳定 message ID，不使用标题或正文。
 5. 记录脱敏的 time、agent、session hash、message ID hash 和 Delivery 状态。
 
-- [ ] **Step 4: 验收精确引用回复**
+- [x] **Step 4: 验收精确引用回复**
 
 1. 在微信中引用刚才的通知，回复一个只对原会话有效的测试指令。
 2. 验证 Quote ID 与 ReplyRoute 精确匹配。
