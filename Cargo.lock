@@ -44,6 +44,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentnotify-agent-devin"
+version = "2.0.0"
+dependencies = [
+ "agentnotify-agent-sdk",
+ "agentnotify-domain",
+ "async-trait",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "agentnotify-agent-opencode"
 version = "2.0.0"
 dependencies = [
@@ -182,6 +198,19 @@ dependencies = [
  "tracing",
  "uuid",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "agentnotify-devin-hook"
+version = "2.0.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

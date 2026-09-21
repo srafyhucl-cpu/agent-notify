@@ -7,7 +7,7 @@
   VERSION 是唯一的版本来源。本脚本把它的值写入：
     - hosts/desktop-tauri/tauri.conf.json 的顶层 version
     - Cargo.toml 的 [workspace.package] version（决定 CARGO_PKG_VERSION 与桌面端显示的版本）
-    - plugin/devin-extension/package.json 的 version（随安装包一起分发）
+    - plugin/devin-extension/package.json 与 plugin/devin-extension-v2/package.json 的 version（随安装包一起分发）
   幂等：值已一致时不改写文件，也不产生无意义的时间戳变化。
 
   不在构建过程中自动改写：改 Cargo 版本会让 Cargo.lock 变脏，因此发版时先跑本脚本并提交，
@@ -75,11 +75,12 @@ $updatedSection = [regex]::Replace($section.Value, '(?m)^(\s*version\s*=\s*")[^"
 $cargoUpdated = $cargoText.Substring(0, $section.Index) + $updatedSection + $cargoText.Substring($section.Index + $section.Length)
 Save-IfChanged $cargoRelative $cargoUpdated
 
-# Devin 扩展随安装包分发，版本与产品保持一致。
-$extensionRelative = 'plugin\devin-extension\package.json'
-$extensionText = [IO.File]::ReadAllText((Join-Path $RepoRoot $extensionRelative))
-$extensionUpdated = [regex]::Replace($extensionText, '(?m)^(\s*"version"\s*:\s*")[^"]*(")', ('${1}' + $Version + '${2}'), 1)
-Save-IfChanged $extensionRelative $extensionUpdated
+# Devin 扩展两代并存：V1（Go 版遗留）与 V2（桌面版）都随安装包分发，版本与产品保持一致。
+foreach ($extensionRelative in @('plugin\devin-extension\package.json', 'plugin\devin-extension-v2\package.json')) {
+  $extensionText = [IO.File]::ReadAllText((Join-Path $RepoRoot $extensionRelative))
+  $extensionUpdated = [regex]::Replace($extensionText, '(?m)^(\s*"version"\s*:\s*")[^"]*(")', ('${1}' + $Version + '${2}'), 1)
+  Save-IfChanged $extensionRelative $extensionUpdated
+}
 
 if ($changed.Count -eq 0) {
   Write-Output "[version] 已是 $Version，无需改动"

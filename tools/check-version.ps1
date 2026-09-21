@@ -6,7 +6,7 @@
 .DESCRIPTION
   VERSION 自 2026-09-21 起成为唯一版本来源（此前是 internal/app/version.go）。检查：
   VERSION、hosts/desktop-tauri/tauri.conf.json、Cargo.toml 的 [workspace.package] version、
-  README 徽章、plugin/devin-extension/package.json、CHANGELOG，以及安装包名规则。
+  README 徽章、plugin/devin-extension/package.json 与 plugin/devin-extension-v2/package.json、CHANGELOG，以及安装包名规则。
   本地与 CI 共用同一入口：tools\lint.ps1 会调用它，release workflow 用 tag 调用它。
 
   为什么不再检查 internal/app/version.go：Go 版 UI 已不再作为发布入口（Task 10 切换），
@@ -67,9 +67,12 @@ if ($readme -notmatch ('badge/version-' + $escaped + '-')) {
   $failures.Add("README 版本徽章不是 $Version")
 }
 
-$package = Read-TextFile 'plugin\devin-extension\package.json'
-if ($package -notmatch ('(?m)^\s*"version"\s*:\s*"' + $escaped + '"\s*,?\s*$')) {
-  $failures.Add("Devin 扩展 package.json 版本不是 $Version")
+# Devin 扩展两代并存：V1（Go 版遗留）与 V2（桌面版）都随安装包分发，版本必须与产品一致。
+foreach ($extensionRelative in @('plugin\devin-extension\package.json', 'plugin\devin-extension-v2\package.json')) {
+  $package = Read-TextFile $extensionRelative
+  if ($package -notmatch ('(?m)^\s*"version"\s*:\s*"' + $escaped + '"\s*,?\s*$')) {
+    $failures.Add("Devin 扩展 $extensionRelative 版本不是 $Version")
+  }
 }
 
 if ((Read-TextFile 'CHANGELOG.md') -notmatch ('(?m)^## \[' + $escaped + '\]')) {

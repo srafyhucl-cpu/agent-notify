@@ -340,7 +340,7 @@ git commit -m "feat(antigravity): 增加 Agent 适配器与原会话回复"
 - Consumes: Devin Stop JSON、桌面状态库 `state.vscdb`、Devin 扩展 ACP。
 - Produces: `DevinAgent`、Devin Hook 和 V2 桌面扩展。
 
-- [ ] **Step 1: 写 stop_hook_active 和 ACP 目标测试**
+- [x] **Step 1: 写 stop_hook_active 和 ACP 目标测试**
 
 ```rust
 #[test]
@@ -359,7 +359,7 @@ fn missing_cascade_mapping_fails_instead_of_using_latest_session() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -370,7 +370,7 @@ node --test .\plugin\devin-extension-v2\*.test.cjs
 
 Expected: FAIL，Devin 适配器不存在。
 
-- [ ] **Step 3: 实现事件和会话解析**
+- [x] **Step 3: 实现事件和会话解析**
 
 - `stop_hook_active=true` 跳过。
 - session ID 只取稳定 `session_id`。
@@ -378,7 +378,7 @@ Expected: FAIL，Devin 适配器不存在。
 - 回复时通过桌面状态库解析 `acp/devin-cli/<session_id>`；找不到返回明确错误。
 - 不读取 Devin CLI 登录状态，不使用最近 Cascade。
 
-- [ ] **Step 4: 实现 V2 扩展收件箱**
+- [x] **Step 4: 实现 V2 扩展收件箱**
 
 扩展保留：
 
@@ -390,11 +390,11 @@ Expected: FAIL，Devin 适配器不存在。
 
 扩展不得访问 SQLite 或 Credential Manager；所有任务来自适配器提供的安全队列。
 
-- [ ] **Step 5: 安装 Hook 与扩展**
+- [x] **Step 5: 安装 Hook 与扩展**
 
 Devin Hook 只向已有 `hooks.Stop` 追加 AgentNotify 组。扩展安装目录使用 V2 包名，升级时确认 publisher/name 后替换，不递归删除其他扩展文件。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 
