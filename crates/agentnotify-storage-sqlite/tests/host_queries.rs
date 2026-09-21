@@ -325,3 +325,41 @@ async fn agent_configs_and_settings_round_trip_as_json() {
     assert_eq!(settings["autoStart"], serde_json::json!(true));
     assert_eq!(settings["startHidden"], serde_json::json!(false));
 }
+
+#[tokio::test]
+async fn outbox_with_zero_submillisecond_digit_is_leaseable_at_later_millisecond() {
+    let (_temp, store) = fixture_store();
+    let notification = Notification::new(
+        NotificationId::new("notification-fixed-width").unwrap(),
+        "event-fixed-width",
+        AgentId::new("opencode").unwrap(),
+        None,
+        None,
+        "固定宽度时间",
+        "租约边界",
+        timestamp("2026-09-19T09:00:00.7Z"),
+        NotificationMetadata::default(),
+    )
+    .unwrap();
+    store
+        .commit_ingest(
+            notification.clone(),
+            vec![OutboxItem::pending(
+                "outbox-fixed-width",
+                notification.id.clone(),
+                timestamp("2026-09-19T09:00:00.8Z"),
+            )],
+        )
+        .await
+        .unwrap();
+
+    let lease = store
+        .lease_next_outbox(
+            timestamp("2026-09-19T09:00:00.801Z"),
+            timestamp("2026-09-19T09:01:00Z"),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(lease.unwrap().notification.id, notification.id);
+}

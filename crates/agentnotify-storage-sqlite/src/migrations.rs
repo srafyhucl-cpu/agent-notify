@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use agentnotify_application::StoreError;
@@ -6,9 +7,23 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 use crate::database::Database;
+use crate::row_codec::timestamp_to_db;
 
-const MIGRATION_0001: &str = include_str!("../migrations/0001_init.sql");
-const MIGRATION_0001_VERSION: i64 = 1;
+struct Migration {
+    version: i64,
+    sql: &'static str,
+}
+
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: include_str!("../migrations/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        sql: include_str!("../migrations/0002_canonical_timestamps.sql"),
+    },
+];
 
 /// SQLite 存储适配器。数据库连接由专用调度线程独占。
 #[derive(Clone)]
@@ -102,45 +117,74 @@ pub fn run_migrations(connection: &mut Connection) -> Result<(), StoreError> {
         .map_err(|error| storage_error("检查迁移表失败", error))?
         .is_some();
 
-    let checksum = sha256_hex(MIGRATION_0001.as_bytes());
     let transaction = connection
         .transaction()
         .map_err(|error| storage_error("开启迁移事务失败", error))?;
 
+    let mut applied = BTreeMap::new();
     if migration_table_exists {
-        let existing = transaction
-            .query_row(
-                "SELECT checksum FROM schema_migrations WHERE version = ?1",
-                params![MIGRATION_0001_VERSION],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| storage_error("读取迁移 checksum 失败", error))?;
-
-        if let Some(existing) = existing {
-            if existing != checksum {
-                return Err(StoreError::new(
-                    "migration_checksum_mismatch",
-                    "数据库迁移校验失败，现有版本与程序内置迁移不一致",
-                ));
-            }
-            return Ok(());
+        let mut statement = transaction
+            .prepare("SELECT version, checksum FROM schema_migrations ORDER BY version")
+            .map_err(|error| storage_error("读取迁移历史失败", error))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| storage_error("读取迁移历史失败", error))?;
+        for row in rows {
+            let (version, checksum) =
+                row.map_err(|error| storage_error("读取迁移历史失败", error))?;
+            applied.insert(version, checksum);
         }
     }
 
-    transaction
-        .execute_batch(MIGRATION_0001)
-        .map_err(|error| storage_error("执行初始迁移失败", error))?;
-    transaction
-        .execute(
-            "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?1, ?2, ?3)",
-            params![
-                MIGRATION_0001_VERSION,
-                checksum,
-                Timestamp::now_utc().to_rfc3339()
-            ],
-        )
-        .map_err(|error| storage_error("记录迁移版本失败", error))?;
+    if migration_table_exists && applied.is_empty() {
+        return Err(StoreError::new(
+            "migration_history_missing",
+            "数据库迁移历史为空，拒绝在未知状态上继续迁移",
+        ));
+    }
+
+    for (version, checksum) in &applied {
+        let Some(migration) = MIGRATIONS.iter().find(|item| item.version == *version) else {
+            return Err(StoreError::new(
+                "migration_version_unsupported",
+                "数据库包含当前程序无法识别的迁移版本，请先核对数据库完整性",
+            ));
+        };
+        if *checksum != sha256_hex(migration.sql.as_bytes()) {
+            return Err(StoreError::new(
+                "migration_checksum_mismatch",
+                "数据库迁移校验失败，现有版本与程序内置迁移不一致",
+            ));
+        }
+    }
+
+    for migration in MIGRATIONS {
+        if applied.contains_key(&migration.version) {
+            continue;
+        }
+        if applied.keys().any(|version| *version > migration.version) {
+            return Err(StoreError::new(
+                "migration_history_gap",
+                "数据库迁移历史不连续，拒绝自动修复",
+            ));
+        }
+
+        transaction.execute_batch(migration.sql).map_err(|error| {
+            storage_error(&format!("执行数据库迁移 {} 失败", migration.version), error)
+        })?;
+        transaction
+            .execute(
+                "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?1, ?2, ?3)",
+                params![
+                    migration.version,
+                    sha256_hex(migration.sql.as_bytes()),
+                    timestamp_to_db(Timestamp::now_utc())
+                ],
+            )
+            .map_err(|error| storage_error("记录迁移版本失败", error))?;
+    }
     transaction
         .commit()
         .map_err(|error| storage_error("提交迁移事务失败", error))?;

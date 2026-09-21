@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use agentnotify_application::{OutboxItem, OutboxState, StoreError};
 use agentnotify_domain::{
     AgentId, AgentSessionId, ChannelAccountId, ChannelId, ClaimKey, ClaimState, Delivery,
@@ -5,18 +7,22 @@ use agentnotify_domain::{
     NotificationMetadata, ReplyRoute, RouteKey, SafeError, Timestamp,
 };
 use rusqlite::Row;
-use time::format_description::well_known::Rfc3339;
+use time::format_description::{FormatItem, well_known::Rfc3339};
+
+static DATABASE_TIMESTAMP_FORMAT: LazyLock<Vec<FormatItem<'static>>> = LazyLock::new(|| {
+    time::format_description::parse(
+        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z",
+    )
+    .expect("数据库时间格式必须有效")
+});
 
 pub(crate) fn timestamp_to_db(value: Timestamp) -> String {
     let parsed = time::OffsetDateTime::parse(&value.to_rfc3339(), &Rfc3339)
         .expect("Timestamp 始终保存为 RFC3339");
-    let milliseconds = parsed.nanosecond() / 1_000_000 * 1_000_000;
     parsed
         .to_offset(time::UtcOffset::UTC)
-        .replace_nanosecond(milliseconds)
-        .expect("截断到毫秒不会产生非法时间")
-        .format(&Rfc3339)
-        .expect("UTC RFC3339 格式化不会失败")
+        .format(&*DATABASE_TIMESTAMP_FORMAT)
+        .expect("数据库时间格式化不会失败")
 }
 
 pub(crate) fn notification_from_row(row: &Row<'_>) -> Result<Notification, StoreError> {
@@ -233,4 +239,21 @@ fn safe_error_from_row(row: &Row<'_>) -> Result<SafeError, StoreError> {
         optional_column(row, "error_message")?,
     )?
     .ok_or_else(|| StoreError::corrupted("投递错误信息缺失"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn database_timestamp_uses_fixed_width_milliseconds() {
+        let timestamp = Timestamp::parse_rfc3339("2026-09-19T09:00:00.8+08:00").unwrap();
+        let formatted = timestamp_to_db(timestamp);
+
+        assert_eq!(formatted, "2026-09-19T01:00:00.800Z");
+        assert!(
+            formatted
+                < timestamp_to_db(Timestamp::parse_rfc3339("2026-09-19T01:00:00.801Z").unwrap())
+        );
+    }
 }

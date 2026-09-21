@@ -18,9 +18,13 @@
 
 ## 数据库基线
 
-- 迁移版本：`1`
-- 迁移文件：`crates/agentnotify-storage-sqlite/migrations/0001_init.sql`
-- SHA-256：`1314d652de440e0f280fed18292f0e62b3627d45d9e4f5d3e1c87f8936867b68`
+- 迁移版本：`2`
+- 迁移文件：
+  - `crates/agentnotify-storage-sqlite/migrations/0001_init.sql`
+  - `crates/agentnotify-storage-sqlite/migrations/0002_canonical_timestamps.sql`
+- SHA-256：
+  - `0001_init.sql`：`1314d652de440e0f280fed18292f0e62b3627d45d9e4f5d3e1c87f8936867b68`
+  - `0002_canonical_timestamps.sql`：`a04c475177362e6bd8973d4e912d4054b4f3461a21e2915b3ee812f3f1482386`
 - journal mode：`WAL`
 - checksum 不一致时启动明确失败，错误码为 `migration_checksum_mismatch`。
 
