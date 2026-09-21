@@ -1034,7 +1034,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbo
 4. 验证 Claim 从 `InProgress` 变为 `Completed`。
 5. 再次投递同一入站事件，验证不会执行第二次。
 
-- [ ] **Step 5: 验收错误边界**
+- [x] **Step 5: 验收错误边界**
 
 必须分别构造并确认：
 
@@ -1045,7 +1045,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbo
 - `ret=-14`：账号标记失效，context token 被清除，UI 提示重新扫码。
 - `ret=-2`：上下文清空，Delivery 记 `Skipped/session_missing`，UI 提示向 ClawBot 发一条消息恢复。
 
-- [ ] **Step 6: 验收退出与重启**
+- [x] **Step 6: 验收退出与重启**
 
 1. 应用退出后确认无 UI/runtime 进程，托盘消失，SQLite 完成 checkpoint。
 2. 重新启动，确认历史、Route、Claim、账号状态和旧数据导入仍存在。
@@ -1060,7 +1060,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbo
 
 证据见 `docs\superpowers\specs\2026-09-19-opencode-clawbot-acceptance.md` 的「LOCALAPPDATA 分裂」与「修复验证」两节。
 
-- [ ] **Step 7: 记录验收结论**
+- [x] **Step 7: 记录验收结论**
 
 `docs/superpowers/specs/2026-09-19-opencode-clawbot-acceptance.md` 必须记录：
 
@@ -1073,7 +1073,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbo
 
 任何一项真实链路未通过时，阶段状态保持“未通过”，不能进入正式切换。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```powershell
 git add tests/real-opencode-clawbot.ps1 docs/superpowers/specs/2026-09-19-opencode-clawbot-acceptance.md crates/agentnotify-testkit

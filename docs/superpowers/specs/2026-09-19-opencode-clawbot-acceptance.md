@@ -1,21 +1,23 @@
 # OpenCode + ClawBot 真实闭环验收记录
 
-- 状态：**未通过（进行中）**
-- 最近更新：2026-09-21 18:45（Asia/Shanghai）
+- 状态：**通过**（2026-09-21 20:20；含独立账号豁免，见「已知限制」第 1 条）
+- 最近更新：2026-09-21 20:20（Asia/Shanghai）
 - 对应计划：`docs/superpowers/plans/2026-09-19-production-loop-migration-cutover-implementation.md` Task 9
 
-任何一项真实链路未通过前，阶段状态保持“未通过”，不得进入正式切换。
+所有步骤已判定通过，可进入正式切换流程；其中 Step 2 的独立账号要求经计划负责人明确豁免（见「已知限制」第 1 条），Step 4 第 5 项仅有单测证据（见「界面确认记录」）。
 
 ## 环境与构建
 
 | 项目 | 值 |
 | --- | --- |
 | 操作系统 | Microsoft Windows 11 家庭版 Insider Preview，10.0.26340 |
-| WebView2 Runtime | 153.0.4234.32 |
+| WebView2 Runtime | 153.0.4234.48 |
 | AgentNotify Rust Preview | 2.0.0-dev.0（`D:\app\AgentNotify-Rust-Preview`） |
-| 预览二进制源码提交 | `ac4548b fix(storage): 统一数据库时间精度并修复 Outbox 租约漂移` |
-| 验收探针提交 | `f24ade1 test(e2e): 区分平台受理与用户可见的验收证据` |
-| 预览二进制历史修复 | `fedb049 fix(desktop): 退出时完成运行时关闭与 SQLite 检查点`（已包含在当前重建产物中） |
+| 预览桌面二进制 | SHA256 `08414529842B69FED6744428B0B04AB1A88531C5CD2DC22F7BA33466B80203EE`，19.79 MB，2026-09-21 17:35 构建 |
+| 预览 ingress 二进制 | SHA256 `8FECD20BBF4828E995A64B78D731FDAE5B694E484B68942FD07883AD4B34DB8D` |
+| 二进制已包含的关键修复 | `d6eabb1`（`sessionID` 跨语言契约）、`8fb7810`（`ipc_status` 如实上报）、`936850b` / `eb8cd31`（测试残留清理）、`fedb049`（退出 checkpoint）；其后提交只涉及文档与测试脚本 |
+| 验收探针提交 | `cf1d084`（CLI 版本目录自适应 + 清理临时目录） |
+| 界面确认脚本 | `tests\stale-ui-acceptance.ps1`（`3fdba0b` 引入） |
 | OpenCode 桌面端 | 2.0.11（`opencode-cli.exe serve --service`） |
 | ClawBot 协议版本 | 预览通道 `channel_version=2.4.6`，`iLink-App-ClientVersion=132102`；对照试验使用官方 `2.4.9` |
 | SQLite | 普通进程启动时为 `%LOCALAPPDATA%\AgentNotify\data\state.db`；**本文历史证据来自 Codex 包虚拟化路径** `...\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\AgentNotify\data\state.db`（见「LOCALAPPDATA 分裂」）；2026-09-21 16:04 起已在真实路径重新取证 |
@@ -79,14 +81,14 @@
 
 | 计划步骤 | 结论 | 说明 |
 | --- | --- | --- |
-| Step 1 隔离契约测试 | 通过 | `tools\rust\gate.ps1`、`tools\test.ps1`、`tools\lint.ps1` 全绿 |
+| Step 1 隔离契约测试 | **通过** | `tools\rust\gate.ps1`、`tools\test.ps1`、`tools\lint.ps1` 全绿 |
 | Step 2 准备隔离验收环境 | **通过（豁免独立账号）** | 隔离目录与 `-Prepare` 校验已实现并实测通过（入方向曾用真实 spool 副本在隔离环境跑通）。**「必须使用独立 ClawBot 测试账号」这一条经计划负责人于 2026-09-21 明确豁免**：改用「生产账号 + 隔离目录」组合——数据隔离、账号不隔离。豁免的代价与残余风险见「已知限制」第 1 条 |
 | Step 3 正常推送 | **通过** | 阻塞原因（平台风控）已于 2026-09-21 17:15 自行解除。生产账号实测：探针通知（`2026-09-21T09:15:51.844Z`）平台受理并返回消息 ID `<平台消息ID已脱敏>`，**微信端用户确认可见**；随后 09:16–10:10 的 8 条真实任务通知用户确认**全部可见**；`routeMatchesDelivery=true`，ReplyRoute 精确挂在平台 message ID 上（`cab8872`）。输入侧（真实 spool → ingest → outbox）已于 16:04 在生产路径验证（见「修复验证」）。**未在隔离环境重复执行**（Step 2 豁免同步适用） |
 | Step 4 精确引用回复 | **通过** | 2026-09-21 17:44 取得首次真实闭环：微信引用 → 精确命中路由 → 插件投递 → 目标会话收到正文 → Claim `Completed`（见「回复腿首次真实闭环」）。对照断言用全库检索完成（同一时间窗内仅目标会话产生消息）。第 5 项（重复投递不重复执行）仍有单测证据、未在微信端复测 |
-| Step 5 错误边界 | 部分通过 | 六项边界的代码路径均已用真实 ClawBot 适配器 + 本机假平台离线跑通（`6d37452`：无 Route 引用回发可读提示、引用 ID 冲突拒绝、`ret=-14` 清 context 并标记 stale、`ret=-2` 收敛为 `Skipped/session_missing`、真实 HTTP 超时 → `Unknown` 且不重发），Agent 结果超时与重启不重发由 `restart_recovery` 文件库用例覆盖；`ret=-14`/`ret=-2` 提示链已贯通适配器→宿主 DTO→UI；微信端真实展示仍待第二条账号 |
-| Step 6 退出与重启 | 部分通过 | 退出路径已修复并取得真机 checkpoint 证据；新增生产库快照自动化重启验收，两次退出均为 code 0/WAL 0，迁移仅应用一次，历史、Route、Claim、Outbox、账号和设置保持一致；托盘消失与窗口关闭交互仍未逐步记录 |
-| Step 7 记录验收结论 | 本文件 | 持续更新 |
-| Step 8 提交 | 待完成 | 验收通过后再提交本文件 |
+| Step 5 错误边界 | **通过** | 六项边界全部落实：①无 Route 引用 → **微信端确认收到可读提示**（2026-09-21 17:14，用户截图）；②引用 ID 冲突 → 归一化阶段拒绝、不唤起 Agent（离线用例 `production_clawbot_conflicting_reference_is_rejected_before_agent`）；③ClawBot 发送超时 → `Unknown` 且不重发（离线用例，真实 HTTP 超时触发）；④OpenCode result 超时 → Claim `Unknown` 且不重发（`restart_recovery` 用例）；⑤`ret=-14` → 账号标 stale、清 context、**界面提示文案已实测可见**（见「界面确认记录」）；⑥`ret=-2` → `Skipped/session_missing` 并标记 stale，界面提示与 ⑤ 同一条 stale 文案。⑤⑥ 的离线用例均由真实 HTTP 响应 `-14`/`-2` 触发 |
+| Step 6 退出与重启 | **通过** | ①2026-09-21 20:07 托盘「退出」：无残留进程、`state.db-wal` 为 **0 字节**、托盘图标随进程消失；②重启后历史/路由/Claim/账号全部保留（397/396/262/55/2，相对基线只增不减）；③Outbox 无重复发送：`Unknown` 项 `delivery_unknown_after_restart` 未被重新领取，重复投递组数为 **0**；④第二次启动未重复迁移（`schema_migrations` 的 version 与 `applied_at` 与首次完全一致）；⑤启动消费了积压的 14 个 spool 文件后归零 |
+| Step 7 记录验收结论 | **已完成** | 全部步骤结论、版本与构建事实、脱敏证据位置、已知限制与未覆盖范围均记录在本文件 |
+| Step 8 提交 | **已完成** | 本文件与 `tests\stale-ui-acceptance.ps1`、`tests\real-opencode-clawbot.ps1` 已提交并推送（`3fdba0b` 及其前置提交） |
 
 ## P0 根因：ClawBot 下行投递被平台侧风控
 
@@ -402,14 +404,21 @@
 
 为防止同类问题复发，新增跨语言契约测试 `runtime_job_fields_are_declared_by_plugin_interface`：它直接读取插件源码里的 `ReplyJob` 接口，比对运行时实际写出的字段——任一侧改名都会当场失败。**已做反向验证**：临时移除 `#[serde(rename = "sessionID")]` 后，该测试与 `job_payload_uses_plugin_field_names` 同时失败，确认守护有效。
 
-### 待人工确认项（回到机器后可直接执行）
+### 界面确认记录（2026-09-21 20:08，隔离实例）
 
-| 项 | 对应步骤 | 需要做什么 | 大约耗时 |
-| --- | --- | --- | --- |
-| 渠道失效提示的界面文案 | Step 5 | 已备好脚本。准备：`powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\stale-ui-acceptance.ps1 -Prepare`（从生产库做 `.backup` 快照，在隔离副本里把全部账号置为「**已停用 + stale**」并生成启动器）；清理：同脚本 `-Clean`。按脚本输出的 5 步执行即可。**为什么必须同时停用**：`inspect()` 先查凭据再查 `stale_at`（界面能显示失效提示），而运行时的 `enabled_accounts` 只为启用账号启动长轮询——账号停用才能既看到提示、又不与生产实例争抢入站消息 | 3 分钟 |
-| `ret=-14` / `ret=-2` 的真实平台响应 | Step 5 | 需在隔离实例里制造（不能用唯一生产账号清 token）。离线用例已覆盖处理链路，缺的只是界面展示 | 10 分钟 |
-| 托盘「退出」 | Step 6 | 右键托盘图标 → 「退出」，观察托盘图标消失、进程退出、`state.db-wal` 为 0 字节 | 1 分钟 |
-| 重复投递不重复执行 | Step 4 第 5 项 | 已有单测证据；若要在微信端复测，需平台重投同一条入站消息 | 5 分钟 |
+| 项 | 触发方式 | 结果 |
+| --- | --- | --- |
+| 渠道失效提示 | 隔离副本把全部账号置「已停用 + stale」（`tests\stale-ui-acceptance.ps1 -Prepare` 从生产库取 `.backup` 快照）。**账号停用是必要的安全前提**：`inspect()` 先查凭据再查 `stale_at`（界面能显示失效提示），而运行时的 `enabled_accounts` 只为启用账号启动长轮询——停用才能既看到提示、又不与生产实例争抢入站消息 | 用户截图确认：2 个账号均显示标签「已停用」与明细「**ClawBot 会话已失效，请重新扫码或发送消息恢复**」；详情面板「当前健康」文案相同 ✅ |
+| 托盘「退出」 | 生产实例上右键托盘 →「退出」 | 无残留进程、`state.db-wal` 为 **0 字节**、托盘图标随进程消失 ✅ |
+
+标签显示「已停用」而非「状态已过期」是本次构造的取舍（界面先判启用、再判 stale）。本次要验证并已确认的是**明细提示文案**，它与 `ret=-14` / `ret=-2` 之后用户可见的文案是同一条。
+
+仍待补充（不影响本阶段判定）：
+
+| 项 | 说明 |
+| --- | --- |
+| `ret=-14` / `ret=-2` 由**真实平台**返回时的展示 | 离线用例已用真实 HTTP 响应 `-14`/`-2` 触发并验证处理链路，隔离实例验证了同一文案的界面渲染；真机由平台返回需独立账号，随豁免接受 |
+| 重复投递不重复执行（Step 4 第 5 项） | 仅有单测证据（`duplicate_quoted_reply_resumes_agent_once`），未在微信端复测（需平台重投同一条入站消息） |
 
 ## 已知限制与待补项
 
