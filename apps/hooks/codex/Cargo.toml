@@ -1,0 +1,25 @@
+[package]
+name = "agentnotify-codex-hook"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "agentnotify_codex_hook"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agentnotify-codex-hook"
+path = "src/main.rs"
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["io-std"] }
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

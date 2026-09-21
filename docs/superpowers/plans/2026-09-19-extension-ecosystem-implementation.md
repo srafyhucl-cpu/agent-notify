@@ -136,7 +136,7 @@ git commit -m "test(adapters): 增加内置适配器认证规范"
 - Consumes: Codex `notify` JSON stdin、`thread-id` / `thread_id`、现有 `codex-computer-use.exe`。
 - Produces: `CodexAgent` 与 `agentnotify-codex-hook.exe`。
 
-- [ ] **Step 1: 写事件和透传顺序测试**
+- [x] **Step 1: 写事件和透传顺序测试**
 
 ```rust
 #[test]
@@ -157,7 +157,7 @@ async fn upstream_runs_before_ingress_and_failure_does_not_block_upstream() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -168,7 +168,7 @@ cargo test -p agentnotify-codex-hook
 
 Expected: FAIL，Codex 包不存在。
 
-- [ ] **Step 3: 实现 Codex 适配器**
+- [x] **Step 3: 实现 Codex 适配器**
 
 Capabilities：
 
@@ -190,7 +190,7 @@ AgentCapabilities {
 - 缺失 thread ID 时仍可推送，但不生成 ReplyRoute。
 - 标题失败时使用默认标题并在正文标记降级来源，不伪造会话 ID。
 
-- [ ] **Step 4: 实现 Codex Hook 顺序**
+- [x] **Step 4: 实现 Codex Hook 顺序**
 
 `agentnotify-codex-hook.exe`：
 
@@ -204,7 +204,7 @@ AgentCapabilities {
 
 安装器只修改 Codex `notify` 行，继续保留 `config.toml.bak-notify-wrapper` 和自定义 notify 保护规则。
 
-- [ ] **Step 5: Resume 精确入队**
+- [x] **Step 5: Resume 精确入队**
 
 Codex `resume` 直接执行：
 
@@ -217,7 +217,7 @@ codex queue --thread=<thread-id> --message=<text>
 - 已归档线程返回可读错误并提示先恢复/解档。
 - 永久线程、临时线程和不存在的线程有不同错误码，不落到最近会话。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 
