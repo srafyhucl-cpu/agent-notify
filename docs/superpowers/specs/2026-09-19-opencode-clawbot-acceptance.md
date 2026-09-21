@@ -1,7 +1,7 @@
 # OpenCode + ClawBot 真实闭环验收记录
 
 - 状态：**未通过（进行中）**
-- 最近更新：2026-09-21 16:15（Asia/Shanghai）
+- 最近更新：2026-09-21 16:40（Asia/Shanghai）
 - 对应计划：`docs/superpowers/plans/2026-09-19-production-loop-migration-cutover-implementation.md` Task 9
 
 任何一项真实链路未通过前，阶段状态保持“未通过”，不得进入正式切换。
@@ -65,7 +65,13 @@
 
 结论：**「spool → 桌面端」在生产链路上首次验证通过，且两条输入路径（启动消费 spool、运行中命名管道）都成立。** 投递按隔离设置被门控，全程零平台请求。
 
-已知缺陷（本轮发现，未修）：`crates\agentnotify-runtime\src\runtime.rs` 的启动/停止日志把 `ipc_status` **硬编码为 `"disabled"`**（该文件第 288、620 行），不反映 `config.ingress_pipe_enabled` 的真实值。本轮据此一度误判命名管道未启用，实际它是工作的（Run 3 已证明）。诊断时请勿以该字段为准。
+**账号差异（需注意）**：真实路径首次启动时，legacy 导入按 Go 侧 `clawbot.json`（2026-09-21 10:55 写入）只导入了 **1 个**账号 `clawbot-旧账号`；本文 P0 一节判定为受限的 `clawbot-受限账号` 只存在于虚拟化库（当时该库有 2 个账号），**没有进入真实库**。因此：
+
+- 当前真实库的投递目标是 `clawbot-旧账号`，它是否同样受平台风控**尚未验证**。
+- 「受限账号」的既有结论只对 `clawbot-受限账号` 成立，不能直接套用到新库。
+- 换第二条账号验收时，应同时确认这两个账号的实际可达性，不要默认其一可用或不可用。
+
+已修复缺陷（本轮发现并修复）：启动/停止日志的 `ipc_status` 曾硬编码为 `"disabled"`，不反映 `config.ingress_pipe_enabled`。已改为按真实开关输出，诊断时该字段现在可信。
 
 ---
 
@@ -343,6 +349,8 @@
 5. **`session export --sanitize` 会脱敏正文**：探针已改为内存中未脱敏比对，不落盘正文。
 6. 未覆盖：Codex、Antigravity、Devin、Command Code 等其它 Agent；飞书等其它渠道；macOS 与 HarmonyOS PC。
 7. **隔离验收依赖环境继承**：OpenCode 桌面端必须与预览程序在同一组 `AGENT_NOTIFY_*` 环境变量下启动，否则插件会把事件写进生产 `spool`；探针不代为设置这些变量。
+8. **受限账号与真实库账号不一致**：真实库导入的 `clawbot-旧账号` 是否同样受平台风控尚未验证；「受限账号」既有结论只对 `clawbot-受限账号` 成立。详见「修复验证」下的「账号差异」。
+9. **启动方式曾是验收缺陷来源**：桌面端必须在非 MSIX 包上下文启动，否则 `LOCALAPPDATA` 会被重定向（见「LOCALAPPDATA 分裂」）。后续新增的验收脚本不得在包上下文里启动桌面端。
 
 ## 复现步骤（未通过项）
 
