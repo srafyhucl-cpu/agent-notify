@@ -12,11 +12,12 @@
     Send         通过 ingress 提交一条测试事件，并等待 Delivery 终态。
     VerifyReply  等待引用回复 Claim 完成，并确认回复文本已进入 OpenCode 会话。
                  传入 -OtherSessionId 时会额外确认对照会话没有收到同一文本。
+    LocateReply  用唯一回复文本在最近的路由候选里反查命中的会话，并给出可直接复制的 VerifyReply 命令。
     Prepare      建立隔离验收目录并输出启动参数，不读取也不修改生产数据。
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Prepare', 'Status', 'Send', 'VerifyReply')]
+  [ValidateSet('Prepare', 'Status', 'Send', 'VerifyReply', 'LocateReply')]
   [string]$Mode = 'Status',
   [string]$SessionId = '',
   [string]$OtherSessionId = '',
@@ -29,7 +30,10 @@ param(
   [string]$TargetAccountId = '',
   [switch]$InstallPlugin,
   [switch]$UseProductionDataDir,
-  [int]$TimeoutSeconds = 180
+  [int]$TimeoutSeconds = 180,
+  # LocateReply 反查的时间窗与候选上限；默认覆盖 24 小时路由 TTL 加余量。
+  [int]$IntervalHours = 30,
+  [int]$MaxCandidates = 12
 )
 
 $ErrorActionPreference = 'Stop'
@@ -257,11 +261,18 @@ function Get-HashText {
 }
 
 # session export 含完整正文，这里只在内存里匹配，不把正文写入输出或磁盘。
+$script:sessionExportFailures = @()
+
 function Test-OpenCodeSessionContains {
-  param([string]$TargetSessionId, [string]$Needle)
+  param([string]$TargetSessionId, [string]$Needle, [switch]$Tolerant)
 
   $export = @(& $OpenCodeCli session export $TargetSessionId 2>&1)
   if ($LASTEXITCODE -ne 0) {
+    # 批量反查时单个会话导出失败不能中断整轮扫描，但必须记录失败会话。
+    if ($Tolerant) {
+      $script:sessionExportFailures += (Get-HashText $TargetSessionId)
+      return $false
+    }
     throw "导出 OpenCode 会话失败 sessionHash=$(Get-HashText $TargetSessionId) exit=$LASTEXITCODE"
   }
   return (($export -join "`n") -match [regex]::Escape($Needle))
@@ -336,6 +347,20 @@ limit 1;
 "@)
   if ($rows.Count -eq 0) { return $null }
   return ($rows[0] -split "`t")
+}
+
+# 引用回复可能晚于投递数小时：按时间窗取候选会话，供 LocateReply 逐个反查。
+function Get-RecentRoutes {
+  param([int]$Hours, [int]$Limit)
+
+  $rows = @(Invoke-StateQuery @"
+select session_id, channel_id, account_id, created_at, expires_at, external_message_id
+from reply_routes
+where julianday(created_at) >= julianday('now') - ($Hours / 24.0)
+order by created_at desc
+limit $Limit;
+"@)
+  return $rows
 }
 
 # Claim 只记录回复消息自身的 ID，不记录被引用消息 ID；
@@ -470,6 +495,72 @@ limit 1;
   Write-Output "routeExpiresAt=$($routeRow[3])"
   Write-Output "pushVisibility=manual_confirmation_required"
   Write-Output "next=请先在微信端确认收到通知，再引用它回复：$ReplyText"
+  exit 0
+}
+
+# 验收人可能不知道命中的是哪个 OpenCode 会话：用唯一回复文本在最近的路由候选里反查。
+# 本模式只负责定位，不作结论；是否通过仍由 VerifyReply 判定。
+if ($Mode -eq 'LocateReply') {
+  if ([string]::IsNullOrWhiteSpace($ReplyText)) {
+    throw 'LocateReply 模式必须提供 -ReplyText。'
+  }
+
+  # 同一会话可能对应多条路由（每次通知一条），先按会话去重再限制候选数。
+  $recent = @(Get-RecentRoutes -Hours $IntervalHours -Limit 200)
+  $candidates = @()
+  $seenSessions = @{}
+  foreach ($row in $recent) {
+    $sessionId = ($row -split "`t")[0]
+    if ($seenSessions.ContainsKey($sessionId)) { continue }
+    $seenSessions[$sessionId] = $true
+    $candidates += ,$row
+    if ($candidates.Count -ge $MaxCandidates) { break }
+  }
+  if ($candidates.Count -eq 0) {
+    throw "最近 $IntervalHours 小时内没有 ReplyRoute；请先执行 -Mode Send 并等投递成功。"
+  }
+
+  $hitRoutes = @()
+  $otherRoutes = @()
+  foreach ($row in $candidates) {
+    $parts = $row -split "`t"
+    if (Test-OpenCodeSessionContains -TargetSessionId $parts[0] -Needle $ReplyText -Tolerant) {
+      $hitRoutes += ,$parts
+    } else {
+      $otherRoutes += ,$parts
+    }
+  }
+
+  if ($hitRoutes.Count -eq 0) {
+    $failed = ''
+    if ($script:sessionExportFailures.Count -gt 0) {
+      $failed = "；其中 $($script:sessionExportFailures.Count) 个会话导出失败（$($script:sessionExportFailures -join ',')）"
+    }
+    throw "最近 $IntervalHours 小时内的 $($candidates.Count) 个候选会话都没有出现验收回复文本$failed。请确认微信引用回复已发出，且 AgentNotify 实例当时在运行。"
+  }
+  if ($hitRoutes.Count -gt 1) {
+    $hashes = @($hitRoutes | ForEach-Object { Get-HashText (($_ -split "`t")[0]) })
+    throw "回复文本命中多个会话（$($hashes -join ',')），无法唯一定位；请改用更独特的 -ReplyText 重试。"
+  }
+
+  $hit = $hitRoutes[0]
+  Write-Output 'locate=FOUND'
+  Write-Output "sessionId=$($hit[0])"
+  Write-Output "sessionHash=$(Get-HashText $hit[0])"
+  Write-Output "routeCreatedAt=$($hit[3])"
+  Write-Output "routeExpiresAt=$($hit[4])"
+  Write-Output "externalMessageIdHash=$(Get-HashText $hit[5])"
+  Write-Output "candidateCount=$($candidates.Count)"
+  Write-Output "exportFailedCount=$($script:sessionExportFailures.Count)"
+  if ($otherRoutes.Count -gt 0) {
+    $control = $otherRoutes[0]
+    Write-Output "controlSessionId=$($control[0])"
+    Write-Output "controlSessionHash=$(Get-HashText $control[0])"
+    Write-Output "next=powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbot.ps1 -Mode VerifyReply -SessionId $($hit[0]) -OtherSessionId $($control[0]) -ReplyText $ReplyText"
+  } else {
+    Write-Output 'controlSessionId=MISSING'
+    Write-Output 'next=没有可用于对照的其他会话；请先在 OpenCode 里另开一个会话，再用 -Mode VerifyReply -OtherSessionId 验收。'
+  }
   exit 0
 }
 
