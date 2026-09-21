@@ -1050,6 +1050,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbo
 3. 确认 Outbox 中没有重复发送。
 4. 确认第二次启动不会重复迁移。
 
+**进度（2026-09-21）**：
+
+- 第 2～4 项已由 `tests\restart-acceptance.ps1` 在生产库副本上自动化通过：迁移 `0002` 仅应用一次、两次退出均 code 0 且 WAL 0 字节、历史/Route/Claim/Outbox/账号/设置保持一致。
+- 同日查出并修复一个验收环境缺陷：此前桌面端一律在 Codex 会话（MSIX 包上下文）内启动，`LOCALAPPDATA` 被重定向到包 `LocalCache`，真实 `%LOCALAPPDATA%\AgentNotify\spool` 中的事件从未被消费，Step 6 的历史证据也落在虚拟化路径上。改用非包上下文启动后已在真实路径重新取证：`data`/`logs`/`spool` 齐备、迁移 `1+2`、启动消费 spool 与运行中命名管道注入都能让 `notifications`/`outbox` 增长而 `deliveries` 不变（账号已隔离），退出后 WAL 为 0 字节，启动时收敛 `interrupted_outbox=1` 且不重放。
+- 第 1 项的无残留进程与 WAL checkpoint 已通过；「托盘图标消失」与「托盘菜单点击退出」仍需人工视觉确认，因此本步骤暂不勾选。
+
+证据见 `docs\superpowers\specs\2026-09-19-opencode-clawbot-acceptance.md` 的「LOCALAPPDATA 分裂」与「修复验证」两节。
+
 - [ ] **Step 7: 记录验收结论**
 
 `docs/superpowers/specs/2026-09-19-opencode-clawbot-acceptance.md` 必须记录：
