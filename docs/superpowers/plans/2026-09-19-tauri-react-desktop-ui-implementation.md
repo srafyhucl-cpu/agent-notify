@@ -1,5 +1,7 @@
 # Tauri 与 React 桌面 UI Implementation Plan
 
+> 进度校正（2026-09-21）：Task 1 与 Task 2 已由 `30f919a`、`6fcf1a4` 实现并提交，复选框此前漏记；其余已完成任务保持原记录。
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 用 Tauri 2 宿主和 React/TypeScript 主窗口替换 Win32 自绘 UI，提供动态 Agents、Channels、History、Diagnostics、Settings，并确保 UI 只能通过类型化 HostBridge 调用 Rust 核心。
@@ -53,7 +55,7 @@
 - Consumes: Rust 核心 workspace。
 - Produces: `agentnotify-desktop` Tauri 应用、`apps/desktop-ui` Vite 应用、统一 UI 门禁脚本。
 
-- [ ] **Step 1: 建包并写启动测试**
+- [x] **Step 1: 建包并写启动测试**
 
 `hosts/desktop-tauri/tests/bootstrap.rs`：
 
@@ -67,7 +69,7 @@ fn package_exposes_tauri_builder_without_starting_a_window() {
 
 构建函数必须允许测试只构造 builder，不连接 WebView、不打开窗口、不读取用户配置。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -77,7 +79,7 @@ cargo test -p agentnotify-desktop --test bootstrap
 
 Expected: FAIL，host 包不存在。
 
-- [ ] **Step 3: 创建 Tauri 配置**
+- [x] **Step 3: 创建 Tauri 配置**
 
 `Cargo.toml` 增加 `hosts/desktop-tauri` 成员，并添加依赖：
 
@@ -127,7 +129,7 @@ tracing = { workspace = true }
 
 `capabilities/main.json` 只授予 `core:default`、`core:event:default`、`core:window:allow-show`、`core:window:allow-hide`、`core:window:allow-close`、`core:window:allow-set-focus` 和 autostart 所需权限。不得配置 shell、fs 或 opener 插件。
 
-- [ ] **Step 4: 创建 React 入口与门禁**
+- [x] **Step 4: 创建 React 入口与门禁**
 
 `package.json` 固定 `packageManager: "npm@10.9.8"`，依赖 Rx、Vite、Router、Query、Virtual、lucide-react，开发依赖 TypeScript、Vitest、Testing Library、Playwright 和 axe-core。提交 `package-lock.json` 锁定实际解析版本。
 
@@ -176,7 +178,7 @@ finally {
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\rust\gate.ps1')
 ```
 
-- [ ] **Step 5: 运行门禁并提交**
+- [x] **Step 5: 运行门禁并提交**
 
 Run:
 
@@ -216,7 +218,7 @@ git commit -m "build(desktop): 初始化 Tauri 与 React 工程"
 - Consumes: `RuntimeSnapshot`、配置 DTO、历史 DTO 和登录事件。
 - Produces: `HostBridge`、`BusinessCommand`、`HostEvent`、`CommandError` 以及 Rust 到 TypeScript 的生成绑定。
 
-- [ ] **Step 1: 写命令与错误契约测试**
+- [x] **Step 1: 写命令与错误契约测试**
 
 ```rust
 #[test]
@@ -248,7 +250,7 @@ describe("HostBridge", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -259,7 +261,7 @@ npm --prefix .\apps\desktop-ui run test -- --run hostBridge
 
 Expected: FAIL，桥接类型不存在。
 
-- [ ] **Step 3: 定义稳定命令集合**
+- [x] **Step 3: 定义稳定命令集合**
 
 只允许以下命令：
 
@@ -286,7 +288,7 @@ quit_app
 
 命令名和 DTO 一经首个 UI 版本发布只能追加，不得复用旧名称表达新语义。
 
-- [ ] **Step 4: 生成前端类型**
+- [x] **Step 4: 生成前端类型**
 
 使用 `specta`/`tauri-specta` 或等价的 Rust-first 导出方案：
 
@@ -312,11 +314,11 @@ export interface HostBridge {
 }
 ```
 
-- [ ] **Step 5: 实现 Tauri 与 mock 适配器**
+- [x] **Step 5: 实现 Tauri 与 mock 适配器**
 
 `tauriHostBridge` 只调用生成的 typed command；`mockHostBridge` 保存调用记录并允许测试注入延迟、错误和事件。生产代码不得直接导入 `@tauri-apps/api/core` 的 `invoke`。
 
-- [ ] **Step 6: 运行门禁并提交**
+- [x] **Step 6: 运行门禁并提交**
 
 Run:
 

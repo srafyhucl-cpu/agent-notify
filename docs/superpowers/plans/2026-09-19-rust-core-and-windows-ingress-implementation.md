@@ -1,5 +1,7 @@
 # Rust 核心与 Windows 内部入口 Implementation Plan
 
+> 进度校正（2026-09-21）：阶段 A 的 16 个任务均已实现、测试并独立提交；本计划的复选框依据提交历史与 `docs/superpowers/specs/2026-09-19-rust-core-acceptance.md` 补记。
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 构建一个不依赖 UI 的 Rust 核心，使用 SQLite、事务型 Outbox 和精确回复路由跑通假 Agent + 假渠道闭环，并提供只接收 Agent 事件的 Windows 命名管道与离线 spool。
@@ -53,7 +55,7 @@
 - Consumes: 无。
 - Produces: 根 workspace 与七个当前 Rust crate；`agentnotify-ingress` 由后续 Task 14 加入后才成为第八个包；每份执行计划的 Cargo 命令都以这些包名工作。
 
-- [ ] **Step 1: 验证 Windows Rust 工具链，缺少时安装到 D 盘**
+- [x] **Step 1: 验证 Windows Rust 工具链，缺少时安装到 D 盘**
 
 先检查：
 
@@ -85,7 +87,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\bootstrap-xwin.
 
 该脚本下载并校验固定版本的 `cargo-xwin` 与 LLVM，将 LLVM 通过 MSI 管理安装模式解包到 `D:\Tools`，再初始化 `D:\Tools\xwin-cache` 中的 MSVC CRT 与 Windows SDK。`gate.ps1` 只在找不到 `link.exe` 时使用这条回退链；它仍编译到 `x86_64-pc-windows-msvc`，不是 GNU 工具链。
 
-- [ ] **Step 2: 创建 workspace 清单**
+- [x] **Step 2: 创建 workspace 清单**
 
 创建 `Cargo.toml`：
 
@@ -134,7 +136,7 @@ profile = "minimal"
 
 每个 crate 的 `Cargo.toml` 使用 `version.workspace = true`、`edition.workspace = true`、`license.workspace = true` 和按依赖方向声明的 workspace dependency。每个 `src/lib.rs` 至少导出一个真实类型或 trait；不得创建空占位 crate。
 
-- [ ] **Step 3: 创建门禁脚本**
+- [x] **Step 3: 创建门禁脚本**
 
 创建 `tools/rust/gate.ps1`：
 
@@ -195,7 +197,7 @@ finally {
 /apps/desktop-ui/test-results/
 ```
 
-- [ ] **Step 4: 生成锁文件并运行门禁**
+- [x] **Step 4: 生成锁文件并运行门禁**
 
 Run:
 
@@ -208,7 +210,7 @@ cargo metadata --locked --no-deps --format-version 1
 
 Expected: 引导脚本和门禁退出码均为 `0`，`Cargo.lock` 已生成并可由 `--locked` 验证，metadata 包含七个当前成员包；`agentnotify-ingress` 由后续 Task 14 加入后才成为第八个包。发布环境还应运行 `gate.ps1 -RequireMsvc`，确认标准 MSVC Build Tools 可用。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add Cargo.toml Cargo.lock rust-toolchain.toml .gitignore tools/rust crates
@@ -230,7 +232,7 @@ git commit -m "build: 初始化 Rust workspace 与质量门禁"
 - Consumes: Task 1 的 `agentnotify-domain` crate。
 - Produces: `AgentId`、`AgentSessionId`、`ChannelId`、`ChannelAccountId`、`ExternalMessageId`、`NotificationId`、`DeliveryId`、`InboundMessageId`、`RequestId`、`Timestamp`、`DomainError`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `crates/agentnotify-domain/tests/identifier.rs`：
 
@@ -260,7 +262,7 @@ fn timestamp_round_trips_rfc3339_millis() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -270,7 +272,7 @@ cargo test -p agentnotify-domain --test identifier
 
 Expected: FAIL，`AgentId` 或 `Timestamp` 不存在。
 
-- [ ] **Step 3: 实现标识与时间**
+- [x] **Step 3: 实现标识与时间**
 
 在 `identifier.rs` 使用宏生成独立新类型：
 
@@ -363,7 +365,7 @@ impl Timestamp {
 
 `error.rs` 定义 `DomainError::{InvalidIdentifier, InvalidTimestamp, InvalidStateTransition, RouteExpired, RouteMissing, RouteConflict}`，每个错误都提供稳定 `code()` 和中文 `message()`；不得把底层 token 或渠道原文放进错误。
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run:
 
@@ -374,7 +376,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS，门禁无 clippy 或 fmt 问题。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add crates/agentnotify-domain
@@ -395,7 +397,7 @@ git commit -m "feat(domain): 增加强类型标识与时间值对象"
 - Consumes: Task 2 的标识、`Timestamp` 和 `DomainError`。
 - Produces: `Notification`、`NotificationMetadata`、`SafeError`、`Delivery`、`DeliveryState`、`DeliveryReceiptState`。
 
-- [ ] **Step 1: 写状态迁移测试**
+- [x] **Step 1: 写状态迁移测试**
 
 ```rust
 use agentnotify_domain::{
@@ -455,7 +457,7 @@ fn permanent_failure_cannot_retry() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -465,7 +467,7 @@ cargo test -p agentnotify-domain --test delivery_state
 
 Expected: FAIL，类型未定义。
 
-- [ ] **Step 3: 实现领域状态**
+- [x] **Step 3: 实现领域状态**
 
 `notification.rs` 定义：
 
@@ -524,7 +526,7 @@ impl Delivery {
 
 所有 `mark_*` 先调用私有 `ensure_transition_allowed`。`Sent`、`Unknown`、`Skipped` 是终态；`Failed` 仅允许重试性失败再次迁移。`can_retry()` 只在 `Pending` 或带 retryable 标记的 `Failed` 上返回 `true`。
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run:
 
@@ -535,7 +537,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add crates/agentnotify-domain
@@ -556,7 +558,7 @@ git commit -m "feat(domain): 增加通知与投递状态机"
 - Consumes: Task 2 与 Task 3 的标识、时间和错误。
 - Produces: `RouteKey`、`ReplyRoute`、`InboundMessage`、`ClaimKey`、`InboundClaim`、`ClaimState`、`ClaimOutcome`。
 
-- [ ] **Step 1: 写精确路由测试**
+- [x] **Step 1: 写精确路由测试**
 
 ```rust
 use agentnotify_domain::{
@@ -596,7 +598,7 @@ fn fallback_claim_key_is_deterministic_without_message_id() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -606,7 +608,7 @@ cargo test -p agentnotify-domain --test routing
 
 Expected: FAIL，`InboundMessage::without_external_id` 或 `ClaimKey` 不存在。
 
-- [ ] **Step 3: 实现路由与 Claim 领域规则**
+- [x] **Step 3: 实现路由与 Claim 领域规则**
 
 `RouteKey` 必须是 `Hash + Eq`，字段为三个强类型 ID。`ReplyRoute::is_active(now)` 要求 `now < expires_at`，过期时返回 `DomainError::RouteExpired`，不返回“最近可用路由”。
 
@@ -637,7 +639,7 @@ pub struct InboundMessage {
 
 `InboundClaim` 状态为 `InProgress`、`Completed`、`Failed`、`Unknown`。`ClaimOutcome` 为 `Acquired(InboundClaim)` 或 `AlreadyClaimed { state, updated_at }`。一旦记录已存在，任何状态都不允许重新执行 Agent。
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run:
 
@@ -648,7 +650,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add crates/agentnotify-domain
@@ -672,7 +674,7 @@ git commit -m "feat(domain): 增加精确回复路由与入站 Claim"
 - Consumes: `agentnotify-domain`。
 - Produces: `AgentDescriptor`、`AgentCapabilities`、`AgentHealth`、`AgentEventEnvelope`、`NormalizedAgentEvent`、`ResumeReceipt`、`AgentError`、`AgentAdapter`、`AgentRegistry`、`assert_agent_contract`。
 
-- [ ] **Step 1: 写注册表与契约失败测试**
+- [x] **Step 1: 写注册表与契约失败测试**
 
 ```rust
 #[tokio::test]
@@ -692,7 +694,7 @@ async fn adapter_contract_rejects_empty_resume_text() {
 
 `FakeAgent` 放在测试文件内，返回稳定 descriptor，并在 `text.trim().is_empty()` 时返回 `AgentError::InvalidInput`。
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -702,7 +704,7 @@ cargo test -p agentnotify-agent-sdk --test registry --test contract
 
 Expected: FAIL，SDK 类型未定义。
 
-- [ ] **Step 3: 实现 SDK**
+- [x] **Step 3: 实现 SDK**
 
 公开接口保持：
 
@@ -737,7 +739,7 @@ pub trait AgentAdapter: Send + Sync {
 - 未知事件返回 `AgentError::InvalidEvent`，不 panic。
 - contract 不访问真实用户目录、网络或 Agent 客户端。
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run:
 
@@ -748,7 +750,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add crates/agentnotify-agent-sdk
@@ -775,7 +777,7 @@ git commit -m "feat(agent-sdk): 增加 Agent 协议与契约测试"
 - Produces: `ChannelDescriptor`、`ChannelCapabilities`、`InboundMode`、`ChannelAccount`、`SecretRef`、`ChannelHealth`、`OutboundMessage`、`DeliveryReceipt`、`ChannelError`、`ChannelTask`、`InboundEmitter`、`ChannelAdapter`、`ChannelRegistry`、`assert_channel_contract`。
 - Produces: `LoginSessionId`、`LoginSessionState`、`LoginSession`、`BeginLoginRequest`、`ChannelLoginAdapter`。
 
-- [ ] **Step 1: 写多账号与 Unknown 契约测试**
+- [x] **Step 1: 写多账号与 Unknown 契约测试**
 
 ```rust
 #[tokio::test]
@@ -813,7 +815,7 @@ async fn login_adapter_rejects_empty_verification_code() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -824,7 +826,7 @@ cargo test -p agentnotify-channel-sdk --test login
 
 Expected: FAIL，Channel SDK 类型未定义。
 
-- [ ] **Step 3: 实现 Channel SDK**
+- [x] **Step 3: 实现 Channel SDK**
 
 ```rust
 pub type InboundEmitter = tokio::sync::mpsc::Sender<InboundMessage>;
@@ -901,7 +903,7 @@ pub enum ChannelError {
 - 成功回执的 `state` 可以是 `Sent`、显式 `Unknown` 或带安全原因的 `Skipped`；`Sent` 且声明 `reply_routing` 时必须有稳定 `external_message_id`。
 - 声明支持登录的适配器必须拒绝空配对码，并且取消后不允许继续使用该 session ID。
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run:
 
@@ -912,7 +914,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add crates/agentnotify-channel-sdk
@@ -947,7 +949,7 @@ git commit -m "feat(channel-sdk): 增加渠道协议与多账号契约"
 - Produces: `Clock`、`IngestStore`、`DeliveryStore`、`RouteStore`、`ClaimStore`、`StatusStore`、`EventSink`、`ApplicationError`、`FakeClock`、`MemoryStore`、`FakeAgent`、`FakeChannel`。
 - Produces: `ChannelAccountStore`、`SecretStore`、`SecretKind`、`SecretValue` 和对应的内存测试实现。
 
-- [ ] **Step 1: 写仓储契约测试**
+- [x] **Step 1: 写仓储契约测试**
 
 ```rust
 #[tokio::test]
@@ -980,7 +982,7 @@ async fn claim_store_never_returns_acquired_twice() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -990,7 +992,7 @@ cargo test -p agentnotify-testkit --test store_contract
 
 Expected: FAIL，端口与内存实现未定义。
 
-- [ ] **Step 3: 实现端口**
+- [x] **Step 3: 实现端口**
 
 端口使用 `async_trait`，错误使用 `StoreError`，不得直接暴露 `rusqlite::Error`。核心签名：
 
@@ -1069,11 +1071,11 @@ pub trait SecretStore: Send + Sync {
 
 `ClaimStore::claim` 在一个原子操作中插入或返回已有状态；`StatusStore` 返回可序列化 DTO；`EventSink` 只发布脱敏后的状态快照。
 
-- [ ] **Step 4: 实现内存测试工具**
+- [x] **Step 4: 实现内存测试工具**
 
 `FakeClock` 支持 `advance(Duration)`；`MemoryStore` 使用 `tokio::sync::RwLock`，所有集合按 ID 排序；`FakeAgent` 可配置成功、失败、Unknown 和延迟；`FakeChannel` 可配置每账号回执、失败分类和入站消息序列。测试工具不得依赖 Windows、网络或真实时间。
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run:
 
@@ -1084,7 +1086,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add crates/agentnotify-application crates/agentnotify-testkit
@@ -1105,7 +1107,7 @@ git commit -m "feat(application): 定义端口与内存测试工具"
 - Consumes: Task 7 的端口。
 - Produces: `SqliteStore::open(path)`、`run_migrations(&mut Connection)`、`schema_version(&Connection)`。
 
-- [ ] **Step 1: 写迁移与约束测试**
+- [x] **Step 1: 写迁移与约束测试**
 
 ```rust
 #[test]
@@ -1125,7 +1127,7 @@ fn migration_creates_required_tables_and_enables_wal() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1135,7 +1137,7 @@ cargo test -p agentnotify-storage-sqlite --test migrations
 
 Expected: FAIL，`SqliteStore::open` 不存在。
 
-- [ ] **Step 3: 编写首个迁移**
+- [x] **Step 3: 编写首个迁移**
 
 `0001_init.sql` 必须完整创建以下核心内容：
 
@@ -1257,7 +1259,7 @@ CREATE INDEX idx_outbox_ready ON outbox(state, available_at, created_at);
 
 `migrations.rs` 在单个事务中执行迁移，并保存 SQL 文件的 SHA-256 到 `schema_migrations`。若已应用版本的 checksum 与文件不一致，`migrate()` 返回 `StoreError::MigrationChecksumMismatch`，不得自动修复。
 
-- [ ] **Step 4: 配置连接与测试通过**
+- [x] **Step 4: 配置连接与测试通过**
 
 `SqliteStore::open` 必须设置：
 
@@ -1277,7 +1279,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS，journal mode 为 `wal`。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add crates/agentnotify-storage-sqlite
@@ -1301,7 +1303,7 @@ git commit -m "feat(storage): 增加 SQLite 初始迁移"
 - Consumes: Task 8 的 schema。
 - Produces: 所有 application port 的 SQLite 实现，以及 `SqliteStore` 对 `IngestStore`、`DeliveryStore`、`RouteStore`、`ClaimStore`、`StatusStore` 的实现。
 
-- [ ] **Step 1: 写事务与并发 Claim 测试**
+- [x] **Step 1: 写事务与并发 Claim 测试**
 
 ```rust
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1333,7 +1335,7 @@ fn sent_delivery_and_route_commit_in_one_transaction() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1343,7 +1345,7 @@ cargo test -p agentnotify-storage-sqlite --test repositories
 
 Expected: FAIL，仓储方法未实现。
 
-- [ ] **Step 3: 实现同步 SQLite 与异步端口适配**
+- [x] **Step 3: 实现同步 SQLite 与异步端口适配**
 
 `rusqlite::Connection` 不跨线程共享。`SqliteStore` 持有 `Database` 调度器：后台专用线程拥有连接，命令通过有界 `tokio::sync::mpsc` 发送，响应通过 `oneshot` 返回。`open` 在返回前完成迁移。
 
@@ -1359,7 +1361,7 @@ Expected: FAIL，仓储方法未实现。
 
 不得在端口 trait 中暴露 `Connection`、`Transaction` 或 SQL 字符串。
 
-- [ ] **Step 4: 运行测试并确认通过**
+- [x] **Step 4: 运行测试并确认通过**
 
 Run:
 
@@ -1370,7 +1372,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS，并发 Claim 恰好一个成功。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add crates/agentnotify-storage-sqlite
@@ -1391,7 +1393,7 @@ git commit -m "feat(storage): 实现事务型 SQLite 仓储"
 - Consumes: Agent SDK、`IngestStore`、`Clock`、`IdGenerator`、通知策略设置。
 - Produces: `PolicyDecision`、`SkipReason`、`IngestService::ingest(AgentEventEnvelope) -> Result<IngestResult, IngestError>`、`IngestResult::{Queued, Duplicate, Skipped}`。
 
-- [ ] **Step 1: 写去重与策略测试**
+- [x] **Step 1: 写去重与策略测试**
 
 ```rust
 #[tokio::test]
@@ -1414,7 +1416,7 @@ async fn quiet_hours_skip_produces_notification_without_outbox() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1424,7 +1426,7 @@ cargo test -p agentnotify-application --test ingest
 
 Expected: FAIL，`IngestService` 不存在。
 
-- [ ] **Step 3: 实现策略**
+- [x] **Step 3: 实现策略**
 
 `NotificationPolicy::evaluate(&PolicyInput) -> PolicyDecision` 按顺序判断：
 
@@ -1437,7 +1439,7 @@ Expected: FAIL，`IngestService` 不存在。
 
 策略是纯函数，接收 `now`、设置和最近通知时间，不读取系统时钟或数据库。
 
-- [ ] **Step 4: 实现 IngestService**
+- [x] **Step 4: 实现 IngestService**
 
 固定流程：
 
@@ -1452,7 +1454,7 @@ Expected: FAIL，`IngestService` 不存在。
 
 IngestService 不调用任何渠道，不执行网络请求。所有错误都必须带稳定 code 和中文 message。
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run:
 
@@ -1463,7 +1465,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add crates/agentnotify-application
@@ -1484,7 +1486,7 @@ git commit -m "feat(application): 实现通知策略与事务型入站"
 - Consumes: `DeliveryStore`、`RouteStore`、`ChannelRegistry`、`Clock`、`IdGenerator`。
 - Produces: `DeliveryService::process_next() -> Result<ProcessOutcome, DeliveryError>`、`RetryPolicy::next_attempt(attempt, kind, now) -> Option<Timestamp>`。
 
-- [ ] **Step 1: 写重试边界测试**
+- [x] **Step 1: 写重试边界测试**
 
 ```rust
 #[test]
@@ -1506,7 +1508,7 @@ fn retryable_uses_bounded_exponential_backoff() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1516,11 +1518,11 @@ cargo test -p agentnotify-application --test delivery
 
 Expected: FAIL，`RetryPolicy` 不存在。
 
-- [ ] **Step 3: 实现重试策略**
+- [x] **Step 3: 实现重试策略**
 
 默认最多尝试 8 次，基础退避 5 秒，指数上限 5 分钟，加入 0–20% 抖动。`Permanent`、`Unknown`、`Sent`、`Skipped` 均返回 `None`。`Retry-After` 存在时取“渠道建议值”和“指数退避值”的较大者，并受 15 分钟上限约束。
 
-- [ ] **Step 4: 实现投递流程**
+- [x] **Step 4: 实现投递流程**
 
 `process_next` 使用租约处理一条 Outbox：
 
@@ -1539,7 +1541,7 @@ Expected: FAIL，`RetryPolicy` 不存在。
 
 渠道适配器 panic 不得带崩 worker：runtime 在任务边界捕获 JoinError，将该 Outbox 置 `Unknown`，不重试并写 host error 日志。
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run:
 
@@ -1550,7 +1552,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add crates/agentnotify-application
@@ -1570,7 +1572,7 @@ git commit -m "feat(application): 实现可靠投递与未知结果语义"
 - Consumes: `ClaimStore`、`RouteStore`、Agent Registry、Channel Registry、`Clock`。
 - Produces: `ReplyService::handle(InboundMessage) -> Result<ReplyOutcome, ReplyError>`、`ReplyOutcome::{Accepted, AlreadyClaimed, Rejected}`。
 
-- [ ] **Step 1: 写拒绝与 Claim 测试**
+- [x] **Step 1: 写拒绝与 Claim 测试**
 
 ```rust
 #[tokio::test]
@@ -1597,7 +1599,7 @@ async fn duplicate_inbound_is_not_submitted_twice() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1607,7 +1609,7 @@ cargo test -p agentnotify-application --test reply
 
 Expected: FAIL，`ReplyService` 不存在。
 
-- [ ] **Step 3: 实现严格处理顺序**
+- [x] **Step 3: 实现严格处理顺序**
 
 流程固定为：
 
@@ -1624,13 +1626,13 @@ Expected: FAIL，`ReplyService` 不存在。
 
 `AgentError::Unknown` 写 Claim `Unknown`；绝不重试。成功回执只能表示“已接纳到 Agent 队列”，不能表示 Agent 已完成回答。
 
-- [ ] **Step 4: 可选送达确认与拒绝提示**
+- [x] **Step 4: 可选送达确认与拒绝提示**
 
 当设置为开启时，ReplyService 通过同一渠道适配器发送 `MessagePurpose::ReplyConfirmation`。确认发送失败不改变已成功的 Claim，只写 tracing 和 StatusStore 的最近错误。确认消息不得写入 ReplyRoute。
 
 已 Claim 的拒绝（无可用路由、引用冲突，以及 Agent 缺失、不支持、失败或结果未确认）通过同一渠道发送 `MessagePurpose::ReplyRejection`，内容必须是绑定私聊里可读的原因；发送失败只写 tracing 和 StatusStore，不改变 Claim 终态，也不重试。账号、发送者或会话未通过绑定校验的拒绝不得回发提示，避免把内部原因暴露给非绑定用户。拒绝提示不得写入 ReplyRoute。
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run:
 
@@ -1641,7 +1643,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS，重复消息只调用 Agent 一次。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add crates/agentnotify-application
@@ -1667,7 +1669,7 @@ git commit -m "feat(application): 实现精确引用回复与至多一次 Claim"
 - Produces: `AppRuntime::start(config) -> Result<RuntimeHandle, RuntimeError>`、`RuntimeHandle::shutdown()`、`RuntimeSnapshot`、`StatusService::snapshot()`。
 - Produces: `init_telemetry`、脱敏 tracing layer，以及 `ingest`、`delivery`、`reply`、`host` span 约定。
 
-- [ ] **Step 1: 写启动、故障隔离与关闭测试**
+- [x] **Step 1: 写启动、故障隔离与关闭测试**
 
 ```rust
 #[tokio::test]
@@ -1690,7 +1692,7 @@ async fn shutdown_waits_for_outbox_checkpoint() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1700,7 +1702,7 @@ cargo test -p agentnotify-runtime --test runtime
 
 Expected: FAIL，runtime 不存在。
 
-- [ ] **Step 3: 实现 runtime 装配**
+- [x] **Step 3: 实现 runtime 装配**
 
 `AppRuntime::start` 顺序：
 
@@ -1713,7 +1715,7 @@ Expected: FAIL，runtime 不存在。
 
 每个后台任务由 supervisor 监督。单任务 panic 或明确失败只标记该组件状态，不取消其他渠道；数据库损坏或 SecretStore 不可用属于致命错误，停止 runtime 并返回中文错误。
 
-- [ ] **Step 4: 实现状态快照与关闭**
+- [x] **Step 4: 实现状态快照与关闭**
 
 `RuntimeSnapshot` 只包含稳定 DTO：应用版本、平台、runtime 状态、Agent 状态列表、渠道账号状态列表、最近投递摘要和诊断项。不得包含密钥、token、完整 prompt、Agent 正文或渠道原始响应。
 
@@ -1735,7 +1737,7 @@ Expected: FAIL，runtime 不存在。
 
 脱敏层递归替换 `token`、`secret`、`authorization`、`cookie`、`context_token` 和消息正文字段。单元测试用敏感夹具写入日志，断言磁盘文件中不存在原值。
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run:
 
@@ -1746,7 +1748,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS，关闭后数据库完整性检查通过。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add crates/agentnotify-application crates/agentnotify-runtime
@@ -1772,7 +1774,7 @@ git commit -m "feat(runtime): 增加状态快照与后台任务监督"
 - Consumes: `AgentEventEnvelope` 与 `RuntimeHandle`。
 - Produces: `agentnotify-ingress.exe`、`IngressEvent::parse(bytes) -> Result<AgentEventEnvelope, IngressError>`、`Spool::write_event(&AgentEventEnvelope)`、`Spool::drain_batch(limit)`。
 
-- [ ] **Step 1: 写协议和 spool 测试**
+- [x] **Step 1: 写协议和 spool 测试**
 
 ```rust
 #[test]
@@ -1799,7 +1801,7 @@ fn spool_write_is_atomic_and_bounded() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1809,7 +1811,7 @@ cargo test -p agentnotify-ingress --test protocol --test spool
 
 Expected: FAIL，ingress 包不存在。
 
-- [ ] **Step 3: 实现协议**
+- [x] **Step 3: 实现协议**
 
 输入 JSON：
 
@@ -1841,7 +1843,7 @@ Expected: FAIL，ingress 包不存在。
 - payload 必须是对象；未知字段保留给适配器，不在入口层解释。
 - 协议错误退出码为 `2`，spool 容量错误为 `3`，IPC 不可达并成功入 spool 为 `0`。
 
-- [ ] **Step 4: 实现 spool**
+- [x] **Step 4: 实现 spool**
 
 默认路径由宿主注入的 `AppPaths.spool_dir` 决定。写入流程：
 
@@ -1854,7 +1856,7 @@ Expected: FAIL，ingress 包不存在。
 
 core 启动顺序必须在渠道启动前先 drain spool。成功 ingest 后删除文件；永久无效事件移动到 `spool/quarantine/` 并保留错误原因；临时数据库不可用时不删除。
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run:
 
@@ -1865,7 +1867,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add Cargo.toml apps/ingress crates/agentnotify-runtime
@@ -1888,7 +1890,7 @@ git commit -m "feat(ingress): 增加内部事件协议与持久化 spool"
 - Consumes: Task 14 的协议与 spool。
 - Produces: `LocalIpc::{serve, connect}` 的 Windows 实现、管道名生成器和当前用户 ACL。
 
-- [ ] **Step 1: 写管道名、ACL 与降级测试**
+- [x] **Step 1: 写管道名、ACL 与降级测试**
 
 ```rust
 #[cfg(windows)]
@@ -1916,7 +1918,7 @@ async fn client_spools_when_pipe_is_unavailable() {
 }
 ```
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [x] **Step 2: 运行测试并确认失败**
 
 Run:
 
@@ -1927,7 +1929,7 @@ cargo test -p agentnotify-ingress --test ipc_fallback
 
 Expected: FAIL，Windows IPC 未实现。
 
-- [ ] **Step 3: 实现当前用户命名管道**
+- [x] **Step 3: 实现当前用户命名管道**
 
 - 管道名：`\\.\pipe\agentnotify-v1-<sha256(current_user_sid)[0..16]>`。
 - 服务端：`PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_REJECT_REMOTE_CLIENTS`，单消息最大 256 KiB。
@@ -1937,7 +1939,7 @@ Expected: FAIL，Windows IPC 未实现。
 - 解析错误返回机器错误码；不能把原始恶意输入写进日志。
 - 服务端不接收 shell、文件路径、管理动作或其他 RPC 方法。
 
-- [ ] **Step 4: 实现 ingress 快速降级**
+- [x] **Step 4: 实现 ingress 快速降级**
 
 `agentnotify-ingress.exe` 只执行：
 
@@ -1949,7 +1951,7 @@ Expected: FAIL，Windows IPC 未实现。
 6. 输入协议错误退出 `2`；spool 超过限制退出 `3`。
 7. 全程不分配控制台窗口，不实现帮助页和状态查询子命令。
 
-- [ ] **Step 5: 运行测试并确认通过**
+- [x] **Step 5: 运行测试并确认通过**
 
 Run:
 
@@ -1961,7 +1963,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 
 Expected: PASS，管道 ACL 测试确认没有远程或全局用户权限。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add apps/ingress crates/agentnotify-runtime
@@ -1982,7 +1984,7 @@ git commit -m "feat(ingress): 增加当前用户 Windows 命名管道"
 - Consumes: 前 15 个任务全部接口。
 - Produces: 阶段 A 验收证据、测试命令和已知限制。
 
-- [ ] **Step 1: 写完整假渠道闭环测试**
+- [x] **Step 1: 写完整假渠道闭环测试**
 
 ```rust
 #[tokio::test]
@@ -2004,7 +2006,7 @@ async fn fake_agent_to_fake_channel_creates_exact_reply_route() {
 }
 ```
 
-- [ ] **Step 2: 写崩溃、重启和未知结果测试**
+- [x] **Step 2: 写崩溃、重启和未知结果测试**
 
 测试必须覆盖：
 
@@ -2014,7 +2016,7 @@ async fn fake_agent_to_fake_channel_creates_exact_reply_route() {
 - 重复 ingress 事件和重复引用消息不产生第二次副作用。
 - SQLite 损坏或迁移 checksum 不匹配时 runtime 启动失败，并给出中文诊断。
 
-- [ ] **Step 3: 运行全部核心门禁**
+- [x] **Step 3: 运行全部核心门禁**
 
 Run:
 
@@ -2025,7 +2027,7 @@ cargo test -p agentnotify-testkit --test full_flow --test restart_recovery --tes
 
 Expected: 全部 PASS；测试输出中没有 token、正文快照或明文凭据。
 
-- [ ] **Step 4: 记录验收结果**
+- [x] **Step 4: 记录验收结果**
 
 在 `docs/superpowers/specs/2026-09-19-rust-core-acceptance.md` 记录：
 
@@ -2038,7 +2040,7 @@ Expected: 全部 PASS；测试输出中没有 token、正文快照或明文凭�
 
 不得把“测试通过”描述为真实微信或真实 Agent 已验收。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add crates/agentnotify-testkit docs/superpowers/specs/2026-09-19-rust-core-acceptance.md
