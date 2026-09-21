@@ -485,6 +485,61 @@ async fn runtime_restarts_repeatedly_and_maintains_running_state() {
 }
 
 #[tokio::test]
+async fn quit_app_checkpoints_wal_and_stops_runtime() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-quit-checkpoint-test-");
+    let (coordinator, service) = bootstrap_headless(paths.clone(), secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let notification_id = NotificationId::new("notif-quit-1").unwrap();
+    let notification = Notification::new(
+        notification_id.clone(),
+        "event-quit-1".to_string(),
+        AgentId::new("opencode").unwrap(),
+        Some(AgentSessionId::new("session-quit-1").unwrap()),
+        Some("退出检查点".to_string()),
+        "退出检查点",
+        "正文",
+        Timestamp::now_utc(),
+        NotificationMetadata::default(),
+    )
+    .unwrap();
+    store
+        .commit_ingest(
+            notification,
+            vec![OutboxItem::pending(
+                "outbox-quit-1".to_string(),
+                notification_id,
+                Timestamp::now_utc(),
+            )],
+        )
+        .await
+        .expect("提交通知记录成功");
+
+    let wal_path = paths.data_dir.join("state.db-wal");
+    assert!(wal_path.exists(), "运行时持锁期间应存在 WAL 文件");
+
+    service
+        .quit_app(EmptyPayload {})
+        .await
+        .expect("退出命令必须成功");
+
+    // Headless 退出必须同步完成运行时关闭与 WAL checkpoint，回滚窗口依赖这一语义。
+    let wal_len = std::fs::metadata(&wal_path)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    assert_eq!(wal_len, 0, "退出后 WAL 必须被截断");
+    assert!(
+        store.integrity_check().await.unwrap(),
+        "退出后数据库必须完整"
+    );
+    assert!(
+        coordinator.current_snapshot().await.is_none(),
+        "退出后运行时不应仍然可访问"
+    );
+}
+
+#[tokio::test]
 async fn retry_delivery_reloads_and_returns_latest_delivery_record() {
     let (_root, paths, store, secret_store) = create_test_env("agentnotify-delivery-retry-test-");
 

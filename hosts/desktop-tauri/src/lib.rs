@@ -125,6 +125,15 @@ fn schedule_smoke_exit(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        // smoke 退出必须与托盘退出走同一条优雅关闭路径，否则 SQLite 不会完成 checkpoint。
+        let controller = app
+            .try_state::<LifecycleController>()
+            .map(|state| state.inner().clone());
+        if let Some(controller) = controller {
+            if let Err(error) = controller.shutdown_for_quit().await {
+                tracing::warn!(code = error.code(), "smoke 退出时关闭运行时失败");
+            }
+        }
         app.exit(0);
     });
 }
