@@ -60,6 +60,21 @@ async fn write_result(inbox: &OpenCodeReplyInbox, job_id: &str, ok: bool, error:
     .unwrap();
 }
 
+/// 认领一个任务并返回运行时实际写出的 JSON 原文，随后写出成功结果让 resume 返回。
+async fn capture_job_json(inbox: &OpenCodeReplyInbox) -> String {
+    let job_id = claim_pending_once(inbox).await;
+    let raw = tokio::fs::read_to_string(
+        inbox
+            .root()
+            .join("processing")
+            .join(format!("{job_id}.json")),
+    )
+    .await
+    .unwrap();
+    write_result(inbox, &job_id, true, "").await;
+    raw
+}
+
 #[tokio::test]
 async fn timeout_is_unknown_and_job_is_not_replayed() {
     let (_temp, inbox) = ready_inbox().await;
@@ -137,19 +152,7 @@ async fn job_payload_uses_plugin_field_names() {
     let adapter = agentnotify_agent_opencode::OpenCodeAgent::new(inbox.clone());
     let reader = tokio::spawn({
         let inbox = inbox.clone();
-        async move {
-            let job_id = claim_pending_once(&inbox).await;
-            let raw = tokio::fs::read_to_string(
-                inbox
-                    .root()
-                    .join("processing")
-                    .join(format!("{job_id}.json")),
-            )
-            .await
-            .unwrap();
-            write_result(&inbox, &job_id, true, "").await;
-            raw
-        }
+        async move { capture_job_json(&inbox).await }
     });
 
     adapter
@@ -173,4 +176,60 @@ async fn job_payload_uses_plugin_field_names() {
     assert!(object.get("expiresAt").is_some());
     assert!(object.get("id").is_some());
     assert!(object.get("text").is_some());
+}
+
+/// 运行时写出的每个字段都必须由插件接口声明。这条断言直接读插件源码里的 `ReplyJob`，
+/// 因此任何单侧改名（例如把 `sessionID` 写成 `sessionId`）都会当场失败——
+/// 两侧各自的单元测试都发现不了这类跨语言漂移，真实链路曾因此整条失败。
+#[tokio::test]
+async fn runtime_job_fields_are_declared_by_plugin_interface() {
+    let (_temp, inbox) = ready_inbox().await;
+    let session_id = AgentSessionId::new("session-1").unwrap();
+    let adapter = agentnotify_agent_opencode::OpenCodeAgent::new(inbox.clone());
+    let reader = tokio::spawn({
+        let inbox = inbox.clone();
+        async move { capture_job_json(&inbox).await }
+    });
+
+    adapter
+        .resume_with_timeout(&session_id, "继续处理", Duration::from_secs(2))
+        .await
+        .unwrap();
+
+    let raw = reader.await.unwrap();
+    let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let runtime_fields: Vec<&str> = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+
+    let plugin_source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("plugin")
+            .join("rust")
+            .join("agent-notify.ts"),
+    )
+    .expect("插件源码必须可读");
+    let interface = plugin_source
+        .split("interface ReplyJob {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect("插件必须声明 ReplyJob 接口");
+    let plugin_fields: Vec<&str> = interface
+        .lines()
+        .filter_map(|line| line.trim().split(':').next())
+        .map(|name| name.trim().trim_end_matches('?'))
+        .filter(|name| !name.is_empty())
+        .collect();
+
+    for field in &runtime_fields {
+        assert!(
+            plugin_fields.contains(field),
+            "插件 ReplyJob 未声明运行时写出的字段 {field}；插件声明的是 {plugin_fields:?}"
+        );
+    }
 }

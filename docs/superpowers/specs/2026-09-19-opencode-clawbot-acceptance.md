@@ -1,7 +1,7 @@
 # OpenCode + ClawBot 真实闭环验收记录
 
 - 状态：**未通过（进行中）**
-- 最近更新：2026-09-21 18:25（Asia/Shanghai）
+- 最近更新：2026-09-21 18:45（Asia/Shanghai）
 - 对应计划：`docs/superpowers/plans/2026-09-19-production-loop-migration-cutover-implementation.md` Task 9
 
 任何一项真实链路未通过前，阶段状态保持“未通过”，不得进入正式切换。
@@ -397,6 +397,19 @@
 **修复前对照**：同一路径在 17:17:32 与 09:08:42 两次都以 `{"ok":false,"error":"引用回复任务字段不完整"}` 结束，Claim 为 `Failed`，微信端收到「无法续聊：发送到 Agent 失败（引用回复任务字段不完整）」。
 
 **工具链说明**：本节证据由直读 OpenCode 会话库（`%USERPROFILE%\.local\share\opencode\opencode.db`，v2 表 `session_v2` / `session_message`）取得。探针的 `-Mode LocateReply` / `VerifyReply` 依赖 `opencode session export`，该子命令由 OpenCode **桌面端自带的** CLI 提供（`%APPDATA%\ai.opencode.desktop\cli\<版本>\opencode-cli.exe`）；探针现已自动解析最新版本目录（`cf1d084`），不再写死版本号。
+
+**契约审计（2026-09-21 18:40）**：对插件与运行时之间的全部跨边界 JSON 契约做了一次系统审计——入口事件、任务文件（`pending` / `processing`）、结果文件（`results`）、心跳（`heartbeats`）以及四个目录常量，**除已修复的 `sessionID` 外全部匹配**，未发现第二处漂移。
+
+为防止同类问题复发，新增跨语言契约测试 `runtime_job_fields_are_declared_by_plugin_interface`：它直接读取插件源码里的 `ReplyJob` 接口，比对运行时实际写出的字段——任一侧改名都会当场失败。**已做反向验证**：临时移除 `#[serde(rename = "sessionID")]` 后，该测试与 `job_payload_uses_plugin_field_names` 同时失败，确认守护有效。
+
+### 待人工确认项（回到机器后可直接执行）
+
+| 项 | 对应步骤 | 需要做什么 | 大约耗时 |
+| --- | --- | --- | --- |
+| 渠道失效提示的界面文案 | Step 5 | 打开桌面端 → 「渠道」页 → 看账号状态标签与明细文案是否为「状态已过期」+「ClawBot 会话已失效，请重新扫码或发送消息恢复」。触发条件需账号处于 `stale` 状态，可在隔离副本里设置 `stale_at` 后启动隔离实例查看（不要动生产库） | 3 分钟 |
+| `ret=-14` / `ret=-2` 的真实平台响应 | Step 5 | 需在隔离实例里制造（不能用唯一生产账号清 token）。离线用例已覆盖处理链路，缺的只是界面展示 | 10 分钟 |
+| 托盘「退出」 | Step 6 | 右键托盘图标 → 「退出」，观察托盘图标消失、进程退出、`state.db-wal` 为 0 字节 | 1 分钟 |
+| 重复投递不重复执行 | Step 4 第 5 项 | 已有单测证据；若要在微信端复测，需平台重投同一条入站消息 | 5 分钟 |
 
 ## 已知限制与待补项
 
