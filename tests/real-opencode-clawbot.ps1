@@ -11,10 +11,11 @@
     Status       输出指定会话最近的推送、路由和 Claim 证据。
     Send         通过 ingress 提交一条测试事件，并等待 Delivery 终态。
     VerifyReply  等待引用回复 Claim 完成，并确认回复文本已进入 OpenCode 会话。
+    Prepare      建立隔离验收目录并输出启动参数，不读取也不修改生产数据。
 #>
 [CmdletBinding()]
 param(
-  [ValidateSet('Status', 'Send', 'VerifyReply')]
+  [ValidateSet('Prepare', 'Status', 'Send', 'VerifyReply')]
   [string]$Mode = 'Status',
   [string]$SessionId = '',
   [string]$ReplyText = 'AGENT_NOTIFY_REPLY_OK',
@@ -24,6 +25,8 @@ param(
   [string]$OpenCodeCli = '',
   [string]$Sqlite3 = '',
   [string]$TargetAccountId = '',
+  [switch]$InstallPlugin,
+  [switch]$UseProductionDataDir,
   [int]$TimeoutSeconds = 180
 )
 
@@ -61,6 +64,110 @@ if ([string]::IsNullOrWhiteSpace($Sqlite3)) {
     (Get-Command sqlite3.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
     (Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\sqlite3.exe')
   )
+}
+
+$repositoryRoot = Split-Path $PSScriptRoot -Parent
+$productionDataDir = Join-Path $env:LOCALAPPDATA 'AgentNotify\data'
+$openCodePluginPath = Join-Path $env:USERPROFILE '.config\opencode\plugins\agent-notify.ts'
+$previewDesktopExe = Resolve-FirstLeaf @(
+  (Join-Path $env:LOCALAPPDATA 'Programs\AgentNotify-Rust-Preview\agentnotify-desktop.exe'),
+  'D:\app\AgentNotify-Rust-Preview\agentnotify-desktop.exe'
+)
+
+function Get-IsolatedRoots {
+  param([string]$RequestedDataDir)
+
+  $dataDir = $env:AGENT_NOTIFY_DATA_DIR
+  if ([string]::IsNullOrWhiteSpace($dataDir)) { $dataDir = $RequestedDataDir }
+  if ([string]::IsNullOrWhiteSpace($dataDir)) {
+    throw 'Prepare 模式需要隔离根目录：先设置 AGENT_NOTIFY_DATA_DIR，或传入 -DataDir。'
+  }
+
+  $resolvedData = [IO.Path]::GetFullPath($dataDir)
+  $root = Split-Path $resolvedData -Parent
+  $configDir = $env:AGENT_NOTIFY_CONFIG_DIR
+  if ([string]::IsNullOrWhiteSpace($configDir)) { $configDir = Join-Path $root 'config' }
+  $logDir = $env:AGENT_NOTIFY_LOG_DIR
+  if ([string]::IsNullOrWhiteSpace($logDir)) { $logDir = Join-Path $root 'logs' }
+  $spoolDir = $env:AGENT_NOTIFY_SPOOL_DIR
+  if ([string]::IsNullOrWhiteSpace($spoolDir)) { $spoolDir = Join-Path $root 'spool' }
+
+  return [pscustomobject]@{
+    Root = $root
+    Config = [IO.Path]::GetFullPath($configDir)
+    Data = $resolvedData
+    Log = [IO.Path]::GetFullPath($logDir)
+    Spool = [IO.Path]::GetFullPath($spoolDir)
+  }
+}
+
+# 插件模板把 ingress 绝对路径烘焙成 JS 字面量，这里反解出来与当前 ingress 对比。
+function Get-BakedPluginIngress {
+  param([string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+  $match = Select-String -LiteralPath $Path -Pattern '^const BAKED_INGRESS = "(.*)"\s*;?\s*$' | Select-Object -First 1
+  if (-not $match) { return '' }
+  return $match.Matches[0].Groups[1].Value.Replace('\\', '\')
+}
+
+if ($Mode -eq 'Prepare') {
+  $roots = Get-IsolatedRoots -RequestedDataDir $DataDir
+  $isProduction = $roots.Data.TrimEnd('\').Equals($productionDataDir.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)
+  if ($isProduction -and -not $UseProductionDataDir) {
+    throw "拒绝把生产数据目录当作隔离验收根目录：$productionDataDir。请先把 AGENT_NOTIFY_DATA_DIR 指向 D:\Temp 下的独立目录，确需使用生产目录时显式加 -UseProductionDataDir。"
+  }
+
+  foreach ($directory in @($roots.Config, $roots.Data, $roots.Log, $roots.Spool)) {
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+  }
+
+  if ($InstallPlugin) {
+    $pluginInstaller = Join-Path $repositoryRoot 'tools\hooks\install-opencode-v2.ps1'
+    $pluginSource = Join-Path $repositoryRoot 'plugin\rust\agent-notify.ts'
+    if (-not (Test-Path -LiteralPath $pluginInstaller -PathType Leaf)) { throw "找不到插件安装助手：$pluginInstaller" }
+    if (-not (Test-Path -LiteralPath $pluginSource -PathType Leaf)) { throw "找不到插件模板：$pluginSource" }
+    if ([string]::IsNullOrWhiteSpace($IngressPath)) { throw '安装插件需要 -IngressPath 指向 Rust ingress。' }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $pluginInstaller `
+      -Source $pluginSource `
+      -Destination $openCodePluginPath `
+      -Ingress $IngressPath
+    if ($LASTEXITCODE -ne 0) { throw "安装 OpenCode 插件失败 exit=$LASTEXITCODE" }
+  }
+
+  $pluginIngress = Get-BakedPluginIngress -Path $openCodePluginPath
+  $runningDesktop = @(Get-Process -Name 'agentnotify-desktop' -ErrorAction SilentlyContinue)
+  $isolatedDb = Join-Path $roots.Data 'state.db'
+
+  Write-Output 'prepare=READY'
+  Write-Output "acceptanceRoot=$($roots.Root)"
+  Write-Output "isolated=$(-not $isProduction)"
+  Write-Output "configDir=$($roots.Config)"
+  Write-Output "dataDir=$($roots.Data)"
+  Write-Output "logDir=$($roots.Log)"
+  Write-Output "spoolDir=$($roots.Spool)"
+  Write-Output "stateDbExists=$(Test-Path -LiteralPath $isolatedDb -PathType Leaf)"
+  Write-Output "ingressPath=$IngressPath"
+  if (Test-Path -LiteralPath $IngressPath -PathType Leaf) {
+    Write-Output "ingressSha256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $IngressPath).Hash)"
+  }
+  if ($previewDesktopExe) {
+    Write-Output "desktopExe=$previewDesktopExe"
+    Write-Output "desktopSha256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $previewDesktopExe).Hash)"
+  } else {
+    Write-Output 'desktopExe=MISSING'
+  }
+  Write-Output "pluginPath=$openCodePluginPath"
+  if ($pluginIngress) { Write-Output "pluginBakedIngress=$pluginIngress" } else { Write-Output 'pluginBakedIngress=UNKNOWN' }
+  Write-Output "pluginMatchesIngress=$(($pluginIngress -ne '') -and $pluginIngress.Equals($IngressPath, [StringComparison]::OrdinalIgnoreCase))"
+  Write-Output "runningDesktopInstances=$($runningDesktop.Count)"
+  Write-Output 'env:'
+  Write-Output "  `$env:AGENT_NOTIFY_CONFIG_DIR = '$($roots.Config)'"
+  Write-Output "  `$env:AGENT_NOTIFY_DATA_DIR = '$($roots.Data)'"
+  Write-Output "  `$env:AGENT_NOTIFY_LOG_DIR = '$($roots.Log)'"
+  Write-Output "  `$env:AGENT_NOTIFY_SPOOL_DIR = '$($roots.Spool)'"
+  Write-Output 'next=1) 退出正在运行的生产预览实例；2) 用上面的环境变量启动预览桌面程序；3) 在 Channels 中扫码绑定独立测试账号并先发一条消息建立会话；4) 再执行 -Mode Send。'
+  exit 0
 }
 
 $stateDb = Join-Path $DataDir 'state.db'

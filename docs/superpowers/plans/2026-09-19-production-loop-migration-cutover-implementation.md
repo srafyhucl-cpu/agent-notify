@@ -1003,11 +1003,18 @@ $env:AGENT_NOTIFY_CONFIG_DIR = 'D:\Temp\agentnotify-real-e2e\config'
 $env:AGENT_NOTIFY_DATA_DIR = 'D:\Temp\agentnotify-real-e2e\data'
 $env:AGENT_NOTIFY_LOG_DIR = 'D:\Temp\agentnotify-real-e2e\logs'
 $env:AGENT_NOTIFY_SPOOL_DIR = 'D:\Temp\agentnotify-real-e2e\spool'
-$env:AGENT_NOTIFY_OPENCODE_PLUGIN_DIR = 'D:\Temp\agentnotify-real-e2e\opencode-plugins'
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\real-opencode-clawbot.ps1 -Prepare
 ```
 
 必须使用独立 ClawBot 测试账号。如果无法提供第二条独立账号，不能把“向当前账号发送测试消息”记作隔离验收通过。
+
+`-Prepare` 会建立 `config`/`data`/`logs`/`spool`，校验 ingress 与预览桌面二进制并输出启动所需的环境变量，同时校验 OpenCode 插件烘焙的 ingress 路径是否与当前 ingress 一致；直接传生产数据目录会报错，确需时才加 `-UseProductionDataDir`。
+
+隔离约束：
+
+- OpenCode 插件路径由 OpenCode 固定为 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`，不存在按目录隔离的环境变量；`-InstallPlugin` 用当前 ingress 刷新该文件，内容一致时不产生变更。
+- 命名管道名由当前用户 SID 派生，同一用户下同时只能运行一个桌面实例；隔离验收前必须先退出生产预览实例。
+- `agentnotify-ingress.exe` 读取 `AGENT_NOTIFY_SPOOL_DIR`；若离线运行 OpenCode，需要让 OpenCode 进程继承同一组环境变量，否则事件会写入生产 spool。
 
 - [ ] **Step 3: 验收正常推送**
 
