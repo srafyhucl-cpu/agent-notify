@@ -1189,7 +1189,7 @@ git commit -m "release: 切换 Windows 正式入口到 Tauri 桌面版"
 - Consumes: `2.0.0` 正式包、上一稳定 Go 包、迁移后的 SQLite。
 - Produces: 一个明确版本窗口内的回滚流程和旧 UI 退出标准。
 
-- [ ] **Step 1: 写回滚 smoke**
+- [x] **Step 1: 写回滚 smoke**
 
 `rollback-smoke.ps1` 在隔离虚拟机或隔离用户目录中执行：
 
@@ -1211,7 +1211,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\rollback-smoke.ps1 -
 
 Expected: 在未编写隔离步骤前 FAIL；实现隔离路径和进程锁后 PASS。
 
-- [ ] **Step 3: 记录切换状态**
+- [x] **Step 3: 记录切换状态**
 
 `2026-09-19-windows-rust-cutover.md` 记录：
 
@@ -1222,7 +1222,7 @@ Expected: 在未编写隔离步骤前 FAIL；实现隔离路径和进程锁后 P
 - 已知问题与不支持的 Agent/渠道。
 - 回滚窗口只覆盖一个正式小版本；窗口结束前收集真实反馈。
 
-- [ ] **Step 4: 更新用户文档**
+- [x] **Step 4: 更新用户文档**
 
 README 必须改为：
 
@@ -1233,7 +1233,7 @@ README 必须改为：
 - 当前只支持 OpenCode + ClawBot，其他 Agent/渠道标为后续扩展。
 - 不宣传管理 CLI、MCP、macOS 或 HarmonyOS PC。
 
-- [ ] **Step 5: 结束回滚窗口后的条件**
+- [x] **Step 5: 结束回滚窗口后的条件**
 
 只有满足以下条件后，后续版本才能删除旧 Go UI 源代码和迁移兼容层：
 
