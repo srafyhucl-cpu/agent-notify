@@ -11,6 +11,7 @@
     Status       输出指定会话最近的推送、路由和 Claim 证据。
     Send         通过 ingress 提交一条测试事件，并等待 Delivery 终态。
     VerifyReply  等待引用回复 Claim 完成，并确认回复文本已进入 OpenCode 会话。
+                 传入 -OtherSessionId 时会额外确认对照会话没有收到同一文本。
     Prepare      建立隔离验收目录并输出启动参数，不读取也不修改生产数据。
 #>
 [CmdletBinding()]
@@ -18,6 +19,7 @@ param(
   [ValidateSet('Prepare', 'Status', 'Send', 'VerifyReply')]
   [string]$Mode = 'Status',
   [string]$SessionId = '',
+  [string]$OtherSessionId = '',
   [string]$ReplyText = 'AGENT_NOTIFY_REPLY_OK',
   [string]$ExternalMessageId = '',
   [string]$DataDir = '',
@@ -250,6 +252,17 @@ function Get-HashText {
   }
 }
 
+# session export 含完整正文，这里只在内存里匹配，不把正文写入输出或磁盘。
+function Test-OpenCodeSessionContains {
+  param([string]$TargetSessionId, [string]$Needle)
+
+  $export = @(& $OpenCodeCli session export $TargetSessionId 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    throw "导出 OpenCode 会话失败 sessionHash=$(Get-HashText $TargetSessionId) exit=$LASTEXITCODE"
+  }
+  return (($export -join "`n") -match [regex]::Escape($Needle))
+}
+
 function Wait-ForState {
   param(
     [scriptblock]$Query,
@@ -405,6 +418,15 @@ if ($Mode -eq 'VerifyReply') {
     throw 'VerifyReply 模式必须提供 -SessionId。'
   }
 
+  if ([string]::IsNullOrWhiteSpace($ReplyText)) {
+    throw 'VerifyReply 模式必须提供 -ReplyText。'
+  }
+
+  $hasControlSession = -not [string]::IsNullOrWhiteSpace($OtherSessionId)
+  if ($hasControlSession -and $OtherSessionId -eq $SessionId) {
+    throw '对照会话必须与目标会话不同：-OtherSessionId 不能等于 -SessionId。'
+  }
+
   $messageId = $ExternalMessageId
   if ([string]::IsNullOrWhiteSpace($messageId)) {
     $route = Get-LatestRoute $SessionId
@@ -443,13 +465,17 @@ if ($Mode -eq 'VerifyReply') {
   }
 
   # --sanitize 会把正文替换成占位符，无法证明回复落入会话；这里仅在内存里做未脱敏匹配。
-  $export = @(& $OpenCodeCli session export $SessionId 2>&1)
-  if ($LASTEXITCODE -ne 0) {
-    throw "导出 OpenCode 会话失败 exit=$LASTEXITCODE"
-  }
-  $exportText = $export -join "`n"
-  if ($exportText -notmatch [regex]::Escape($ReplyText)) {
+  if (-not (Test-OpenCodeSessionContains -TargetSessionId $SessionId -Needle $ReplyText)) {
     throw 'Claim 已完成，但 OpenCode 会话导出中没有找到验收回复文本。'
+  }
+
+  # 只有对照会话不含同一回复文本，才能证明引用路由没有串到其他会话。
+  $controlContainsReply = $false
+  if ($hasControlSession) {
+    $controlContainsReply = Test-OpenCodeSessionContains -TargetSessionId $OtherSessionId -Needle $ReplyText
+    if ($controlContainsReply) {
+      throw '对照会话同样包含验收回复文本，无法证明引用回复精确命中目标会话。'
+    }
   }
 
   Write-Output 'reply=PASS'
@@ -458,6 +484,15 @@ if ($Mode -eq 'VerifyReply') {
   Write-Output "claimState=$($claimParts[0])"
   Write-Output "claimUpdatedAt=$($claimParts[2])"
   Write-Output "replyTextHash=$(Get-HashText $ReplyText)"
+  Write-Output 'targetSessionContainsReply=true'
+  Write-Output "controlSessionChecked=$hasControlSession"
+  if ($hasControlSession) {
+    Write-Output "controlSessionHash=$(Get-HashText $OtherSessionId)"
+    Write-Output "controlSessionContainsReply=$controlContainsReply"
+  } else {
+    Write-Output 'controlSessionContainsReply=UNKNOWN'
+    Write-Output 'next=正式验收必须同时提供 -OtherSessionId，用于证明回复没有串入其他会话。'
+  }
   exit 0
 }
 
