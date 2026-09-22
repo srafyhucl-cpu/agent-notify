@@ -4,8 +4,9 @@
 `SHA256SUMS.txt` 与安装包同源下载，能同时被篡改；只有签名能把伪造者挡在外面。
 本仓库**已启用**代码签名（自签名证书 + 指纹锁定）：`gh secret list` 包含
 `AGENT_NOTIFY_SIGN_PFX_BASE64` / `AGENT_NOTIFY_SIGN_PFX_PASSWORD`，产物以 `UnknownError`
-状态签名，指纹为 `EDF9E283DF2407B318E65D59BB430FD546509ACD`。构建脚本会在发布前强制校验
-"已签名且指纹等于内置常量"（见 `tools/signature-common.ps1`），未签名或指纹不符直接失败。
+状态签名，指纹为 `EDF9E283DF2407B318E65D59BB430FD546509ACD`。构建脚本与发布门禁会在发布前强制校验
+"五个可执行文件与安装器都已签名且指纹等于内置常量"（见 `tools/signature-common.ps1` 与
+`tools/release-gate.ps1`），未签名或指纹不符直接失败。
 
 ## 1. 准备证书
 
@@ -28,9 +29,13 @@
 3. 在源码仓库 Settings → Secrets and variables → Actions 新建 secret，名称必须是
    `AGENT_NOTIFY_SIGNTOOL`，值为包装器路径或命令名。
 
-配置后构建会强制校验签名：主程序与安装器必须已签名，且签名者指纹必须等于客户端内置的
-`defaultSignatureThumbprint`，否则直接失败。这样既能挡住"secret 丢失导致静默发出未签名包"，
-也能挡住"换证书只改了 secret、忘了同步内置指纹"（后者会让 1.11+ 客户端报"签名者不匹配"而无法
+配置后构建会强制校验签名：五个可执行文件（`agentnotify-desktop.exe`、`agentnotify-ingress.exe`、
+`agentnotify-codex-hook.exe`、`agentnotify-antigravity-hook.exe`、`agentnotify-devin-hook.exe`）
+与安装器必须已签名，且签名者指纹必须等于客户端内置的 `defaultSignatureThumbprint`，否则直接失败。
+补发路径 `tools\publish-release.ps1`（编排在 `tools\release-gate.ps1`）会在上传前再校验一次：
+安装器签名、`SHA256SUMS.txt` 覆盖安装器与 ZIP 且哈希一致，以及 ZIP 内这五个程序的签名指纹；
+任一项不符都拒绝补发。这样既能挡住"secret 丢失导致静默发出未签名包"，
+也能挡住"换证书只改了 secret、忘了同步内置指纹"（后者会让客户端报"签名者不匹配"而无法
 自动更新自救）。Release workflow 另有一道前置步骤强制要求 `AGENT_NOTIFY_SIGN_PFX_BASE64` 存在，
 secret 被删除或改名时会在构建前直接失败，而不是发出未签名包。
 
@@ -54,8 +59,11 @@ secret 被删除或改名时会在构建前直接失败，而不是发出未签�
 3. `AGENT_NOTIFY_SIGNTOOL` 指向仓库自带的垫片脚本 `tools\sign-selfsigned.cmd`
    （它转发到 `sign-selfsigned.ps1`，按 `<tool> sign <file>` 约定签名，并在签名后立刻从证书存储清理；
    Inno Setup 无法直接执行 .ps1，所以必须用 .cmd）；
-4. 把指纹（去掉空格）填进 `internal/update/signature.go` 的 `defaultSignatureThumbprint`，
-   发一版之后所有客户端都会只信任这张证书；
+4. 把指纹（去掉空格）同时填进两处常量，保证发布门禁与客户端同一信任锚：
+   - Rust 客户端：`hosts/desktop-tauri/src/update/verify.rs` 的 `DEFAULT_SIGNATURE_THUMBPRINT`；
+   - 发布门禁来源：`internal/update/signature.go` 的 `defaultSignatureThumbprint`
+     （`tools\signature-common.ps1` 固定从这个文件读取期望指纹）。
+   两处一致后发一版，之后所有客户端都会只信任这张证书；
    - 本仓库当前已内置指纹：`EDF9E283DF2407B318E65D59BB430FD546509ACD`（2026-09-16 启用，2031-09-16 到期）；
    - CI 侧凭据在 GitHub secrets（`AGENT_NOTIFY_SIGN_PFX_BASE64` / `AGENT_NOTIFY_SIGN_PFX_PASSWORD`），
      Release workflow 检测到 PFX secret 后会自动把 `AGENT_NOTIFY_SIGNTOOL` 指向垫片脚本；
@@ -81,17 +89,25 @@ $env:AGENT_NOTIFY_SIGNATURE_THUMBPRINT = '<证书指纹>'
 ```powershell
 # 本地：对已下载的产物检查
 Get-AuthenticodeSignature -LiteralPath .\Agent-notify-Setup-vX.Y.Z.exe | Format-List Status, SignerCertificate
-Get-AuthenticodeSignature -LiteralPath .\Agent-notify-vX.Y.Z.zip  # ZIP 本身不签名，校验解压后的 exe
+Get-AuthenticodeSignature -LiteralPath .\Agent-notify-vX.Y.Z.zip  # ZIP 本身不签名，校验解压后的五个 exe
+
+# 发布门禁：校验安装器 + ZIP 内五个程序 + SHA256SUMS.txt 覆盖与哈希（只读，不上传）
+. .\tools\signature-common.ps1
+. .\tools\release-gate.ps1
+$expected = Get-ExpectedSignatureThumbprint -RepoRoot .
+Assert-SumsCoversArtifact -SumsPath .\dist\SHA256SUMS.txt -ArtifactPath .\dist\Agent-notify-Setup-vX.Y.Z.exe
+Assert-ArchiveExecutables -ZipPath .\dist\Agent-notify-vX.Y.Z.zip -ExpectedThumbprint $expected
 
 # 客户端视角：强制要求签名（先在 CI 配好，再用此环境变量自测）
 $env:AGENT_NOTIFY_REQUIRE_SIGNATURE = '1'
-# 悬浮窗"升级"会下载并校验；未签名/无效会直接报错并给出原因
+# 桌面端 Settings → 更新 的「下载并安装」会下载并校验；未签名/无效会直接报错并给出原因
 ```
 
 ## 4. 让所有客户端只信任你的证书（可选但推荐）
 
-配置签名后，攻击者若拿到**另一张**有效证书仍可署名。把签发证书的 SHA1 指纹写进
-`internal/update/signature.go` 的 `defaultSignatureThumbprint`，所有客户端就只接受该签名者：
+配置签名后，攻击者若拿到**另一张**有效证书仍可署名。把签发证书的 SHA1 指纹写进两处常量
+（Rust 客户端的 `hosts/desktop-tauri/src/update/verify.rs` 与发布门禁读取的
+`internal/update/signature.go`，两处必须一致），所有客户端就只接受该签名者：
 
 ```powershell
 (Get-AuthenticodeSignature .\Agent-notify-Setup-vX.Y.Z.exe).SignerCertificate.Thumbprint
@@ -99,13 +115,14 @@ $env:AGENT_NOTIFY_REQUIRE_SIGNATURE = '1'
 
 把输出（去掉空格）填进常量即可；留空表示不限定签名者。
 客户端也可用环境变量 `AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 临时限定（多个用逗号/分号分隔），
-优先级高于常量——注意它是**覆盖**而不是追加：如果按早期文档在本机设过别的指纹，1.11 之后
-该机器会把官方包判为"签名者不匹配"，需要删掉这个环境变量或改成与内置常量一致。
+优先级高于常量——注意它是**覆盖**而不是追加：如果按早期文档在本机设过别的指纹，新版客户端
+会把官方包判为"签名者不匹配"，需要删掉这个环境变量或改成与内置常量一致。
 
 ## 5. 轮换与过期
 
-- 证书换签后，务必先更新 `defaultSignatureThumbprint`（若已启用）再发版，否则老客户端会拒绝新版本；
-  构建脚本的指纹门禁会在两者不一致时直接失败，所以顺序必须是：**先改常量并与新版本一起发布，再轮换 secret 里的证书**；
+- 证书换签后，务必先更新两处 `defaultSignatureThumbprint` / `DEFAULT_SIGNATURE_THUMBPRINT`（若已启用）
+  再发版，否则老客户端会拒绝新版本；构建脚本与补发门禁的指纹校验会在两者不一致时直接失败，
+  所以顺序必须是：**先改常量并与新版本一起发布，再轮换 secret 里的证书**；
 - 建议同时配置时间戳（`/tr`），证书过期后既有产物的签名仍然有效；
 - 证书私钥泄露时立即吊销，并在下一版移除旧指纹。
 
