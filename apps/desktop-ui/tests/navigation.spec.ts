@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-import { defaultScenario, gotoSection, openHarness, SECTIONS } from "./helpers";
+import {
+  defaultScenario,
+  gotoSection,
+  openHarness,
+  SECTION_PATHS,
+  SECTIONS,
+} from "./helpers";
 
 test.describe("导航流程", () => {
   test("可以从总览进入全部页面", async ({ page }) => {
@@ -12,7 +18,7 @@ test.describe("导航流程", () => {
       }
       await gotoSection(page, section);
       await expect(page).toHaveURL(
-        new RegExp(`/${section.toLowerCase()}$`),
+        new RegExp(`${SECTION_PATHS[section]}$`),
       );
     }
 
@@ -31,7 +37,7 @@ test.describe("导航流程", () => {
 
     await page.keyboard.press("Enter");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Settings" }),
+      page.getByRole("heading", { level: 1, name: "设置" }),
     ).toBeVisible();
     await expect(page).toHaveURL(/\/settings$/);
   });

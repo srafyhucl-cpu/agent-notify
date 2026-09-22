@@ -213,7 +213,7 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
       <header className="workbench-page-header">
         <div>
           <h1 className="workbench-page-title" id="page-title-settings">
-            Settings
+            设置
           </h1>
           <p className="page-summary">
             设置按通知、回复、渠道、应用和数据分组；未提供稳定命令的操作保持不可用。
@@ -423,7 +423,7 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
                 <div className="settings-unavailable-row">
                   <span>
                     <strong>渠道连接配置更新</strong>
-                    <small>当前版本不可用，请到 Channels 页面登录或管理账号。</small>
+                    <small>当前版本不可用，请到渠道页面登录或管理账号。</small>
                   </span>
                   <span className="settings-unavailable-label">当前版本不可用</span>
                 </div>

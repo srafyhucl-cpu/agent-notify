@@ -166,7 +166,7 @@ describe("toUserError", () => {
     expect(error.action).toBeUndefined();
   });
 
-  it("guides database errors to backup and Diagnostics", () => {
+  it("guides database errors to backup and diagnostics", () => {
     const error = toUserError({
       code: "database_locked",
       message: "数据库暂时不可用",
@@ -174,9 +174,9 @@ describe("toUserError", () => {
     });
 
     expect(error.message).toContain("备份");
-    expect(error.message).toContain("Diagnostics");
+    expect(error.message).toContain("诊断页面");
     expect(error.action).toEqual({
-      label: "查看 Diagnostics",
+      label: "查看诊断",
       command: "get_diagnostics",
       payload: {},
     });

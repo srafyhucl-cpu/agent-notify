@@ -235,10 +235,10 @@ describe("HistoryPage", () => {
     renderHistory(bridge);
     await user.click(await screen.findByRole("button", { name: "通知 1" }));
 
-    expect(await screen.findByText("Notification")).toBeVisible();
-    expect(screen.getByText("Delivery")).toBeVisible();
+    expect(await screen.findByText("通知")).toBeVisible();
+    expect(screen.getByText("投递")).toBeVisible();
     expect(screen.getByText("存在（1 条）")).toBeVisible();
-    expect(screen.getByText("Route")).toBeVisible();
+    expect(screen.getByText("路由")).toBeVisible();
     expect(screen.getByText("不存在")).toBeVisible();
     expect(
       within(
@@ -295,7 +295,10 @@ describe("HistoryPage", () => {
     const detailRegion = await screen.findByRole("region", {
       name: "通知详情",
     });
-    expect(within(detailRegion).getByText("Unknown")).toBeVisible();
+    // 头部概览与投递卡片都会显示中文状态，因此用 getAllByText 断言存在。
+    expect(
+      within(detailRegion).getAllByText("投递结果未确认").length,
+    ).toBeGreaterThan(0);
     expect(
       await within(detailRegion).findByText(/请先检查原渠道/),
     ).toBeVisible();

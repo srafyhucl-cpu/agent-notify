@@ -274,7 +274,7 @@ describe("OverviewPage", () => {
     const orderedLabels = [
       "运行状态",
       "Agent 接入",
-      "Channel 账号",
+      "渠道账号",
       "最近投递",
       "需要处理",
     ];

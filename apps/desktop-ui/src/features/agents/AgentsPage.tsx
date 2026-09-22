@@ -50,7 +50,7 @@ export function AgentsPage({ bridge }: AgentsPageProps) {
       <header className="workbench-page-header">
         <div>
           <h1 className="workbench-page-title" id="page-title-agents">
-            Agents
+            Agent 管理
           </h1>
           <p className="page-summary">
             按 descriptor 展示已接入 Agent 的能力、状态与配置。

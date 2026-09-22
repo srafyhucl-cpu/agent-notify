@@ -41,7 +41,7 @@ test.describe("可访问性", () => {
       ],
     });
 
-    await gotoSection(page, "Channels");
+    await gotoSection(page, "渠道");
     const addAccount = page.getByRole("button", { name: "添加渠道账号" });
     await addAccount.click();
 

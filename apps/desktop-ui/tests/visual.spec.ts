@@ -16,11 +16,11 @@ import {
 
 const SLUGS: Record<SectionLabel, string> = {
   总览: "overview",
-  Agents: "agents",
-  Channels: "channels",
-  History: "history",
-  Diagnostics: "diagnostics",
-  Settings: "settings",
+  "Agent 管理": "agents",
+  渠道: "channels",
+  历史: "history",
+  诊断: "diagnostics",
+  设置: "settings",
 };
 
 async function waitForStableLayout(page: Page): Promise<void> {
@@ -49,7 +49,7 @@ test.describe("视觉与布局", () => {
       );
     }
 
-    await gotoSection(page, "Agents");
+    await gotoSection(page, "Agent 管理");
     const agentName = page
       .getByRole("button", { name: longChineseText })
       .first();
@@ -69,19 +69,19 @@ test.describe("视觉与布局", () => {
       page.getByText("服务可用", { exact: true }).first(),
     );
 
-    await gotoSection(page, "Channels");
+    await gotoSection(page, "渠道");
     await expectNotClipped(
       page.getByRole("button", { name: /^这是一个用于验证中文长文本/ }).first(),
     );
     await expectNoHorizontalOverflow(page);
 
-    await gotoSection(page, "History");
+    await gotoSection(page, "历史");
     await expectNotClipped(
       page.getByRole("button", { name: longChineseText }).first(),
     );
     await expectNoHorizontalOverflow(page);
 
-    await gotoSection(page, "Settings");
+    await gotoSection(page, "设置");
     for (const label of ["全局暂停", "通知冷却（秒）", "默认通知账号"]) {
       await expectNotClipped(page.getByLabel(label));
     }
@@ -100,3 +100,4 @@ test.describe("视觉与布局", () => {
     }
   });
 });
+;

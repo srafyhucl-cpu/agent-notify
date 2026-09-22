@@ -41,7 +41,7 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
         message:
           account.health.detail?.message ??
           (account.enabled
-            ? "请到 Channels 检查登录状态或重新登录。"
+            ? "请到渠道页面检查登录状态或重新登录。"
             : "该账号已停用，如需接收或发送消息请重新启用。"),
       });
     }
@@ -58,7 +58,7 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
         title: `投递 ${delivery.notificationId} 未完成`,
         message:
           delivery.error?.message ??
-          "请先检查原渠道是否已收到消息，再前往 History 查看详情。",
+          "请先检查原渠道是否已收到消息，再前往历史页面查看详情。",
       });
     }
   }
@@ -67,7 +67,7 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
     items.push({
       key: "storage-latest-error",
       title: "最近一次数据操作失败",
-      message: `${snapshot.overview.storage.recentError.message} 请先备份数据，再到 Diagnostics 检查。`,
+      message: `${snapshot.overview.storage.recentError.message} 请先备份数据，再到诊断页面检查。`,
     });
   }
 

@@ -12,7 +12,7 @@ test.describe("descriptor 驱动的动态适配器", () => {
   test("未知 ID 的 Agent 与渠道按 descriptor 自动出现", async ({ page }) => {
     await openHarness(page, defaultScenario());
 
-    await gotoSection(page, "Agents");
+    await gotoSection(page, "Agent 管理");
     await expect(
       page.getByRole("button", { name: "Alpha Agent", exact: true }),
     ).toBeVisible();
@@ -20,7 +20,7 @@ test.describe("descriptor 驱动的动态适配器", () => {
       page.getByRole("button", { name: "未来 Agent", exact: true }),
     ).toBeVisible();
 
-    await gotoSection(page, "Channels");
+    await gotoSection(page, "渠道");
     await expect(
       page.getByRole("heading", { level: 2, name: "未来渠道" }),
     ).toBeVisible();
@@ -41,7 +41,7 @@ test.describe("descriptor 驱动的动态适配器", () => {
       ],
     });
 
-    await gotoSection(page, "Channels");
+    await gotoSection(page, "渠道");
     await page.getByRole("button", { name: "添加渠道账号" }).click();
 
     const dialog = page.getByRole("dialog", { name: "登录 未来渠道" });
@@ -76,7 +76,7 @@ test.describe("descriptor 驱动的动态适配器", () => {
 
   test("测试发送必须显式选择账号", async ({ page }) => {
     await openHarness(page, defaultScenario());
-    await gotoSection(page, "Channels");
+    await gotoSection(page, "渠道");
 
     const sendForm = page.getByRole("form", { name: "测试发送" });
     await expect(

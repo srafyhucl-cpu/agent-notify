@@ -140,7 +140,7 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
       <header className="workbench-page-header">
         <div>
           <h1 className="workbench-page-title" id="page-title-history">
-            History
+            历史
           </h1>
           <p className="page-summary">
             按 Agent、渠道、账号、状态和时间定位历史通知，再检查投递与路由结果。
@@ -155,7 +155,7 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
       <div className="workbench-page-content history-page-content">
         <form
           className="history-filters"
-          aria-label="History 筛选"
+          aria-label="历史筛选"
           onSubmit={(event) => event.preventDefault()}
         >
           <label>

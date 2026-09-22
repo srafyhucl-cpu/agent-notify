@@ -8,11 +8,11 @@ import { twoAgents } from "../test/fixtures";
 
 const ROUTES = [
   { route: "/overview", heading: "总览" },
-  { route: "/agents", heading: "Agents" },
-  { route: "/channels", heading: "Channels" },
-  { route: "/history", heading: "History" },
-  { route: "/diagnostics", heading: "Diagnostics" },
-  { route: "/settings", heading: "Settings" },
+  { route: "/agents", heading: "Agent 管理" },
+  { route: "/channels", heading: "渠道" },
+  { route: "/history", heading: "历史" },
+  { route: "/diagnostics", heading: "诊断" },
+  { route: "/settings", heading: "设置" },
 ] as const;
 
 describe("AppRouter", () => {

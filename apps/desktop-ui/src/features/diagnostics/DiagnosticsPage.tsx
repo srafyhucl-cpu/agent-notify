@@ -13,6 +13,7 @@ import type {
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
+import { RUNTIME_STATE_LABELS } from "../../components/RuntimeStatusBar";
 import { toUserError } from "../../data/errors";
 import { useDiagnosticActionMutation } from "../../data/mutations";
 import { queryKeys } from "../../data/queryKeys";
@@ -279,7 +280,7 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
     if (!navigator.clipboard) {
       setCopyState({
         kind: "error",
-        message: "当前环境不支持复制，请在 Diagnostics 页面查看安全诊断信息。",
+        message: "当前环境不支持复制，请在诊断页面查看安全诊断信息。",
       });
       return;
     }
@@ -300,7 +301,7 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
       <header className="workbench-page-header">
         <div>
           <h1 className="workbench-page-title" id="page-title-diagnostics">
-            Diagnostics
+            诊断
           </h1>
           <p className="page-summary">
             所有诊断结论直接来自 StatusService，页面只展示和刷新这些结果。
@@ -412,7 +413,7 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
                 </div>
                 <div>
                   <dt>运行状态</dt>
-                  <dd>{diagnostics.runtime.state}</dd>
+                  <dd>{RUNTIME_STATE_LABELS[diagnostics.runtime.state]}</dd>
                 </div>
                 <div>
                   <dt>通知 / 投递</dt>

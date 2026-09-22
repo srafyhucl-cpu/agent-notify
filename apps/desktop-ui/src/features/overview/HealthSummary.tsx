@@ -73,7 +73,7 @@ export function HealthSummary({
         </header>
         <dl className="metric-list">
           <div>
-            <dt>Runtime</dt>
+            <dt>运行状态</dt>
             <dd>{RUNTIME_STATE_LABELS[runtime.state]}</dd>
           </div>
           <div>
@@ -114,7 +114,7 @@ export function HealthSummary({
         <header className="overview-section-header">
           <div className="overview-section-title">
             <RadioTower aria-hidden="true" size={17} />
-            <h2 id="overview-channels">Channel 账号</h2>
+            <h2 id="overview-channels">渠道账号</h2>
           </div>
         </header>
         <dl className="metric-list">

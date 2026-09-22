@@ -47,7 +47,7 @@ export function RecentDeliveries({ deliveries }: RecentDeliveriesProps) {
           <table className="data-table delivery-table">
             <thead>
               <tr>
-                <th scope="col">Notification</th>
+                <th scope="col">通知</th>
                 <th scope="col">账号</th>
                 <th scope="col">状态</th>
                 <th scope="col">时间</th>

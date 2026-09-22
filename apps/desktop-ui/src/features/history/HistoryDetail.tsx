@@ -116,13 +116,13 @@ export function HistoryDetail({
 
       <dl className="history-existence-list">
         <div>
-          <dt>Notification</dt>
+          <dt>通知</dt>
           <dd>
             <ExistenceValue exists />
           </dd>
         </div>
         <div>
-          <dt>Delivery</dt>
+          <dt>投递</dt>
           <dd>
             {detail.deliveries.length > 0 ? (
               <>存在（{detail.deliveries.length} 条）</>
@@ -132,7 +132,7 @@ export function HistoryDetail({
           </dd>
         </div>
         <div>
-          <dt>Route</dt>
+          <dt>路由</dt>
           <dd>
             <ExistenceValue exists={detail.routeExists} />
           </dd>
@@ -163,7 +163,7 @@ export function HistoryDetail({
       <div className="history-deliveries">
         <h3>投递记录</h3>
         {detail.deliveries.length === 0 ? (
-          <p className="section-empty">没有 Delivery 记录。</p>
+          <p className="section-empty">没有投递记录。</p>
         ) : (
           detail.deliveries.map((delivery) => {
             const safeError = deliveryError(delivery);
@@ -179,7 +179,7 @@ export function HistoryDetail({
                   <span
                     className={`history-state ${deliveryStateTone(delivery.state)}`}
                   >
-                    {delivery.state}
+                    {historyStateLabel([delivery.state])}
                   </span>
                 </div>
                 <p>

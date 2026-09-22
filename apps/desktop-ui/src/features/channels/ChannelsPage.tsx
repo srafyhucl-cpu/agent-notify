@@ -232,7 +232,7 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
       <header className="workbench-page-header">
         <div>
           <h1 className="workbench-page-title" id="page-title-channels">
-            Channels
+            渠道
           </h1>
           <p className="page-summary">
             按 descriptor 管理多个渠道账号、登录状态和测试发送。

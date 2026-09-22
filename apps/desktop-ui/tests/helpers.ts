@@ -24,14 +24,24 @@ export const HARNESS_PATH = "/tests/harness/";
 
 export const SECTIONS = [
   "总览",
-  "Agents",
-  "Channels",
-  "History",
-  "Diagnostics",
-  "Settings",
+  "Agent 管理",
+  "渠道",
+  "历史",
+  "诊断",
+  "设置",
 ] as const;
 
 export type SectionLabel = (typeof SECTIONS)[number];
+
+/** 导航标签到路由路径的稳定映射（标签用于可访问名，路径用于 URL 断言）。 */
+export const SECTION_PATHS: Record<SectionLabel, string> = {
+  总览: "/overview",
+  "Agent 管理": "/agents",
+  渠道: "/channels",
+  历史: "/history",
+  诊断: "/diagnostics",
+  设置: "/settings",
+};
 
 /** 稳定的默认场景：覆盖六个页面、两种投递状态和一条可执行诊断动作。 */
 export function defaultScenario(): MockHostBridgeOptions {

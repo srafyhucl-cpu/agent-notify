@@ -28,17 +28,17 @@ export interface UserErrorContext {
 
 const AUTHENTICATION_ERROR = {
   title: "登录状态已失效",
-  message: "登录状态已失效，请在 Channels 中重新登录后重试。",
+  message: "登录状态已失效，请在渠道页面重新登录后重试。",
 } as const;
 
 const CREDENTIAL_ERROR = {
   title: "登录凭据不可用",
-  message: "登录凭据不可用，请在 Channels 中重新登录对应账号。",
+  message: "登录凭据不可用，请在渠道页面重新登录对应账号。",
 } as const;
 
 const DATABASE_ERROR = {
   title: "数据库操作未完成",
-  message: "数据库操作未完成，请先备份数据，然后查看 Diagnostics 了解详情。",
+  message: "数据库操作未完成，请先备份数据，然后查看诊断页面了解详情。",
 } as const;
 
 const UNKNOWN_DELIVERY_ERROR = {
@@ -116,7 +116,7 @@ export function toUserError(
       ...DATABASE_ERROR,
       diagnosticId,
       action: {
-        label: "查看 Diagnostics",
+        label: "查看诊断",
         command: "get_diagnostics",
         payload: {},
       },

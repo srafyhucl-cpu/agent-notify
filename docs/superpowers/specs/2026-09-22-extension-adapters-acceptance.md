@@ -117,7 +117,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 | Codex | ✅ | ✅ | ✅ | 2026-09-22 10:31 安装（备份 `config.toml.bak-notify-wrapper`）；通知 `ec811566…` 于 10:45:00 投递成功（平台消息 `<平台消息ID已脱敏>`，路由有效期 24 小时）；引用回复已进入对应 Codex 线程（用户实测确认） |
 | Antigravity | ✅ | ✅ | ✅ | 2026-09-22 12:27 安装（启动器 `~/.gemini/config/agent-notify-hook.cmd` 指向预览目录 Hook；第三方顶层键 `linkweixin-notify` 未被触碰）；通知 `29182ff7` 于 12:30:36 投递成功（平台消息 `<平台消息ID已脱敏>`，路由有效期 24 小时）；引用回复经用户实测通过（`fullyIdle` 过滤生效，未跑完不推送） |
 | Devin | ☐ | ☐ | ☐ | |
-| Command Code | ☐ | ☐ | ☐ | |
+| Command Code | ✅ | ✅ | ✅ | 2026-09-22 13:56 装 mod（窗口通道修复后 `window.json` 送达 300 秒，mod 界面出现"正在等待微信引用回复"提示）；通知 `97c9abe5` 于 14:00:47 投递成功（平台消息 `<平台消息ID已脱敏>`）；引用回复注入原会话（`77d2f40b` 正文"收到引用回复"，14:01:17 投递成功） |
 
 ### 验收中发现的缺陷（均已定位）
 
@@ -138,3 +138,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 3. **安装器冒烟纳入新接入**：本轮修复会在 `tests/installer-smoke.ps1` 增加断言，验收时需在沙箱跑一次确认（不触碰真实环境）。
 4. **卸载路径补齐 V2 清理**：`uninstall.ps1 -HooksOnly` 的识别模式只认旧程序名（`agent-notify.exe` / `agent-notify-hook.cmd`），因此**卸载后** Devin 的 `hooks.Stop` handler 与 Codex 的 `notify` 行仍指向已删除的 exe。需为 V2 Hook 增加显式识别（注意不能改变升级清理的语义：升级时先清旧、再装新）。
 5. **发布门禁补三个 Hook 的签名校验**：`tools/publish-release.ps1` 目前只校验安装器与 ZIP 内主程序的签名指纹，三个 Hook 虽在构建时已签名并校验，但发布补发路径未覆盖；建议加入 `SHA256SUMS.txt` 与指纹校验循环。
+6. **升级时的自定义 Codex notify 不会被接管**（已知限制，非缺陷）：若用户的 `config.toml` 里 `notify` 指向**第三方程序**（非 `codex-computer-use.exe` 也不是 AgentNotify），接入脚本会保持原样并打印"如需接入请手动改为…"。原因是把任意程序包进 `--previous-notify` 会改变它的调用参数、可能破坏用户自己的集成；Go 版也只对 CUA 做包装。如需覆盖此场景，应作为独立评审的接入脚本行为变更。

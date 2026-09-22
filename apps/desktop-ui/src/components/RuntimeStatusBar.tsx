@@ -8,7 +8,7 @@ import { useSetRuntimePausedMutation } from "../data/mutations";
 import { useSnapshot } from "../data/useSnapshot";
 import { InlineError } from "./InlineError";
 
-const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
+export const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
   Starting: "启动中",
   Running: "运行中",
   Paused: "已暂停",

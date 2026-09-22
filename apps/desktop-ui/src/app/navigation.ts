@@ -24,9 +24,9 @@ export interface NavigationItem {
 
 export const navigationItems: readonly NavigationItem[] = [
   { path: "/overview", label: "总览", icon: LayoutDashboard },
-  { path: "/agents", label: "Agents", icon: Bot },
-  { path: "/channels", label: "Channels", icon: RadioTower },
-  { path: "/history", label: "History", icon: History },
-  { path: "/diagnostics", label: "Diagnostics", icon: Stethoscope },
-  { path: "/settings", label: "Settings", icon: Settings },
+  { path: "/agents", label: "Agent 管理", icon: Bot },
+  { path: "/channels", label: "渠道", icon: RadioTower },
+  { path: "/history", label: "历史", icon: History },
+  { path: "/diagnostics", label: "诊断", icon: Stethoscope },
+  { path: "/settings", label: "设置", icon: Settings },
 ] as const;

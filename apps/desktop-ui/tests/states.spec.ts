@@ -44,7 +44,7 @@ test.describe("状态与恢复动作", () => {
       },
     });
 
-    await gotoSection(page, "History");
+    await gotoSection(page, "历史");
     await page.getByRole("button", { name: "结果未知的通知" }).click();
 
     const detailRegion = page.getByRole("region", { name: "通知详情" });
@@ -61,7 +61,7 @@ test.describe("状态与恢复动作", () => {
   test("Failed 且 retryable 的投递可以显式重试一次", async ({ page }) => {
     await openHarness(page, defaultScenario());
 
-    await gotoSection(page, "History");
+    await gotoSection(page, "历史");
     await page.getByRole("button", { name: "投递失败" }).click();
     await expect(page.getByText("渠道拒绝了这条消息，请检查账号权限")).toBeVisible();
 
@@ -73,7 +73,7 @@ test.describe("状态与恢复动作", () => {
 
   test("诊断修复动作调用 descriptor 声明的命令", async ({ page }) => {
     await openHarness(page, defaultScenario());
-    await gotoSection(page, "Diagnostics");
+    await gotoSection(page, "诊断");
 
     await expect(page.getByText("渠道登录状态异常")).toBeVisible();
     const before = await countInvocations(page, "get_snapshot");
@@ -98,7 +98,7 @@ test.describe("状态与恢复动作", () => {
       },
     });
 
-    await gotoSection(page, "Channels");
+    await gotoSection(page, "渠道");
     await expect(page.getByText("无法读取渠道账号")).toBeVisible();
     await expect(page.getByText("渠道列表暂时不可用")).toBeVisible();
 
@@ -112,7 +112,7 @@ test.describe("状态与恢复动作", () => {
 
   test("没有 Agent 时显示空态而不是占位页面", async ({ page }) => {
     await openHarness(page, { ...defaultScenario(), agents: [] });
-    await gotoSection(page, "Agents");
+    await gotoSection(page, "Agent 管理");
 
     await expect(
       page.getByRole("heading", { level: 2, name: "暂无 Agent" }),
