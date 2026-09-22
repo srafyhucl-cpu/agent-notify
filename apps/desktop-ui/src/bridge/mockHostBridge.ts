@@ -8,7 +8,6 @@ import type {
   CommandError,
   DeliveryDto,
   DiagnosticsDto,
-  EmptyPayload,
   HostEvent,
   InstallUpdateResultDto,
   LoginSessionDto,

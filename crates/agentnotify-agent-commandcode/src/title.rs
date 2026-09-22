@@ -83,10 +83,6 @@ impl CommandCodeSessions {
         }
     }
 
-    pub fn projects_root(&self) -> Option<&Path> {
-        self.projects_root.as_deref()
-    }
-
     /// 标题链：`session_titled` 标题 → meta.json → transcript 首条用户消息 → 默认标题。
     pub fn resolve_title(&self, session_id: &str, payload_title: Option<&str>) -> TitleResolution {
         if let Some(name) = payload_title

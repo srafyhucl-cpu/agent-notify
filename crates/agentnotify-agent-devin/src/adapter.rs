@@ -102,10 +102,6 @@ impl DevinAgent {
     pub fn inbox(&self) -> &DevinReplyInbox {
         &self.inbox
     }
-
-    pub fn desktop_sessions(&self) -> &DevinDesktopSessions {
-        &self.desktop
-    }
 }
 
 #[async_trait::async_trait]
