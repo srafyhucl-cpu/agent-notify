@@ -24,8 +24,6 @@ use agentnotify_domain::{
 use agentnotify_runtime::{MigrationState, RuntimeState, RuntimeTargetProvider};
 use agentnotify_storage_sqlite::SqliteStore;
 
-const D_DRIVE_TEMP: &str = r"D:\Temp";
-
 /// 生产组合根必须注册的全部 Agent；`AgentRegistry::all()` 按 Agent ID 排序。
 const EXPECTED_AGENT_IDS: [&str; 5] = ["antigravity", "codex", "commandcode", "devin", "opencode"];
 /// 新接入的四个适配器；它们必须先默认关闭，由用户在界面启用。
@@ -82,8 +80,8 @@ fn create_test_env(
 ) {
     let root = tempfile::Builder::new()
         .prefix(prefix)
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘临时目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     let paths = AppPaths::for_tests(root.path());
     paths.ensure().expect("隔离路径必须可创建");
 
@@ -695,12 +693,12 @@ async fn saved_agent_config_reaches_adapters_and_update_takes_effect() {
 
     let first_home = tempfile::Builder::new()
         .prefix("agentnotify-codex-home-first-")
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘临时目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     let second_home = tempfile::Builder::new()
         .prefix("agentnotify-codex-home-second-")
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘临时目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     write_codex_state_database(first_home.path(), "thread-1", "状态库标题");
     write_codex_session_index(second_home.path(), "thread-1", "更新后的标题");
 
@@ -845,8 +843,8 @@ async fn configured_devin_reply_inbox_overrides_the_app_paths_inbox() {
         create_test_env("agentnotify-agent-config-inbox-test-");
     let configured_inbox = tempfile::Builder::new()
         .prefix("agentnotify-devin-inbox-")
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘临时目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     let heartbeats = configured_inbox.path().join("heartbeats");
     std::fs::create_dir_all(&heartbeats).expect("创建心跳目录必须成功");
     std::fs::write(

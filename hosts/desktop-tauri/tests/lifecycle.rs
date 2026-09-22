@@ -168,8 +168,8 @@ async fn pause_persistence_failure_does_not_change_runtime_gate() {
 async fn pause_settings_round_trip_only_uses_an_isolated_directory() {
     let root = tempfile::Builder::new()
         .prefix("agentnotify-lifecycle-settings-")
-        .tempdir_in("D:\\Temp")
-        .expect("D 盘隔离测试目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     std::fs::write(root.path().join("settings.json"), r#"{"autoStart":true}"#)
         .expect("测试设置文件必须可写入");
     let settings = JsonPauseSettingsStore::new(root.path());

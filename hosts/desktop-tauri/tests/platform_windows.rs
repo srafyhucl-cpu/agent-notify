@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -14,24 +14,23 @@ use agentnotify_desktop::platform::windows::{
 use agentnotify_desktop::platform::{BackgroundTasks, LocalIpc, ProcessRunner};
 use agentnotify_domain::ChannelAccountId;
 
-const D_DRIVE_TEMP: &str = r"D:\Temp";
-
 #[test]
 fn test_overrides_isolate_all_platform_paths() {
-    let paths = AppPaths::for_tests(Path::new(r"D:\Temp\agentnotify-tests"));
-    assert!(paths.config_dir.starts_with(r"D:\Temp\agentnotify-tests"));
-    assert!(paths.spool_dir.starts_with(r"D:\Temp\agentnotify-tests"));
-    assert!(paths.log_dir.starts_with(r"D:\Temp\agentnotify-tests"));
-    assert!(paths.data_dir.starts_with(r"D:\Temp\agentnotify-tests"));
-    assert!(paths.temp_dir.starts_with(r"D:\Temp\agentnotify-tests"));
+    let isolated = agentnotify_testkit::test_temp_root().join("agentnotify-tests");
+    let paths = AppPaths::for_tests(&isolated);
+    assert!(paths.config_dir.starts_with(&isolated));
+    assert!(paths.spool_dir.starts_with(&isolated));
+    assert!(paths.log_dir.starts_with(&isolated));
+    assert!(paths.data_dir.starts_with(&isolated));
+    assert!(paths.temp_dir.starts_with(&isolated));
 }
 
 #[test]
 fn app_paths_ensure_creates_all_isolated_directories() {
     let root = tempfile::Builder::new()
         .prefix("agentnotify-paths-")
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘测试目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     let paths = AppPaths::for_tests(root.path());
 
     paths.ensure().expect("隔离路径必须可创建");
@@ -244,12 +243,12 @@ async fn local_ipc_rejects_invalid_pipe_name_before_connecting() {
 fn system_ui_path_validation_rejects_paths_outside_app_paths() {
     let root = tempfile::Builder::new()
         .prefix("agentnotify-system-ui-")
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘测试目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     let outside = tempfile::Builder::new()
         .prefix("agentnotify-system-ui-outside-")
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘测试目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     let app_paths = AppPaths::for_tests(root.path());
     app_paths.ensure().expect("隔离路径必须可创建");
 
@@ -266,8 +265,8 @@ fn system_ui_path_validation_rejects_paths_outside_app_paths() {
 fn windows_platform_host_exposes_all_platform_ports_without_credentials_access() {
     let root = tempfile::Builder::new()
         .prefix("agentnotify-host-")
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘测试目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     let host = agentnotify_desktop::platform::windows::WindowsPlatformHost::for_tests(root.path())
         .expect("测试宿主必须可创建");
     let paths = agentnotify_desktop::platform::PlatformHost::paths(&host);

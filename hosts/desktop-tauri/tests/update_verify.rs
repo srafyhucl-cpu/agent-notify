@@ -204,8 +204,8 @@ fn verify_executable_checks_pe_and_signature_without_a_release_checksum() {
 fn pinned_formal_channel_reads_the_embedded_signature_and_rejects_unknown_signers() {
     let dir = tempfile::Builder::new()
         .prefix("agentnotify-update-sign-")
-        .tempdir_in(r"D:\Temp")
-        .expect("D 盘测试目录必须可创建");
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建");
     let signed = dir.path().join("signed-test.exe");
     let script = dir.path().join("sign-test.ps1");
     std::fs::write(&script, SIGN_TEST_SCRIPT).expect("写入签名脚本");

@@ -198,6 +198,7 @@ dependencies = [
  "agentnotify-ingress",
  "agentnotify-runtime",
  "agentnotify-storage-sqlite",
+ "agentnotify-testkit",
  "async-trait",
  "futures",
  "reqwest",

@@ -71,9 +71,10 @@ try {
     & $cargo test --workspace --all-features --target $target
     if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
 
-    # hosts/desktop-tauri/tests/production_contract.rs builds its temp roots in D:\Temp
-    # (D_DRIVE_TEMP) rather than $env:TEMP, so sweep that path. Only on a green run: a failed
-    # run keeps the residue for inspection, matching tests\smoke.ps1.
+    # hosts/desktop-tauri tests choose their temp root via agentnotify-testkit::test_temp_root()
+    # (AGENTNOTIFY_TEST_TEMP_DIR, then D:\Temp when it exists, else the system temp dir), so this
+    # sweep only matters under the local D-drive convention. Only on a green run: a failed run
+    # keeps the residue for inspection, matching tests\smoke.ps1.
     Remove-TestResidue -Root 'D:\Temp'
 }
 finally {

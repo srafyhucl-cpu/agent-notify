@@ -14,7 +14,6 @@ use agentnotify_desktop::update::{
     within_extraction_budget,
 };
 
-const D_DRIVE_TEMP: &str = r"D:\Temp";
 const EXPECTED_INSTALLER_ARGS: [&str; 3] = ["/SILENT", "/NORESTART", "/LOG="];
 
 /// 假启动器：记录请求并返回预置结果，测试不真的运行安装程序。
@@ -81,8 +80,8 @@ impl AppExitRequester for FakeExitRequester {
 fn test_dir(prefix: &str) -> tempfile::TempDir {
     tempfile::Builder::new()
         .prefix(prefix)
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘测试目录必须可创建")
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建")
 }
 
 fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
@@ -114,20 +113,19 @@ fn build_staged_release(
 
 #[test]
 fn installer_arguments_match_the_go_baseline() {
-    let args = installer_arguments(
-        Path::new(r"D:\Temp\agentnotify\updates\last-update.log"),
-        &[OsString::from("/DIR=D:\\Apps\\Agent-notify")],
-    );
+    let log_path = agentnotify_testkit::test_temp_root()
+        .join("agentnotify")
+        .join("updates")
+        .join("last-update.log");
+    let install_dir = OsString::from("/DIR=D:\\Apps\\Agent-notify");
+    let args = installer_arguments(&log_path, &[install_dir]);
     let values: Vec<String> = args
         .iter()
         .map(|value| value.to_string_lossy().into_owned())
         .collect();
     assert_eq!(values[0], "/SILENT");
     assert_eq!(values[1], "/NORESTART");
-    assert_eq!(
-        values[2],
-        "/LOG=D:\\Temp\\agentnotify\\updates\\last-update.log"
-    );
+    assert_eq!(values[2], format!("/LOG={}", log_path.display()));
     assert_eq!(values[3], "/DIR=D:\\Apps\\Agent-notify");
 }
 
@@ -532,9 +530,11 @@ fn apply_staged_release_rejects_a_missing_install_root() {
 
 // ---------- 编排：查询 → 下载 → 校验 → 拉起安装器 / ZIP 回退 ----------
 
-/// 用当前构建出的桌面端主程序当更新包：它有真实 PE 结构与 2.0.0 文件版本，且未签名
+/// 用当前构建出的桌面端主程序当更新包：它有真实 PE 结构与当前文件版本，且未签名
 /// （因此编排测试走预览通道，正好覆盖 signed=false / preview=true 的路径）。
-const RELEASE_VERSION: &str = "2.0.0";
+/// 版本取自 workspace 版本，避免发版后与构建产物版本失配（`tools/check-version.ps1` 保证
+/// tauri.conf.json 与 workspace 版本一致）。
+const RELEASE_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CURRENT_VERSION: &str = "1.9.9";
 
 fn release_executable_bytes() -> Vec<u8> {

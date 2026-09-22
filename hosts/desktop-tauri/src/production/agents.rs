@@ -269,14 +269,13 @@ fn reply_inbox_root(config_dir: &Path, inbox_dir_name: &str) -> PathBuf {
 mod tests {
     use super::*;
     use agentnotify_domain::Timestamp;
-
-    const D_DRIVE_TEMP: &str = r"D:\Temp";
+    use agentnotify_testkit::test_temp_root;
 
     fn temp_root(prefix: &str) -> tempfile::TempDir {
         tempfile::Builder::new()
             .prefix(prefix)
-            .tempdir_in(D_DRIVE_TEMP)
-            .expect("D 盘测试目录必须可创建")
+            .tempdir_in(test_temp_root())
+            .expect("测试临时目录必须可创建")
     }
 
     fn record(config: serde_json::Value) -> AgentConfigRecord {
@@ -327,7 +326,7 @@ mod tests {
     /// 收件箱根目录由 AppPaths 派生：隔离根下不会出现外部工具目录，也不会落到用户主目录。
     #[test]
     fn reply_inbox_roots_follow_the_configured_app_paths() {
-        let isolated = PathBuf::from(r"D:\Temp\agentnotify-agent-registry-isolated");
+        let isolated = test_temp_root().join("agentnotify-agent-registry-isolated");
         let paths = AppPaths::for_tests(&isolated);
 
         for inbox_dir_name in [
@@ -502,8 +501,10 @@ mod tests {
             assert!(error.message().contains("codexHome"), "{}", error.message());
         }
 
+        let invalid_paths =
+            AppPaths::for_tests(test_temp_root().join("agentnotify-agent-config-invalid"));
         let error = match build_commandcode_agent(
-            &AppPaths::for_tests(Path::new(r"D:\Temp\agentnotify-agent-config-invalid")),
+            &invalid_paths,
             Some(&record(serde_json::json!({
                 "commandCodeReplyWindowSec": -1,
             }))),

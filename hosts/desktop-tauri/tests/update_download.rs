@@ -9,8 +9,6 @@ use agentnotify_desktop::update::{
     ensure_checksum_matches, ensure_within_download_limit, expected_checksum, parse_checksum,
 };
 
-const D_DRIVE_TEMP: &str = r"D:\Temp";
-
 /// 假传输：按脚本返回结果，可选地把字节写进目标文件，测试不访问真实网络。
 #[derive(Default)]
 struct FakeTransport {
@@ -93,8 +91,8 @@ impl UpdateTransport for FakeTransport {
 fn test_dir(prefix: &str) -> tempfile::TempDir {
     tempfile::Builder::new()
         .prefix(prefix)
-        .tempdir_in(D_DRIVE_TEMP)
-        .expect("D 盘测试目录必须可创建")
+        .tempdir_in(agentnotify_testkit::test_temp_root())
+        .expect("测试临时目录必须可创建")
 }
 
 #[test]
