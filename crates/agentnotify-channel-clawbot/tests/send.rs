@@ -15,7 +15,9 @@ use agentnotify_channel_clawbot::{
     ClawBotHttpResponse, ClawBotHttpSendTransport, ClawBotSendRequest, ClawBotSendTransport,
     MAX_TEXT_BYTES, NotificationRenderInput, render_notification,
 };
-use agentnotify_channel_sdk::{ChannelAccount, ChannelAdapter, ChannelError, OutboundMessage};
+use agentnotify_channel_sdk::{
+    ChannelAccount, ChannelAdapter, ChannelError, NotificationPresentation, OutboundMessage,
+};
 use agentnotify_domain::{ChannelAccountId, ChannelId, DeliveryState, Timestamp};
 use async_trait::async_trait;
 use tokio::{
@@ -69,6 +71,92 @@ fn oversized_rendered_notification_is_permanent() {
     .unwrap_err();
 
     assert!(matches!(error, ChannelError::Permanent(_)));
+}
+
+#[tokio::test]
+async fn structured_notification_is_rendered_with_title_bar_and_footer() {
+    let capture = Arc::new(Mutex::new(String::new()));
+    let base_url =
+        spawn_json_server(r#"{"ret":0,"message_id":"platform-1"}"#, capture.clone()).await;
+    let fixture = fixture(Arc::new(ClawBotHttpSendTransport::new()), &base_url).await;
+    let message = fixture
+        .message
+        .clone()
+        .with_notification(NotificationPresentation {
+            agent_display_name: "Registry Agent".into(),
+            session_name: "修复登录".into(),
+            occurred_at: timestamp("2026-09-19T10:20:30+08:00"),
+            include_footer: true,
+            replyable: true,
+        });
+
+    let receipt = fixture
+        .channel
+        .send(fixture.account, message)
+        .await
+        .unwrap();
+
+    assert_eq!(receipt.state, DeliveryState::Sent);
+    let request = capture.lock().unwrap().clone();
+    assert_eq!(
+        request_text(&request),
+        "**🟢 Registry Agent｜修复登录**\n\nhello **world**\n\n—\n*引用此消息可继续对话* · 09/19 10:20"
+    );
+}
+
+#[tokio::test]
+async fn notification_without_presentation_keeps_raw_text() {
+    let capture = Arc::new(Mutex::new(String::new()));
+    let base_url =
+        spawn_json_server(r#"{"ret":0,"message_id":"platform-1"}"#, capture.clone()).await;
+    let fixture = fixture(Arc::new(ClawBotHttpSendTransport::new()), &base_url).await;
+
+    let receipt = fixture
+        .channel
+        .send(fixture.account, fixture.message)
+        .await
+        .unwrap();
+
+    assert_eq!(receipt.state, DeliveryState::Sent);
+    let request = capture.lock().unwrap().clone();
+    assert_eq!(request_text(&request), "hello **world**");
+}
+
+#[tokio::test]
+async fn oversized_rendered_notification_is_rejected_before_network_access() {
+    let transport = Arc::new(TestTransport::http(200, r#"{"ret":0,"message_id":"m1"}"#));
+    let fixture = fixture(transport.clone(), "https://business.example.test").await;
+    let message =
+        OutboundMessage::notification("user-1", "x".repeat(MAX_TEXT_BYTES), "client-oversized")
+            .unwrap()
+            .with_notification(NotificationPresentation {
+                agent_display_name: "Registry Agent".into(),
+                session_name: "任务完成".into(),
+                occurred_at: timestamp("2026-09-19T10:20:30+08:00"),
+                include_footer: true,
+                replyable: true,
+            });
+
+    let error = fixture
+        .channel
+        .send(fixture.account, message)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ChannelError::Permanent(_)));
+    assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+}
+
+/// 从抓到的 HTTP 请求里取出 JSON 正文里的文本项，避免用整串匹配。
+fn request_text(request: &str) -> String {
+    let (_, body) = request
+        .split_once("\r\n\r\n")
+        .expect("抓包必须包含请求头与正文分隔");
+    let value: serde_json::Value = serde_json::from_str(body).expect("出站正文必须是 JSON");
+    value["msg"]["item_list"][0]["text_item"]["text"]
+        .as_str()
+        .expect("出站正文必须包含文本项")
+        .to_owned()
 }
 
 #[tokio::test]

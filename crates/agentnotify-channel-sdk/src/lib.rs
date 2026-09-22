@@ -10,7 +10,7 @@ mod registry;
 pub use account::{ChannelAccount, ChannelHealth, SecretRef};
 pub use adapter::{
     ChannelAdapter, ChannelError, ChannelTask, DeliveryReceipt, InboundEmitter, MessagePurpose,
-    OutboundMessage,
+    NotificationPresentation, OutboundMessage,
 };
 pub use contract::{assert_channel_contract, assert_channel_login_contract};
 pub use descriptor::{ChannelCapabilities, ChannelDescriptor, InboundMode};

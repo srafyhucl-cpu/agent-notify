@@ -74,6 +74,18 @@ impl AntigravityAgent {
         self
     }
 
+    /// 覆盖 annotations 目录；界面里配置的 `annotationsDir` 生效。
+    pub fn with_annotations_dir(mut self, annotations_dir: impl Into<PathBuf>) -> Self {
+        self.annotations_dir = Some(annotations_dir.into());
+        self
+    }
+
+    /// 覆盖 hooks.json 路径；界面里配置的 `hooksPath` 生效。
+    pub fn with_hooks_path(mut self, hooks_path: impl Into<PathBuf>) -> Self {
+        self.hooks_path = Some(hooks_path.into());
+        self
+    }
+
     pub fn annotations_dir(&self) -> Option<&Path> {
         self.annotations_dir.as_deref()
     }

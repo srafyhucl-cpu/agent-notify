@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, fmt::Display};
 
 use agentnotify_domain::{
-    DeliveryState, ExternalMessageId, InboundMessage, NotificationMetadata, SafeError,
+    DeliveryState, ExternalMessageId, InboundMessage, NotificationMetadata, SafeError, Timestamp,
 };
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -20,6 +20,24 @@ pub enum MessagePurpose {
     ReplyRejection,
 }
 
+/// 通知的结构化展示信息：渠道有渲染器时据此还原标题栏、页脚与引用提示。
+///
+/// 由应用层从 Agent 注册表与通知事实组装；`OutboundMessage` 不携带它时，
+/// 渠道必须按 `text` 原样发送，保证旧调用方与未接入渲染的渠道行为不变。
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct NotificationPresentation {
+    /// Agent 注册表 descriptor 里的显示名。
+    pub agent_display_name: String,
+    /// 会话名：通知的会话标题，缺省时回退为通知标题。
+    pub session_name: String,
+    /// 事件发生时间，用于页脚时间戳。
+    pub occurred_at: Timestamp,
+    /// 是否输出页脚；与 Go 版一致，通知默认带页脚。
+    pub include_footer: bool,
+    /// 是否声明可引用续聊；只表示原通知有会话号且 Agent 支持续聊，不代表回复路由已建立。
+    pub replyable: bool,
+}
+
 /// 发往单个渠道账号的标准化消息。
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct OutboundMessage {
@@ -28,6 +46,9 @@ pub struct OutboundMessage {
     pub text: String,
     pub client_id: String,
     pub reply_to: Option<ExternalMessageId>,
+    /// 结构化通知信息；只有通知用途携带，`None` 时渠道按 `text` 原样发送。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification: Option<NotificationPresentation>,
     pub safe_metadata: BTreeMap<String, String>,
 }
 
@@ -61,6 +82,12 @@ impl OutboundMessage {
         )
     }
 
+    /// 附加结构化通知信息；由投递层在能取到 Agent 显示名与会话名时填充。
+    pub fn with_notification(mut self, notification: NotificationPresentation) -> Self {
+        self.notification = Some(notification);
+        self
+    }
+
     fn new(
         purpose: MessagePurpose,
         conversation_id: String,
@@ -83,6 +110,7 @@ impl OutboundMessage {
             text,
             client_id,
             reply_to,
+            notification: None,
             safe_metadata: BTreeMap::new(),
         })
     }

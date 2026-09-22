@@ -1,16 +1,22 @@
 use std::sync::{Arc, Mutex};
 
+use agentnotify_agent_sdk::{
+    AgentAdapter, AgentCapabilities, AgentDescriptor, AgentError, AgentEventEnvelope, AgentHealth,
+    AgentRegistry, NormalizedAgentEvent, ResumeReceipt,
+};
 use agentnotify_application::{
     Clock, DeliveryService, DeliveryStore, DeliveryTarget, EventSink, IdGenerator, OutboxLease,
     OutboxState, ProcessOutcome, RetryPolicy, StoreError,
 };
 use agentnotify_channel_sdk::{
     ChannelAccount, ChannelAdapter, ChannelCapabilities, ChannelDescriptor, ChannelError,
-    ChannelRegistry, ChannelTask, DeliveryReceipt, InboundEmitter, InboundMode, OutboundMessage,
+    ChannelRegistry, ChannelTask, DeliveryReceipt, InboundEmitter, InboundMode,
+    NotificationPresentation, OutboundMessage,
 };
 use agentnotify_domain::{
-    ChannelAccountId, ChannelId, ClaimKey, Delivery, DeliveryErrorKind, DeliveryId, DeliveryState,
-    ExternalMessageId, Notification, NotificationId, ReplyRoute, SafeError, Timestamp,
+    AgentId, AgentSessionId, ChannelAccountId, ChannelId, ClaimKey, Delivery, DeliveryErrorKind,
+    DeliveryId, DeliveryState, ExternalMessageId, Notification, NotificationId, ReplyRoute,
+    SafeError, Timestamp,
 };
 
 #[derive(Clone)]
@@ -113,6 +119,7 @@ enum ChannelMode {
 struct TestChannel {
     id: ChannelId,
     mode: ChannelMode,
+    messages: Arc<Mutex<Vec<OutboundMessage>>>,
 }
 
 #[async_trait::async_trait]
@@ -149,8 +156,9 @@ impl ChannelAdapter for TestChannel {
     async fn send(
         &self,
         _account: ChannelAccount,
-        _message: OutboundMessage,
+        message: OutboundMessage,
     ) -> Result<DeliveryReceipt, ChannelError> {
+        self.messages.lock().unwrap().push(message);
         match self.mode {
             ChannelMode::Sent => Ok(DeliveryReceipt::sent(
                 ExternalMessageId::new("external-1").unwrap(),
@@ -188,16 +196,27 @@ impl ChannelAdapter for TestChannel {
 struct Fixture {
     store: Arc<TestStore>,
     service: DeliveryService,
+    messages: Arc<Mutex<Vec<OutboundMessage>>>,
 }
 
 fn fixture(mode: ChannelMode) -> Fixture {
+    fixture_with(mode, None, Some("session-1"), None)
+}
+
+/// 带 Agent 注册表、会话号与会话标题的装配，用于验证结构化通知信息。
+fn fixture_with(
+    mode: ChannelMode,
+    agents: Option<Arc<AgentRegistry>>,
+    session_id: Option<&str>,
+    session_title: Option<&str>,
+) -> Fixture {
     let now = timestamp("2026-09-19T09:00:00Z");
     let notification = Notification::new(
         NotificationId::new("notification-1").unwrap(),
         "event-1",
-        agentnotify_domain::AgentId::new("opencode").unwrap(),
-        Some(agentnotify_domain::AgentSessionId::new("session-1").unwrap()),
-        None,
+        AgentId::new("opencode").unwrap(),
+        session_id.map(|value| AgentSessionId::new(value).unwrap()),
+        session_title.map(str::to_owned),
         "任务完成",
         "Agent 已完成当前任务",
         now,
@@ -218,11 +237,13 @@ fn fixture(mode: ChannelMode) -> Fixture {
         lease_until: now.checked_add(time::Duration::seconds(30)).unwrap(),
     };
     let store = Arc::new(TestStore::new(lease));
+    let messages = Arc::new(Mutex::new(Vec::new()));
     let mut registry = ChannelRegistry::default();
     registry
         .register(Arc::new(TestChannel {
             id: ChannelId::new("test-channel").unwrap(),
             mode,
+            messages: messages.clone(),
         }))
         .unwrap();
     let account = ChannelAccount::new(
@@ -231,7 +252,7 @@ fn fixture(mode: ChannelMode) -> Fixture {
         "测试账号",
         now,
     );
-    let service = DeliveryService::new(
+    let mut service = DeliveryService::new(
         store.clone(),
         Arc::new(registry),
         vec![DeliveryTarget::new(account, "conversation-1")],
@@ -240,7 +261,90 @@ fn fixture(mode: ChannelMode) -> Fixture {
         Arc::new(TestSink),
         RetryPolicy::default(),
     );
-    Fixture { store, service }
+    if let Some(agents) = agents {
+        service = service.with_agent_registry(agents);
+    }
+    Fixture {
+        store,
+        service,
+        messages,
+    }
+}
+
+/// 只暴露通知展示所需字段的测试 Agent。
+struct TestAgent {
+    id: AgentId,
+    display_name: &'static str,
+    resume: bool,
+}
+
+impl TestAgent {
+    fn new(id: &str, display_name: &'static str, resume: bool) -> Self {
+        Self {
+            id: AgentId::new(id).unwrap(),
+            display_name,
+            resume,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentAdapter for TestAgent {
+    fn descriptor(&self) -> AgentDescriptor {
+        AgentDescriptor {
+            id: self.id.clone(),
+            display_name: self.display_name.into(),
+            description: "测试 Agent".into(),
+            config_schema: serde_json::json!({"type": "object"}),
+        }
+    }
+
+    fn capabilities(&self) -> AgentCapabilities {
+        AgentCapabilities {
+            notify: true,
+            resume: self.resume,
+            session_title: true,
+            hook_installer: false,
+            reply_window: false,
+        }
+    }
+
+    fn parse_event(
+        &self,
+        _envelope: AgentEventEnvelope,
+    ) -> Result<NormalizedAgentEvent, AgentError> {
+        Err(AgentError::InvalidEvent)
+    }
+
+    async fn resume(
+        &self,
+        session_id: &AgentSessionId,
+        _text: &str,
+    ) -> Result<ResumeReceipt, AgentError> {
+        Ok(ResumeReceipt {
+            session_id: session_id.clone(),
+        })
+    }
+
+    async fn inspect(&self) -> AgentHealth {
+        AgentHealth::healthy()
+    }
+}
+
+fn agent_registry(agent: TestAgent) -> Arc<AgentRegistry> {
+    let mut registry = AgentRegistry::default();
+    registry.register(Arc::new(agent)).unwrap();
+    Arc::new(registry)
+}
+
+fn delivered_message(fixture: &Fixture) -> OutboundMessage {
+    fixture
+        .messages
+        .lock()
+        .unwrap()
+        .first()
+        .cloned()
+        .expect("渠道必须收到一条出站消息")
 }
 
 fn timestamp(value: &str) -> Timestamp {
@@ -381,6 +485,81 @@ async fn permanent_error_marks_outbox_dead() {
     );
 }
 
+/// 投递层必须把注册表里的显示名、会话名与续聊能力交给渠道，同时保留原始文本。
+#[tokio::test]
+async fn notification_presentation_uses_registry_display_name_and_reply_capability() {
+    let fixture = fixture_with(
+        ChannelMode::Sent,
+        Some(agent_registry(TestAgent::new("opencode", "Codex", true))),
+        Some("session-1"),
+        Some("修复登录"),
+    );
+    let outcome = fixture.service.process_next().await.unwrap();
+    assert!(matches!(outcome, ProcessOutcome::Completed { .. }));
+
+    let message = delivered_message(&fixture);
+    assert_eq!(message.text, "任务完成\n\nAgent 已完成当前任务");
+    assert_eq!(
+        message.notification,
+        Some(NotificationPresentation {
+            agent_display_name: "Codex".into(),
+            session_name: "修复登录".into(),
+            occurred_at: timestamp("2026-09-19T09:00:00Z"),
+            include_footer: true,
+            replyable: true,
+        })
+    );
+}
+
+/// 没有会话标题时回退通知标题；没有会话号时不得声称可引用。
+#[tokio::test]
+async fn notification_presentation_falls_back_to_title_and_never_fabricates_reply_support() {
+    let fixture = fixture_with(
+        ChannelMode::Sent,
+        Some(agent_registry(TestAgent::new("opencode", "Codex", true))),
+        None,
+        None,
+    );
+    fixture.service.process_next().await.unwrap();
+
+    let message = delivered_message(&fixture);
+    let presentation = message.notification.expect("必须有结构化通知信息");
+    assert_eq!(presentation.session_name, "任务完成");
+    assert!(!presentation.replyable, "没有会话号时不得声称可引用续聊");
+}
+
+/// Agent 未注册或未注入注册表时按原始文本投递，保持向后兼容。
+#[tokio::test]
+async fn notification_without_registered_agent_keeps_raw_text() {
+    for agents in [
+        None,
+        Some(agent_registry(TestAgent::new("other-agent", "Other", true))),
+    ] {
+        let fixture = fixture_with(ChannelMode::Sent, agents, Some("session-1"), None);
+        fixture.service.process_next().await.unwrap();
+
+        let message = delivered_message(&fixture);
+        assert!(message.notification.is_none());
+        assert_eq!(message.text, "任务完成\n\nAgent 已完成当前任务");
+    }
+}
+
+/// Agent 声明不支持续聊时，即使通知有会话号也不能声称可引用。
+#[tokio::test]
+async fn notification_presentation_marks_replyable_false_without_resume_capability() {
+    let fixture = fixture_with(
+        ChannelMode::Sent,
+        Some(agent_registry(TestAgent::new("opencode", "Codex", false))),
+        Some("session-1"),
+        Some("修复登录"),
+    );
+    fixture.service.process_next().await.unwrap();
+
+    let message = delivered_message(&fixture);
+    let presentation = message.notification.expect("必须有结构化通知信息");
+    assert!(!presentation.replyable);
+}
+
 #[tokio::test]
 async fn target_account_id_in_metadata_selects_matching_account() {
     let now = timestamp("2026-09-19T09:00:00Z");
@@ -419,6 +598,7 @@ async fn target_account_id_in_metadata_selects_matching_account() {
         .register(Arc::new(TestChannel {
             id: ChannelId::new("test-channel").unwrap(),
             mode: ChannelMode::Sent,
+            messages: Arc::new(Mutex::new(Vec::new())),
         }))
         .unwrap();
 
@@ -495,6 +675,7 @@ async fn target_account_id_not_found_fails_with_no_target() {
         .register(Arc::new(TestChannel {
             id: ChannelId::new("test-channel").unwrap(),
             mode: ChannelMode::Sent,
+            messages: Arc::new(Mutex::new(Vec::new())),
         }))
         .unwrap();
 

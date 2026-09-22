@@ -200,6 +200,7 @@ dependencies = [
  "agentnotify-storage-sqlite",
  "async-trait",
  "futures",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

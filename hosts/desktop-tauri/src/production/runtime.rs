@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use agentnotify_agent_sdk::AgentRegistry;
@@ -10,9 +10,10 @@ use agentnotify_runtime::{
     AppRuntime, MigrationConfig, RuntimeConfig, RuntimeError, RuntimeHandle, RuntimeSnapshot,
     RuntimeState as CoreRuntimeState, TelemetryConfig, start_migration_diagnostics,
 };
-use agentnotify_storage_sqlite::{LegacyPaths, SqliteStore};
+use agentnotify_storage_sqlite::{AgentConfigRecord, LegacyPaths, SqliteStore};
 use tokio::sync::Mutex;
 
+use super::agents::{build_agent_registry, load_agent_configs};
 use super::settings::ProductionSettingsStore;
 use super::targets::ProductionTargetProvider;
 use crate::bridge::error::CommandError;
@@ -47,7 +48,8 @@ pub struct ProductionRuntimeCoordinator {
     store: Arc<SqliteStore>,
     settings: ProductionSettingsStore,
     secret_store: Arc<dyn SecretStore>,
-    agent_registry: Arc<AgentRegistry>,
+    /// 当前生效的 Agent 注册表；`update_agent_config` 后按最新配置整体替换。
+    agent_registry: Arc<RwLock<Arc<AgentRegistry>>>,
     channel_registry: Arc<ChannelRegistry>,
     login_adapter: Arc<ClawBotLoginAdapter>,
     target_provider: Arc<ProductionTargetProvider>,
@@ -106,7 +108,7 @@ impl ProductionRuntimeCoordinator {
             store,
             settings,
             secret_store,
-            agent_registry,
+            agent_registry: Arc::new(RwLock::new(agent_registry)),
             channel_registry,
             login_adapter,
             target_provider,
@@ -129,7 +131,45 @@ impl ProductionRuntimeCoordinator {
     }
 
     pub fn agent_registry(&self) -> Arc<AgentRegistry> {
-        self.agent_registry.clone()
+        self.agent_registry
+            .read()
+            .map(|registry| registry.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+    }
+
+    /// 更新单个 Agent 配置：先按合并后的配置校验能否构建注册表，无效配置在这里直接失败，
+    /// 不写库、不替换内存注册表——否则带着无效行重启会让宿主起不来。
+    /// 校验通过后才落库，并用最新配置整体替换注册表、复用既有重启流程让配置生效。
+    pub async fn update_agent_config(
+        &self,
+        agent_id: &str,
+        enabled: bool,
+        config: &serde_json::Value,
+    ) -> Result<RuntimeSnapshot, CommandError> {
+        let mut candidate = load_agent_configs(&self.store).await?;
+        let mut record = candidate
+            .get(agent_id)
+            .cloned()
+            .unwrap_or(AgentConfigRecord {
+                enabled: true,
+                config: serde_json::json!({}),
+                updated_at: Timestamp::now_utc(),
+            });
+        record.enabled = enabled;
+        record.config = config.clone();
+        candidate.insert(agent_id.to_owned(), record);
+
+        let registry = build_agent_registry(&self.paths, &candidate)?;
+
+        self.store
+            .upsert_agent_config(agent_id, enabled, config)
+            .await
+            .map_err(|error| CommandError::new("agent_config_save_failed", error.to_string()))?;
+
+        *self.agent_registry.write().map_err(|_| {
+            CommandError::new("agent_registry_unavailable", "Agent 注册表暂不可用，请重试")
+        })? = Arc::new(registry);
+        self.start_or_restart().await
     }
 
     pub fn channel_registry(&self) -> Arc<ChannelRegistry> {
@@ -158,7 +198,7 @@ impl ProductionRuntimeCoordinator {
         RuntimeConfig {
             database_path,
             migration: Some(migration),
-            agents: self.agent_registry.clone(),
+            agents: self.agent_registry(),
             channels: self.channel_registry.clone(),
             clock: Arc::new(SystemClock),
             id_generator: Arc::new(UuidGenerator),

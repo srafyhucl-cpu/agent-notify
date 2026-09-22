@@ -357,7 +357,8 @@ impl AppRuntime {
                 event_bus.clone(),
                 Default::default(),
             )
-            .with_route_ttl(resolved_targets.reply_route_ttl),
+            .with_route_ttl(resolved_targets.reply_route_ttl)
+            .with_agent_registry(config.agents.clone()),
         );
         let reply = Arc::new(ReplyService::new(
             store.clone(),

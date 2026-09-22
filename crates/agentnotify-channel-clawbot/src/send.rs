@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use crate::{
     account::{ClawBotAccount, stable_account_id},
+    render::{NotificationRenderInput, render_notification},
     response::parse_response_ids,
     state::{ClawBotContext, ClawBotCredentials, ClawBotCursor},
 };
@@ -214,7 +215,8 @@ pub(crate) async fn send_outbound(
     }
 
     let client_id = message.client_id.trim().to_owned();
-    let body = build_request_body(&credentials, &context, &client_id, &message.text)?;
+    let text = outbound_text(&message)?;
+    let body = build_request_body(&credentials, &context, &client_id, &text)?;
     let response = transport
         .send_message(ClawBotSendRequest {
             base_url: credentials
@@ -431,6 +433,21 @@ async fn current_credentials_changed(
     let current = ClawBotCredentials::from_secret(&secret)
         .map_err(|_| invalid_account("ClawBot 登录凭据损坏，请重新扫码"))?;
     Ok(current.bot_token() != used_bot_token)
+}
+
+/// 有结构化通知信息时用渠道渲染器还原标题栏与页脚；否则按原始文本发送（向后兼容）。
+fn outbound_text(message: &OutboundMessage) -> Result<String, ChannelError> {
+    let Some(presentation) = message.notification.as_ref() else {
+        return Ok(message.text.clone());
+    };
+    render_notification(NotificationRenderInput {
+        agent_display_name: presentation.agent_display_name.clone(),
+        session_name: presentation.session_name.clone(),
+        body: message.text.clone(),
+        occurred_at: presentation.occurred_at,
+        include_footer: presentation.include_footer,
+        replyable: presentation.replyable,
+    })
 }
 
 fn build_request_body(

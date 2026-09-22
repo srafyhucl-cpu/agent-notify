@@ -13,7 +13,8 @@ use agentnotify_desktop::bridge::dto::*;
 use agentnotify_desktop::platform::AppPaths;
 use agentnotify_desktop::platform::windows::{CredentialBackend, WindowsSecretStore};
 use agentnotify_desktop::production::{
-    ProductionSettingsStore, ProductionTargetProvider, bootstrap_headless,
+    ProductionRuntimeCoordinator, ProductionSettingsStore, ProductionTargetProvider,
+    bootstrap_headless,
 };
 use agentnotify_domain::{
     AgentId, AgentSessionId, ChannelAccountId, ChannelId, Delivery, DeliveryId, Notification,
@@ -623,6 +624,203 @@ async fn new_agent_reply_inboxes_are_isolated_under_app_paths() {
     );
 
     let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// 界面里保存的 Agent 配置必须作用到适配器，`update_agent_config` 后立即生效。
+#[tokio::test]
+async fn saved_agent_config_reaches_adapters_and_update_takes_effect() {
+    let (_root, paths, store, secret_store) =
+        create_test_env("agentnotify-agent-config-live-test-");
+
+    let first_home = tempfile::Builder::new()
+        .prefix("agentnotify-codex-home-first-")
+        .tempdir_in(D_DRIVE_TEMP)
+        .expect("D 盘临时目录必须可创建");
+    let second_home = tempfile::Builder::new()
+        .prefix("agentnotify-codex-home-second-")
+        .tempdir_in(D_DRIVE_TEMP)
+        .expect("D 盘临时目录必须可创建");
+    write_codex_state_database(first_home.path(), "thread-1", "状态库标题");
+    write_codex_session_index(second_home.path(), "thread-1", "更新后的标题");
+
+    store
+        .upsert_agent_config(
+            "codex",
+            true,
+            &serde_json::json!({"codexHome": first_home.path()}),
+        )
+        .await
+        .expect("写入 Codex 配置必须成功");
+
+    let (coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    assert_eq!(
+        codex_title(&coordinator, "thread-1"),
+        "状态库标题",
+        "标题解析必须读取配置 codexHome 下的状态库"
+    );
+
+    service
+        .update_agent_config(UpdateAgentConfigPayload {
+            agent_id: "codex".into(),
+            enabled: Some(true),
+            config: Some(serde_json::json!({"codexHome": second_home.path()})),
+        })
+        .await
+        .expect("更新 Codex 配置必须成功");
+
+    assert_eq!(
+        codex_title(&coordinator, "thread-1"),
+        "更新后的标题",
+        "update_agent_config 之后必须用新配置重建适配器"
+    );
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// 无效配置必须先报错、绝不落库：否则带着无效行重启会让宿主起不来（用户被关在门外）。
+#[tokio::test]
+async fn invalid_agent_config_is_rejected_without_persisting() {
+    let (_root, paths, store, secret_store) =
+        create_test_env("agentnotify-agent-config-invalid-test-");
+
+    store
+        .upsert_agent_config("codex", true, &serde_json::json!({}))
+        .await
+        .expect("写入基线配置必须成功");
+    let before = store.agent_configs().await.expect("读取基线配置必须成功");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let error = service
+        .update_agent_config(UpdateAgentConfigPayload {
+            agent_id: "codex".into(),
+            enabled: Some(true),
+            config: Some(serde_json::json!({"codexHome": "relative/path"})),
+        })
+        .await
+        .expect_err("相对路径属于无效配置，必须明确报错");
+    assert_eq!(error.code(), "agent_config_invalid");
+
+    let after = store.agent_configs().await.expect("读取配置必须成功");
+    // 启动时会为未配置的 Agent 补默认关闭行，所以只断言 codex 行保持原样、且无效值没落库。
+    assert_eq!(
+        after.get("codex"),
+        before.get("codex"),
+        "无效配置绝不能写入数据库（codex 行必须保持原样）"
+    );
+    let leaked = after
+        .values()
+        .any(|record| record.config.to_string().contains("relative/path"));
+    assert!(!leaked, "无效值绝不能出现在数据库里");
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// `replyInbox` 配置必须作用到 Devin 适配器：配置路径优先于 AppPaths 默认收件箱。
+#[tokio::test]
+async fn configured_devin_reply_inbox_overrides_the_app_paths_inbox() {
+    let (_root, paths, store, secret_store) =
+        create_test_env("agentnotify-agent-config-inbox-test-");
+    let configured_inbox = tempfile::Builder::new()
+        .prefix("agentnotify-devin-inbox-")
+        .tempdir_in(D_DRIVE_TEMP)
+        .expect("D 盘临时目录必须可创建");
+    let heartbeats = configured_inbox.path().join("heartbeats");
+    std::fs::create_dir_all(&heartbeats).expect("创建心跳目录必须成功");
+    std::fs::write(
+        heartbeats.join("config-probe.json"),
+        serde_json::json!({
+            "ready": false,
+            "timestamp": Timestamp::now_utc().to_rfc3339(),
+        })
+        .to_string(),
+    )
+    .expect("写入隔离心跳必须成功");
+
+    store
+        .upsert_agent_config(
+            "devin",
+            true,
+            &serde_json::json!({"replyInbox": configured_inbox.path()}),
+        )
+        .await
+        .expect("写入 Devin 配置必须成功");
+
+    let (coordinator, service) = bootstrap_headless(paths.clone(), secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let devin = coordinator
+        .agent_registry()
+        .get(&AgentId::new("devin").expect("固定有效标识"))
+        .expect("Devin 适配器必须已注册");
+    let error = devin
+        .resume(
+            &AgentSessionId::new("config-probe-session").expect("固定有效标识"),
+            "配置探针",
+        )
+        .await
+        .expect_err("配置心跳 ready=false 时必须明确报错");
+    assert_eq!(
+        error.code(),
+        "devin_desktop_unsupported",
+        "Devin 收件箱必须指向配置路径"
+    );
+    assert!(
+        !paths.config_dir.join("devin-reply-inbox").exists(),
+        "配置了收件箱时不应读取或创建 AppPaths 默认收件箱"
+    );
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// 用注册表里的 Codex 适配器解析一条完成事件的标题。
+fn codex_title(coordinator: &ProductionRuntimeCoordinator, thread_id: &str) -> String {
+    let adapter = coordinator
+        .agent_registry()
+        .get(&AgentId::new("codex").expect("固定有效标识"))
+        .expect("Codex 适配器必须已注册");
+    let event = agentnotify_agent_sdk::AgentEventEnvelope {
+        request_id: agentnotify_domain::RequestId::new("req-codex-config-test")
+            .expect("固定有效标识"),
+        agent_id: AgentId::new("codex").expect("固定有效标识"),
+        payload: serde_json::json!({
+            "thread-id": thread_id,
+            "last-assistant-message": "done"
+        }),
+    };
+    adapter
+        .parse_event(event)
+        .expect("Codex 完成事件必须可解析")
+        .title
+}
+
+fn write_codex_session_index(home: &std::path::Path, thread_id: &str, title: &str) {
+    std::fs::write(
+        home.join("session_index.jsonl"),
+        format!("{{\"id\":\"{thread_id}\",\"thread_name\":\"{title}\"}}\n"),
+    )
+    .expect("写入 Codex 会话索引必须成功");
+}
+
+/// 造一个最小可用的 Codex 状态库：`state_*.sqlite` 里的 `threads.name` 是标题链首级。
+fn write_codex_state_database(home: &std::path::Path, thread_id: &str, title: &str) {
+    let connection =
+        rusqlite::Connection::open(home.join("state_5.sqlite")).expect("创建 Codex 状态库必须成功");
+    connection
+        .execute_batch("CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT);")
+        .expect("创建 threads 表必须成功");
+    connection
+        .execute(
+            "INSERT INTO threads (id, name) VALUES (?1, ?2)",
+            [thread_id, title],
+        )
+        .expect("写入 Codex 线程标题必须成功");
 }
 
 #[tokio::test]

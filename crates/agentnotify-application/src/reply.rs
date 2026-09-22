@@ -509,6 +509,7 @@ impl ReplyService {
             text: self.config.confirmation_text.clone(),
             client_id: format!("reply-confirmation-{claim_key}"),
             reply_to: message.external_message_id.clone(),
+            notification: None,
             safe_metadata: Default::default(),
         };
         match channel.send(target.account.clone(), outbound).await {
@@ -549,6 +550,7 @@ impl ReplyService {
             text,
             client_id: format!("reply-notice-{claim_key}"),
             reply_to: message.external_message_id.clone(),
+            notification: None,
             safe_metadata: Default::default(),
         };
         match channel.send(target.account.clone(), outbound).await {

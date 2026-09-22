@@ -239,13 +239,10 @@ impl HostCommandService for ProductionHostCommandService {
         let new_enabled = payload.enabled.unwrap_or(current_enabled);
         let new_config = payload.config.unwrap_or(current_config);
 
-        self.store
-            .upsert_agent_config(&payload.agent_id, new_enabled, &new_config)
-            .await
-            .map_err(|e| CommandError::new("agent_config_save_failed", e.to_string()))?;
-
-        // 重新构建 runtime
-        self.runtime.start_or_restart().await?;
+        // 校验通过才落库并重建注册表：无效配置会在这里报错，数据库保持原样
+        self.runtime
+            .update_agent_config(&payload.agent_id, new_enabled, &new_config)
+            .await?;
 
         let agents = self.list_agents(EmptyPayload {}).await?;
         agents

@@ -64,6 +64,12 @@ impl CommandCodeAgent {
         self
     }
 
+    /// 覆盖回复窗口秒数；界面里配置的 `commandCodeReplyWindowSec` 生效。
+    pub fn with_reply_window_sec(mut self, reply_window_sec: u64) -> Self {
+        self.reply_window_sec = clamp_reply_window_sec(reply_window_sec);
+        self
+    }
+
     pub fn sessions(&self) -> &CommandCodeSessions {
         &self.sessions
     }

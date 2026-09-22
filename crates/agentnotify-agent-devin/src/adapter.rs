@@ -95,6 +95,14 @@ impl DevinAgent {
         self.hooks_path.as_deref()
     }
 
+    pub fn sessions(&self) -> &DevinSessions {
+        &self.sessions
+    }
+
+    pub fn inbox(&self) -> &DevinReplyInbox {
+        &self.inbox
+    }
+
     pub fn desktop_sessions(&self) -> &DevinDesktopSessions {
         &self.desktop
     }

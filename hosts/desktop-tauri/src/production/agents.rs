@@ -1,17 +1,22 @@
 //! 生产组合根的 Agent 注册与默认配置行补齐。
 
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use agentnotify_agent_antigravity::AntigravityAgent;
-use agentnotify_agent_codex::CodexAgent;
-use agentnotify_agent_commandcode::{CommandCodeAgent, CommandCodeReplyInbox};
-use agentnotify_agent_devin::{DevinAgent, DevinReplyInbox};
+use agentnotify_agent_antigravity::{ANTIGRAVITY_AGENT_ID, AntigravityAgent};
+use agentnotify_agent_codex::{CODEX_AGENT_ID, CodexAgent};
+use agentnotify_agent_commandcode::{
+    COMMANDCODE_AGENT_ID, CommandCodeAgent, CommandCodeReplyInbox,
+};
+use agentnotify_agent_devin::{
+    DEVIN_AGENT_ID, DevinAgent, DevinDesktopSessions, DevinReplyInbox, DevinSessions,
+};
 use agentnotify_agent_opencode::{OpenCodeAgent, OpenCodeReplyInbox};
 use agentnotify_agent_sdk::{AgentAdapter, AgentRegistry};
-use agentnotify_storage_sqlite::SqliteStore;
+use agentnotify_storage_sqlite::{AgentConfigRecord, SqliteStore};
 
 use crate::bridge::error::CommandError;
 use crate::platform::AppPaths;
@@ -22,35 +27,52 @@ const OPENCODE_REPLY_INBOX_DIR: &str = "opencode-reply-inbox";
 const DEVIN_REPLY_INBOX_DIR: &str = "devin-reply-inbox";
 const COMMANDCODE_REPLY_INBOX_DIR: &str = "commandcode-reply-inbox";
 
+/// 各适配器 `config_schema` 里的配置键；用户显式配置时优先于默认安装位置。
+const CODEX_HOME_KEY: &str = "codexHome";
+const ANTIGRAVITY_ANNOTATIONS_DIR_KEY: &str = "annotationsDir";
+const ANTIGRAVITY_HOOKS_PATH_KEY: &str = "hooksPath";
+const DEVIN_SESSIONS_DATABASE_KEY: &str = "sessionsDatabase";
+const DEVIN_DESKTOP_STATE_DATABASE_KEY: &str = "desktopStateDatabase";
+const DEVIN_REPLY_INBOX_KEY: &str = "replyInbox";
+const COMMANDCODE_REPLY_WINDOW_SEC_KEY: &str = "commandCodeReplyWindowSec";
+
 /// 没有配置行时按启用处理的 Agent：只有 OpenCode 保持这一历史默认，
 /// 免得升级后把现网正在工作的通知链路静默关掉。
 const AGENT_IDS_ENABLED_WITHOUT_CONFIG: [&str; 1] = ["opencode"];
 
-/// 注册全部 Agent 适配器。
+/// 读取数据库里保存的 Agent 配置；失败时明确报错，不用默认值猜测。
+pub(super) async fn load_agent_configs(
+    store: &SqliteStore,
+) -> Result<BTreeMap<String, AgentConfigRecord>, CommandError> {
+    store
+        .agent_configs()
+        .await
+        .map_err(|error| CommandError::new("agent_configs_query_failed", error.to_string()))
+}
+
+/// 注册全部 Agent 适配器，并按数据库里保存的配置覆盖默认安装位置。
 ///
 /// `paths` 只用于应用自身的数据目录（回复收件箱）；Codex、Antigravity、Devin、CommandCode
 /// 的外部数据（`%USERPROFILE%\.codex`、`%USERPROFILE%\.gemini`、`%APPDATA%\devin`、
 /// `%USERPROFILE%\.commandcode`）是外部工具的真实安装位置，由适配器自己解析。
+/// 用户在界面上显式配置的路径以配置为准，缺省或清空时继续用各自的默认位置。
 ///
 /// 注册只构造对象：不启动进程、不连网，也不创建任何目录。
-pub(super) fn build_agent_registry(paths: &AppPaths) -> Result<AgentRegistry, CommandError> {
+pub(super) fn build_agent_registry(
+    paths: &AppPaths,
+    configs: &BTreeMap<String, AgentConfigRecord>,
+) -> Result<AgentRegistry, CommandError> {
     let adapters: Vec<Arc<dyn AgentAdapter>> = vec![
         Arc::new(OpenCodeAgent::new(OpenCodeReplyInbox::new(
             reply_inbox_root(&paths.config_dir, OPENCODE_REPLY_INBOX_DIR),
         ))),
-        Arc::new(CodexAgent::from_default_location()),
-        Arc::new(AntigravityAgent::from_default_location()),
-        Arc::new(
-            DevinAgent::from_default_location().with_inbox(DevinReplyInbox::new(reply_inbox_root(
-                &paths.config_dir,
-                DEVIN_REPLY_INBOX_DIR,
-            ))),
-        ),
-        Arc::new(
-            CommandCodeAgent::from_default_location().with_inbox(CommandCodeReplyInbox::new(
-                reply_inbox_root(&paths.config_dir, COMMANDCODE_REPLY_INBOX_DIR),
-            )),
-        ),
+        Arc::new(build_codex_agent(configs.get(CODEX_AGENT_ID))?),
+        Arc::new(build_antigravity_agent(configs.get(ANTIGRAVITY_AGENT_ID))?),
+        Arc::new(build_devin_agent(paths, configs.get(DEVIN_AGENT_ID))?),
+        Arc::new(build_commandcode_agent(
+            paths,
+            configs.get(COMMANDCODE_AGENT_ID),
+        )?),
     ];
 
     let mut registry = AgentRegistry::default();
@@ -92,6 +114,116 @@ pub(super) async fn seed_disabled_agent_configs(
     Ok(())
 }
 
+fn build_codex_agent(record: Option<&AgentConfigRecord>) -> Result<CodexAgent, CommandError> {
+    let Some(config) = record.map(|record| &record.config) else {
+        return Ok(CodexAgent::from_default_location());
+    };
+    match configured_path(config, CODEX_HOME_KEY)? {
+        Some(codex_home) => Ok(CodexAgent::new(codex_home)),
+        None => Ok(CodexAgent::from_default_location()),
+    }
+}
+
+fn build_antigravity_agent(
+    record: Option<&AgentConfigRecord>,
+) -> Result<AntigravityAgent, CommandError> {
+    let mut agent = AntigravityAgent::from_default_location();
+    let Some(config) = record.map(|record| &record.config) else {
+        return Ok(agent);
+    };
+    if let Some(annotations_dir) = configured_path(config, ANTIGRAVITY_ANNOTATIONS_DIR_KEY)? {
+        agent = agent.with_annotations_dir(annotations_dir);
+    }
+    if let Some(hooks_path) = configured_path(config, ANTIGRAVITY_HOOKS_PATH_KEY)? {
+        agent = agent.with_hooks_path(hooks_path);
+    }
+    Ok(agent)
+}
+
+fn build_devin_agent(
+    paths: &AppPaths,
+    record: Option<&AgentConfigRecord>,
+) -> Result<DevinAgent, CommandError> {
+    // 收件箱默认随 AppPaths 隔离；用户显式配置时才改用配置路径。
+    let mut agent = DevinAgent::from_default_location().with_inbox(DevinReplyInbox::new(
+        reply_inbox_root(&paths.config_dir, DEVIN_REPLY_INBOX_DIR),
+    ));
+    let Some(config) = record.map(|record| &record.config) else {
+        return Ok(agent);
+    };
+    if let Some(sessions_database) = configured_path(config, DEVIN_SESSIONS_DATABASE_KEY)? {
+        agent = agent.with_sessions(DevinSessions::new(sessions_database));
+    }
+    if let Some(desktop_database) = configured_path(config, DEVIN_DESKTOP_STATE_DATABASE_KEY)? {
+        agent = agent.with_desktop(DevinDesktopSessions::new(desktop_database));
+    }
+    if let Some(reply_inbox) = configured_path(config, DEVIN_REPLY_INBOX_KEY)? {
+        agent = agent.with_inbox(DevinReplyInbox::new(reply_inbox));
+    }
+    Ok(agent)
+}
+
+fn build_commandcode_agent(
+    paths: &AppPaths,
+    record: Option<&AgentConfigRecord>,
+) -> Result<CommandCodeAgent, CommandError> {
+    let mut agent =
+        CommandCodeAgent::from_default_location().with_inbox(CommandCodeReplyInbox::new(
+            reply_inbox_root(&paths.config_dir, COMMANDCODE_REPLY_INBOX_DIR),
+        ));
+    let Some(config) = record.map(|record| &record.config) else {
+        return Ok(agent);
+    };
+    if let Some(reply_window_sec) = configured_u64(config, COMMANDCODE_REPLY_WINDOW_SEC_KEY)? {
+        agent = agent.with_reply_window_sec(reply_window_sec);
+    }
+    Ok(agent)
+}
+
+/// 读取配置里的路径字段：缺省、`null` 或空字符串表示使用默认位置；
+/// 非字符串与相对路径属于无效配置，明确报错而不是猜测目标。
+fn configured_path(config: &serde_json::Value, key: &str) -> Result<Option<PathBuf>, CommandError> {
+    let Some(value) = config.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let Some(text) = value.as_str() else {
+        return Err(invalid_config(key, "必须是字符串路径"));
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let path = PathBuf::from(text);
+    if !path.is_absolute() {
+        return Err(invalid_config(key, "必须是绝对路径"));
+    }
+    Ok(Some(path))
+}
+
+/// 读取配置里的非负整数字段：缺省或 `null` 表示使用默认值。
+fn configured_u64(config: &serde_json::Value, key: &str) -> Result<Option<u64>, CommandError> {
+    let Some(value) = config.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    value
+        .as_u64()
+        .map(Some)
+        .ok_or_else(|| invalid_config(key, "必须是非负整数"))
+}
+
+fn invalid_config(key: &str, reason: &str) -> CommandError {
+    CommandError::new(
+        "agent_config_invalid",
+        format!("Agent 配置项 {key} 无效：{reason}"),
+    )
+}
+
 /// 应用自身的回复收件箱根目录。
 fn reply_inbox_root(config_dir: &Path, inbox_dir_name: &str) -> PathBuf {
     config_dir.join(inbox_dir_name)
@@ -100,20 +232,38 @@ fn reply_inbox_root(config_dir: &Path, inbox_dir_name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentnotify_domain::Timestamp;
 
     const D_DRIVE_TEMP: &str = r"D:\Temp";
+
+    fn temp_root(prefix: &str) -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix(prefix)
+            .tempdir_in(D_DRIVE_TEMP)
+            .expect("D 盘测试目录必须可创建")
+    }
+
+    fn record(config: serde_json::Value) -> AgentConfigRecord {
+        AgentConfigRecord {
+            enabled: true,
+            config,
+            updated_at: Timestamp::now_utc(),
+        }
+    }
+
+    fn inbox_root(paths: &AppPaths, dir_name: &str) -> PathBuf {
+        reply_inbox_root(&paths.config_dir, dir_name)
+    }
 
     /// 注册只构造对象：必须注册全部适配器，且不创建任何目录。
     #[test]
     fn building_the_registry_registers_every_agent_without_touching_disk() {
-        let root = tempfile::Builder::new()
-            .prefix("agentnotify-agent-registry-test-")
-            .tempdir_in(D_DRIVE_TEMP)
-            .expect("D 盘测试目录必须可创建");
+        let root = temp_root("agentnotify-agent-registry-test-");
         let isolated = root.path().join("isolated");
         let paths = AppPaths::for_tests(&isolated);
 
-        let registry = build_agent_registry(&paths).expect("注册全部 Agent 必须成功");
+        let registry =
+            build_agent_registry(&paths, &BTreeMap::new()).expect("注册全部 Agent 必须成功");
 
         let ids: Vec<String> = registry
             .all()
@@ -148,5 +298,132 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// 保存的配置必须覆盖各适配器的默认位置。
+    #[test]
+    fn saved_agent_configs_override_default_locations() {
+        let root = temp_root("agentnotify-agent-config-test-");
+        let paths = AppPaths::for_tests(root.path());
+
+        let codex_home = root.path().join("codex-home");
+        let codex = build_codex_agent(Some(&record(serde_json::json!({
+            "codexHome": codex_home,
+        }))))
+        .expect("Codex 配置必须可解析");
+        assert_eq!(codex.codex_home(), Some(codex_home.as_path()));
+
+        let annotations_dir = root.path().join("antigravity-annotations");
+        let hooks_path = root.path().join("hooks.json");
+        let antigravity = build_antigravity_agent(Some(&record(serde_json::json!({
+            "annotationsDir": annotations_dir,
+            "hooksPath": hooks_path,
+        }))))
+        .expect("Antigravity 配置必须可解析");
+        assert_eq!(
+            antigravity.annotations_dir(),
+            Some(annotations_dir.as_path())
+        );
+        assert_eq!(antigravity.hooks_path(), Some(hooks_path.as_path()));
+
+        let reply_inbox = root.path().join("devin-inbox");
+        let devin = build_devin_agent(
+            &paths,
+            Some(&record(serde_json::json!({
+                "sessionsDatabase": root.path().join("sessions.db"),
+                "desktopStateDatabase": root.path().join("state.vscdb"),
+                "replyInbox": reply_inbox,
+            }))),
+        )
+        .expect("Devin 配置必须可解析");
+        assert_eq!(devin.inbox().root(), Some(reply_inbox.as_path()));
+
+        let commandcode = build_commandcode_agent(
+            &paths,
+            Some(&record(serde_json::json!({
+                "commandCodeReplyWindowSec": 120,
+            }))),
+        )
+        .expect("CommandCode 配置必须可解析");
+        assert_eq!(commandcode.reply_window_sec(), 120);
+        let default_commandcode_inbox = inbox_root(&paths, COMMANDCODE_REPLY_INBOX_DIR);
+        assert_eq!(
+            commandcode.inbox().root(),
+            Some(default_commandcode_inbox.as_path())
+        );
+    }
+
+    /// 缺省、空字符串与 `null` 都必须保持各适配器的默认行为。
+    #[test]
+    fn missing_or_cleared_config_keeps_adapter_defaults() {
+        let root = temp_root("agentnotify-agent-config-default-test-");
+        let paths = AppPaths::for_tests(root.path());
+
+        let codex = build_codex_agent(None).expect("缺省配置必须可构造");
+        assert_eq!(
+            codex.codex_home(),
+            agentnotify_agent_codex::default_codex_home().as_deref()
+        );
+        let cleared_codex = build_codex_agent(Some(&record(serde_json::json!({
+            "codexHome": "  ",
+        }))))
+        .expect("清空的配置必须按缺省处理");
+        assert_eq!(
+            cleared_codex.codex_home(),
+            agentnotify_agent_codex::default_codex_home().as_deref()
+        );
+
+        let antigravity = build_antigravity_agent(None).expect("缺省配置必须可构造");
+        assert_eq!(
+            antigravity.annotations_dir(),
+            agentnotify_agent_antigravity::default_annotations_dir().as_deref()
+        );
+
+        let devin = build_devin_agent(&paths, None).expect("缺省配置必须可构造");
+        let devin_inbox = inbox_root(&paths, DEVIN_REPLY_INBOX_DIR);
+        assert_eq!(devin.inbox().root(), Some(devin_inbox.as_path()));
+
+        let commandcode = build_commandcode_agent(&paths, None).expect("缺省配置必须可构造");
+        assert_eq!(
+            commandcode.reply_window_sec(),
+            agentnotify_agent_commandcode::resolve_reply_window_sec()
+        );
+        let commandcode_inbox = inbox_root(&paths, COMMANDCODE_REPLY_INBOX_DIR);
+        assert_eq!(
+            commandcode.inbox().root(),
+            Some(commandcode_inbox.as_path())
+        );
+    }
+
+    /// 无效配置必须明确报错，不能悄悄回退到默认位置。
+    #[test]
+    fn invalid_agent_config_is_rejected_with_a_clear_error() {
+        for config in [
+            serde_json::json!({"codexHome": 42}),
+            serde_json::json!({"codexHome": "relative\\codex"}),
+        ] {
+            let error = match build_codex_agent(Some(&record(config))) {
+                Ok(_) => panic!("无效配置必须报错"),
+                Err(error) => error,
+            };
+            assert_eq!(error.code(), "agent_config_invalid");
+            assert!(error.message().contains("codexHome"), "{}", error.message());
+        }
+
+        let error = match build_commandcode_agent(
+            &AppPaths::for_tests(Path::new(r"D:\Temp\agentnotify-agent-config-invalid")),
+            Some(&record(serde_json::json!({
+                "commandCodeReplyWindowSec": -1,
+            }))),
+        ) {
+            Ok(_) => panic!("负数窗口必须报错"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code(), "agent_config_invalid");
+        assert!(
+            error.message().contains("commandCodeReplyWindowSec"),
+            "{}",
+            error.message()
+        );
     }
 }

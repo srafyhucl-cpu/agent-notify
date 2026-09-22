@@ -39,6 +39,7 @@ pub async fn assert_channel_contract(adapter: Arc<dyn ChannelAdapter>) {
         text: String::new(),
         client_id: "contract-client".into(),
         reply_to: None,
+        notification: None,
         safe_metadata: Default::default(),
     };
     let error = adapter
@@ -57,6 +58,7 @@ pub async fn assert_channel_contract(adapter: Arc<dyn ChannelAdapter>) {
             text: "x".repeat(max_text_bytes + 1),
             client_id: "contract-client".into(),
             reply_to: None,
+            notification: None,
             safe_metadata: Default::default(),
         };
         let error = adapter.send(account, oversized).await.unwrap_err();

@@ -1,7 +1,9 @@
 use std::{fmt::Display, sync::Arc};
 
+use agentnotify_agent_sdk::AgentRegistry;
 use agentnotify_channel_sdk::{
-    ChannelAccount, ChannelError, ChannelRegistry, DeliveryReceipt, OutboundMessage,
+    ChannelAccount, ChannelError, ChannelRegistry, DeliveryReceipt, NotificationPresentation,
+    OutboundMessage,
 };
 use agentnotify_domain::{
     Delivery, DeliveryErrorKind, DeliveryId, DeliveryState, DomainArea, Notification, ReplyRoute,
@@ -14,6 +16,8 @@ use crate::{Clock, DeliveryStore, EventSink, IdGenerator, OutboxLease, StoreErro
 
 const DEFAULT_REPLY_ROUTE_TTL_SECONDS: i64 = 24 * 60 * 60;
 const DEFAULT_LEASE_SECONDS: i64 = 30;
+/// 通知默认带页脚，与 Go 版格式一致。
+const NOTIFICATION_INCLUDE_FOOTER: bool = true;
 pub const TARGET_ACCOUNT_ID_METADATA_KEY: &str = "targetAccountId";
 
 /// 首个生产闭环显式配置的渠道目标。
@@ -106,6 +110,7 @@ pub struct DeliveryService {
     retry_policy: RetryPolicy,
     reply_route_ttl: Duration,
     lease_duration: Duration,
+    agents: Option<Arc<AgentRegistry>>,
 }
 
 impl DeliveryService {
@@ -129,11 +134,19 @@ impl DeliveryService {
             retry_policy,
             reply_route_ttl: Duration::seconds(DEFAULT_REPLY_ROUTE_TTL_SECONDS),
             lease_duration: Duration::seconds(DEFAULT_LEASE_SECONDS),
+            agents: None,
         }
     }
 
     pub fn with_route_ttl(mut self, reply_route_ttl: Duration) -> Self {
         self.reply_route_ttl = reply_route_ttl;
+        self
+    }
+
+    /// 注入 Agent 注册表：投递通知时据此填充结构化展示信息（显示名、会话名、续聊能力）。
+    /// 不注入时渠道按原始文本发送，兼容旧装配。
+    pub fn with_agent_registry(mut self, agents: Arc<AgentRegistry>) -> Self {
+        self.agents = Some(agents);
         self
     }
 
@@ -220,11 +233,14 @@ impl DeliveryService {
             "{}\n\n{}",
             lease.notification.title, lease.notification.body
         );
-        let message = OutboundMessage::notification(
+        let mut message = OutboundMessage::notification(
             target.conversation_id.clone(),
             text,
             format!("delivery-{delivery_id}"),
         )?;
+        if let Some(presentation) = self.notification_presentation(&lease.notification) {
+            message = message.with_notification(presentation);
+        }
 
         let mut next_attempt_at = None;
         match channel.send(target.account.clone(), message).await {
@@ -375,6 +391,30 @@ impl DeliveryService {
             .commit_delivery(lease.clone(), delivery.clone(), None)
             .await?;
         Ok(None)
+    }
+
+    /// 组装渠道渲染通知所需的结构化信息。
+    ///
+    /// 没有注册表或 Agent 未注册时返回 `None`，渠道按原始文本发送（向后兼容）。
+    /// `replyable` 只表示“有会话号且 Agent 声明续聊能力”；回复路由要到 Sent 之后才建立，
+    /// 所以这里不查路由表。
+    fn notification_presentation(
+        &self,
+        notification: &Notification,
+    ) -> Option<NotificationPresentation> {
+        let agent = self.agents.as_ref()?.get(&notification.agent_id)?;
+        let session_name = notification
+            .session_title
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| notification.title.clone());
+        Some(NotificationPresentation {
+            agent_display_name: agent.descriptor().display_name,
+            session_name,
+            occurred_at: notification.occurred_at,
+            include_footer: NOTIFICATION_INCLUDE_FOOTER,
+            replyable: notification.session_id.is_some() && agent.capabilities().resume,
+        })
     }
 
     fn build_route(
