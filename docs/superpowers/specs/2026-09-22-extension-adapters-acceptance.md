@@ -134,15 +134,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 | **重复事件** | ✅ 通过 | 用真实 Hook + 真实 ingress 提交同一 `thread-id`+`turn-id` 两次（cmd 管道喂 stdin，因为 Hook 是 GUI 子系统 exe，PowerShell 管道不可靠）：数据库仅 1 条通知，`ingest_key = codex:01a0c6f4-dedup-acceptance:turn-dedup-0003` |
 | **脱敏日志** | ✅ 通过 | `%LOCALAPPDATA%\AgentNotify\logs\runtime.log` 中 `token`/`secret`/`authorization`/`cookie`/`context_token`/`bot_token` 全部零出现，且无 32 位以上疑似密钥串；新诊断日志只含错误码、固定 reason 与文案 |
 | **推送会话失效原因可区分** | ✅ 通过 | 新回执文案实测落在路径 1（"请先给 ClawBot 发送一条消息"）而非路径 2（"平台未能准备会话"），与"重启清空上下文"的判断一致 |
-| **客户端退出** | ⏳ 待验（需真机引用回复） | 步骤：先给 bot 发一条消息重建推送会话 → 关闭目标客户端 → 引用其历史推送回复 → 预期得到可读错误而非静默丢弃 |
+| **客户端退出** | ✅ 通过（Command Code 实测） | 关闭 Command Code 后引用其推送回复，微信收到：`无法续聊：发送到 Agent 失败（Command Code 目标会话未在运行，请先打开该会话；回复不会改投到其他会话）。` —— 可读、指明原因、且明确不误投。**其余三个适配器的同类场景仍待各自实测**（Codex/Antigravity/Devin 的离线路径目前仅契约测试覆盖） |
 | **超时 / Unknown** | ⚠️ 仅契约测试覆盖 | 真机未注入故障（需要断网或让客户端无响应，代价过高）。语义由 `crates/agentnotify-application` 与各适配器的契约测试锁定：超时记 `Unknown` 且不自动重试、中断的投递重启后不重发 |
 
 ### 计划 Task 11 Step 4 的完成度
 
 计划要求每个适配器单独记录：真实客户端版本与测试时间、正常推送、精确回复、账号或客户端退出、超时/`Unknown`/重复事件、脱敏日志检查、失败复现步骤。
 
-- 已完成：四个适配器的**正常推送 + 精确回复**、**重复事件**、**脱敏日志检查**、失败复现步骤（5 条缺陷及定位）
-- 未完成：真实**客户端版本**记录、**客户端退出**的真机行为、**超时 / Unknown** 的真机故障注入
+- 已完成：四个适配器的**正常推送 + 精确回复**、**重复事件**、**脱敏日志检查**、失败复现步骤（5 条缺陷及定位）、**客户端退出**（Command Code 实测通过）
+- 未完成：真实**客户端版本**记录、其余三个适配器的**客户端退出**实测、**超时 / Unknown** 的真机故障注入
 - 结论：Task 11 的 Step 4 **不勾选**；其余步骤还依赖 Task 6–10（飞书、多账号、外部适配器协议）的实现。
 
 ## 9. 待办（本轮修复落地后排队）
