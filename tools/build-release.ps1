@@ -44,19 +44,30 @@ if ($fileVersion -ne $Version) {
 
 $driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
 $target = 'x86_64-pc-windows-msvc'
-$env:CARGO_HOME = if ($env:CARGO_HOME -like 'D:\*') { $env:CARGO_HOME } else { 'D:\Tools\cargo' }
-$env:RUSTUP_HOME = if ($env:RUSTUP_HOME -like 'D:\*') { $env:RUSTUP_HOME } else { 'D:\Tools\rustup' }
-$env:CARGO_TARGET_DIR = if ($env:CARGO_TARGET_DIR -like 'D:\*') { $env:CARGO_TARGET_DIR } else { Join-Path $driveRoot 'Temp\agentnotify-rust-target' }
-$env:npm_config_cache = if ($env:npm_config_cache -like 'D:\*') { $env:npm_config_cache } else { Join-Path $driveRoot 'Temp\npm-cache' }
-$env:TEMP = if ($env:TEMP -like 'D:\*') { $env:TEMP } else { Join-Path $driveRoot 'Temp\agentnotify-temp' }
-$env:TMP = $env:TEMP
-$env:PATH = (Join-Path $env:CARGO_HOME 'bin') + ';' + $env:PATH
-New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR, $env:TEMP, $env:npm_config_cache | Out-Null
 
-$cargo = Join-Path $env:CARGO_HOME 'bin\cargo.exe'
-if (-not (Test-Path -LiteralPath $cargo -PathType Leaf)) {
-  throw "找不到 cargo：$cargo。请按 tools\rust\gate.ps1 的约定准备 D 盘 Rust 工具链。"
+# 本地约定（工具链、缓存与 target 都留在 D 盘）只在它真的存在时生效。
+# CI 上没有 D:\Tools\cargo，改用环境里的 rustup/cargo（版本由 rust-toolchain.toml 固定）。
+$localCargo = 'D:\Tools\cargo'
+$useLocalToolchain = Test-Path -LiteralPath (Join-Path $localCargo 'bin\cargo.exe') -PathType Leaf
+if ($useLocalToolchain) {
+  if (-not $env:CARGO_HOME) { $env:CARGO_HOME = $localCargo }
+  if (-not $env:RUSTUP_HOME) { $env:RUSTUP_HOME = 'D:\Tools\rustup' }
+  if (-not $env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR = Join-Path $driveRoot 'Temp\agentnotify-rust-target' }
+  if (-not $env:npm_config_cache) { $env:npm_config_cache = Join-Path $driveRoot 'Temp\npm-cache' }
+  if (-not $env:TEMP -or $env:TEMP -like 'C:\*') { $env:TEMP = Join-Path $driveRoot 'Temp\agentnotify-temp' }
+  $env:TMP = $env:TEMP
+  $env:PATH = (Join-Path $env:CARGO_HOME 'bin') + ';' + $env:PATH
 }
+if (-not $env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR = Join-Path $RepoRoot 'target' }
+New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR | Out-Null
+if ($env:TEMP) { New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null }
+if ($env:npm_config_cache) { New-Item -ItemType Directory -Force -Path $env:npm_config_cache | Out-Null }
+
+$cargoCommand = Get-Command cargo.exe -ErrorAction SilentlyContinue
+if (-not $cargoCommand) {
+  throw '找不到 cargo.exe：本地请按 tools\rust\gate.ps1 的约定准备 D 盘工具链；CI 请确保 rustup 提供的 cargo 在 PATH 上。'
+}
+$cargo = $cargoCommand.Source
 
 # 预检安装器工具链：缺 ISCC 时立刻失败，不要先花几分钟构建再报错。
 if (-not $SkipInstaller) {
