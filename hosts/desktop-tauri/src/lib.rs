@@ -94,6 +94,8 @@ pub fn build_app_with_lifecycle(lifecycle: LifecycleController) -> tauri::Builde
                     }
                     Err(error) => {
                         tracing::error!(%error, "生产运行时异步初始化失败");
+                        // 让等待中的命令立即拿到具体原因，而不是空等到超时
+                        bridge_state_clone.fail(&error.to_string()).await;
                     }
                 }
             });

@@ -49,6 +49,11 @@ impl CommandError {
         )
         .with_retryable(true)
     }
+
+    /// 宿主不可用，但原因具体（初始化中或初始化失败），用于避免笼统的"请稍后重试"。
+    pub fn unavailable_message(message: &str) -> Self {
+        Self::new("host_command_unavailable", message).with_retryable(true)
+    }
 }
 
 impl Display for CommandError {
