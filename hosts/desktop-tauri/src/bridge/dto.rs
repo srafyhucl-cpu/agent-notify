@@ -26,6 +26,7 @@ pub enum BusinessCommand {
     SetRuntimePaused,
     QuitApp,
     GetUpdateStatus,
+    InstallUpdate,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -416,6 +417,24 @@ pub struct UpdateStatusDto {
     pub preview: bool,
     pub message: String,
     pub checked_at: Option<String>,
+}
+
+/// 一键升级命令无输入参数：目标版本来自最近一次检查更新。
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallUpdatePayload {}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallUpdateResultDto {
+    pub state: UpdateStateDto,
+    pub message: String,
+    /// 已下载并校验、准备就绪的版本号；失败时为 None。
+    pub installed_version: Option<String>,
+    /// 产物是否带通过校验的签名（预览通道允许未签名）。
+    pub signed: bool,
+    /// 是否走测试通道安装（不强制签名指纹）。
+    pub preview: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]

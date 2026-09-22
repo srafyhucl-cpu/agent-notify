@@ -47,6 +47,8 @@ futures = { workspace = true }
 tauri-plugin-notification = "2"
 tokio = { workspace = true }
 tracing = { workspace = true }
+zip = { version = "7", default-features = false, features = ["deflate"] }
+reqwest = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Security_WinTrust", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

@@ -1,6 +1,7 @@
 use agentnotify_desktop::bridge::{
-    BUSINESS_COMMAND_NAMES, CommandError, RuntimeLifecycleStateDto, RuntimeSnapshotDto,
-    RuntimeSummaryDto, SnapshotOverviewDto,
+    BUSINESS_COMMAND_NAMES, CommandError, InstallUpdatePayload, InstallUpdateResultDto,
+    RuntimeLifecycleStateDto, RuntimeSnapshotDto, RuntimeSummaryDto, SnapshotOverviewDto,
+    UpdateStateDto,
 };
 
 #[test]
@@ -28,6 +29,7 @@ fn stable_command_names_are_exact_and_append_only() {
             "set_runtime_paused",
             "quit_app",
             "get_update_status",
+            "install_update",
         ]
     );
 }
@@ -72,4 +74,45 @@ fn snapshot_dto_uses_camel_case_for_typescript_consumers() {
     assert_eq!(json["runtime"]["appVersion"], "2.0.0-dev.0");
     assert_eq!(json["runtime"]["state"], "Running");
     assert_eq!(json["runtime"]["paused"], false);
+}
+
+#[test]
+fn install_update_contract_keeps_empty_payload_and_five_state_result() {
+    let payload = InstallUpdatePayload {};
+    assert_eq!(
+        serde_json::to_value(&payload).expect("空载荷必须可序列化"),
+        serde_json::json!({})
+    );
+    // 序列化方向只要求字段齐全；反序列化必须容忍 UI 回传的空对象。
+    assert_eq!(
+        serde_json::from_value::<InstallUpdatePayload>(serde_json::json!({}))
+            .expect("空对象必须可反序列化"),
+        payload
+    );
+
+    let result = InstallUpdateResultDto {
+        state: UpdateStateDto::ReadyToInstall,
+        message: "更新包已校验，安装程序已启动（v2.1.0）。".into(),
+        installed_version: Some("2.1.0".into()),
+        signed: true,
+        preview: false,
+    };
+    let json = serde_json::to_value(&result).expect("安装结果必须可序列化");
+    assert_eq!(json["state"], "ReadyToInstall");
+    assert_eq!(json["installedVersion"], "2.1.0");
+    assert_eq!(json["signed"], true);
+    assert_eq!(json["preview"], false);
+    assert_eq!(json["message"], "更新包已校验，安装程序已启动（v2.1.0）。");
+
+    // 五个状态由现有 UpdateStateDto 承载，安装结果不允许出现新状态。
+    for state in [
+        UpdateStateDto::UpToDate,
+        UpdateStateDto::Available,
+        UpdateStateDto::ReadyToInstall,
+        UpdateStateDto::Unsupported,
+        UpdateStateDto::Failed,
+    ] {
+        let json = serde_json::to_value(state).expect("状态必须可序列化");
+        assert!(json.is_string(), "状态必须是稳定字符串: {json}");
+    }
 }

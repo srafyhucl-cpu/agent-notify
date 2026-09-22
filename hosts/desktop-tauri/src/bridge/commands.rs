@@ -9,9 +9,10 @@ use tauri::State;
 use super::dto::{
     AgentDto, BeginChannelLoginPayload, BeginChannelLoginResultDto, ChannelAccountDto,
     ChannelAccountIdPayload, ChannelListDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto,
-    EmptyPayload, LegacyMigrationDto, LoginSessionDto, MutationAcceptedDto, NotificationDetailDto,
-    NotificationFilterPayload, NotificationIdPayload, NotificationListDto, RuntimeSnapshotDto,
-    RuntimeSummaryDto, SendTestNotificationPayload, SetRuntimePausedPayload, SettingsDto,
+    EmptyPayload, InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto,
+    LoginSessionDto, MutationAcceptedDto, NotificationDetailDto, NotificationFilterPayload,
+    NotificationIdPayload, NotificationListDto, RuntimeSnapshotDto, RuntimeSummaryDto,
+    SendTestNotificationPayload, SetRuntimePausedPayload, SettingsDto,
     SubmitChannelLoginCodePayload, TestNotificationResultDto, UpdateAgentConfigPayload,
     UpdateStatusDto,
 };
@@ -100,6 +101,11 @@ pub trait HostCommandService: Send + Sync {
         &self,
         payload: EmptyPayload,
     ) -> Result<UpdateStatusDto, CommandError>;
+
+    async fn install_update(
+        &self,
+        payload: InstallUpdatePayload,
+    ) -> Result<InstallUpdateResultDto, CommandError>;
 }
 
 /// Tauri 管理的命令状态；后续宿主任务只负责注入新的服务实现。
@@ -383,6 +389,13 @@ impl HostCommandService for UnavailableHostCommandService {
     ) -> Result<UpdateStatusDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+
+    async fn install_update(
+        &self,
+        _payload: InstallUpdatePayload,
+    ) -> Result<InstallUpdateResultDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
 }
 
 #[tauri::command]
@@ -583,4 +596,14 @@ pub async fn get_update_status(
 ) -> Result<UpdateStatusDto, CommandError> {
     let service = state.service.current().await;
     service.get_update_status(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn install_update(
+    state: State<'_, BridgeState>,
+    payload: InstallUpdatePayload,
+) -> Result<InstallUpdateResultDto, CommandError> {
+    let service = state.service.current().await;
+    service.install_update(payload).await
 }

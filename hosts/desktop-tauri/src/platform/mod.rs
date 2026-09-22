@@ -13,6 +13,8 @@ pub struct AppPaths {
     pub data_dir: PathBuf,
     pub log_dir: PathBuf,
     pub spool_dir: PathBuf,
+    /// 应用自己的临时目录：更新包下载、解压与安装日志都落在这里，不直接用 `%TEMP%`。
+    pub temp_dir: PathBuf,
 }
 
 impl AppPaths {
@@ -23,6 +25,7 @@ impl AppPaths {
             data_dir: root.join("data"),
             log_dir: root.join("logs"),
             spool_dir: root.join("spool"),
+            temp_dir: root.join("temp"),
         }
     }
 }

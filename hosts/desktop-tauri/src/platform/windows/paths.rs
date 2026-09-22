@@ -6,6 +6,7 @@ const CONFIG_DIR_ENV: &str = "AGENT_NOTIFY_CONFIG_DIR";
 const DATA_DIR_ENV: &str = "AGENT_NOTIFY_DATA_DIR";
 const LOG_DIR_ENV: &str = "AGENT_NOTIFY_LOG_DIR";
 const SPOOL_DIR_ENV: &str = "AGENT_NOTIFY_SPOOL_DIR";
+const TEMP_DIR_ENV: &str = "AGENT_NOTIFY_TEMP_DIR";
 const USER_PROFILE_ENV: &str = "USERPROFILE";
 const LOCAL_APP_DATA_ENV: &str = "LOCALAPPDATA";
 
@@ -57,6 +58,11 @@ impl AppPaths {
             spool_dir: environment_override_or(SPOOL_DIR_ENV, || {
                 Ok(local_app_data()?.join("AgentNotify").join("spool"))
             })?,
+            // 更新包下载与解压有自己的临时目录，避免与用户 `%TEMP%` 下的其它内容混在一起；
+            // 隔离环境可用 AGENT_NOTIFY_TEMP_DIR 覆盖（与 Go 版同名）。
+            temp_dir: environment_override_or(TEMP_DIR_ENV, || {
+                Ok(local_app_data()?.join("AgentNotify").join("temp"))
+            })?,
         })
     }
 
@@ -66,6 +72,7 @@ impl AppPaths {
             &self.data_dir,
             &self.log_dir,
             &self.spool_dir,
+            &self.temp_dir,
         ] {
             std::fs::create_dir_all(directory).map_err(|error| {
                 AppPathsError::new(
