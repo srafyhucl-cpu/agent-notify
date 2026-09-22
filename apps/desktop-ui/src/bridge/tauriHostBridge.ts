@@ -105,6 +105,10 @@ async function dispatchCommand(
       return commands.getUpdateStatus(
         payload as CommandPayloadMap["get_update_status"],
       );
+    case "install_update":
+      return commands.installUpdate(
+        payload as CommandPayloadMap["install_update"],
+      );
     default: {
       const neverCommand: never = command;
       throw new Error(`未处理命令: ${String(neverCommand)}`);

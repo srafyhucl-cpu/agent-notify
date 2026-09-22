@@ -127,8 +127,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 4. **积压通知不补投**（设计如此，非缺陷）：`Skipped`（如 `session_missing`）是终态，不会重投；只能在 History 里查看。
 5. **ClawBot 主动推送会话失效需入站消息恢复**：平台返回 `PrepareFailed` 时运行时会清空上下文，此后所有 Agent 的推送都会 `session_missing`，直到用户给 bot 发一条消息。已观察到该状态与"应用重启 + `notifystart`"在时间上高度相关（10:26:56 重启 → 10:26:59 起全部失败），但**日志没有记录平台返回的具体原因**，属诊断缺口，待补日志后再定位是否为缺陷。
 
-## 9. 待办（本轮修复落地后排队）
+### 按计划 Task 11 Step 4 的剩余验收项（尚未逐项真机验证）
 
+计划要求每个适配器单独记录以下项，本轮只完成了"正常推送 + 精确回复"：
+
+- 真实客户端版本与测试时间（本轮只记了时间，未记客户端版本）
+- 账号或客户端退出时的行为（例如 Devin/Command Code 客户端关闭后引用回复应给可读错误）
+- 超时、`Unknown` 与重复事件（目前仅单元/契约测试覆盖）
+- 脱敏日志检查（确认日志不含令牌、响应体与用户隐私）
+- 失败时的复现步骤（本轮已记录 5 条缺陷及定位）
+
+因此计划 Task 11 的 Step 4 **不勾选**，其余步骤还依赖 Task 6–10（飞书、多账号、外部适配器协议）的实现。
+
+## 9. 待办（本轮修复落地后排队）
 1. **一键升级**（已确认排期）——Go 版有、Rust 版缺失的最后一块能力：
    - **已有**：`agentnotify_desktop::update::{sha256_file, verify_download, SignatureRequirement}`（SHA256 / 签名指纹 / PE 版本三类校验，测试完备）、Settings 页"检查更新"入口、`get_update_status` 主机命令、发布链的 `SHA256SUMS.txt` 与 `agent-notify-releases` 镜像仓库。
    - **缺**：查询最新 Release 并比对版本、下载安装包到临时目录、校验、拉起安装器、失败时给用户可读提示。

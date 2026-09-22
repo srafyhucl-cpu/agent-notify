@@ -785,6 +785,14 @@
   font-weight: 650;
 }
 
+.settings-update-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .settings-readonly-config {
   display: grid;
   gap: var(--space-2);
@@ -935,5 +943,14 @@
   .settings-save-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-update-actions {
+    width: 100%;
+  }
+
+  .settings-update-actions .button {
+    flex: 1 1 auto;
+    justify-content: center;
   }
 }

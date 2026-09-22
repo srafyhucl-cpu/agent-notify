@@ -12,6 +12,8 @@ import type {
   DiagnosticsDto,
   EmptyPayload,
   HostEvent as GeneratedHostEvent,
+  InstallUpdatePayload,
+  InstallUpdateResultDto,
   LegacyMigrationDto,
   LoginSessionDto,
   MutationAcceptedDto,
@@ -54,6 +56,7 @@ export interface CommandPayloadMap {
   set_runtime_paused: SetRuntimePausedPayload;
   quit_app: EmptyPayload;
   get_update_status: EmptyPayload;
+  install_update: InstallUpdatePayload;
 }
 
 export interface CommandResultMap {
@@ -77,6 +80,7 @@ export interface CommandResultMap {
   set_runtime_paused: RuntimeSummaryDto;
   quit_app: MutationAcceptedDto;
   get_update_status: UpdateStatusDto;
+  install_update: InstallUpdateResultDto;
 }
 
 export interface EventPayloadMap {

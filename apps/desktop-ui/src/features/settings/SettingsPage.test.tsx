@@ -9,7 +9,9 @@ import type {
   AgentDto,
   ChannelDto,
   DiagnosticsDto,
+  InstallUpdateResultDto,
   SettingsDto,
+  UpdateStatusDto,
 } from "../../bridge/types";
 import { createQueryClient } from "../../data/queryClient";
 import { legacyMigrationFixture } from "../../test/fixtures";
@@ -28,6 +30,34 @@ function settingsFixture(overrides: Partial<SettingsDto> = {}): SettingsDto {
     autoStart: false,
     startHidden: false,
     updateChannel: "Stable",
+    ...overrides,
+  };
+}
+
+function updateStatusFixture(
+  overrides: Partial<UpdateStatusDto> = {},
+): UpdateStatusDto {
+  return {
+    currentVersion: "2.0.0-dev.0",
+    availableVersion: null,
+    state: "UpToDate",
+    signed: false,
+    preview: true,
+    message: "当前已是最新版本。",
+    checkedAt: "2026-09-19T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function installResultFixture(
+  overrides: Partial<InstallUpdateResultDto> = {},
+): InstallUpdateResultDto {
+  return {
+    state: "ReadyToInstall",
+    message: "更新包已校验，安装程序已启动（v2.1.0）。",
+    installedVersion: "2.1.0",
+    signed: false,
+    preview: true,
     ...overrides,
   };
 }
@@ -183,6 +213,123 @@ describe("SettingsPage", () => {
       ),
     ).toBeVisible();
     expect(bridge.calls("get_update_status")).toHaveLength(1);
+  });
+
+  it("发现新版本时可以下载安装并展示后端结果", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      settings: settingsFixture(),
+      updateStatus: updateStatusFixture({
+        availableVersion: "2.1.0",
+        state: "Available",
+        message: "发现新版本 v2.1.0，可下载并安装。",
+      }),
+      installUpdateResult: installResultFixture(),
+    });
+
+    renderSettings(bridge);
+    await screen.findByRole("switch", { name: "全局暂停" });
+    await user.click(screen.getByRole("button", { name: "检查更新" }));
+    expect(
+      await screen.findByText("发现新版本 v2.1.0，可下载并安装。"),
+    ).toBeVisible();
+
+    const install = screen.getByRole("button", { name: "下载并安装" });
+    expect(install).toBeEnabled();
+    await user.click(install);
+
+    expect(await screen.findByText(/安装已就绪：更新包已校验/)).toBeVisible();
+    expect(bridge.calls("install_update")).toEqual([
+      { command: "install_update", payload: {} },
+    ]);
+    expect(screen.getByRole("button", { name: "下载并安装" })).toBeEnabled();
+  });
+
+  it("检查失败时禁用安装入口并说明原因", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      settings: settingsFixture(),
+      updateStatus: updateStatusFixture({
+        state: "Failed",
+        message: "检查更新失败：网络连接超时。",
+      }),
+    });
+
+    renderSettings(bridge);
+    await screen.findByRole("switch", { name: "全局暂停" });
+    expect(screen.getByRole("button", { name: "下载并安装" })).toBeDisabled();
+    expect(
+      screen.getByText("先检查更新，确认存在可安装版本后才能下载。"),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "检查更新" }));
+    expect(
+      await screen.findByText("检查更新失败：网络连接超时。"),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "下载并安装" })).toBeDisabled();
+    expect(screen.getByText("上次检查更新失败，请先重新检查。")).toBeVisible();
+    expect(bridge.calls("install_update")).toHaveLength(0);
+  });
+
+  it("安装过程中禁用按钮并显示进行中文案", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      settings: settingsFixture(),
+      updateStatus: updateStatusFixture({
+        availableVersion: "2.1.0",
+        state: "Available",
+        message: "发现新版本 v2.1.0，可下载并安装。",
+      }),
+      installUpdateResult: installResultFixture(),
+      delays: { install_update: 150 },
+    });
+
+    renderSettings(bridge);
+    await screen.findByRole("switch", { name: "全局暂停" });
+    await user.click(screen.getByRole("button", { name: "检查更新" }));
+    await screen.findByText("发现新版本 v2.1.0，可下载并安装。");
+
+    await user.click(screen.getByRole("button", { name: "下载并安装" }));
+
+    expect(screen.getByRole("button", { name: "正在下载并安装" })).toBeDisabled();
+    expect(
+      screen.getByText("正在下载并校验更新包，请保持应用运行。"),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "检查更新" })).toBeDisabled();
+
+    expect(await screen.findByText(/安装已就绪：更新包已校验/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "下载并安装" })).toBeEnabled();
+  });
+
+  it("安装失败时展示后端原因并禁用重试入口", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      settings: settingsFixture(),
+      updateStatus: updateStatusFixture({
+        availableVersion: "2.1.0",
+        state: "Available",
+        message: "发现新版本 v2.1.0，可下载并安装。",
+      }),
+      installUpdateResult: installResultFixture({
+        state: "Failed",
+        message: "下载更新包失败：连接超时，请检查网络后重试。",
+        installedVersion: null,
+      }),
+    });
+
+    renderSettings(bridge);
+    await screen.findByRole("switch", { name: "全局暂停" });
+    await user.click(screen.getByRole("button", { name: "检查更新" }));
+    await screen.findByText("发现新版本 v2.1.0，可下载并安装。");
+    await user.click(screen.getByRole("button", { name: "下载并安装" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "下载更新包失败：连接超时，请检查网络后重试。",
+    );
+    expect(screen.getByRole("button", { name: "下载并安装" })).toBeDisabled();
+    expect(
+      screen.getByText("上次安装未成功，请重新检查更新后再试。"),
+    ).toBeVisible();
   });
 
   it("validates, saves, and reports a successful settings update", async () => {

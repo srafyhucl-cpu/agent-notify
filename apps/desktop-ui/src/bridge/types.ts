@@ -27,6 +27,7 @@ export const commands = {
 	setRuntimePaused: (payload: SetRuntimePausedPayload) => __TAURI_INVOKE<RuntimeSummaryDto>("set_runtime_paused", { payload }),
 	quitApp: (payload: EmptyPayload) => __TAURI_INVOKE<MutationAcceptedDto>("quit_app", { payload }),
 	getUpdateStatus: (payload: EmptyPayload) => __TAURI_INVOKE<UpdateStatusDto>("get_update_status", { payload }),
+	installUpdate: (payload: InstallUpdatePayload) => __TAURI_INVOKE<InstallUpdateResultDto>("install_update", { payload }),
 };
 
 /** Events */
@@ -71,7 +72,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update";
 
 export type ChannelAccountDto = {
 	id: string,
@@ -203,6 +204,20 @@ export type DiagnosticsDto = {
 export type EmptyPayload = Record<string, never>;
 
 export type HostEvent = "snapshot.changed" | "delivery.changed" | "channel.login.changed";
+
+/**  一键升级命令无输入参数：目标版本来自最近一次检查更新。 */
+export type InstallUpdatePayload = Record<string, never>;
+
+export type InstallUpdateResultDto = {
+	state: UpdateStateDto,
+	message: string,
+	/**  已下载并校验、准备就绪的版本号；失败时为 None。 */
+	installedVersion: string | null,
+	/**  产物是否带通过校验的签名（预览通道允许未签名）。 */
+	signed: boolean,
+	/**  是否走测试通道安装（不强制签名指纹）。 */
+	preview: boolean,
+};
 
 export type LegacyMigrationDto = {
 	state: MigrationStateDto,

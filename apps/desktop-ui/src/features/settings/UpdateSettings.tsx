@@ -1,18 +1,73 @@
-import { RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Download, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import type { HostBridge } from "../../bridge";
 import type {
+  InstallUpdateResultDto,
   SettingsDto,
   UpdateChannelDto,
+  UpdateStateDto,
   UpdateStatusDto,
 } from "../../bridge/types";
+import { InlineError } from "../../components/InlineError";
 import { toUserError } from "../../data/errors";
 
 const UPDATE_CHANNEL_LABELS: Record<UpdateChannelDto, string> = {
   Stable: "稳定版",
   Beta: "测试版",
 };
+
+/** 只有这两个状态允许一键下载并安装；其余状态保持禁用并说明原因。 */
+type InstallableState = Extract<UpdateStateDto, "Available" | "ReadyToInstall">;
+
+function isInstallableState(state: UpdateStateDto): state is InstallableState {
+  return state === "Available" || state === "ReadyToInstall";
+}
+
+const INSTALL_REASON_ID = "settings-update-install-reason";
+
+const INSTALL_DISABLED_REASONS: Record<
+  Exclude<UpdateStateDto, InstallableState>,
+  string
+> = {
+  UpToDate: "当前已是最新版本，无需下载安装。",
+  Unsupported: "当前环境或更新通道不支持在线安装。",
+  Failed: "上次检查更新失败，请先重新检查。",
+};
+
+/** 未安装过时按检查结果说明；安装失败过时优先说明安装失败。 */
+function installDisabledReason(
+  status: UpdateStatusDto | null,
+  installResult: InstallUpdateResultDto | null,
+): string | null {
+  if (installResult && isInstallableState(installResult.state)) {
+    return null;
+  }
+  if (installResult?.state === "Failed") {
+    return "上次安装未成功，请重新检查更新后再试。";
+  }
+  if (!status) {
+    return "先检查更新，确认存在可安装版本后才能下载。";
+  }
+  if (isInstallableState(status.state)) {
+    return null;
+  }
+  return INSTALL_DISABLED_REASONS[status.state];
+}
+
+function InstallResult({ result }: { result: InstallUpdateResultDto }) {
+  if (result.state === "Failed") {
+    return <InlineError title="更新安装失败" message={result.message} />;
+  }
+  if (result.state === "ReadyToInstall") {
+    return (
+      <p className="settings-feedback settings-feedback--success" role="status">
+        安装已就绪：{result.message}
+      </p>
+    );
+  }
+  return <p className="settings-feedback">{result.message}</p>;
+}
 
 export interface UpdateSettingsProps {
   bridge: HostBridge;
@@ -31,11 +86,16 @@ export function UpdateSettings({
 }: UpdateSettingsProps) {
   const [status, setStatus] = useState<UpdateStatusDto | null>(null);
   const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [installResult, setInstallResult] =
+    useState<InstallUpdateResultDto | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const checkForUpdate = async () => {
     setChecking(true);
     setErrorMessage(null);
+    // 重新检查后旧安装结果不再可信，先清空避免误导。
+    setInstallResult(null);
     try {
       setStatus(await bridge.invoke("get_update_status", {}));
     } catch (error) {
@@ -44,6 +104,21 @@ export function UpdateSettings({
       setChecking(false);
     }
   };
+
+  const installUpdate = async () => {
+    setInstalling(true);
+    setErrorMessage(null);
+    try {
+      setInstallResult(await bridge.invoke("install_update", {}));
+    } catch (error) {
+      setErrorMessage(toUserError(error).message);
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const blockedReason = installDisabledReason(status, installResult);
+  const installDisabled = disabled || checking || installing || blockedReason !== null;
 
   return (
     <div className="settings-fields">
@@ -108,16 +183,40 @@ export function UpdateSettings({
             先检查发布通道；安装动作仍由宿主校验包来源、版本和签名。
           </small>
         </span>
-        <button
-          className="button button-secondary"
-          type="button"
-          disabled={disabled || checking}
-          onClick={() => void checkForUpdate()}
-        >
-          <RefreshCw aria-hidden="true" size={15} />
-          {checking ? "正在检查" : "检查更新"}
-        </button>
+        <div className="settings-update-actions">
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={disabled || checking || installing}
+            onClick={() => void checkForUpdate()}
+          >
+            <RefreshCw aria-hidden="true" size={15} />
+            {checking ? "正在检查" : "检查更新"}
+          </button>
+          <button
+            className="button"
+            type="button"
+            disabled={installDisabled}
+            aria-describedby={blockedReason ? INSTALL_REASON_ID : undefined}
+            onClick={() => void installUpdate()}
+          >
+            <Download aria-hidden="true" size={15} />
+            {installing ? "正在下载并安装" : "下载并安装"}
+          </button>
+        </div>
       </div>
+
+      {blockedReason ? (
+        <p className="settings-feedback" id={INSTALL_REASON_ID}>
+          {blockedReason}
+        </p>
+      ) : null}
+
+      {installing ? (
+        <p className="settings-feedback" role="status">
+          正在下载并校验更新包，请保持应用运行。
+        </p>
+      ) : null}
 
       {status ? (
         <div className="settings-subsection" role="status">
@@ -141,6 +240,8 @@ export function UpdateSettings({
           </p>
         </div>
       ) : null}
+
+      {installResult ? <InstallResult result={installResult} /> : null}
 
       {errorMessage ? (
         <p className="settings-feedback settings-feedback--error" role="alert">

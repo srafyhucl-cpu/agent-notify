@@ -10,6 +10,7 @@ import type {
   DiagnosticsDto,
   EmptyPayload,
   HostEvent,
+  InstallUpdateResultDto,
   LoginSessionDto,
   LegacyMigrationDto,
   MutationAcceptedDto,
@@ -43,6 +44,7 @@ export interface MockHostBridgeOptions {
   diagnostics?: DiagnosticsDto;
   migration?: LegacyMigrationDto;
   updateStatus?: UpdateStatusDto;
+  installUpdateResult?: InstallUpdateResultDto;
   loginSession?: LoginSessionDto;
   errors?: Partial<Record<BusinessCommand, CommandError>>;
   delays?: Partial<Record<BusinessCommand, number>>;
@@ -124,6 +126,20 @@ function defaultUpdateStatus(): UpdateStatusDto {
     preview: true,
     message: "当前为 Rust 预览包，未签名且不提供在线安装。",
     checkedAt: null,
+  };
+}
+
+/** 默认按检查结果返回安装成功，供未显式配置安装结果的测试使用。 */
+function defaultInstallUpdateResult(
+  status: UpdateStatusDto | undefined,
+): InstallUpdateResultDto {
+  const version = status?.availableVersion ?? status?.currentVersion ?? "2.0.0-dev.0";
+  return {
+    state: "ReadyToInstall",
+    message: `更新包已校验，安装程序已启动（v${version}）。`,
+    installedVersion: version,
+    signed: status?.signed ?? false,
+    preview: status?.preview ?? true,
   };
 }
 
@@ -401,6 +417,11 @@ export function createMockHostBridge(
         break;
       case "get_update_status":
         result = options.updateStatus ?? defaultUpdateStatus();
+        break;
+      case "install_update":
+        result =
+          options.installUpdateResult ??
+          defaultInstallUpdateResult(options.updateStatus);
         break;
       default: {
         const neverCommand: never = command;
