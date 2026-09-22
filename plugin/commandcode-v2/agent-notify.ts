@@ -12,7 +12,8 @@
  * 回复窗口：`commandCodeReplyWindowSec`（0 = 关闭，默认）大于 0 时，onStop 会先推送通知，
  * 再在本地等待回复任务（等待期间不消耗 token）；窗口内收到引用回复就用 Stop hook 的
  * `reason` 把正文作为新的用户指示送进模型。窗口结束后到达的任务一律明确失败，绝不留到
- * 下一次 run。窗口秒数与环境变量与 Go 版同名，适配器读同一份配置，两侧不会走偏。
+ * 下一次 run。窗口秒数优先级：环境变量 > 应用写入的 `commandcode-reply-inbox/window.json`
+ * （界面里保存的值，适配器同源写出）> 旧 JSON 配置——老用户只配了旧文件仍然生效。
  *
  * 心跳：每 5 秒写一次 commandcode-reply-inbox/heartbeats/<实例>.json，供适配器判断
  * “目标会话是否在线、窗口是否开着”；pending → processing 用原子 rename，任务只由持有
@@ -27,7 +28,7 @@
  * - AGENT_NOTIFY_INGRESS_BIN：覆盖 ingress 路径，优先级高于安装器写入的路径
  * - AGENT_NOTIFY_COMMANDCODE_MARKER_FILE：开关 marker，存在即停，默认
  *   %USERPROFILE%\.config\agent-notify\commandcode.off
- * - AGENT_NOTIFY_COMMANDCODE_REPLY_DIR：回复收件箱目录
+ * - AGENT_NOTIFY_COMMANDCODE_REPLY_DIR：回复收件箱目录（应用写入的 window.json 也在里面）
  * - AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC：回复窗口秒数（0 = 关闭，最大 600）
  * - AGENT_NOTIFY_CONFIG_FILE / AGENT_NOTIFY_CONFIG_DIR：AgentNotify 配置位置
  * - AGENT_NOTIFY_OFF=1：mod 总开关，直接不提交事件
@@ -88,6 +89,8 @@ const PENDING_DIR = `${REPLY_DIR}/pending`
 const PROCESSING_DIR = `${REPLY_DIR}/processing`
 const RESULT_DIR = `${REPLY_DIR}/results`
 const HEARTBEAT_DIR = `${REPLY_DIR}/heartbeats`
+/** 应用（界面保存时）写出的窗口值；mod 只读，绝不改。 */
+const WINDOW_FILE = REPLY_DIR ? `${REPLY_DIR}/window.json` : ""
 const DEBUG_LOG_FILE = `${TEMP_DIR}/commandcode-debug.log`
 
 const MILLISECONDS_PER_SECOND = 1000
@@ -271,19 +274,55 @@ function agentNotifyConfig(): JsonRecord {
 
 /**
  * 回复窗口秒数：0 表示不等待（默认，保守）。
- * 优先级：环境变量（只有大于 0 才覆盖）> 配置文件 commandCodeReplyWindowSec；
- * 与适配器读同一份来源，两侧不会走偏。
+ * 优先级：环境变量（只有大于 0 才覆盖）> 收件箱 window.json（应用写的界面值）
+ * > 旧 JSON 配置 `commandCodeReplyWindowSec`（老用户向后兼容）。
+ * window.json 存在且是合法数字时按显式配置处理（0 = 界面关闭），不再回退旧配置；
+ * 否则会出现 mod 开窗、适配器判定关闭的走偏。读取失败/非法只写诊断并回退下一优先级。
  */
 function windowSeconds(): number {
   const env = Number(envValue(WINDOW_ENV))
   if (Number.isFinite(env) && env > 0) {
     return Math.min(Math.floor(env), MAX_REPLY_WINDOW_SEC)
   }
+  const inbox = inboxWindowSeconds()
+  if (inbox !== null) {
+    return inbox
+  }
   const configured = Number(agentNotifyConfig()[WINDOW_CONFIG_KEY])
   if (Number.isFinite(configured) && configured > 0) {
     return Math.min(Math.floor(configured), MAX_REPLY_WINDOW_SEC)
   }
   return 0
+}
+
+/**
+ * 读应用写入的 window.json；缺失/损坏返回 null 并写诊断（原因进 commandcode-debug.log）。
+ * 非数字值不放行：宁可回退旧配置，也不猜测目标。
+ */
+function inboxWindowSeconds(): number | null {
+  if (!fsMod || !WINDOW_FILE || !existsInFs(WINDOW_FILE)) {
+    return null
+  }
+  let raw = ""
+  try {
+    raw = fsMod.readFileSync(WINDOW_FILE, "utf8")
+  } catch (error) {
+    dbg(`window file read fail: ${errorMessage(error)}`)
+    return null
+  }
+  let parsed: unknown = undefined
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    dbg(`window file invalid json: ${errorMessage(error)}`)
+    return null
+  }
+  const value = isRecord(parsed) ? parsed[WINDOW_CONFIG_KEY] : undefined
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    dbg(`window file invalid value: ${JSON.stringify(value)}`)
+    return null
+  }
+  return Math.min(Math.floor(value), MAX_REPLY_WINDOW_SEC)
 }
 
 /** 该 Agent 被 marker 暂停时也不撑窗口。 */

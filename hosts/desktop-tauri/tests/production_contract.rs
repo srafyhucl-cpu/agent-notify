@@ -549,15 +549,25 @@ async fn new_agent_reply_inboxes_are_isolated_under_app_paths() {
         .await
         .expect("Headless 装配与启动必须成功");
 
-    // 注册阶段不得创建任何收件箱目录。
-    for inbox_dir in [
-        "opencode-reply-inbox",
-        "devin-reply-inbox",
-        "commandcode-reply-inbox",
-    ] {
+    // 注册阶段只构造对象：Opencode / Devin 的收件箱在用到之前不得被创建。
+    // Command Code 例外：启动装配会写窗口文件（应用自己的数据），但不会创建心跳等目录。
+    for inbox_dir in ["opencode-reply-inbox", "devin-reply-inbox"] {
         assert!(
             !paths.config_dir.join(inbox_dir).exists(),
             "注册阶段不得创建收件箱目录 {inbox_dir}"
+        );
+    }
+    let commandcode_inbox = paths.config_dir.join("commandcode-reply-inbox");
+    assert!(
+        commandcode_inbox
+            .join(agentnotify_agent_commandcode::WINDOW_FILE_NAME)
+            .is_file(),
+        "启动装配必须写出 Command Code 窗口文件"
+    );
+    for created_dir in ["pending", "processing", "results", "heartbeats"] {
+        assert!(
+            !commandcode_inbox.join(created_dir).exists(),
+            "启动装配不得创建 Command Code 运行目录 {created_dir}"
         );
     }
 
@@ -680,6 +690,62 @@ async fn saved_agent_config_reaches_adapters_and_update_takes_effect() {
     let _ = service.quit_app(EmptyPayload {}).await;
 }
 
+/// 界面保存的 Command Code 回复窗口必须到达 mod 能读到的 `window.json`：
+/// 启动装配写一次，`update_agent_config` 保存后立即同步，两次都与适配器同源。
+#[tokio::test]
+async fn commandcode_reply_window_reaches_the_mod_window_file() {
+    let (_root, paths, store, secret_store) =
+        create_test_env("agentnotify-commandcode-window-test-");
+    let window_file = paths
+        .config_dir
+        .join("commandcode-reply-inbox")
+        .join(agentnotify_agent_commandcode::WINDOW_FILE_NAME);
+
+    store
+        .upsert_agent_config(
+            "commandcode",
+            true,
+            &serde_json::json!({"commandCodeReplyWindowSec": 120}),
+        )
+        .await
+        .expect("写入 CommandCode 配置必须成功");
+
+    let (_coordinator, service) = bootstrap_headless(paths.clone(), secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    assert_eq!(
+        window_file_sec(&window_file),
+        120,
+        "启动装配必须把界面里已有的窗口写给 mod"
+    );
+
+    let updated = service
+        .update_agent_config(UpdateAgentConfigPayload {
+            agent_id: "commandcode".into(),
+            enabled: Some(true),
+            config: Some(serde_json::json!({"commandCodeReplyWindowSec": 300})),
+        })
+        .await
+        .expect("更新 CommandCode 配置必须成功");
+    assert_eq!(
+        updated.config["commandCodeReplyWindowSec"], 300,
+        "配置必须落库"
+    );
+    assert_eq!(
+        window_file_sec(&window_file),
+        300,
+        "保存后必须立即把同一个值写给 mod"
+    );
+    assert!(
+        window_file.starts_with(&paths.config_dir),
+        "窗口文件必须落在应用自己的收件箱里：{}",
+        window_file.display()
+    );
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
 /// 无效配置必须先报错、绝不落库：否则带着无效行重启会让宿主起不来（用户被关在门外）。
 #[tokio::test]
 async fn invalid_agent_config_is_rejected_without_persisting() {
@@ -777,6 +843,17 @@ async fn configured_devin_reply_inbox_overrides_the_app_paths_inbox() {
     );
 
     let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// 读取 mod 窗口文件里的秒数；文件缺失或格式不对直接失败，避免测试静默放过。
+fn window_file_sec(path: &std::path::Path) -> u64 {
+    let content = std::fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("窗口文件必须存在 {}：{error}", path.display()));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&content).expect("窗口文件必须是合法 JSON");
+    parsed["commandCodeReplyWindowSec"]
+        .as_u64()
+        .expect("窗口秒数必须是非负整数")
 }
 
 /// 用注册表里的 Codex 适配器解析一条完成事件的标题。

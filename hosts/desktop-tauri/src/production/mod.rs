@@ -16,7 +16,7 @@ use tauri::{AppHandle, Wry};
 use crate::bridge::error::CommandError;
 use crate::platform::AppPaths;
 
-use agents::{build_agent_registry, load_agent_configs, seed_disabled_agent_configs};
+use agents::{assemble_agents, load_agent_configs, seed_disabled_agent_configs};
 
 pub use events::EventForwarder;
 pub use runtime::ProductionRuntimeCoordinator;
@@ -82,8 +82,9 @@ async fn bootstrap_internal(
 
     // 注册全部 Agent；先读已保存配置，界面里配置的路径必须作用到适配器。
     // 应用自身的收件箱走 AppPaths，外部 Agent 目录由适配器解析真实安装位置。
+    // 装配同时把 Command Code 回复窗口写给 mod（应用自己的 window.json）。
     let agent_configs = load_agent_configs(&store).await?;
-    let agent_registry = build_agent_registry(&paths, &agent_configs)?;
+    let agent_registry = assemble_agents(&paths, &agent_configs)?;
     // 新接入的适配器先补一条“默认关闭”的配置行，用户在界面启用后才会推送
     seed_disabled_agent_configs(&store, &agent_registry).await?;
     let agent_registry = Arc::new(agent_registry);

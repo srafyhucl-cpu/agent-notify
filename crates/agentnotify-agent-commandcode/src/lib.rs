@@ -15,4 +15,7 @@ pub use reply_inbox::{
     DEFAULT_RESULT_WAIT, JOB_TTL,
 };
 pub use title::{CommandCodeSessions, DEFAULT_TITLE, TitleResolution, TitleSource};
-pub use window::{MAX_REPLY_WINDOW_SEC, clamp_reply_window_sec, resolve_reply_window_sec};
+pub use window::{
+    MAX_REPLY_WINDOW_SEC, WINDOW_FILE_NAME, clamp_reply_window_sec, resolve_reply_window_sec,
+    write_reply_window,
+};

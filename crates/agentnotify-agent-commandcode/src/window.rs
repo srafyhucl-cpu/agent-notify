@@ -1,7 +1,13 @@
-use std::{env, path::PathBuf};
+use std::{
+    env, fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
+};
 
 /// 回复窗口秒数上限，与 Go 版 `commandCodeReplyWindowSec` 的 1–600 一致。
 pub const MAX_REPLY_WINDOW_SEC: u64 = 600;
+/// 应用写给 mod 的窗口文件名；放在应用自己的回复收件箱根目录里。
+pub const WINDOW_FILE_NAME: &str = "window.json";
 /// 窗口秒数的环境覆盖变量，与 Go 版 `AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC` 同名。
 const WINDOW_ENV: &str = "AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC";
 const CONFIG_FILE_ENV: &str = "AGENT_NOTIFY_CONFIG_FILE";
@@ -32,6 +38,34 @@ pub const fn clamp_reply_window_sec(value: u64) -> u64 {
     } else {
         value
     }
+}
+
+/// 把生效的窗口秒数写入 mod 能读到的 `window.json`（应用自己的回复收件箱）。
+///
+/// 界面里配置的值原本只落在 SQLite，mod 读不到；此文件是应用自己的数据通道。
+/// 幂等：同目录临时文件 + 改名原子替换，重复调用只会覆盖同一个文件。
+pub fn write_reply_window(root: &Path, sec: u64) -> io::Result<()> {
+    fs::create_dir_all(root)?;
+    let destination = root.join(WINDOW_FILE_NAME);
+    let temporary = root.join(format!(".{WINDOW_FILE_NAME}.{}.tmp", uuid::Uuid::new_v4()));
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        WINDOW_KEY: clamp_reply_window_sec(sec),
+    }))
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+
+    let result = write_atomic(&temporary, &destination, &bytes);
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn write_atomic(temporary: &Path, destination: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = fs::File::create(temporary)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(temporary, destination)
 }
 
 fn env_number(name: &str) -> Option<u64> {

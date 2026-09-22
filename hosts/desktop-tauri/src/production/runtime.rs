@@ -13,7 +13,7 @@ use agentnotify_runtime::{
 use agentnotify_storage_sqlite::{AgentConfigRecord, LegacyPaths, SqliteStore};
 use tokio::sync::Mutex;
 
-use super::agents::{build_agent_registry, load_agent_configs};
+use super::agents::{build_agent_registry, load_agent_configs, sync_commandcode_reply_window};
 use super::settings::ProductionSettingsStore;
 use super::targets::ProductionTargetProvider;
 use crate::bridge::error::CommandError;
@@ -165,6 +165,10 @@ impl ProductionRuntimeCoordinator {
             .upsert_agent_config(agent_id, enabled, config)
             .await
             .map_err(|error| CommandError::new("agent_config_save_failed", error.to_string()))?;
+
+        // 保存成功后把同一个值写给 Command Code mod；写不出去就明确报错，
+        // 不替换内存注册表、也不重启运行时（数据库里的值下次启动仍会生效）。
+        sync_commandcode_reply_window(&self.paths, &candidate)?;
 
         *self.agent_registry.write().map_err(|_| {
             CommandError::new("agent_registry_unavailable", "Agent 注册表暂不可用，请重试")

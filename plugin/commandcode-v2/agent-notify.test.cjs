@@ -31,9 +31,16 @@ const PENDING_DIR = path.join(replyDir, "pending")
 const PROCESSING_DIR = path.join(replyDir, "processing")
 const RESULT_DIR = path.join(replyDir, "results")
 const HEARTBEAT_DIR = path.join(replyDir, "heartbeats")
+const WINDOW_FILE = path.join(replyDir, "window.json")
+const DEBUG_LOG_FILE = path.join(process.env.AGENT_NOTIFY_TEMP_DIR, "commandcode-debug.log")
 
 function writeConfig(value) {
   fs.writeFileSync(configFile, JSON.stringify(value))
+}
+
+function writeInboxWindow(value) {
+  fs.mkdirSync(replyDir, { recursive: true })
+  fs.writeFileSync(WINDOW_FILE, JSON.stringify(value))
 }
 
 function writeJob(id, overrides = {}) {
@@ -119,6 +126,7 @@ test("reply window is closed by default and follows config, marker and env", asy
   const { __test } = await modModule
   fs.rmSync(configFile, { force: true })
   fs.rmSync(markerFile, { force: true })
+  fs.rmSync(WINDOW_FILE, { force: true })
   delete process.env.AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC
 
   assert.equal(__test.windowSeconds(), 0, "默认必须是 0（关闭）")
@@ -141,6 +149,77 @@ test("reply window is closed by default and follows config, marker and env", asy
     "环境变量只有大于 0 才覆盖配置（与 Go 版一致）",
   )
   delete process.env.AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC
+})
+
+test("reply window prefers the inbox window file over the legacy config", async () => {
+  const { __test } = await modModule
+  fs.rmSync(WINDOW_FILE, { force: true })
+  writeConfig({ commandCodeReplyWindowSec: 5 })
+
+  assert.equal(__test.windowSeconds(), 5, "没有 window.json 时回退旧配置")
+
+  writeInboxWindow({ commandCodeReplyWindowSec: 90 })
+  assert.equal(__test.windowSeconds(), 90, "应用写的 window.json 必须优先于旧配置")
+
+  writeInboxWindow({ commandCodeReplyWindowSec: 0 })
+  assert.equal(
+    __test.windowSeconds(),
+    0,
+    "界面显式关闭（0）必须盖过旧配置，否则 mod 会开出适配器不认的窗口",
+  )
+  assert.equal(__test.replyWindowEnabled(), false)
+
+  writeInboxWindow({ commandCodeReplyWindowSec: 700 })
+  assert.equal(__test.windowSeconds(), 600, "window.json 同样收敛到上限")
+
+  fs.rmSync(WINDOW_FILE, { force: true })
+  assert.equal(__test.windowSeconds(), 5, "文件被删除后必须回退旧配置")
+})
+
+test("environment overrides the inbox window file", async () => {
+  const { __test } = await modModule
+  writeInboxWindow({ commandCodeReplyWindowSec: 90 })
+
+  process.env.AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC = "120"
+  assert.equal(__test.windowSeconds(), 120, "环境变量显式覆盖 window.json")
+
+  process.env.AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC = "0"
+  assert.equal(
+    __test.windowSeconds(),
+    90,
+    "环境变量只有大于 0 才覆盖（与既有语义一致）",
+  )
+
+  process.env.AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC = "9999"
+  assert.equal(__test.windowSeconds(), 600, "环境变量上限仍是 600")
+
+  delete process.env.AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC
+  fs.rmSync(WINDOW_FILE, { force: true })
+})
+
+test("invalid inbox window file falls back to the legacy config and logs why", async () => {
+  const { __test } = await modModule
+  writeConfig({ commandCodeReplyWindowSec: 5 })
+  process.env.AGENT_NOTIFY_DEBUG = "1"
+  fs.rmSync(DEBUG_LOG_FILE, { force: true })
+
+  fs.mkdirSync(replyDir, { recursive: true })
+  fs.writeFileSync(WINDOW_FILE, "{ 不是合法 JSON")
+  assert.equal(__test.windowSeconds(), 5, "非法 JSON 必须回退旧配置且不抛出")
+
+  fs.writeFileSync(WINDOW_FILE, JSON.stringify({ commandCodeReplyWindowSec: "300" }))
+  assert.equal(__test.windowSeconds(), 5, "非数字值必须回退旧配置")
+
+  fs.writeFileSync(WINDOW_FILE, JSON.stringify({ other: 1 }))
+  assert.equal(__test.windowSeconds(), 5, "缺少窗口键必须回退旧配置")
+
+  const log = fs.readFileSync(DEBUG_LOG_FILE, "utf8")
+  assert.match(log, /window file invalid json/, "非法 JSON 的原因必须写进调试日志")
+  assert.match(log, /window file invalid value/, "非法值的原因必须写进调试日志")
+
+  delete process.env.AGENT_NOTIFY_DEBUG
+  fs.rmSync(WINDOW_FILE, { force: true })
+  fs.rmSync(DEBUG_LOG_FILE, { force: true })
 })
 
 test("heartbeat reports the exact session and window state", async () => {

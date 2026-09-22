@@ -9,7 +9,7 @@ use std::{
 use agentnotify_agent_antigravity::{ANTIGRAVITY_AGENT_ID, AntigravityAgent};
 use agentnotify_agent_codex::{CODEX_AGENT_ID, CodexAgent};
 use agentnotify_agent_commandcode::{
-    COMMANDCODE_AGENT_ID, CommandCodeAgent, CommandCodeReplyInbox,
+    COMMANDCODE_AGENT_ID, CommandCodeAgent, CommandCodeReplyInbox, write_reply_window,
 };
 use agentnotify_agent_devin::{
     DEVIN_AGENT_ID, DevinAgent, DevinDesktopSessions, DevinReplyInbox, DevinSessions,
@@ -180,6 +180,42 @@ fn build_commandcode_agent(
     Ok(agent)
 }
 
+/// 启动装配：注册全部适配器，并把 Command Code 回复窗口写给 mod。
+///
+/// `build_agent_registry` 保持“只构造对象、不落盘”；启动时的唯一落盘（窗口文件）
+/// 发生在这一层，启动与保存两条路径共用 `sync_commandcode_reply_window`。
+pub(super) fn assemble_agents(
+    paths: &AppPaths,
+    configs: &BTreeMap<String, AgentConfigRecord>,
+) -> Result<AgentRegistry, CommandError> {
+    let registry = build_agent_registry(paths, configs)?;
+    sync_commandcode_reply_window(paths, configs)?;
+    Ok(registry)
+}
+
+/// 把界面配置的 Command Code 回复窗口写进 mod 能读到的 `window.json`。
+///
+/// 与适配器同源：复用 `build_commandcode_agent`，直接取装配后生效的值，不另外
+/// 解析一遍配置；写入幂等、原子替换。启动装配与 `update_agent_config` 保存后都必须调用。
+pub(super) fn sync_commandcode_reply_window(
+    paths: &AppPaths,
+    configs: &BTreeMap<String, AgentConfigRecord>,
+) -> Result<(), CommandError> {
+    let agent = build_commandcode_agent(paths, configs.get(COMMANDCODE_AGENT_ID))?;
+    let Some(inbox_root) = agent.inbox().root() else {
+        return Err(CommandError::new(
+            "commandcode_reply_inbox_unavailable",
+            "Command Code 回复收件箱目录不可用，无法写入回复窗口配置",
+        ));
+    };
+    write_reply_window(inbox_root, agent.reply_window_sec()).map_err(|error| {
+        CommandError::new(
+            "commandcode_reply_window_write_failed",
+            format!("写入 Command Code 回复窗口文件失败：{error}"),
+        )
+    })
+}
+
 /// 读取配置里的路径字段：缺省、`null` 或空字符串表示使用默认位置；
 /// 非字符串与相对路径属于无效配置，明确报错而不是猜测目标。
 fn configured_path(config: &serde_json::Value, key: &str) -> Result<Option<PathBuf>, CommandError> {
@@ -255,6 +291,17 @@ mod tests {
         reply_inbox_root(&paths.config_dir, dir_name)
     }
 
+    fn window_file_path(paths: &AppPaths) -> PathBuf {
+        inbox_root(paths, COMMANDCODE_REPLY_INBOX_DIR)
+            .join(agentnotify_agent_commandcode::WINDOW_FILE_NAME)
+    }
+
+    fn window_file_value(path: &Path) -> serde_json::Value {
+        let content = std::fs::read_to_string(path)
+            .unwrap_or_else(|error| panic!("窗口文件必须存在 {}：{error}", path.display()));
+        serde_json::from_str(&content).expect("窗口文件必须是合法 JSON")
+    }
+
     /// 注册只构造对象：必须注册全部适配器，且不创建任何目录。
     #[test]
     fn building_the_registry_registers_every_agent_without_touching_disk() {
@@ -296,6 +343,51 @@ mod tests {
                 if !isolated.starts_with(&profile) {
                     assert!(!root.starts_with(&profile), "{}", root.display());
                 }
+            }
+        }
+    }
+
+    /// 启动装配与保存都必须把 Command Code 回复窗口写给 mod，且与适配器同源。
+    #[test]
+    fn commandcode_reply_window_file_is_written_for_the_mod() {
+        let root = temp_root("agentnotify-agent-window-test-");
+        let isolated = root.path().join("isolated");
+        let paths = AppPaths::for_tests(&isolated);
+        let configs = |sec: u64| {
+            BTreeMap::from([(
+                COMMANDCODE_AGENT_ID.to_string(),
+                record(serde_json::json!({ "commandCodeReplyWindowSec": sec })),
+            )])
+        };
+
+        // 启动装配写一次：内容必须与界面里保存的值一致。
+        assemble_agents(&paths, &configs(300)).expect("启动装配必须成功");
+        let window_file = window_file_path(&paths);
+        assert_eq!(
+            window_file_value(&window_file),
+            serde_json::json!({ "commandCodeReplyWindowSec": 300 })
+        );
+
+        // 保存后同步幂等，并覆盖旧值（保存 0 = 关闭，绝不能留下旧窗口）。
+        sync_commandcode_reply_window(&paths, &configs(0)).expect("保存后同步必须成功");
+        assert_eq!(
+            window_file_value(&window_file),
+            serde_json::json!({ "commandCodeReplyWindowSec": 0 })
+        );
+
+        // 收件箱属于应用自己的数据：必须落在隔离根下，不得落到用户主目录。
+        assert!(
+            window_file.starts_with(&isolated),
+            "{}",
+            window_file.display()
+        );
+        if let Some(profile) = std::env::var_os("USERPROFILE").map(PathBuf::from) {
+            if !isolated.starts_with(&profile) {
+                assert!(
+                    !window_file.starts_with(&profile),
+                    "{}",
+                    window_file.display()
+                );
             }
         }
     }
