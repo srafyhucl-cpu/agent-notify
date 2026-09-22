@@ -7,10 +7,11 @@ use std::{
 };
 
 use agentnotify_desktop::update::{
-    HttpTextResponse, InstallMode, InstallerLaunchOutcome, InstallerLaunchRequest,
-    InstallerLauncher, MAX_EXTRACTED_BYTES, UpdateChannel, UpdateConfig, UpdateError,
-    UpdateService, UpdateTransport, apply_staged_release, extract_archive, installer_arguments,
-    launch_installer, safe_entry_path, validate_staged_release, within_extraction_budget,
+    AppExitRequester, HttpTextResponse, InstallMode, InstallerLaunchOutcome,
+    InstallerLaunchRequest, InstallerLauncher, MAX_EXTRACTED_BYTES, UpdateChannel, UpdateConfig,
+    UpdateError, UpdateService, UpdateTransport, apply_staged_release, extract_archive,
+    installer_arguments, launch_installer, safe_entry_path, validate_staged_release,
+    within_extraction_budget,
 };
 
 const D_DRIVE_TEMP: &str = r"D:\Temp";
@@ -27,6 +28,14 @@ impl FakeLauncher {
     fn with_outcome(outcome: InstallerLaunchOutcome) -> Self {
         Self {
             outcome: Mutex::new(Some(Ok(outcome))),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// 启动失败（例如权限或路径问题）：不拉起任何进程。
+    fn failing(error: UpdateError) -> Self {
+        Self {
+            outcome: Mutex::new(Some(Err(error))),
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -48,6 +57,24 @@ impl InstallerLauncher for FakeLauncher {
             .expect("结果锁")
             .take()
             .unwrap_or(Ok(InstallerLaunchOutcome::StillRunning))
+    }
+}
+
+/// 假退出端口：只记录"请求应用退出"的次数，测试绝不真的退出进程。
+#[derive(Default)]
+struct FakeExitRequester {
+    requested: Mutex<usize>,
+}
+
+impl FakeExitRequester {
+    fn requested(&self) -> usize {
+        *self.requested.lock().expect("退出请求锁")
+    }
+}
+
+impl AppExitRequester for FakeExitRequester {
+    fn request_exit(&self) {
+        *self.requested.lock().expect("退出请求锁") += 1;
     }
 }
 
@@ -656,6 +683,7 @@ async fn install_latest_reports_up_to_date_without_downloading_anything() {
             UpdateChannel::Stable,
             dir.path(),
             &FakeLauncher::default(),
+            &FakeExitRequester::default(),
         )
         .await
         .unwrap_err();
@@ -676,6 +704,7 @@ async fn install_latest_verifies_and_launches_the_installer_on_the_preview_chann
     let install_root = dir.path().join("install");
     fs::create_dir_all(&install_root).expect("创建安装目录");
     let launcher = FakeLauncher::default();
+    let exit = FakeExitRequester::default();
 
     let report = service
         .install_latest(
@@ -683,6 +712,7 @@ async fn install_latest_verifies_and_launches_the_installer_on_the_preview_chann
             UpdateChannel::Beta,
             &install_root,
             &launcher,
+            &exit,
         )
         .await
         .expect("安装器路径必须成功");
@@ -696,6 +726,7 @@ async fn install_latest_verifies_and_launches_the_installer_on_the_preview_chann
         "{}",
         report.message
     );
+    assert_eq!(exit.requested(), 1, "安装器成功拉起后必须请求应用优雅退出");
 
     let requests = launcher.requests();
     assert_eq!(requests.len(), 1);
@@ -725,6 +756,7 @@ async fn install_latest_falls_back_to_the_zip_when_the_installer_fails() {
     fs::create_dir_all(&install_root).expect("创建安装目录");
     fs::write(install_root.join("agentnotify-desktop.exe"), b"old-binary").expect("写入旧程序");
     let launcher = FakeLauncher::with_outcome(InstallerLaunchOutcome::Exited { code: Some(1) });
+    let exit = FakeExitRequester::default();
 
     let report = service
         .install_latest(
@@ -732,12 +764,18 @@ async fn install_latest_falls_back_to_the_zip_when_the_installer_fails() {
             UpdateChannel::Beta,
             &install_root,
             &launcher,
+            &exit,
         )
         .await
         .expect("安装器失败必须回退 ZIP 替换");
 
     assert_eq!(report.mode, InstallMode::Archive);
     assert!(report.message.contains("离线包"), "{}", report.message);
+    assert_eq!(
+        exit.requested(),
+        0,
+        "安装器拉起失败时不得请求应用退出（回退替换后应用要继续运行）"
+    );
     assert_eq!(
         fs::read(install_root.join("agentnotify-desktop.exe")).expect("新程序"),
         executable,
@@ -753,5 +791,82 @@ async fn install_latest_falls_back_to_the_zip_when_the_installer_fails() {
     assert_eq!(
         fs::read(backup_dirs[0].join("agentnotify-desktop.exe")).expect("备份程序"),
         b"old-binary"
+    );
+}
+
+/// 只有安装器成功拉起时才请求应用退出；拉起失败必须留在前台并把原因返回界面。
+#[tokio::test]
+async fn install_latest_requests_app_exit_only_after_a_successful_installer_launch() {
+    let executable = release_executable_bytes();
+
+    // 1. 安装器成功拉起：请求退出一次（由退出端口负责稍后优雅退出，不阻塞命令响应）。
+    let launched_dir = test_dir("agentnotify-service-exit-launched-");
+    let transport = std::sync::Arc::new(ScriptedTransport::new(&executable, Vec::new()));
+    let service = update_service(launched_dir.path(), transport);
+    let install_root = launched_dir.path().join("install");
+    fs::create_dir_all(&install_root).expect("创建安装目录");
+    let exit = FakeExitRequester::default();
+
+    service
+        .install_latest(
+            CURRENT_VERSION,
+            UpdateChannel::Beta,
+            &install_root,
+            &FakeLauncher::default(),
+            &exit,
+        )
+        .await
+        .expect("安装器路径必须成功");
+
+    assert_eq!(
+        exit.requested(),
+        1,
+        "安装器成功拉起后必须请求应用退出，安装器才能替换被占用的程序文件"
+    );
+
+    // 2. 安装器启动失败且 Release 里没有可回退的 ZIP：不请求退出，错误必须带原因返回。
+    let failing_dir = test_dir("agentnotify-service-exit-failed-");
+    let mut failing_transport = ScriptedTransport::new(&executable, Vec::new());
+    failing_transport.release_json = serde_json::json!({
+        "tag_name": format!("v{RELEASE_VERSION}"),
+        "body": "只有安装器的测试发布",
+        "draft": false,
+        "prerelease": false,
+        "assets": [
+            {"name": format!("Agent-notify-Setup-v{RELEASE_VERSION}.exe"), "url": "https://test.invalid/setup.exe"},
+            {"name": "SHA256SUMS.txt", "url": "https://test.invalid/SHA256SUMS.txt"},
+        ],
+    })
+    .to_string();
+    let transport = std::sync::Arc::new(failing_transport);
+    let service = update_service(failing_dir.path(), transport);
+    let install_root = failing_dir.path().join("install");
+    fs::create_dir_all(&install_root).expect("创建安装目录");
+    let exit = FakeExitRequester::default();
+    let launcher = FakeLauncher::failing(UpdateError::new(
+        "update_installer_failed",
+        "无法启动更新安装器：拒绝访问",
+    ));
+
+    let error = service
+        .install_latest(
+            CURRENT_VERSION,
+            UpdateChannel::Beta,
+            &install_root,
+            &launcher,
+            &exit,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        exit.requested(),
+        0,
+        "安装器拉起失败时不得请求应用退出：应用要继续运行并把失败原因显示给用户"
+    );
+    assert!(
+        error.message().contains("无法启动更新安装器"),
+        "{}",
+        error.message()
     );
 }

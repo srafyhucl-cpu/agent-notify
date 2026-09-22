@@ -18,8 +18,8 @@ use super::{
     },
     error::UpdateError,
     install::{
-        AppliedArchiveUpdate, InstallerLauncher, StagedRelease, apply_staged_release,
-        extract_archive, launch_installer, validate_staged_release,
+        AppExitRequester, AppliedArchiveUpdate, InstallerLauncher, StagedRelease,
+        apply_staged_release, extract_archive, launch_installer, validate_staged_release,
     },
     release::{
         API_BASE_ENV, ArtifactKind, CHECKSUM_ASSET_NAME, DEFAULT_API_BASE_URL, DEFAULT_REPOSITORY,
@@ -167,12 +167,14 @@ impl UpdateService {
     }
 
     /// 下载并校验最新版本，然后优先拉起安装器；安装器不可用时回退 ZIP 替换。
+    /// 安装器成功拉起后会调用 `exit` 请求应用优雅退出，让安装器完成文件替换。
     pub async fn install_latest(
         &self,
         current_version: &str,
         channel: UpdateChannel,
         install_root: &Path,
         launcher: &dyn InstallerLauncher,
+        exit: &dyn AppExitRequester,
     ) -> Result<InstallReport, UpdateError> {
         let _guard = InstallingGuard::acquire(&self.installing)?;
 
@@ -190,8 +192,15 @@ impl UpdateService {
 
         let requirement = channel.signature_requirement();
         let prepared = self.prepare(&release, requirement).await?;
-        self.install_prepared(&release, &prepared, install_root, launcher, requirement)
-            .await
+        self.install_prepared(
+            &release,
+            &prepared,
+            install_root,
+            launcher,
+            exit,
+            requirement,
+        )
+        .await
     }
 
     async fn cached_release(&self, channel: UpdateChannel) -> Option<ReleaseInfo> {
@@ -303,6 +312,7 @@ impl UpdateService {
         prepared: &PreparedUpdate,
         install_root: &Path,
         launcher: &dyn InstallerLauncher,
+        exit: &dyn AppExitRequester,
         requirement: SignatureRequirement,
     ) -> Result<InstallReport, UpdateError> {
         let preview = requirement == SignatureRequirement::Optional;
@@ -312,13 +322,17 @@ impl UpdateService {
             match launch_installer(&prepared.artifact_path, &log_path, &extra_args, launcher).await
             {
                 Ok(()) => {
+                    // 安装器已经开始替换文件：应用立即请求优雅退出（停运行时、checkpoint WAL），
+                    // 由安装器完成替换并在结束时按 [Run] 段自动重新启动。退出动作由端口异步完成，
+                    // 保证本命令的响应先回到界面。
+                    exit.request_exit();
                     return Ok(InstallReport {
                         version: release.version.clone(),
                         signed: prepared.verified.signed,
                         preview,
                         mode: InstallMode::Installer,
                         message: format!(
-                            "更新包已校验，安装程序已启动（v{}）。安装完成后 AgentNotify 会自动重新打开。",
+                            "更新包已校验，安装程序已启动（v{}）。应用将自动退出，安装完成后自动重新打开。",
                             release.version
                         ),
                     });

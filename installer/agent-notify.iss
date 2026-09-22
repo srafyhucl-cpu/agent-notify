@@ -157,9 +157,18 @@ begin
   Result := True;
   if WebView2RuntimeVersion() = '' then
   begin
-    MsgBox('未检测到 Microsoft Edge WebView2 运行时，AgentNotify 的界面无法启动。' + #13#10#13#10 +
+    // 静默安装（应用内一键升级）没有可用的提示窗口，也不该悄悄跳过这项检查：
+    // 显式 Abort 中止安装，并把原因写进调用方 /LOG= 指定的安装日志。
+    // 注意：Inno 的 SuppressibleMsgBox 只在静默安装配合 /SUPPRESSMSGBOXES 时才会被抑制，
+    // 所以这里不能只靠换函数名，必须按 WizardSilent 显式分支。
+    if WizardSilent then
+    begin
+      Log('未检测到 Microsoft Edge WebView2 运行时，静默安装中止：桌面端界面无法启动。');
+      Abort;
+    end;
+    SuppressibleMsgBox('未检测到 Microsoft Edge WebView2 运行时，AgentNotify 的界面无法启动。' + #13#10#13#10 +
       '请先安装 WebView2 Runtime（在微软官网搜索 "WebView2 Runtime" 下载 Evergreen 安装包），' + #13#10 +
-      '安装完成后重新运行本安装程序。', mbCriticalError, MB_OK);
+      '安装完成后重新运行本安装程序。', mbCriticalError, MB_OK, IDOK);
     Result := False;
   end;
 end;
@@ -181,15 +190,25 @@ begin
     ResultCode
   ) then
   begin
-    MsgBox('无法启动旧版 Hook 清理脚本，Codex / Antigravity / Devin 的旧 Hook 可能仍指向已移除的程序。', mbError, MB_OK);
+    // 清理是尽力而为的一步，成败语义不变：静默安装只写日志（没有可见提示窗口），照样继续安装。
+    if WizardSilent then
+      Log('无法启动旧版 Hook 清理脚本，已跳过清理：Codex / Antigravity / Devin 的旧 Hook 可能仍指向已移除的程序。')
+    else
+      SuppressibleMsgBox('无法启动旧版 Hook 清理脚本，Codex / Antigravity / Devin 的旧 Hook 可能仍指向已移除的程序。', mbError, MB_OK, IDOK);
     exit;
   end;
   if ResultCode <> 0 then
-    MsgBox('旧版 Hook 清理失败（退出码 ' + IntToStr(ResultCode) +
-      '），Codex / Antigravity / Devin 的旧 Hook 可能仍指向已移除的程序。', mbError, MB_OK);
+  begin
+    if WizardSilent then
+      Log('旧版 Hook 清理失败（退出码 ' + IntToStr(ResultCode) +
+        '）：Codex / Antigravity / Devin 的旧 Hook 可能仍指向已移除的程序。')
+    else
+      SuppressibleMsgBox('旧版 Hook 清理失败（退出码 ' + IntToStr(ResultCode) +
+        '），Codex / Antigravity / Devin 的旧 Hook 可能仍指向已移除的程序。', mbError, MB_OK, IDOK);
+  end;
 end;
 
-// 记录一条接入失败；接入失败不影响程序本体，安装结束后统一提示。
+// 记录一条接入失败；接入失败不影响程序本体，安装结束后统一提示（静默安装只写日志）。
 procedure AddIntegrationFailure(const Message: String);
 begin
   if IntegrationFailures <> '' then
@@ -280,9 +299,16 @@ begin
       ' -Ingress "' + ExpandConstant('{app}\agentnotify-ingress.exe') + '"');
 
   if IntegrationFailures <> '' then
-    MsgBox('以下 Agent 接入没有完成，其它安装内容不受影响：' + #13#10#13#10 +
-      IntegrationFailures + #13#10#13#10 +
-      '可在桌面端 Agents 页查看接入状态；需要重试时手动运行' + #13#10 +
-      ExpandConstant('{app}\tools\hooks') + #13#10 +
-      '下对应 Agent 的 install-*.ps1（用 -HookPath / -Ingress 指向本安装目录）。', mbError, MB_OK);
+  begin
+    // 接入失败不影响程序本体，成败语义不变：静默安装只写日志，安装照样算成功
+    // （桌面端 Agents 页能看到每个 Agent 的接入状态）。
+    if WizardSilent then
+      Log('以下 Agent 接入没有完成（静默安装只记录日志），其它安装内容不受影响：' + #13#10 + IntegrationFailures)
+    else
+      SuppressibleMsgBox('以下 Agent 接入没有完成，其它安装内容不受影响：' + #13#10#13#10 +
+        IntegrationFailures + #13#10#13#10 +
+        '可在桌面端 Agents 页查看接入状态；需要重试时手动运行' + #13#10 +
+        ExpandConstant('{app}\tools\hooks') + #13#10 +
+        '下对应 Agent 的 install-*.ps1（用 -HookPath / -Ingress 指向本安装目录）。', mbError, MB_OK, IDOK);
+  end;
 end;

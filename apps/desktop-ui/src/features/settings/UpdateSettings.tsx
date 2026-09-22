@@ -214,7 +214,7 @@ export function UpdateSettings({
 
       {installing ? (
         <p className="settings-feedback" role="status">
-          正在下载并校验更新包，请保持应用运行。
+          正在安装新版本，完成后应用会自动重启，请保持应用运行。
         </p>
       ) : null}
 

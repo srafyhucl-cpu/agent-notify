@@ -271,7 +271,7 @@ describe("SettingsPage", () => {
     expect(bridge.calls("install_update")).toHaveLength(0);
   });
 
-  it("安装过程中禁用按钮并显示进行中文案", async () => {
+  it("安装过程中禁用按钮并提示安装完成后应用会自动重启", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
       settings: settingsFixture(),
@@ -293,7 +293,9 @@ describe("SettingsPage", () => {
 
     expect(screen.getByRole("button", { name: "正在下载并安装" })).toBeDisabled();
     expect(
-      screen.getByText("正在下载并校验更新包，请保持应用运行。"),
+      screen.getByText(
+        "正在安装新版本，完成后应用会自动重启，请保持应用运行。",
+      ),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "检查更新" })).toBeDisabled();
 
@@ -301,7 +303,38 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("button", { name: "下载并安装" })).toBeEnabled();
   });
 
-  it("安装失败时展示后端原因并禁用重试入口", async () => {
+  it("安装命令不再返回（应用正在退出）时只保留自动重启提示，不显示失败", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      settings: settingsFixture(),
+      updateStatus: updateStatusFixture({
+        availableVersion: "2.1.0",
+        state: "Available",
+        message: "发现新版本 v2.1.0，可下载并安装。",
+      }),
+      installUpdateResult: installResultFixture(),
+      // 应用退出后命令的响应不会回到界面：用超长延迟模拟"永不返回"。
+      delays: { install_update: 60_000 },
+    });
+
+    renderSettings(bridge);
+    await screen.findByRole("switch", { name: "全局暂停" });
+    await user.click(screen.getByRole("button", { name: "检查更新" }));
+    await screen.findByText("发现新版本 v2.1.0，可下载并安装。");
+
+    await user.click(screen.getByRole("button", { name: "下载并安装" }));
+
+    expect(
+      await screen.findByText(
+        "正在安装新版本，完成后应用会自动重启，请保持应用运行。",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("上次安装未成功，请重新检查更新后再试。")).toBeNull();
+    expect(screen.getByRole("button", { name: "正在下载并安装" })).toBeDisabled();
+  });
+
+  it("安装失败时展示后端原因并禁用重试入口，不显示自动重启提示", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
       settings: settingsFixture(),
@@ -326,6 +359,7 @@ describe("SettingsPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "下载更新包失败：连接超时，请检查网络后重试。",
     );
+    expect(screen.queryByText(/应用会自动重启/)).toBeNull();
     expect(screen.getByRole("button", { name: "下载并安装" })).toBeDisabled();
     expect(
       screen.getByText("上次安装未成功，请重新检查更新后再试。"),

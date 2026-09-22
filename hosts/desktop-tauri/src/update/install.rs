@@ -49,6 +49,15 @@ pub trait InstallerLauncher: Send + Sync {
     ) -> Result<InstallerLaunchOutcome, UpdateError>;
 }
 
+/// 应用退出端口：安装器成功拉起后，请求应用自行优雅退出。
+///
+/// 实现必须**立即返回**：真正的退出放到后台任务里稍后执行，这样
+/// 命令的响应能先回到界面（显示"正在安装"），安装器也不必久等应用释放文件。
+/// 拉起安装器失败时不允许调用本端口，应用必须继续运行并把原因返回界面。
+pub trait AppExitRequester: Send + Sync {
+    fn request_exit(&self);
+}
+
 pub struct SystemInstallerLauncher;
 
 #[async_trait]
@@ -94,6 +103,11 @@ impl InstallerLauncher for SystemInstallerLauncher {
 }
 
 /// 安装器参数与 Go 版 `installerCommand` 一致：`/SILENT /NORESTART /LOG=<path>` + 附加参数。
+///
+/// 刻意**不**加 `/SUPPRESSMSGBOXES`：Inno 的内建提示（例如 Restart Manager 的「无法关闭应用」）
+/// 在静默安装下仍会显示，用户点一次就能继续；若加上该开关，这类提示会变成静默中止安装，
+/// 而此时应用已退出、也不会自动重启，反而更难恢复。安装器脚本里的自定义提示已按
+/// `WizardSilent` 显式分支处理，不依赖这个开关。
 pub fn installer_arguments(log_path: &Path, extra_args: &[OsString]) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("/SILENT"),

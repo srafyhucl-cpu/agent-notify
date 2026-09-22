@@ -4,7 +4,10 @@
   安装器结构检查：校验安装器是 PE、带产品版本信息，并核对 Inno 脚本的打包契约。
 
 .DESCRIPTION
-  默认只做通用检查。加 -ExpectRust 时额外断言「正式包已是 Rust 桌面版」：
+  默认做通用检查，以及应用内一键升级依赖的静默安装契约：
+  Inno 脚本里不得有裸 MsgBox（静默安装会被弹窗卡死），[Run] 段不得带 skipifsilent
+  （否则静默安装完成后不会自动重新打开桌面端）。
+  加 -ExpectRust 时额外断言「正式包已是 Rust 桌面版」：
   安装桌面端、ingress 与阶段 D 的三个 Hook，保留旧 AppId 与安装目录、自启动指向新桌面程序、
   四个 Agent 适配器按任务接入、卸载会清理自己写入的 Hook / 扩展 / mod，
   不再把旧 Win32 UI 作为启动入口，且安装/卸载都不触碰用户数据。
@@ -55,6 +58,25 @@ if (-not $issueScript.Contains($requiredVersionEntry)) {
   throw '安装器脚本未把仓库根 VERSION 安装到 {app}\VERSION'
 }
 
+# 真实条目（排除 ; 与 // 注释行）：下面几条结构断言只看会被 Inno 编译的内容。
+$issueEntries = (($issueScript -split "\r?\n") | Where-Object { $_ -notmatch '^\s*(;|//)' }) -join "`n"
+
+# 静默安装（应用内一键升级用 /SILENT 拉起）不能被弹窗卡死：Inno 的 MsgBox 在静默安装下
+# 依然会显示并等待点击，只有 SuppressibleMsgBox 才可能被抑制，所以脚本里不允许再出现裸 MsgBox。
+$bareMsgBox = [regex]::Match($issueEntries, '(?<![\w.])MsgBox\s*\(')
+if ($bareMsgBox.Success) {
+  throw "安装器脚本仍在使用裸 MsgBox（静默安装会卡在弹窗），请改用 SuppressibleMsgBox：$($bareMsgBox.Value)"
+}
+
+# 安装结束必须自动重启桌面端：静默安装时 [Run] 带 skipifsilent 就不会重新打开应用。
+$runSection = [regex]::Match($issueScript, '(?ms)^\[Run\](?<body>.*?)(?=^\[|\z)')
+if (-not $runSection.Success) {
+  throw '安装器脚本缺少 [Run] 段，安装完成后不会自动启动 AgentNotify'
+}
+if ($runSection.Groups['body'].Value -match 'skipifsilent') {
+  throw '[Run] 段带 skipifsilent：静默安装完成后不会自动启动 AgentNotify，应用内一键升级会停在没有界面的状态'
+}
+
 if ($ExpectRust) {
   # 正式包必须是 Rust 桌面版：两个可执行文件都要在包里。
   foreach ($needle in @('agentnotify-desktop.exe', 'agentnotify-ingress.exe')) {
@@ -101,7 +123,6 @@ if ($ExpectRust) {
 
   # Inno 没有 {userprofile} 常量：用户目录必须用 {%USERPROFILE}，写错会在安装末尾抛异常。
   # 只检查真实条目：Inno 的 ; 注释与 [Code] 的 // 注释里可以提到这个名字。
-  $issueEntries = (($issueScript -split "\r?\n") | Where-Object { $_ -notmatch '^\s*(;|//)' }) -join "`n"
   if ($issueEntries -match '\{userprofile\}') {
     throw '安装器使用了不存在的 {userprofile} 常量，用户目录应写 {%USERPROFILE}'
   }
@@ -213,6 +234,7 @@ if ($ExpectRust) {
 
 Write-Output '[installer-smoke] 安装器结构检查通过'
 Write-Output '[installer-smoke] VERSION 安装清单检查通过'
+Write-Output '[installer-smoke] 静默安装契约检查通过（无裸 MsgBox，[Run] 不带 skipifsilent）'
 if ($ExpectRust) {
   Write-Output '[installer-smoke] Rust 正式包契约检查通过'
 }

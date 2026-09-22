@@ -12,7 +12,7 @@ pub use download::{
 };
 pub use error::UpdateError;
 pub use install::{
-    AppliedArchiveUpdate, INSTALLER_EARLY_EXIT_WINDOW, InstallerLaunchOutcome,
+    AppExitRequester, AppliedArchiveUpdate, INSTALLER_EARLY_EXIT_WINDOW, InstallerLaunchOutcome,
     InstallerLaunchRequest, InstallerLauncher, MAX_EXTRACTED_BYTES, StagedRelease,
     SystemInstallerLauncher, apply_staged_release, extract_archive, install_relative_path,
     installer_arguments, launch_installer, safe_entry_path, validate_staged_release,
