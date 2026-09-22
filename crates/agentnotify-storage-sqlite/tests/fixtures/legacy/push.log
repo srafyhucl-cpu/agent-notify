@@ -1,0 +1,4 @@
+{"timestamp":"2026-09-18T10:00:00Z","agent":"opencode","session":"session-1","title":"构建完成","summary":"第一条历史正文","status":"成功","messageID":"wx-message-1","clientID":"client-1"}
+{"timestamp":"2026-09-18T11:00:00Z","agent":"opencode","session":"session-1","title":"构建失败","summary":"第二条历史正文","status":"失败","error":"Bearer bot-token-fixture timed out"}
+{"timestamp":"2026-09-18T12:00:00Z","agent":"codex","session":"session-2","title":"预览","summary":"第三条历史正文","status":"DryRun"}
+{bad json}

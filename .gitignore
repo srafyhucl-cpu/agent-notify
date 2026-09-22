@@ -28,3 +28,5 @@ assets/icon-reference.png
 /apps/desktop-ui/playwright-report/
 /apps/desktop-ui/test-results/
 /hosts/desktop-tauri/gen/
+# 测试夹具必须随仓库分发：*.log 之类的运行时忽略规则不适用于它们
+!**/tests/fixtures/**
