@@ -85,7 +85,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 2. Agents 页启用 `commandcode`。
 3. 跑一个真实 Command Code 任务。
 4. **预期**：微信收到通知（`run_end` 事件，同进程其他会话不误推）。
-5. **预期**：在**回复窗口**内引用回复 → 注入到原会话（窗口秒数来源：环境变量 `AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC` → 旧配置 `commandCodeReplyWindowSec` → 0 表示关闭）。
+5. **预期**：在**回复窗口**内引用回复 → 注入到原会话（窗口秒数来源：环境变量 `AGENT_NOTIFY_COMMANDCODE_WINDOW_SEC` → 应用写入的 `commandcode-reply-inbox/window.json`（界面保存值，适配器同源）→ 旧配置 `commandCodeReplyWindowSec` → 0 表示关闭）。
 6. 排查：`%TEMP%\agent-notify\commandcode-notify-debug.log`；窗口关闭/过期有独立错误码。
 
 ## 5. 回滚（任一 Agent 出问题）
@@ -115,7 +115,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 | Agent | 安装 | 推送 | 引用回复 | 备注 |
 | --- | --- | --- | --- | --- |
 | Codex | ✅ | ✅ | ✅ | 2026-09-22 10:31 安装（备份 `config.toml.bak-notify-wrapper`）；通知 `ec811566…` 于 10:45:00 投递成功（平台消息 `<平台消息ID已脱敏>`，路由有效期 24 小时）；引用回复已进入对应 Codex 线程（用户实测确认） |
-| Antigravity | ☐ | ☐ | ☐ | |
+| Antigravity | ✅ | ✅ | ✅ | 2026-09-22 12:27 安装（启动器 `~/.gemini/config/agent-notify-hook.cmd` 指向预览目录 Hook；第三方顶层键 `linkweixin-notify` 未被触碰）；通知 `29182ff7` 于 12:30:36 投递成功（平台消息 `<平台消息ID已脱敏>`，路由有效期 24 小时）；引用回复经用户实测通过（`fullyIdle` 过滤生效，未跑完不推送） |
 | Devin | ☐ | ☐ | ☐ | |
 | Command Code | ☐ | ☐ | ☐ | |
 
@@ -133,5 +133,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
    - **已有**：`agentnotify_desktop::update::{sha256_file, verify_download, SignatureRequirement}`（SHA256 / 签名指纹 / PE 版本三类校验，测试完备）、Settings 页"检查更新"入口、`get_update_status` 主机命令、发布链的 `SHA256SUMS.txt` 与 `agent-notify-releases` 镜像仓库。
    - **缺**：查询最新 Release 并比对版本、下载安装包到临时目录、校验、拉起安装器、失败时给用户可读提示。
    - **约束**：正式渠道必须强制签名校验（未签名包一律拒绝安装，保持 `internal/update/signature.go` 的内置指纹约定）；预览/本地构建可放宽；沿用现有 `UpdateStateDto`（`UpToDate`/`Available`/`ReadyToInstall`/`Unsupported`/`Failed`）。
+   - **相邻问题（已定位，本轮不修）**：Devin 的 `replyInbox` 有同类通道问题——扩展只认环境变量 `AGENT_NOTIFY_DEVIN_REPLY_DIR` 或默认路径，界面里改 `replyInbox` 不会同步到扩展，引用回复会投到旧目录；修法可参考 Command Code 的 `commandcode-reply-inbox/window.json`（应用把界面值写进自己的收件箱，扩展优先读它）。
 2. **补齐 ClawBot 诊断缺口**：记录 `notifystart` 的结果与"清空推送上下文"的原因。当前 `PrepareFailed` 与"上下文不存在"在用户侧是同一句话，无法定位"重启后推送静默失效"的根因；补日志后再判定是否为缺陷。
 3. **安装器冒烟纳入新接入**：本轮修复会在 `tests/installer-smoke.ps1` 增加断言，验收时需在沙箱跑一次确认（不触碰真实环境）。
+4. **卸载路径补齐 V2 清理**：`uninstall.ps1 -HooksOnly` 的识别模式只认旧程序名（`agent-notify.exe` / `agent-notify-hook.cmd`），因此**卸载后** Devin 的 `hooks.Stop` handler 与 Codex 的 `notify` 行仍指向已删除的 exe。需为 V2 Hook 增加显式识别（注意不能改变升级清理的语义：升级时先清旧、再装新）。
+5. **发布门禁补三个 Hook 的签名校验**：`tools/publish-release.ps1` 目前只校验安装器与 ZIP 内主程序的签名指纹，三个 Hook 虽在构建时已签名并校验，但发布补发路径未覆盖；建议加入 `SHA256SUMS.txt` 与指纹校验循环。
