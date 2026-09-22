@@ -482,7 +482,7 @@ Write-Output '[ok] install upgrade fixtures'
 
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
     -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -AntigravityHooks $antigravityHooks -DevinConfig $devinConfig `
-    -DevinExtensionDir $sandboxDevinExtension -CodexConfig $sandboxCodexConfig `
+    -DevinExtensionDir $sandboxDevinExtension -DevinExtensionV2Dir (Join-Path $smokeRoot 'devin-extension-v2') -CodexConfig $sandboxCodexConfig `
     -SkipShortcuts -SkipProcessStop | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "沙箱卸载 exit=$LASTEXITCODE"
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe'))) '沙箱卸载残留 exe'
@@ -528,6 +528,7 @@ model = "gpt-5"
   [IO.File]::WriteAllText("$codexRestore.bak-notify-wrapper", "notify = [ `"C:/tools/codex-computer-use.exe`", `"turn-ended`" ]`n", $utf8NoBom)
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
     -InstallDir (Join-Path $smokeRoot 'restore-bin') -PluginDir (Join-Path $smokeRoot 'restore-plugins') `
+    -DevinExtensionDir (Join-Path $smokeRoot 'restore-devin-extension-v1') -DevinExtensionV2Dir (Join-Path $smokeRoot 'restore-devin-extension-v2') `
     -CodexConfig $codexRestore -SkipShortcuts -SkipAntigravityConfig -SkipDevinConfig -SkipDevinExtension -SkipProcessStop | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "备份还原用例卸载 exit=$LASTEXITCODE"
   $restored = [IO.File]::ReadAllText($codexRestore)
@@ -542,6 +543,7 @@ model = "gpt-5"
   [IO.File]::WriteAllText($codexStrip, $restoreFixture, $utf8NoBom)
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
     -InstallDir (Join-Path $smokeRoot 'strip-bin') -PluginDir (Join-Path $smokeRoot 'strip-plugins') `
+    -DevinExtensionDir (Join-Path $smokeRoot 'strip-devin-extension-v1') -DevinExtensionV2Dir (Join-Path $smokeRoot 'strip-devin-extension-v2') `
     -CodexConfig $codexStrip -SkipShortcuts -SkipAntigravityConfig -SkipDevinConfig -SkipDevinExtension -SkipProcessStop | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "无备份卸载 exit=$LASTEXITCODE"
   $stripped = [IO.File]::ReadAllText($codexStrip)

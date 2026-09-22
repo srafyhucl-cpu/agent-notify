@@ -97,6 +97,11 @@ if ($LASTEXITCODE -ne 0) {
   throw "签名门禁回归测试失败 exit=$LASTEXITCODE"
 }
 
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tests\uninstall-v2-cleanup.tests.ps1')
+if ($LASTEXITCODE -ne 0) {
+  throw "卸载 V2 清理回归测试失败 exit=$LASTEXITCODE"
+}
+
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tests\smoke.ps1')
 if ($LASTEXITCODE -ne 0) {
   throw "冒烟测试失败 exit=$LASTEXITCODE"

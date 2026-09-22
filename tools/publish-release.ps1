@@ -3,6 +3,11 @@
 .SYNOPSIS
   Publish an already-built Agent-notify archive to the public binary-only repository.
 
+.DESCRIPTION
+  上传前强制门禁：安装器签名、SHA256SUMS.txt 覆盖情况与哈希一致性、ZIP 内主程序与三个 Hook
+  的签名者指纹（编排见 tools\release-gate.ps1，校验实现沿用 tools\signature-common.ps1）。
+  任一项不符直接失败，避免补发出客户端会拒绝的包。
+
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-release.ps1
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\publish-release.ps1 -Version 1.13.2
@@ -16,6 +21,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'signature-common.ps1')
+. (Join-Path $PSScriptRoot 'release-gate.ps1')
 if (-not $DistDir) { $DistDir = Join-Path $RepoRoot 'dist' }
 
 if (-not $Version) {
@@ -46,27 +52,17 @@ $expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
 $installerThumbprint = Get-VerifiedSignatureThumbprint -Path $setupPath -ExpectedThumbprint $expectedThumbprint
 Write-Output "[publish] 安装器签名校验通过（$installerThumbprint）"
 
-# ZIP 内的两个主程序都要校验：解压到临时目录验证后立即清理。
-$extractRoot = Join-Path ([IO.Path]::GetTempPath()) ('agent-notify-publish-' + [guid]::NewGuid().ToString('N'))
-try {
-  Add-Type -AssemblyName System.IO.Compression.FileSystem
-  $archive = [IO.Compression.ZipFile]::OpenRead($zipPath)
-  try {
-    foreach ($leaf in @('agentnotify-desktop.exe', 'agentnotify-ingress.exe')) {
-      $entryName = "Agent-notify/bin/$leaf"
-      $entry = $archive.Entries | Where-Object { $_.FullName -eq $entryName } | Select-Object -First 1
-      if (-not $entry) { throw "发布包缺少主程序：$entryName（$zipPath）" }
-      New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
-      $extractedExe = Join-Path $extractRoot $leaf
-      [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $extractedExe, $true)
-      $exeThumbprint = Get-VerifiedSignatureThumbprint -Path $extractedExe -ExpectedThumbprint $expectedThumbprint
-      Write-Output "[publish] ZIP 内 $leaf 签名校验通过（$exeThumbprint）"
-    }
-  } finally {
-    $archive.Dispose()
-  }
-} finally {
-  if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force }
+# SHA256SUMS.txt 必须覆盖安装器与 ZIP 且哈希一致：客户端下载后按这份校验值验收，过期或不一致的
+# 校验值会让用户直接升级失败。
+$setupSha = Assert-SumsCoversArtifact -SumsPath $sumsPath -ArtifactPath $setupPath
+Write-Output "[publish] SHA256SUMS.txt 覆盖安装器（$setupSha）"
+$zipSha = Assert-SumsCoversArtifact -SumsPath $sumsPath -ArtifactPath $zipPath
+Write-Output "[publish] SHA256SUMS.txt 覆盖 ZIP（$zipSha）"
+
+# ZIP 内的主程序与阶段 D 的三个 Hook 都要校验：缺文件、未签名或指纹不符都不允许补发。
+# 只有主程序过门、Hook 漏检时，用户会在新版本里收到"Hook 无法启动"的静默失效。
+foreach ($verified in @(Assert-ArchiveExecutables -ZipPath $zipPath -ExpectedThumbprint $expectedThumbprint)) {
+  Write-Output "[publish] ZIP 内 $($verified.Name) 签名校验通过（$($verified.Thumbprint)）"
 }
 
 $gh = Get-Command gh.exe -ErrorAction SilentlyContinue

@@ -3,6 +3,14 @@
 $script:AntigravityLauncherName = 'agent-notify-hook.cmd'
 $script:AntigravityLauncherMarker = '@rem agent-notify-antigravity-launcher'
 
+# V2 接入写入 Stop hook 的程序名：三个 Hook 是独立可执行文件，名字里没有连字符，
+# 识别 AgentNotify 自己的 hook 时必须显式列出（旧版入口是 agent-notify.exe 与 agent-notify-hook.cmd）。
+$script:V2HookBinaryNames = @(
+  'agentnotify-codex-hook.exe',
+  'agentnotify-antigravity-hook.exe',
+  'agentnotify-devin-hook.exe'
+)
+
 function Read-AgentNotifyJsonObject {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
@@ -149,7 +157,8 @@ function Test-AgentNotifyHookCommand {
     return $false
   }
   $normalized = $Command.Replace('\', '/')
-  $binaryPattern = '(?i)(^|/)(?:agent-notify(?:\.exe)?|agent-notify-hook\.cmd)(?:"|\s)'
+  $v2Names = ($script:V2HookBinaryNames | ForEach-Object { [regex]::Escape($_) }) -join '|'
+  $binaryPattern = '(?i)(^|/)(?:agent-notify(?:\.exe)?|agent-notify-hook\.cmd|' + $v2Names + ')(?:"|\s)'
   $actionPattern = '(?i)\b' + [regex]::Escape($Agent) + '\s+stop\b'
   return ($normalized -match $binaryPattern) -and ($normalized -match $actionPattern)
 }
