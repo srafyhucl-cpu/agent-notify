@@ -25,6 +25,8 @@ const RETRY_AFTER: time::Duration = time::Duration::seconds(1);
 const MESSAGE_TYPE_BOT: i32 = 2;
 const MESSAGE_STATE_FINISH: i32 = 2;
 const ITEM_TYPE_TEXT: i32 = 1;
+/// 主动推送上下文失效的统一错误码；History/Diagnostics 与既有契约依赖它。
+const SESSION_MISSING_CODE: &str = "session_missing";
 const RETRYABLE_ERROR_MARKERS: [&str; 10] = [
     "temporar",
     "try again",
@@ -208,9 +210,19 @@ pub(crate) async fn send_outbound(
     }
 
     let Some(context) = load_context(secrets, &account_id).await? else {
+        tracing::debug!(
+            code = SESSION_MISSING_CODE,
+            reason = "context_absent",
+            "ClawBot 主动推送上下文不存在，跳过投递"
+        );
         return Ok(skipped_session_missing());
     };
     if context.user_id() != credentials.user_id() {
+        tracing::debug!(
+            code = SESSION_MISSING_CODE,
+            reason = "context_user_mismatch",
+            "ClawBot 主动推送上下文与当前账号不匹配，跳过投递"
+        );
         return Ok(skipped_session_missing());
     }
 
@@ -243,13 +255,23 @@ pub(crate) async fn send_outbound(
     match status {
         ApiStatus::Success => receipt_from_success(&response.body, &client_id),
         ApiStatus::InvalidAccount => {
+            tracing::warn!(
+                code = "clawbot_invalid_account",
+                reason = "invalid_account",
+                "ClawBot 登录状态失效，清空本地会话上下文并标记账号需重新扫码"
+            );
             clear_context_if_matches(secrets, &account_id, context.context_token()).await?;
             mark_account_stale(secrets, accounts, &account_id, credentials.bot_token()).await?;
             Err(invalid_account("ClawBot 登录状态已失效，请重新扫码"))
         }
         ApiStatus::PrepareFailed => {
+            tracing::warn!(
+                code = SESSION_MISSING_CODE,
+                reason = "prepare_failed",
+                "ClawBot 平台拒绝准备会话（PrepareFailed），清空本地会话上下文"
+            );
             clear_context_if_matches(secrets, &account_id, context.context_token()).await?;
-            Ok(skipped_session_missing())
+            Ok(skipped_prepare_failed())
         }
         ApiStatus::Retryable => Err(retryable_server_error()),
         ApiStatus::Permanent => Err(ChannelError::permanent(
@@ -556,10 +578,20 @@ fn retryable_server_error() -> ChannelError {
     )
 }
 
+/// 本地上下文缺失或与当前账号不匹配：需要用户先给 ClawBot 发消息重建会话。
 fn skipped_session_missing() -> DeliveryReceipt {
     DeliveryReceipt::skipped(safe_error(
-        "session_missing",
+        SESSION_MISSING_CODE,
         "ClawBot 主动推送会话已失效，请先给 ClawBot 发送一条消息",
+    ))
+}
+
+/// 平台明确拒绝准备会话（PrepareFailed）：上下文已被清空，需用户重建会话后重试。
+/// 文案必须与 `skipped_session_missing` 可区分，让用户能看出是平台侧拒绝。
+fn skipped_prepare_failed() -> DeliveryReceipt {
+    DeliveryReceipt::skipped(safe_error(
+        SESSION_MISSING_CODE,
+        "平台未能准备会话，请给 ClawBot 发送一条消息后重试",
     ))
 }
 
@@ -664,6 +696,27 @@ mod tests {
         assert_eq!(request.client_id().as_deref(), Some("client-1"));
         assert_eq!(request.to_user_id().as_deref(), Some("user-1"));
         assert_eq!(request.text().as_deref(), Some("hello **world**"));
+    }
+
+    #[test]
+    fn skipped_session_missing_receipts_distinguish_cause() {
+        let missing = skipped_session_missing();
+        let prepare_failed = skipped_prepare_failed();
+        let missing_error = missing.error.as_ref().expect("会话缺失回执必须带原因");
+        let prepare_error = prepare_failed
+            .error
+            .as_ref()
+            .expect("PrepareFailed 回执必须带原因");
+
+        assert_eq!(missing.state, DeliveryState::Skipped);
+        assert_eq!(prepare_failed.state, DeliveryState::Skipped);
+        assert_eq!(missing_error.code(), SESSION_MISSING_CODE);
+        assert_eq!(prepare_error.code(), SESSION_MISSING_CODE);
+        assert_ne!(missing_error.message(), prepare_error.message());
+        assert!(
+            prepare_error.message().contains("平台"),
+            "PrepareFailed 文案必须让用户看出是平台侧拒绝"
+        );
     }
 
     #[test]

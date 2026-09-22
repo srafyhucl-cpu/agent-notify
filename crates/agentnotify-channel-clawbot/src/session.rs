@@ -473,9 +473,12 @@ async fn announce_session_start(
 ) -> bool {
     match session_context_ready(secrets, account_id, bound_user_id).await {
         Ok(true) => {}
-        Ok(false) => return false,
+        Ok(false) => {
+            tracing::debug!("ClawBot 会话上下文尚未就绪，暂缓 notifystart");
+            return false;
+        }
         Err(error) => {
-            tracing::debug!(
+            tracing::warn!(
                 code = error.code(),
                 "ClawBot 会话状态读取失败，暂缓 notifystart"
             );
@@ -483,11 +486,14 @@ async fn announce_session_start(
         }
     }
     match transport.notify_start(lifecycle.clone()).await {
-        Ok(()) => true,
+        Ok(()) => {
+            tracing::info!("ClawBot notifystart 已发送，主动推送会话就绪");
+            true
+        }
         Err(error) => {
-            tracing::debug!(
+            tracing::warn!(
                 code = error.code(),
-                "ClawBot notifystart 最佳努力失败，将在后续轮询重试"
+                "ClawBot notifystart 失败，将在后续轮询重试"
             );
             false
         }
@@ -560,6 +566,11 @@ async fn invalidate_account(
     account_id: &ChannelAccountId,
     used_bot_token: &str,
 ) -> Result<(), ChannelError> {
+    tracing::warn!(
+        code = "clawbot_invalid_account",
+        reason = "poll_invalid_account",
+        "ClawBot 长轮询发现登录状态失效，清空本地会话上下文并标记账号需重新扫码"
+    );
     let stale_result = mark_account_stale(secrets, accounts, account_id, used_bot_token).await;
     let context_result = clear_context_if_matches(secrets, account_id, None).await;
     stale_result?;

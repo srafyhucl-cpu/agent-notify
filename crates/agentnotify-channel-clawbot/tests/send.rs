@@ -337,7 +337,12 @@ async fn prepare_failed_returns_skipped_and_clears_only_context() {
         .unwrap();
 
     assert_eq!(receipt.state, DeliveryState::Skipped);
-    assert_eq!(receipt.error.as_ref().unwrap().code(), "session_missing");
+    let error = receipt.error.as_ref().expect("跳过必须带可读原因");
+    assert_eq!(error.code(), "session_missing");
+    assert_eq!(
+        error.message(),
+        "平台未能准备会话，请给 ClawBot 发送一条消息后重试"
+    );
     assert!(matches!(
         fixture
             .secrets
@@ -430,7 +435,38 @@ async fn mismatched_context_user_is_skipped_without_network_access() {
         .unwrap();
 
     assert_eq!(receipt.state, DeliveryState::Skipped);
-    assert_eq!(receipt.error.as_ref().unwrap().code(), "session_missing");
+    let error = receipt.error.as_ref().expect("跳过必须带可读原因");
+    assert_eq!(error.code(), "session_missing");
+    assert_eq!(
+        error.message(),
+        "ClawBot 主动推送会话已失效，请先给 ClawBot 发送一条消息"
+    );
+    assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn missing_context_is_skipped_with_actionable_message() {
+    let transport = Arc::new(TestTransport::http(200, r#"{"ret":0,"message_id":"m1"}"#));
+    let fixture = fixture(transport.clone(), "https://business.example.test").await;
+    fixture
+        .secrets
+        .delete(&fixture.account_id, SecretKind::ContextToken)
+        .await
+        .unwrap();
+
+    let receipt = fixture
+        .channel
+        .send(fixture.account, fixture.message)
+        .await
+        .unwrap();
+
+    assert_eq!(receipt.state, DeliveryState::Skipped);
+    let error = receipt.error.as_ref().expect("跳过必须带可读原因");
+    assert_eq!(error.code(), "session_missing");
+    assert_eq!(
+        error.message(),
+        "ClawBot 主动推送会话已失效，请先给 ClawBot 发送一条消息"
+    );
     assert_eq!(transport.calls.load(Ordering::SeqCst), 0);
 }
 
