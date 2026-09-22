@@ -4,10 +4,11 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是仓库根目录的 `VERSION`
 （2.0.0 起；此前为 `internal/app/version.go`）。
 
-## [2.0.0] - 2026-09-21
+## [2.0.0] - 2026-09-22
 
 桌面端改用 Tauri + React 重写，替换原 Win32 自绘悬浮窗；正式安装入口切换为
-`agentnotify-desktop.exe` + `agentnotify-ingress.exe`。
+`agentnotify-desktop.exe` + `agentnotify-ingress.exe`。本次同时把 Go 版支持的 Agent 接入
+全部补齐（Codex、Antigravity、Devin、Command Code），并补上应用内一键升级。
 
 ### Added
 
@@ -15,12 +16,28 @@
 - Rust 核心运行时：SQLite WAL 状态库、事务型 Outbox、按「渠道 + 账号 + 渠道消息 ID」精确引用路由、入站至多一次 Claim。
 - 内部事件入口 `agentnotify-ingress.exe`：版本化事件协议、当前用户命名管道；核心离线时写入持久化 spool，并在下次启动消费。
 - 首次启动只读迁移：导入旧配置、登录状态、开关、推送历史、引用路由与 Claim；重复启动不重复迁移。
+- Codex、Antigravity、Devin、Command Code 四个 Agent 适配器：完成通知与精确引用续聊（Codex 走 `codex queue`、Antigravity 走本机 agentapi 原会话、Devin 走 ACP 桌面扩展、Command Code 走回复窗口 mod），各自带独立 Hook / 扩展 / mod 与失败诊断日志。
+- 应用内一键升级：查询 `agent-notify-releases` 最新版本 → 下载到应用临时目录 → SHA256 + 签名指纹 + PE 版本校验 → 优先拉起安装器，失败退回 ZIP 解包替换。
+- Settings 页「下载并安装」入口：仅在存在可安装版本时可用，安装中与失败都有明确中文反馈。
+- 每个 Agent 的配置项（`codexHome`、`annotationsDir`、`sessionsDatabase`、`commandCodeReplyWindowSec` 等）真正作用到适配器，改动后自动重建注册表并重启运行时。
 
 ### Changed
 
 - 安装器保留原 AppId 与标准安装目录，升级落回原位置；自启动与快捷方式指向新的桌面程序。
 - OpenCode 接入改为 V2 插件，任务完成事件经 `agentnotify-ingress.exe` 提交。
 - 版本号唯一来源从 `internal/app/version.go` 切换为仓库根 `VERSION`：`tools/sync-version.ps1` 同步各发布位置，`tools/check-version.ps1` 校验一致性。
+- 界面文案统一为中文（导航、页面标题、表头、投递状态枚举、错误提示），保留 Agent、descriptor、Hook 等既有技术术语。
+- 发布链打包三个新 Hook、Devin V2 扩展与 Command Code V2 mod；安装器新增可取消的接入任务，升级时先清旧 Go 版 Hook 再装新接入。
+- 卸载只清理 AgentNotify 自己的条目（Codex notify、Antigravity Hook 与启动器、Devin handler 与 V2 扩展、Command Code mod），第三方 notify 与自定义 matcher 原样保留；没有备份时按 `--previous-notify` 载荷还原，或给出可照做的说明。
+- 发布补发门禁校验 ZIP 内五个程序（桌面端、ingress 与三个 Hook）的存在性、`SHA256SUMS.txt` 覆盖与哈希、以及签名指纹。
+
+### Fixed
+
+- 启动竞态：窗口先于宿主初始化就绪时，命令不再直接报「桌面宿主尚未完成初始化」，改为等待初始化完成（上限 20 秒）；初始化失败时返回具体原因，而不是笼统的「请稍后重试」。
+- Command Code 回复窗口配置通道：界面里的窗口秒数此前只写入 SQLite，而 mod 读的是旧 JSON 配置，导致窗口永不打开、引用回复恒报「窗口已过」；改为应用把界面值原子写入收件箱 `window.json`，mod 按「环境变量 > 界面值 > 旧配置」读取（界面值 0 视为显式关闭）。
+- ClawBot 主动推送诊断：区分「上下文不存在」与「平台拒绝准备会话（PrepareFailed）」两种失效原因，`notifystart` 结果与清空上下文原因改为默认可见日志，且不打印令牌与响应体。
+- 通知格式恢复 Go 版样式：投递层把结构化信息交给渠道渲染，微信里重新出现「🟢 显示名｜会话名」标题栏、正文与「*引用此消息可继续对话*」页脚（此前只发原始「标题 + 正文」）。
+- 安装器 `{userprofile}` 非法常量：原写法会让 OpenCode 接入任务在安装末尾抛异常，已改为 `{%USERPROFILE}` 并补回归断言。
 
 ### Removed
 
