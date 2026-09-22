@@ -152,12 +152,29 @@ pub fn run_migrations(connection: &mut Connection) -> Result<(), StoreError> {
                 "数据库包含当前程序无法识别的迁移版本，请先核对数据库完整性",
             ));
         };
-        if *checksum != sha256_hex(migration.sql.as_bytes()) {
-            return Err(StoreError::new(
-                "migration_checksum_mismatch",
-                "数据库迁移校验失败，现有版本与程序内置迁移不一致",
-            ));
+        let expected = migration_checksum(migration.sql);
+        if *checksum == expected {
+            continue;
         }
+        // 旧版本按原始字节记录校验和，同一份迁移在 CRLF 检出与 LF 检出下结果不同。
+        // 只有内容等价、仅行尾不同的记录才自愈；其它差异继续报错。
+        if legacy_byte_checksums(migration.sql).contains(checksum) {
+            tracing::warn!(
+                version = migration.version,
+                "数据库迁移校验和仅行尾不同，已自愈为归一化校验和"
+            );
+            transaction
+                .execute(
+                    "UPDATE schema_migrations SET checksum = ?1 WHERE version = ?2",
+                    params![expected, migration.version],
+                )
+                .map_err(|error| storage_error("自愈迁移校验和失败", error))?;
+            continue;
+        }
+        return Err(StoreError::new(
+            "migration_checksum_mismatch",
+            "数据库迁移校验失败，现有版本与程序内置迁移不一致",
+        ));
     }
 
     for migration in MIGRATIONS {
@@ -179,7 +196,7 @@ pub fn run_migrations(connection: &mut Connection) -> Result<(), StoreError> {
                 "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?1, ?2, ?3)",
                 params![
                     migration.version,
-                    sha256_hex(migration.sql.as_bytes()),
+                    migration_checksum(migration.sql),
                     timestamp_to_db(Timestamp::now_utc())
                 ],
             )
@@ -218,4 +235,61 @@ fn sha256_hex(value: &[u8]) -> String {
         let _ = write!(text, "{byte:02x}");
     }
     text
+}
+
+/// 迁移 SQL 的行尾归一化：CRLF 统一为 LF，其它字节保持不变。
+///
+/// 迁移 SQL 由 `include_str!` 嵌入二进制，字节内容取决于构建时的检出：`.gitattributes`
+/// 的 `text=auto` 会让 Windows 检出得到 CRLF，Linux/CI 得到 LF。若按原始字节计算校验和，
+/// 同一份迁移在不同检出的程序之间会得到不同结果，用户升级后会被误判为
+/// `migration_checksum_mismatch` 而无法启动。因此写入与比较统一使用归一化后的校验和。
+fn normalize_line_endings(sql: &str) -> String {
+    sql.replace("\r\n", "\n")
+}
+
+/// 按归一化行尾计算的迁移校验和，所有新写入与比较都使用它。
+fn migration_checksum(sql: &str) -> String {
+    sha256_hex(normalize_line_endings(sql).as_bytes())
+}
+
+/// 2.0.0 及更早版本按原始字节记录校验和时可能出现的两种变体（CRLF 检出 / LF 检出）。
+///
+/// 自愈只允许命中这两种变体，绝不接受其它不匹配。
+fn legacy_byte_checksums(sql: &str) -> [String; 2] {
+    let lf = normalize_line_endings(sql);
+    let crlf = lf.replace('\n', "\r\n");
+    [sha256_hex(lf.as_bytes()), sha256_hex(crlf.as_bytes())]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_SQL: &str = "CREATE TABLE demo(id INTEGER);\nINSERT INTO demo VALUES (1);\n";
+
+    #[test]
+    fn normalized_checksum_ignores_line_endings() {
+        let crlf = SAMPLE_SQL.replace('\n', "\r\n");
+        assert!(crlf.contains("\r\n"));
+
+        assert_eq!(migration_checksum(SAMPLE_SQL), migration_checksum(&crlf));
+    }
+
+    #[test]
+    fn normalized_checksum_matches_lf_plain_bytes() {
+        assert_eq!(
+            migration_checksum(SAMPLE_SQL),
+            sha256_hex(SAMPLE_SQL.as_bytes())
+        );
+    }
+
+    #[test]
+    fn legacy_byte_checksums_cover_both_checkouts() {
+        let crlf = SAMPLE_SQL.replace('\n', "\r\n");
+        let variants = legacy_byte_checksums(SAMPLE_SQL);
+
+        assert!(variants.contains(&sha256_hex(SAMPLE_SQL.as_bytes())));
+        assert!(variants.contains(&sha256_hex(crlf.as_bytes())));
+        assert_eq!(variants.len(), 2);
+    }
 }
