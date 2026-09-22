@@ -8,7 +8,7 @@
 
 AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把标题和摘要发到微信，并在本机保留推送历史；在微信里引用这条通知回复，可以继续对应的 Agent 会话。
 
-2.0.0 起正式入口是 Tauri 桌面版：主程序 `agentnotify-desktop.exe`，工作台式主窗口，状态存 SQLite。当前只支持 **OpenCode + ClawBot/微信**，其它 Agent 与渠道尚未实现，见[接入范围](#接入范围)。
+2.0.0 起正式入口是 Tauri 桌面版：主程序 `agentnotify-desktop.exe`，工作台式主窗口，状态存 SQLite。当前支持 **OpenCode、Codex、Antigravity、Devin、Command Code 五个 Agent + ClawBot/微信**，其它渠道尚未实现，见[接入范围](#接入范围)。
 
 ## 功能
 
@@ -16,6 +16,8 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 - ClawBot 扫码登录，并等待微信首条消息建立主动推送会话；登录、测试发送都在 Channels 页完成。
 - 凭据由 Windows 凭据管理器保存；运行日志和界面不显示 token 等敏感字段。
 - OpenCode 使用 V2 插件监听会话完成/失败事件，经 `agentnotify-ingress.exe` 提交；插件出错不会阻塞 OpenCode。
+- Codex、Antigravity、Devin、Command Code 四个 Agent 各自通过独立接入上报完成事件：Codex 走 notify Hook、Antigravity 走 Stop Hook、Devin 走 Stop Hook 与桌面扩展、Command Code 走 V2 mod；接入失败不会阻塞各自客户端，失败原因写入各自的调试日志。
+- 应用内一键升级：Settings → 更新 里检查最新版本，点「下载并安装」后静默完成安装并自动重启；正式渠道只接受通过内置指纹校验的签名安装包。
 - 通知内容为会话标题加摘要正文，正文保留 Markdown；超过渠道长度上限时明确失败，不静默截断。
 - 推送历史存 SQLite：History 页可按 Agent、渠道、账号、状态和时间定位通知，查看投递详情；失败且标记为可重试的投递可以手动重试。
 - Diagnostics 页展示存储、后台组件与旧数据迁移诊断，失败都会给出可读原因。
@@ -29,12 +31,12 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 
 当前支持：
 
-- Agent：OpenCode（V2 插件）。
+- Agent：OpenCode（V2 插件）、Codex（notify Hook）、Antigravity（Stop Hook）、Devin（Stop Hook + 桌面扩展）、Command Code（V2 mod）。
 - 渠道：ClawBot / 微信。
+- 应用内一键升级：检查更新、下载、校验、静默安装并自动重启。
 
 后续扩展（尚未实现）：
 
-- Codex、Antigravity、Devin、Command Code 的通知与引用回复。升级时它们的旧接入会被安装器清理。
 - 飞书等其它渠道、外部适配器协议。
 - 跨平台（macOS、HarmonyOS PC）。
 
@@ -46,10 +48,11 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 
 - 创建桌面快捷方式、开机自动启动。
 - 接入 OpenCode 通知插件：把 `plugin\rust\agent-notify.ts` 写到 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`，并把 `agentnotify-ingress.exe` 的绝对路径绑定进插件。接入后需要重启 OpenCode。
+- 接入 Codex / Antigravity / Devin / Command Code：由安装器调用对应接入脚本，只改写各自的配置项（Codex 的 `notify` 行、Antigravity 的 Hook 与启动器、Devin 的 Stop Hook 与 V2 扩展、Command Code 的 mod），第三方接入与自定义配置原样保留。不需要时可以取消勾选。
 
 安装完成页会启动 AgentNotify。首次启动做一次**只读**旧数据迁移：读取旧配置、登录状态、开关、推送历史与引用路由导入新库，旧文件保持不变，重复启动不会重复迁移。
 
-升级安装器保留原 AppId，会覆盖回原安装目录；安装时先停止旧进程，并清理上一版本写入的 Codex / Antigravity / Devin Hook 与扩展（这些接入在 2.0.0 尚未实现）。用户数据一律保留。
+升级安装器保留原 AppId，会覆盖回原安装目录；安装时先停止旧进程，清理上一版本写入的旧接入（旧 Go 版 Hook 与 V1 扩展），再按勾选安装新的接入。用户数据一律保留。
 
 发布的安装器与程序都带 Authenticode 签名，Release 同时发布 `SHA256SUMS.txt` 供校验。ZIP 包 `Agent-notify-vX.Y.Z.zip` 用于便携与开发，不是普通用户的主安装入口。
 
@@ -65,7 +68,11 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 
 ## 更新与回滚
 
-2.0.0 暂不支持应用内检查更新：Settings 里的「检查更新」会提示当前版本不支持。获取新版本请从[发布仓库](https://github.com/srafyhucl-cpu/agent-notify-releases/releases)手动下载安装器覆盖安装，校验值以 Release 附件 `SHA256SUMS.txt` 为准。
+在 Settings → 更新 里点「检查更新」查询[发布仓库](https://github.com/srafyhucl-cpu/agent-notify-releases/releases)的最新版本；存在更高版本时点「下载并安装」，应用会下载安装包、校验 SHA256 与签名指纹，然后**静默安装并自动重启**（安装期间主窗口会关闭，安装器显示进度，装完自动启动）。
+
+- 正式渠道只接受由内置指纹签名、且 PE 版本号匹配的安装包；未签名或指纹不符一律拒绝安装，不会静默放行。
+- 下载或校验失败不会触碰已安装的文件，当前版本继续可用，失败原因会在界面里给出可读说明。
+- 也可以手动安装：从发布仓库下载 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装，校验值以 Release 附件 `SHA256SUMS.txt` 为准。
 
 回滚窗口内可以安装上一稳定版 `Agent-notify-Setup-v1.17.0.exe` 回到旧版；校验和、回滚步骤与窗口结束条件见 [Windows 正式入口切换到 Rust 桌面版](docs/superpowers/specs/2026-09-19-windows-rust-cutover.md)。回滚安装器同样保留 AppId，会覆盖回原安装目录；配置、凭据、历史与 SQLite 都不会删除。
 
@@ -76,7 +83,7 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 - 只有当前绑定微信用户的私聊引用回复会触发 Agent，群聊或其它账号的回复会被忽略。
 - 目标只按引用消息携带的原始平台消息 ID 在本机路由中精确匹配；没有对应路由、ID 冲突或路由过期都会明确失败，不会回退到「最近会话」，也不按标题或工作目录猜测。
 - 同一条引用消息至多投递一次；投递失败或拒绝会在微信里给出可读原因。
-- 引用回复要求 AgentNotify 保持运行：下行轮询由桌面端运行时处理，投递由 OpenCode V2 插件执行。
+- 引用回复要求 AgentNotify 保持运行：下行轮询由桌面端运行时处理，投递由对应 Agent 的接入完成（OpenCode V2 插件、Codex `codex queue`、Antigravity 本机 agentapi、Devin 桌面扩展、Command Code 回复窗口）。
 
 ## 数据与配置
 
