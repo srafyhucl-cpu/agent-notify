@@ -75,6 +75,12 @@ foreach ($extensionRelative in @('plugin\devin-extension\package.json', 'plugin\
   }
 }
 
+# 阶段 D 的其余分发物没有独立产品版本字段，无需在这里校验：
+# - 三个 Hook exe（agentnotify-codex-hook / -antigravity-hook / -devin-hook）的版本来自
+#   Cargo.toml 的 [workspace.package] version，已由上面的 CARGO_PKG_VERSION 检查覆盖；
+# - plugin\commandcode-v2\agent-notify.ts 是单文件 mod，只有协议版本 PROTOCOL_VERSION=1，
+#   没有产品版本字段（Command Code 也不读版本），不为了过门禁往 mod 里塞无用字段。
+
 if ((Read-TextFile 'CHANGELOG.md') -notmatch ('(?m)^## \[' + $escaped + '\]')) {
   $failures.Add("CHANGELOG 缺少 $Version 段落")
 }

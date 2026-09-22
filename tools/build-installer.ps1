@@ -5,14 +5,18 @@
 
 .DESCRIPTION
   版本号来自仓库根 VERSION（唯一来源），并校验调用方传入的 -Version 与之一致。
-  需要传入桌面端与 ingress 两个可执行文件；ISCC 路径可通过 AGENT_NOTIFY_ISCC 覆盖；
-  设置 AGENT_NOTIFY_SIGNTOOL 后启用签名，并强制校验指纹等于内置信任指纹。
+  需要传入桌面端、ingress 与阶段 D 的三个 Hook 可执行文件；ISCC 路径可通过
+  AGENT_NOTIFY_ISCC 覆盖；设置 AGENT_NOTIFY_SIGNTOOL 后启用签名，并强制校验指纹
+  等于内置信任指纹。
 #>
 param(
   [string]$Version,
   [string]$OutDir,
   [string]$ExePath,
-  [string]$IngressPath
+  [string]$IngressPath,
+  [string]$CodexHookPath,
+  [string]$AntigravityHookPath,
+  [string]$DevinHookPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,9 +53,23 @@ if ([string]::IsNullOrWhiteSpace($ExePath)) {
 if ([string]::IsNullOrWhiteSpace($IngressPath)) {
   throw "缺少 -IngressPath：正式安装器必须打包 agentnotify-ingress.exe"
 }
+# 阶段 D 的三个 Hook 也必须随包分发：安装器按任务调用对应接入脚本，缺文件就装不出可用 Hook。
+$hookParameters = [ordered]@{
+  '-CodexHookPath'       = $CodexHookPath
+  '-AntigravityHookPath' = $AntigravityHookPath
+  '-DevinHookPath'       = $DevinHookPath
+}
+foreach ($entry in $hookParameters.GetEnumerator()) {
+  if ([string]::IsNullOrWhiteSpace($entry.Value)) {
+    throw "缺少 $($entry.Key)：正式安装器必须打包阶段 D 的 Hook 可执行文件"
+  }
+}
 $ExePath = [IO.Path]::GetFullPath($ExePath)
 $IngressPath = [IO.Path]::GetFullPath($IngressPath)
-foreach ($leaf in @($ExePath, $IngressPath)) {
+$CodexHookPath = [IO.Path]::GetFullPath($CodexHookPath)
+$AntigravityHookPath = [IO.Path]::GetFullPath($AntigravityHookPath)
+$DevinHookPath = [IO.Path]::GetFullPath($DevinHookPath)
+foreach ($leaf in @($ExePath, $IngressPath, $CodexHookPath, $AntigravityHookPath, $DevinHookPath)) {
   if (-not (Test-Path -LiteralPath $leaf -PathType Leaf)) {
     throw "找不到待打包的可执行文件：$leaf"
   }
@@ -102,7 +120,10 @@ $isccArgs = @(
   "/DRepoRoot=$RepoRoot",
   "/DOutputDir=$OutDir",
   "/DExePath=$ExePath",
-  "/DIngressPath=$IngressPath"
+  "/DIngressPath=$IngressPath",
+  "/DCodexHookPath=$CodexHookPath",
+  "/DAntigravityHookPath=$AntigravityHookPath",
+  "/DDevinHookPath=$DevinHookPath"
 )
 
 if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {

@@ -5,7 +5,8 @@
 
 .DESCRIPTION
   默认只做通用检查。加 -ExpectRust 时额外断言「正式包已是 Rust 桌面版」：
-  安装两个可执行文件、保留旧 AppId 与安装目录、自启动指向新桌面程序、
+  安装桌面端、ingress 与阶段 D 的三个 Hook，保留旧 AppId 与安装目录、自启动指向新桌面程序、
+  四个 Agent 适配器按任务接入、卸载会清理自己写入的 Hook / 扩展 / mod，
   不再把旧 Win32 UI 作为启动入口，且安装/卸载都不触碰用户数据。
 
 .EXAMPLE
@@ -96,6 +97,110 @@ if ($ExpectRust) {
   }
   if (-not $issueScript.Contains('-Ingress')) {
     throw 'OpenCode 插件安装未绑定 ingress 可执行文件'
+  }
+
+  # Inno 没有 {userprofile} 常量：用户目录必须用 {%USERPROFILE}，写错会在安装末尾抛异常。
+  # 只检查真实条目：Inno 的 ; 注释与 [Code] 的 // 注释里可以提到这个名字。
+  $issueEntries = (($issueScript -split "\r?\n") | Where-Object { $_ -notmatch '^\s*(;|//)' }) -join "`n"
+  if ($issueEntries -match '\{userprofile\}') {
+    throw '安装器使用了不存在的 {userprofile} 常量，用户目录应写 {%USERPROFILE}'
+  }
+
+  # 阶段 D 的四个适配器必须随正式包分发：三个 Hook exe、四个接入脚本、Devin V2 扩展、Command Code V2 mod。
+  $adapterPayloads = @(
+    'Source: "{#CodexHookPath}"; DestDir: "{app}"; DestName: "agentnotify-codex-hook.exe"',
+    'Source: "{#AntigravityHookPath}"; DestDir: "{app}"; DestName: "agentnotify-antigravity-hook.exe"',
+    'Source: "{#DevinHookPath}"; DestDir: "{app}"; DestName: "agentnotify-devin-hook.exe"',
+    'Source: "{#RepoRoot}\plugin\devin-extension-v2\package.json"; DestDir: "{app}\plugin\devin-extension-v2"',
+    'Source: "{#RepoRoot}\plugin\devin-extension-v2\extension.js"; DestDir: "{app}\plugin\devin-extension-v2"',
+    'Source: "{#RepoRoot}\plugin\devin-extension-v2\acp-bridge.js"; DestDir: "{app}\plugin\devin-extension-v2"',
+    'Source: "{#RepoRoot}\plugin\commandcode-v2\agent-notify.ts"; DestDir: "{app}\plugin\commandcode-v2"'
+  )
+  foreach ($needle in $adapterPayloads) {
+    if (-not $issueScript.Contains($needle)) {
+      throw "正式包缺少阶段 D 适配器产物：$needle"
+    }
+  }
+  foreach ($scriptName in @('install-codex-v2.ps1', 'install-antigravity-v2.ps1', 'install-devin-v2.ps1', 'install-commandcode-v2.ps1')) {
+    $expectedEntry = 'Source: "{#RepoRoot}\tools\hooks\' + $scriptName + '"; DestDir: "{app}\tools\hooks"'
+    if (-not $issueScript.Contains($expectedEntry)) {
+      throw "正式包未携带 Agent 接入脚本：$scriptName"
+    }
+  }
+
+  # 每个 Agent 一个接入任务：默认勾选（与 Go 版"不传 -Skip* 就接入全部"的语义一致），并真的按任务调用。
+  foreach ($task in @('opencode', 'codex', 'antigravity', 'devin', 'commandcode')) {
+    if ($issueScript -notmatch ('(?m)^Name:\s*"' + $task + '";')) {
+      throw "正式包缺少 $task 接入任务"
+    }
+    if (-not $issueScript.Contains("WizardIsTaskSelected('" + $task + "')")) {
+      throw "正式包没有按任务接入 $task"
+    }
+    if ($issueScript -match ('(?m)^Name:\s*"' + $task + '";[^\r\n]*Flags:\s*unchecked')) {
+      throw "接入任务 $task 不应默认取消勾选：Go 版语义是默认接入全部 Agent"
+    }
+  }
+
+  # 接入调用只允许出现在 [Code] 段，并且必须绑定本次安装目录里的 Hook / 接入脚本。
+  $codeIndex = $issueScript.IndexOf('[Code]')
+  if ($codeIndex -lt 0) {
+    throw '正式包安装器脚本缺少 [Code] 段'
+  }
+  $codeSection = $issueScript.Substring($codeIndex)
+  $integrationBindings = @(
+    @{ Script = 'install-codex-v2.ps1'; Hook = 'agentnotify-codex-hook.exe' },
+    @{ Script = 'install-antigravity-v2.ps1'; Hook = 'agentnotify-antigravity-hook.exe' },
+    @{ Script = 'install-devin-v2.ps1'; Hook = 'agentnotify-devin-hook.exe' }
+  )
+  foreach ($binding in $integrationBindings) {
+    $hookPattern = [regex]::Escape($binding.Script) + '[\s\S]{0,400}?' + [regex]::Escape($binding.Hook)
+    if ($codeSection -notmatch $hookPattern) {
+      throw "正式包没有把 $($binding.Script) 绑定到 $($binding.Hook)"
+    }
+    $ingressPattern = [regex]::Escape($binding.Script) + '[\s\S]{0,600}?-Ingress'
+    if ($codeSection -notmatch $ingressPattern) {
+      throw "正式包没有给 $($binding.Script) 指定 -Ingress"
+    }
+  }
+  foreach ($binding in @(
+      @{ Script = 'install-devin-v2.ps1'; Argument = '-ExtensionSource' },
+      @{ Script = 'install-commandcode-v2.ps1'; Argument = '-Source' }
+    )) {
+    $argumentPattern = [regex]::Escape($binding.Script) + '[\s\S]{0,400}?' + [regex]::Escape($binding.Argument)
+    if ($codeSection -notmatch $argumentPattern) {
+      throw "正式包没有给 $($binding.Script) 指定 $($binding.Argument)"
+    }
+  }
+
+  # 升级时先清旧 Hook 再写新 Hook：顺序反了会把本次刚写入的配置当成旧 Hook 清掉。
+  $curStepMatch = [regex]::Match($codeSection, '(?s)procedure CurStepChanged\(CurStep: TSetupStep\);.*?\r?\nend;')
+  if (-not $curStepMatch.Success) {
+    throw '正式包安装器脚本缺少 CurStepChanged 过程'
+  }
+  $curStepBody = $curStepMatch.Value
+  $cleanupIndex = $curStepBody.IndexOf('RunLegacyHookCleanup();')
+  $codexIndex = $curStepBody.IndexOf("WizardIsTaskSelected('codex')")
+  if ($cleanupIndex -lt 0 -or $codexIndex -lt 0) {
+    throw '正式包没有在安装后清理旧 Hook 并按任务接入 Codex'
+  }
+  if ($cleanupIndex -gt $codexIndex) {
+    throw '旧 Hook 清理必须在新 Hook 接入之前执行'
+  }
+
+  # 卸载必须清掉本次新增的可分发物：程序文件由 Inno 删除，用户目录产物交给既有清理脚本与 [UninstallDelete]。
+  if ($issueScript -notmatch '(?m)^\[UninstallRun\]') {
+    throw '正式包缺少 [UninstallRun]，卸载不会移除 Hook / 扩展 / mod'
+  }
+  if (-not $issueScript.Contains('uninstall.ps1"" -HooksOnly')) {
+    throw '正式包卸载没有调用既有 Hook 清理脚本（-HooksOnly）'
+  }
+  if ($issueScript -notmatch '(?m)^\[UninstallDelete\]') {
+    throw '正式包缺少 [UninstallDelete]，Devin V2 回复扩展会在卸载后残留'
+  }
+  foreach ($name in @('package.json', 'extension.js', 'acp-bridge.js')) {
+    if (-not $issueScript.Contains('agent-notify-reply-v2\' + $name)) {
+      throw "卸载清理缺少 Devin V2 扩展文件：$name"
+    }
   }
 
   # 升级与卸载只允许删除程序文件：不得涉及用户数据、旧迁移源或迁移报告。

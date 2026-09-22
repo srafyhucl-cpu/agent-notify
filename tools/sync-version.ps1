@@ -82,6 +82,10 @@ foreach ($extensionRelative in @('plugin\devin-extension\package.json', 'plugin\
   Save-IfChanged $extensionRelative $extensionUpdated
 }
 
+# 阶段 D 的其余分发物没有独立产品版本字段，无需在这里同步：
+# 三个 Hook exe 的版本来自 Cargo.toml 的 [workspace.package] version（上面已同步），
+# plugin\commandcode-v2\agent-notify.ts 只有协议版本 PROTOCOL_VERSION，没有产品版本字段。
+
 if ($changed.Count -eq 0) {
   Write-Output "[version] 已是 $Version，无需改动"
 } else {
