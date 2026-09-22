@@ -10,6 +10,9 @@
    - 说明：退出期间 ingress 会把事件写进 spool，重启后自动补投，不会丢通知。
 2. **部署新构建**（release 产物）到预览安装目录 `D:\app\AgentNotify-Rust-Preview\`：
 
+   > ⚠️ **必须用正式构建路径**：`tools\build-release.ps1`（或先 `npm run build` 再 `cargo build -p agentnotify-desktop --release --locked --target x86_64-pc-windows-msvc --features tauri/custom-protocol`）。
+   > 直接裸跑 `cargo build --release` 得到的是**开发模式**二进制：窗口会显示 `localhost 拒绝连接`（它在找 devUrl `http://localhost:1420`），因为前端资源没有被嵌进去。
+
    | 源（`D:\Temp\agentnotify-rust-target\x86_64-pc-windows-msvc\release\`） | 目标 |
    | --- | --- |
    | `agentnotify-desktop.exe` | 同目录同名 |
@@ -111,7 +114,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 
 | Agent | 安装 | 推送 | 引用回复 | 备注 |
 | --- | --- | --- | --- | --- |
-| Codex | ☐ | ☐ | ☐ | |
+| Codex | ✅ | ✅ | ✅ | 2026-09-22 10:31 安装（备份 `config.toml.bak-notify-wrapper`）；通知 `ec811566…` 于 10:45:00 投递成功（平台消息 `<平台消息ID已脱敏>`，路由有效期 24 小时）；引用回复已进入对应 Codex 线程（用户实测确认） |
 | Antigravity | ☐ | ☐ | ☐ | |
 | Devin | ☐ | ☐ | ☐ | |
 | Command Code | ☐ | ☐ | ☐ | |
+
+### 验收中发现的缺陷（均已定位）
+
+1. **通知格式没有渲染**（影响全部 Agent）：`render_notification` 有实现有测试但**生产无调用**，投递层直接拼 `title\n\nbody`，微信里没有徽章/标题栏/页脚。→ 修复中（投递层把结构化信息交给渠道渲染，缺信息时保持原样）。
+2. **Agent 配置不生效**（影响四个新 Agent）：`config_schema`（`codexHome` 等）在界面可编辑、存库，但适配器用 `from_default_location()` 构造，从不读取。→ 修复中。
+3. **发布链未包含新接入**：安装器/`build-release.ps1` 只带 OpenCode 插件，未包含 3 个新 Hook、Devin V2 扩展、Command Code V2 mod。→ 修复中。
+4. **积压通知不补投**（设计如此，非缺陷）：`Skipped`（如 `session_missing`）是终态，不会重投；只能在 History 里查看。
+5. **ClawBot 主动推送会话失效需入站消息恢复**：平台返回 `PrepareFailed` 时运行时会清空上下文，此后所有 Agent 的推送都会 `session_missing`，直到用户给 bot 发一条消息。已观察到该状态与"应用重启 + `notifystart`"在时间上高度相关（10:26:56 重启 → 10:26:59 起全部失败），但**日志没有记录平台返回的具体原因**，属诊断缺口，待补日志后再定位是否为缺陷。
+
+## 9. 待办（本轮修复落地后排队）
+
+1. **一键升级**（已确认排期）——Go 版有、Rust 版缺失的最后一块能力：
+   - **已有**：`agentnotify_desktop::update::{sha256_file, verify_download, SignatureRequirement}`（SHA256 / 签名指纹 / PE 版本三类校验，测试完备）、Settings 页"检查更新"入口、`get_update_status` 主机命令、发布链的 `SHA256SUMS.txt` 与 `agent-notify-releases` 镜像仓库。
+   - **缺**：查询最新 Release 并比对版本、下载安装包到临时目录、校验、拉起安装器、失败时给用户可读提示。
+   - **约束**：正式渠道必须强制签名校验（未签名包一律拒绝安装，保持 `internal/update/signature.go` 的内置指纹约定）；预览/本地构建可放宽；沿用现有 `UpdateStateDto`（`UpToDate`/`Available`/`ReadyToInstall`/`Unsupported`/`Failed`）。
+2. **补齐 ClawBot 诊断缺口**：记录 `notifystart` 的结果与"清空推送上下文"的原因。当前 `PrepareFailed` 与"上下文不存在"在用户侧是同一句话，无法定位"重启后推送静默失效"的根因；补日志后再判定是否为缺陷。
+3. **安装器冒烟纳入新接入**：本轮修复会在 `tests/installer-smoke.ps1` 增加断言，验收时需在沙箱跑一次确认（不触碰真实环境）。
