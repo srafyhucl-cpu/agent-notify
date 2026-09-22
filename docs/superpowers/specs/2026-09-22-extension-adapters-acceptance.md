@@ -162,7 +162,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 - 真实客户端版本：Antigravity **2.15.1**（可执行文件版本读出）；Codex / Devin / Command Code 未能在常见安装位置自动读出，可在客户端内查看后补记
 - 结论：Task 11 的 Step 4 **不勾选**；其余步骤还依赖 Task 6–10（飞书、多账号、外部适配器协议）的实现。
 
-## 9. 待办（更新于 2026-09-22 晚）
+## 9. 2.0.0 发布记录（2026-09-22）
+
+| 项 | 值 |
+| --- | --- |
+| tag | `v2.0.0`（annotated，指向 `54f579a`；首次指向 `0f10827` 时 Release 因构建脚本写死本地 cargo 路径而失败，修复后重指） |
+| 修复提交 | `54f579a fix(release): 构建脚本改为 CI 可移植的 cargo 解析` |
+| Release workflow | 运行 `35724402360`，**成功**，21 分 40 秒 |
+| 发布产物 | `Agent-notify-Setup-v2.0.0.exe`（8,020,168 B / SHA256 `84bf6c94…45110`）、`Agent-notify-v2.0.0.zip`（9,101,429 B / `1f93274b…e7b63`）、`SHA256SUMS.txt` |
+| 镜像 | 二进制仓库 `srafyhucl-cpu/agent-notify-releases` 已同步，`/releases/latest` = `v2.0.0` ✅ |
+| 独立验证 | 下载安装器核对 SHA256 一致 ✅；Authenticode 指纹 = `EDF9E283DF2407B318E65D59BB430FD546509ACD`（与客户端内置指纹一致）✅；签名者 `CN=Agent-notify Code Signing`（自签名，故 Windows 报 `UnknownError`，客户端按指纹校验） |
+
+**发布后的待办**：真机升级验收（旧客户端检查更新 → 原地升级到 2.0.0 → 验证迁移、五个 Agent、微信推送与引用回复），以及升级后卸掉预览版避免两个实例抢同一个 ClawBot 会话。
+
+## 10. 待办（更新于 2026-09-22 晚）
 
 > 本节先前列的 5 项（一键升级、ClawBot 诊断、安装器冒烟、卸载 V2 清理、发布签名门禁）**均已完成并提交**，见 `9d34ece`、`e1dbb7e`、`2e5b1cb` 与本文档的预检章节。
 
