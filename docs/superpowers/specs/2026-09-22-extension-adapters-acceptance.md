@@ -137,6 +137,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 | **客户端退出** | ✅ 通过（Command Code 实测） | 关闭 Command Code 后引用其推送回复，微信收到：`无法续聊：发送到 Agent 失败（Command Code 目标会话未在运行，请先打开该会话；回复不会改投到其他会话）。` —— 可读、指明原因、且明确不误投。**其余三个适配器的同类场景仍待各自实测**（Codex/Antigravity/Devin 的离线路径目前仅契约测试覆盖） |
 | **超时 / Unknown** | ⚠️ 仅契约测试覆盖 | 真机未注入故障（需要断网或让客户端无响应，代价过高）。语义由 `crates/agentnotify-application` 与各适配器的契约测试锁定：超时记 `Unknown` 且不自动重试、中断的投递重启后不重发 |
 
+### 发布链预检（2026-09-22 傍晚）
+
+| 检查 | 结果 |
+| --- | --- |
+| `tools\build-release.ps1 -Version 2.0.0` | exit 0 ✅ |
+| 产物 | `Agent-notify-Setup-v2.0.0.exe`（7.67 MB）、`Agent-notify-v2.0.0.zip`（8.68 MB）、`SHA256SUMS.txt` ✅ |
+| 安装器静默契约（内嵌 + 独立冒烟） | 通过 ✅（无裸 `MsgBox`；`[Run]` 不带 `skipifsilent`；Rust 正式包契约通过） |
+| `tools\check-version.ps1` | 2.0.0 在所有发布位置一致 ✅ |
+| 发布前置条件 | workflow 触发条件 `tags: v*` ✅；三个 secrets 均已配置 ✅ |
+
+### 一键升级（静默安装 + 自动重启）的验证状态
+
+- **已覆盖**：`installer_arguments` 与 Go 版一致（`/SILENT /NORESTART /LOG=`）、拉起成功后请求优雅退出、拉起失败不退出且返回原因、安装器静默分支（`WizardSilent`）与结构断言、UI 安装中/失败文案 —— 单测与结构断言全绿。
+- **未覆盖（需真机端到端）**：点「下载并安装」→ 无向导无弹窗 → 应用自动退出 → 安装器静默替换 → 自动重启回到新版。**该验证必须等一个比当前更高的版本发布后才能做**（本次 2.0.0 发布后，可用下一次发布验证，或用 1.15/1.17 的旧客户端升级到 2.0.0 来验证同一套静默安装链路）。
+- **有意不加 `/SUPPRESSMSGBOXES`**（理由见 `hosts/desktop-tauri/src/update/install.rs` 的注释）：加上会让 Restart Manager 的「无法关闭应用」提示变成静默中止安装，应用已退出且不会自动重启，更难恢复。
+
 ### 计划 Task 11 Step 4 的完成度
 
 计划要求每个适配器单独记录：真实客户端版本与测试时间、正常推送、精确回复、账号或客户端退出、超时/`Unknown`/重复事件、脱敏日志检查、失败复现步骤。
@@ -146,14 +162,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 - 真实客户端版本：Antigravity **2.15.1**（可执行文件版本读出）；Codex / Devin / Command Code 未能在常见安装位置自动读出，可在客户端内查看后补记
 - 结论：Task 11 的 Step 4 **不勾选**；其余步骤还依赖 Task 6–10（飞书、多账号、外部适配器协议）的实现。
 
-## 9. 待办（本轮修复落地后排队）
-1. **一键升级**（已确认排期）——Go 版有、Rust 版缺失的最后一块能力：
-   - **已有**：`agentnotify_desktop::update::{sha256_file, verify_download, SignatureRequirement}`（SHA256 / 签名指纹 / PE 版本三类校验，测试完备）、Settings 页"检查更新"入口、`get_update_status` 主机命令、发布链的 `SHA256SUMS.txt` 与 `agent-notify-releases` 镜像仓库。
-   - **缺**：查询最新 Release 并比对版本、下载安装包到临时目录、校验、拉起安装器、失败时给用户可读提示。
-   - **约束**：正式渠道必须强制签名校验（未签名包一律拒绝安装，保持 `internal/update/signature.go` 的内置指纹约定）；预览/本地构建可放宽；沿用现有 `UpdateStateDto`（`UpToDate`/`Available`/`ReadyToInstall`/`Unsupported`/`Failed`）。
-   - **相邻问题（已定位，本轮不修）**：Devin 的 `replyInbox` 有同类通道问题——扩展只认环境变量 `AGENT_NOTIFY_DEVIN_REPLY_DIR` 或默认路径，界面里改 `replyInbox` 不会同步到扩展，引用回复会投到旧目录；修法可参考 Command Code 的 `commandcode-reply-inbox/window.json`（应用把界面值写进自己的收件箱，扩展优先读它）。
-2. **补齐 ClawBot 诊断缺口**：记录 `notifystart` 的结果与"清空推送上下文"的原因。当前 `PrepareFailed` 与"上下文不存在"在用户侧是同一句话，无法定位"重启后推送静默失效"的根因；补日志后再判定是否为缺陷。
-3. **安装器冒烟纳入新接入**：本轮修复会在 `tests/installer-smoke.ps1` 增加断言，验收时需在沙箱跑一次确认（不触碰真实环境）。
-4. **卸载路径补齐 V2 清理**：`uninstall.ps1 -HooksOnly` 的识别模式只认旧程序名（`agent-notify.exe` / `agent-notify-hook.cmd`），因此**卸载后** Devin 的 `hooks.Stop` handler 与 Codex 的 `notify` 行仍指向已删除的 exe。需为 V2 Hook 增加显式识别（注意不能改变升级清理的语义：升级时先清旧、再装新）。
-5. **发布门禁补三个 Hook 的签名校验**：`tools/publish-release.ps1` 目前只校验安装器与 ZIP 内主程序的签名指纹，三个 Hook 虽在构建时已签名并校验，但发布补发路径未覆盖；建议加入 `SHA256SUMS.txt` 与指纹校验循环。
-6. **升级时的自定义 Codex notify 不会被接管**（已知限制，非缺陷）：若用户的 `config.toml` 里 `notify` 指向**第三方程序**（非 `codex-computer-use.exe` 也不是 AgentNotify），接入脚本会保持原样并打印"如需接入请手动改为…"。原因是把任意程序包进 `--previous-notify` 会改变它的调用参数、可能破坏用户自己的集成；Go 版也只对 CUA 做包装。如需覆盖此场景，应作为独立评审的接入脚本行为变更。
+## 9. 待办（更新于 2026-09-22 晚）
+
+> 本节先前列的 5 项（一键升级、ClawBot 诊断、安装器冒烟、卸载 V2 清理、发布签名门禁）**均已完成并提交**，见 `9d34ece`、`e1dbb7e`、`2e5b1cb` 与本文档的预检章节。
+
+1. **一键升级的真机端到端验证**：需要存在比当前更高的版本（本次 2.0.0 发布后，用下一次发布验证；或用旧版客户端升级到 2.0.0 验证同一套静默安装链路）。
+2. **计划 Task 6–10**：飞书渠道、多账号通知策略、外部适配器进程协议（属新增能力，按既定安排排在 2.0.0 之后）。
+3. **验收完整性**：其余三个适配器的「客户端退出」实测、超时/`Unknown` 的真机故障注入、Codex / Devin / Command Code 的客户端版本补记。
+4. **迁移遗留的死设置**：`defaultAgent`、`widgetAgentMode`、`theme` 已被迁移导入但无消费者（原本只服务已移除的悬浮窗）；清理需要动迁移契约，应独立评审。
+5. **`hook_installer` 能力没有应用内动作**：Agents 页显示「Hook 安装 可用」，但目前重装接入要手动跑 `tools\hooks\install-*-v2.ps1`（Go 版靠 `sync`）。
+6. **Devin 的 `replyInbox` 通道问题**：扩展只认环境变量 `AGENT_NOTIFY_DEVIN_REPLY_DIR` 或默认路径，界面里改 `replyInbox` 不会同步到扩展；修法可参考 Command Code 的 `commandcode-reply-inbox/window.json`。
+7. **升级时的自定义 Codex notify 不会被接管**（已知限制，非缺陷）：若 `notify` 指向第三方程序，接入脚本保持原样并打印手动接入说明——把任意程序包进 `--previous-notify` 会改变它的调用参数，Go 版也只对 CUA 做包装。
