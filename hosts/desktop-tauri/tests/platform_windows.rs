@@ -23,6 +23,7 @@ fn test_overrides_isolate_all_platform_paths() {
     assert!(paths.spool_dir.starts_with(r"D:\Temp\agentnotify-tests"));
     assert!(paths.log_dir.starts_with(r"D:\Temp\agentnotify-tests"));
     assert!(paths.data_dir.starts_with(r"D:\Temp\agentnotify-tests"));
+    assert!(paths.temp_dir.starts_with(r"D:\Temp\agentnotify-tests"));
 }
 
 #[test]
@@ -40,6 +41,7 @@ fn app_paths_ensure_creates_all_isolated_directories() {
         &paths.data_dir,
         &paths.log_dir,
         &paths.spool_dir,
+        &paths.temp_dir,
     ] {
         assert!(directory.is_dir(), "目录不存在: {}", directory.display());
     }

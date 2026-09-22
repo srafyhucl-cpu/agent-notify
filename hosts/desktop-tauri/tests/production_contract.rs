@@ -14,8 +14,9 @@ use agentnotify_desktop::platform::AppPaths;
 use agentnotify_desktop::platform::windows::{CredentialBackend, WindowsSecretStore};
 use agentnotify_desktop::production::{
     ProductionRuntimeCoordinator, ProductionSettingsStore, ProductionTargetProvider,
-    bootstrap_headless,
+    bootstrap_headless, bootstrap_headless_with_update_transport,
 };
+use agentnotify_desktop::update::{HttpTextResponse, UpdateError, UpdateTransport};
 use agentnotify_domain::{
     AgentId, AgentSessionId, ChannelAccountId, ChannelId, Delivery, DeliveryId, Notification,
     NotificationId, NotificationMetadata, SafeError, Timestamp,
@@ -272,9 +273,11 @@ async fn target_provider_resolves_opencode_and_enabled_clawbot_accounts() {
 async fn host_commands_contract_execution() {
     let (_root, paths, _store, secret_store) = create_test_env("agentnotify-host-test-");
 
-    let (coordinator, service) = bootstrap_headless(paths, secret_store)
-        .await
-        .expect("Headless 装配与启动必须成功");
+    // 更新状态走假传输：契约测试不允许访问真实网络。
+    let (coordinator, service) =
+        bootstrap_headless_with_update_transport(paths, secret_store, Arc::new(UpToDateTransport))
+            .await
+            .expect("Headless 装配与启动必须成功");
 
     // 1. get_snapshot (支持启动中或就绪)
     let mut snapshot = service
@@ -374,20 +377,68 @@ async fn host_commands_contract_execution() {
     assert!(!diagnostics.components.is_empty());
     assert!(!diagnostics.items.is_empty());
 
-    // 8. get_update_status
+    // 8. get_update_status：假传输固定返回与当前版本相同的 Release，状态必须是 UpToDate。
     let update_status = service
         .get_update_status(EmptyPayload {})
         .await
         .expect("获取更新状态必须成功");
-    assert_eq!(update_status.state, UpdateStateDto::Unsupported);
+    assert_eq!(update_status.state, UpdateStateDto::UpToDate);
     assert_eq!(update_status.current_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(update_status.available_version, None);
+    assert!(!update_status.preview);
+    assert!(
+        update_status.message.contains("最新"),
+        "状态文案必须明确说明已是最新版本：{}",
+        update_status.message
+    );
 
-    // 9. quit_app
+    // 9. install_update：没有新版本时必须返回 UpToDate，而不是假装安装成功。
+    let install_result = service
+        .install_update(InstallUpdatePayload {})
+        .await
+        .expect("安装命令必须返回结果 DTO");
+    assert_eq!(install_result.state, UpdateStateDto::UpToDate);
+    assert_eq!(install_result.installed_version, None);
+    assert!(!install_result.preview);
+
+    // 10. quit_app
     let quit_res = service
         .quit_app(EmptyPayload {})
         .await
         .expect("退出必须成功");
     assert!(quit_res.accepted);
+}
+
+/// 契约测试专用的假更新传输：只回答"已是最新版本"，绝不访问真实网络。
+struct UpToDateTransport;
+
+#[async_trait::async_trait]
+impl UpdateTransport for UpToDateTransport {
+    async fn get(
+        &self,
+        _url: &str,
+        _accept: &str,
+        _limit: u64,
+    ) -> Result<HttpTextResponse, UpdateError> {
+        Ok(HttpTextResponse {
+            final_url: String::new(),
+            body:
+                br#"{"tag_name":"v2.0.0","body":"","draft":false,"prerelease":false,"assets":[]}"#
+                    .to_vec(),
+        })
+    }
+
+    async fn download(
+        &self,
+        _url: &str,
+        _destination: &std::path::Path,
+        _limit: u64,
+    ) -> Result<(), UpdateError> {
+        Err(UpdateError::new(
+            "update_test_unexpected_download",
+            "已是最新版本时不应下载任何文件",
+        ))
+    }
 }
 
 /// 生产组合根注册五个适配器：id 稳定有序、能力与各自 crate 定义一致、新适配器默认不启用。

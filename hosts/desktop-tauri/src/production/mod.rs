@@ -15,6 +15,7 @@ use tauri::{AppHandle, Wry};
 
 use crate::bridge::error::CommandError;
 use crate::platform::AppPaths;
+use crate::update::{UpdateService, UpdateTransport};
 
 use agents::{assemble_agents, load_agent_configs, seed_disabled_agent_configs};
 
@@ -34,7 +35,28 @@ pub async fn bootstrap_headless(
     ),
     CommandError,
 > {
-    bootstrap_internal(None, paths, secret_store).await
+    let updates = production_update_service(&paths)?;
+    bootstrap_internal(None, paths, secret_store, updates).await
+}
+
+/// 测试用装配：注入假更新传输，命令层不会访问真实网络。
+pub async fn bootstrap_headless_with_update_transport(
+    paths: AppPaths,
+    secret_store: Arc<dyn SecretStore>,
+    transport: Arc<dyn UpdateTransport>,
+) -> Result<
+    (
+        Arc<ProductionRuntimeCoordinator>,
+        Arc<ProductionHostCommandService>,
+    ),
+    CommandError,
+> {
+    let updates = Arc::new(UpdateService::new(
+        paths.temp_dir.clone(),
+        crate::update::UpdateConfig::from_environment(),
+        transport,
+    ));
+    bootstrap_internal(None, paths, secret_store, updates).await
 }
 
 pub async fn bootstrap_production(
@@ -48,7 +70,9 @@ pub async fn bootstrap_production(
     ),
     CommandError,
 > {
-    let (coordinator, service) = bootstrap_internal(Some(app.clone()), paths, secret_store).await?;
+    let updates = production_update_service(&paths)?;
+    let (coordinator, service) =
+        bootstrap_internal(Some(app.clone()), paths, secret_store, updates).await?;
 
     // 启动事件转发任务
     let forwarder = EventForwarder::new(app, coordinator.clone());
@@ -57,10 +81,17 @@ pub async fn bootstrap_production(
     Ok((coordinator, service))
 }
 
+fn production_update_service(paths: &AppPaths) -> Result<Arc<UpdateService>, CommandError> {
+    UpdateService::from_environment(paths)
+        .map(Arc::new)
+        .map_err(|error| CommandError::new(error.code(), error.message().to_owned()))
+}
+
 async fn bootstrap_internal(
     app: Option<AppHandle<Wry>>,
     paths: AppPaths,
     secret_store: Arc<dyn SecretStore>,
+    updates: Arc<UpdateService>,
 ) -> Result<
     (
         Arc<ProductionRuntimeCoordinator>,
@@ -137,6 +168,7 @@ async fn bootstrap_internal(
         coordinator.clone(),
         store,
         settings,
+        updates,
     ));
 
     // 启动生产运行时
