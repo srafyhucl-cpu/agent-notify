@@ -16,7 +16,7 @@ use agentnotify_agent_devin::{
 };
 use agentnotify_agent_opencode::{OpenCodeAgent, OpenCodeReplyInbox};
 use agentnotify_agent_sdk::{AgentAdapter, AgentRegistry};
-use agentnotify_storage_sqlite::{AgentConfigRecord, SqliteStore};
+use agentnotify_storage_sqlite::{AgentConfigRecord, LEGACY_AGENT_IDS, LegacyPaths, SqliteStore};
 
 use crate::bridge::error::CommandError;
 use crate::platform::AppPaths;
@@ -84,14 +84,19 @@ pub(super) fn build_agent_registry(
     Ok(registry)
 }
 
-/// 补齐默认关闭的配置行：运行时对没有配置行的 Agent 按启用处理，
+/// 补齐默认关闭的配置行：运行时与界面都对没有配置行的 Agent 按启用处理，
 /// 新接入的适配器必须先写入 `enabled = false`，由用户在界面显式启用。
 ///
-/// 只插入缺失行：已有配置（例如迁移按 `devin.off` 写入的关闭行、用户在界面上改过的配置）
+/// 只插入缺失行：已有配置（例如迁移按 `devin.off` 写入的关闭行、用户改过的配置）
 /// 原样保留，绝不覆盖。
+///
+/// `legacy_installation_detected` 为真时，旧版支持过的 Agent 让位给迁移：
+/// 迁移按旧版语义（没有 marker 就是开着）写 `enabled = true`，这里先写 `false`
+/// 会让迁移的 `INSERT OR IGNORE` 再也改不回来，升级用户的通知就被静默关掉了。
 pub(super) async fn seed_disabled_agent_configs(
     store: &SqliteStore,
     registry: &AgentRegistry,
+    legacy_installation_detected: bool,
 ) -> Result<(), CommandError> {
     let existing = store
         .agent_configs()
@@ -102,6 +107,7 @@ pub(super) async fn seed_disabled_agent_configs(
         let agent_id = adapter.descriptor().id;
         if AGENT_IDS_ENABLED_WITHOUT_CONFIG.contains(&agent_id.as_str())
             || existing.contains_key(agent_id.as_str())
+            || (legacy_installation_detected && LEGACY_AGENT_IDS.contains(&agent_id.as_str()))
         {
             continue;
         }
@@ -112,6 +118,17 @@ pub(super) async fn seed_disabled_agent_configs(
             .map_err(|error| CommandError::new("agent_config_seed_failed", error.to_string()))?;
     }
     Ok(())
+}
+
+/// 旧版（Go 版）遗留判断：配置目录里有旧版独有的文件（开关 marker、`config.json`、
+/// `clawbot.json`、`setup-state.json` 等）才算；只读检查，不创建、不修改任何东西。
+///
+/// 不能用「配置目录是否存在」判断：新版启动时会在同一路径创建同名配置目录，
+/// 拿目录当依据会把全新安装也当成旧版（这些 Agent 就不再默认关闭了）。
+pub(super) fn legacy_installation_detected(paths: &AppPaths) -> bool {
+    // 临时目录只用于补齐 `LegacyPaths` 的路径集合，遗留判断只看配置目录。
+    let temp_root = std::env::temp_dir();
+    LegacyPaths::new(&paths.config_dir, temp_root, &paths.data_dir).has_legacy_installation()
 }
 
 fn build_codex_agent(record: Option<&AgentConfigRecord>) -> Result<CodexAgent, CommandError> {
@@ -518,5 +535,172 @@ mod tests {
             "{}",
             error.message()
         );
+    }
+
+    /// 全新安装（配置目录里只有新版自己的文件）必须补默认关闭行：
+    /// 配置目录存在本身不是旧版遗留。
+    #[tokio::test]
+    async fn seed_marks_new_agents_disabled_without_legacy_installation() {
+        let root = temp_root("agentnotify-agent-seed-fresh-test-");
+        let paths = AppPaths::for_tests(root.path());
+        paths.ensure().expect("隔离路径必须可创建");
+        // 新版启动同样会在配置目录里创建回复收件箱，不能当成旧版痕迹。
+        std::fs::create_dir_all(inbox_root(&paths, OPENCODE_REPLY_INBOX_DIR))
+            .expect("收件箱目录必须可创建");
+
+        let store = SqliteStore::open(root.path().join("state.db")).expect("数据库必须可创建");
+        let registry =
+            build_agent_registry(&paths, &BTreeMap::new()).expect("注册全部 Agent 必须成功");
+        let detected = legacy_installation_detected(&paths);
+        assert!(!detected, "只有新版自己的文件时不得判定为旧版遗留");
+
+        seed_disabled_agent_configs(&store, &registry, detected)
+            .await
+            .expect("补齐默认关闭行必须成功");
+
+        let configs = store
+            .agent_configs()
+            .await
+            .expect("查询 Agent 配置必须成功");
+        assert!(
+            !configs.contains_key("opencode"),
+            "OpenCode 保持无行即启用的历史行为"
+        );
+        for agent_id in ["antigravity", "codex", "commandcode", "devin"] {
+            let record = configs
+                .get(agent_id)
+                .unwrap_or_else(|| panic!("{agent_id} 必须补齐默认关闭的配置行"));
+            assert!(!record.enabled, "{agent_id} 必须默认关闭");
+            assert_eq!(record.config, serde_json::json!({}), "{agent_id}");
+        }
+    }
+
+    /// 旧版遗留存在时，旧版支持过的 Agent 交给迁移继承，补齐逻辑一行都不写：
+    /// 否则先写下的 `false` 会让迁移的 `INSERT OR IGNORE` 再也改不回来。
+    #[tokio::test]
+    async fn seed_defers_legacy_agents_to_migration() {
+        let root = temp_root("agentnotify-agent-seed-legacy-test-");
+        let paths = AppPaths::for_tests(root.path());
+        paths.ensure().expect("隔离路径必须可创建");
+        // `setup-state.json` 只有旧版首次运行接入成功后才写。
+        std::fs::write(
+            paths.config_dir.join("setup-state.json"),
+            br#"{"version":"1.9.0"}"#,
+        )
+        .expect("旧版遗留文件必须可写入");
+
+        let store = SqliteStore::open(root.path().join("state.db")).expect("数据库必须可创建");
+        let registry =
+            build_agent_registry(&paths, &BTreeMap::new()).expect("注册全部 Agent 必须成功");
+        let detected = legacy_installation_detected(&paths);
+        assert!(detected, "旧版独有的文件存在时必须判定为旧版遗留");
+
+        seed_disabled_agent_configs(&store, &registry, detected)
+            .await
+            .expect("补齐必须成功");
+
+        let configs = store
+            .agent_configs()
+            .await
+            .expect("查询 Agent 配置必须成功");
+        assert!(
+            configs.is_empty(),
+            "旧版遗留存在时不得抢写默认关闭行：{configs:?}"
+        );
+    }
+
+    /// 升级链路：迁移继承“旧版开着”（没有 marker）的 Agent，随后补齐逻辑不得改回关闭。
+    #[tokio::test]
+    async fn seed_keeps_agents_inherited_by_legacy_migration_enabled() {
+        let root = temp_root("agentnotify-agent-seed-inherit-test-");
+        let paths = AppPaths::for_tests(root.path());
+        paths.ensure().expect("隔离路径必须可创建");
+        // 旧版遗留：有 config.json、没有任何 marker，等价于旧版把五个 Agent 都开着。
+        std::fs::write(paths.config_dir.join("config.json"), b"{}").expect("旧版配置必须可写入");
+
+        let store =
+            Arc::new(SqliteStore::open(root.path().join("state.db")).expect("数据库必须可创建"));
+        let legacy_paths = LegacyPaths::new(
+            &paths.config_dir,
+            root.path().join("legacy-temp"),
+            &paths.data_dir,
+        );
+        agentnotify_storage_sqlite::LegacyImport::new(
+            legacy_paths,
+            store.clone(),
+            Arc::new(UnusedSecrets),
+        )
+        .run()
+        .await
+        .expect("旧数据迁移必须成功");
+        let inherited = store
+            .agent_configs()
+            .await
+            .expect("查询 Agent 配置必须成功");
+        assert_eq!(
+            inherited.len(),
+            LEGACY_AGENT_IDS.len(),
+            "迁移必须为五个旧版 Agent 产出开关行"
+        );
+        assert!(
+            inherited.values().all(|record| record.enabled),
+            "没有 marker 的 Agent 必须继承为启用：{inherited:?}"
+        );
+
+        let registry =
+            build_agent_registry(&paths, &BTreeMap::new()).expect("注册全部 Agent 必须成功");
+        seed_disabled_agent_configs(&store, &registry, legacy_installation_detected(&paths))
+            .await
+            .expect("补齐必须成功");
+
+        let after = store
+            .agent_configs()
+            .await
+            .expect("查询 Agent 配置必须成功");
+        assert_eq!(after.len(), LEGACY_AGENT_IDS.len());
+        for (agent_id, record) in &after {
+            assert!(record.enabled, "{agent_id} 不得被补齐逻辑关掉");
+        }
+    }
+
+    /// 迁移与补齐共用链路的测试夹具没有凭据，密钥存储被调用即失败。
+    struct UnusedSecrets;
+
+    #[async_trait::async_trait]
+    impl agentnotify_application::SecretStore for UnusedSecrets {
+        async fn get(
+            &self,
+            _account_id: &agentnotify_domain::ChannelAccountId,
+            _kind: agentnotify_application::SecretKind,
+        ) -> Result<agentnotify_application::SecretValue, agentnotify_application::SecretError>
+        {
+            Err(agentnotify_application::SecretError::new(
+                "unused_secrets",
+                "测试夹具没有凭据，不应访问密钥存储",
+            ))
+        }
+
+        async fn set(
+            &self,
+            _account_id: &agentnotify_domain::ChannelAccountId,
+            _kind: agentnotify_application::SecretKind,
+            _value: agentnotify_application::SecretValue,
+        ) -> Result<(), agentnotify_application::SecretError> {
+            Err(agentnotify_application::SecretError::new(
+                "unused_secrets",
+                "测试夹具没有凭据，不应访问密钥存储",
+            ))
+        }
+
+        async fn delete(
+            &self,
+            _account_id: &agentnotify_domain::ChannelAccountId,
+            _kind: agentnotify_application::SecretKind,
+        ) -> Result<(), agentnotify_application::SecretError> {
+            Err(agentnotify_application::SecretError::new(
+                "unused_secrets",
+                "测试夹具没有凭据，不应访问密钥存储",
+            ))
+        }
     }
 }

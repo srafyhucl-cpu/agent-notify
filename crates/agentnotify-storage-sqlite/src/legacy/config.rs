@@ -108,14 +108,23 @@ pub(crate) fn parse_config(
     ))
 }
 
-pub(crate) fn disabled_agent_configs(paths: &LegacyPaths) -> Vec<LegacyAgentConfig> {
+/// 旧版 Agent 开关的继承结果。
+///
+/// 旧版语义：marker 存在 = 关闭，没有 marker = 开启。所以没有 marker 的 Agent
+/// 必须写出 `enabled = true`，否则升级后会被宿主的“新适配器默认关闭”静默关掉；
+/// 有 marker 的写 `enabled = false`。
+///
+/// 只有确认这台机器存在旧版遗留时才产出配置行：全新安装没有旧版文件，
+/// 默认关闭行交给宿主补齐，避免把新安装当成旧版。
+pub(crate) fn agent_configs(paths: &LegacyPaths) -> Vec<LegacyAgentConfig> {
+    if !paths.has_legacy_installation() {
+        return Vec::new();
+    }
     paths
         .agent_markers()
-        .into_iter()
-        .filter(|(_, path)| path.exists())
-        .map(|(agent_id, _)| LegacyAgentConfig {
+        .map(|(agent_id, marker)| LegacyAgentConfig {
             agent_id,
-            enabled: false,
+            enabled: !marker.exists(),
             config: json!({}),
         })
         .collect()
@@ -177,6 +186,10 @@ fn normalize_quiet_hours(value: String) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
+    use crate::legacy::LEGACY_AGENT_IDS;
+
     use super::*;
 
     #[test]
@@ -198,5 +211,68 @@ mod tests {
         assert_eq!(config.theme, None);
         assert_eq!(config.widget_agent_mode.as_deref(), Some("single"));
         assert_eq!(warnings.len(), 1);
+    }
+
+    fn legacy_paths(root: &Path) -> (PathBuf, LegacyPaths) {
+        let config_dir = root.join("legacy-config");
+        let paths = LegacyPaths::new(&config_dir, root.join("temp"), root.join("data"));
+        (config_dir, paths)
+    }
+
+    /// 旧版遗留存在时继承开关：没有 marker 的 Agent 保持启用，有 marker 的保持关闭。
+    #[test]
+    fn agent_configs_inherit_legacy_enabled_state() {
+        let temp = tempfile::tempdir().expect("测试临时目录必须可创建");
+        let (config_dir, paths) = legacy_paths(temp.path());
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(&paths.config_file, b"{}").expect("旧版 config.json 必须可写入");
+        std::fs::write(&paths.codex_marker, b"").expect("旧版 marker 必须可写入");
+
+        let configs = agent_configs(&paths);
+
+        assert_eq!(
+            configs
+                .iter()
+                .map(|config| config.agent_id)
+                .collect::<Vec<_>>(),
+            LEGACY_AGENT_IDS.to_vec(),
+            "继承顺序与 LEGACY_AGENT_IDS 一致，缺一个都会让升级用户少一条开关"
+        );
+        for config in &configs {
+            assert_eq!(
+                config.enabled,
+                config.agent_id != "codex",
+                "{} 的开关必须继承旧版语义",
+                config.agent_id
+            );
+            assert_eq!(config.config, json!({}), "{}", config.agent_id);
+        }
+    }
+
+    /// `setup-state.json` 是旧版首次运行接入成功后才写的文件，必须算旧版遗留。
+    #[test]
+    fn setup_state_file_counts_as_legacy_installation() {
+        let temp = tempfile::tempdir().expect("测试临时目录必须可创建");
+        let (config_dir, paths) = legacy_paths(temp.path());
+        std::fs::create_dir_all(&config_dir).unwrap();
+        assert!(!paths.has_legacy_installation());
+
+        std::fs::write(&paths.setup_state_file, br#"{"version":"1.9.0"}"#)
+            .expect("旧版 setup-state.json 必须可写入");
+
+        assert!(paths.has_legacy_installation());
+        assert_eq!(agent_configs(&paths).len(), LEGACY_AGENT_IDS.len());
+    }
+
+    /// 全新安装：配置目录存在、但只有新版自己的文件时不得产出任何配置行。
+    #[test]
+    fn agent_configs_are_empty_without_legacy_files() {
+        let temp = tempfile::tempdir().expect("测试临时目录必须可创建");
+        let (config_dir, paths) = legacy_paths(temp.path());
+        // 新版启动同样会在配置目录里创建回复收件箱，不能当成旧版痕迹。
+        std::fs::create_dir_all(config_dir.join("opencode-reply-inbox")).unwrap();
+
+        assert!(!paths.has_legacy_installation());
+        assert!(agent_configs(&paths).is_empty());
     }
 }

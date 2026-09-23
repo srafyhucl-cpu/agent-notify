@@ -275,6 +275,60 @@ async fn import_is_idempotent_and_preserves_claim_suppression() {
     assert!(fixture.legacy_files_unchanged().await);
 }
 
+/// 旧版开着的 Agent（没有 marker）迁移后必须保持启用；有 marker 的保持关闭。
+/// 这是升级用户不丢通知的关键：宿主补齐逻辑只会在没有迁移结果时写默认关闭行。
+#[tokio::test]
+async fn import_inherits_legacy_agent_switches() {
+    let fixture = Fixture::new();
+
+    let first = fixture.importer.run().await.unwrap();
+    assert_eq!(
+        first.agent_configs_imported, 5,
+        "五个旧版 Agent 都要有开关行"
+    );
+
+    let configs = fixture.store.agent_configs().await.unwrap();
+    assert_eq!(configs.len(), 5);
+    for agent_id in ["codex", "antigravity", "devin", "commandcode"] {
+        let record = configs
+            .get(agent_id)
+            .unwrap_or_else(|| panic!("{agent_id} 必须继承旧版启用状态"));
+        assert!(record.enabled, "{agent_id} 旧版没有 marker，必须继承为启用");
+        assert_eq!(record.config, serde_json::json!({}), "{agent_id}");
+    }
+    let opencode = configs.get("opencode").expect("opencode 必须有开关行");
+    assert!(!opencode.enabled, "opencode.off 存在，必须保持关闭");
+
+    // 重复运行不重复写开关，也不改结果。
+    let second = fixture.importer.run().await.unwrap();
+    assert_eq!(second.agent_configs_imported, 0);
+    let after = fixture.store.agent_configs().await.unwrap();
+    assert!(after["codex"].enabled);
+    assert!(!after["opencode"].enabled);
+}
+
+/// 旧版用 marker 关掉的 Agent（含新接入的适配器）迁移后必须保持关闭。
+#[tokio::test]
+async fn import_keeps_marker_agents_disabled() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.config_dir.join("codex.off"), b"").unwrap();
+
+    fixture.importer.run().await.unwrap();
+
+    let configs = fixture.store.agent_configs().await.unwrap();
+    assert!(!configs["codex"].enabled, "codex.off 存在，必须保持关闭");
+    assert!(
+        !configs["opencode"].enabled,
+        "opencode.off 存在，必须保持关闭"
+    );
+    for agent_id in ["antigravity", "devin", "commandcode"] {
+        assert!(
+            configs[agent_id].enabled,
+            "{agent_id} 没有 marker，必须继承为启用"
+        );
+    }
+}
+
 #[tokio::test]
 async fn malformed_credentials_roll_back_database_and_keep_old_files() {
     let fixture = Fixture::new();

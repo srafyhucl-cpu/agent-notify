@@ -18,7 +18,9 @@ pub use host_queries::{
     AgentConfigRecord, DeliveryViewRecord, NotificationDetailRecord, NotificationPage,
     NotificationQuery, NotificationRecord,
 };
-pub use legacy::{ImportReport, ImportWarning, LegacyImport, LegacyImportError, LegacyPaths};
+pub use legacy::{
+    ImportReport, ImportWarning, LEGACY_AGENT_IDS, LegacyImport, LegacyImportError, LegacyPaths,
+};
 pub use migrations::{SqliteStore, run_migrations};
 pub use recovery::RecoverySummary;
 

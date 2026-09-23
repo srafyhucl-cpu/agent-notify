@@ -587,6 +587,43 @@ async fn bootstrap_never_overwrites_existing_agent_configs() {
     let _ = service.quit_app(EmptyPayload {}).await;
 }
 
+/// 从旧版升级：旧版开着的 Agent（没有 marker）必须继承为启用，
+/// 补齐逻辑在迁移之后也不得把它们改回关闭。
+#[tokio::test]
+async fn bootstrap_inherits_legacy_agent_switches_for_upgrades() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-agents-legacy-test-");
+
+    // 旧版遗留：config.json 存在、没有任何 marker，等价于旧版把五个 Agent 都开着。
+    tokio::fs::write(paths.config_dir.join("config.json"), b"{}")
+        .await
+        .expect("写入旧版配置必须成功");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let agents = service
+        .list_agents(EmptyPayload {})
+        .await
+        .expect("列出 agents 必须成功");
+    assert_eq!(agent_ids(&agents), EXPECTED_AGENT_IDS);
+    for agent in &agents {
+        assert!(agent.enabled, "{} 必须继承旧版的启用状态", agent.id);
+    }
+
+    let configs = store
+        .agent_configs()
+        .await
+        .expect("查询 Agent 配置必须成功");
+    assert_eq!(configs.len(), EXPECTED_AGENT_IDS.len());
+    for (agent_id, record) in &configs {
+        assert!(record.enabled, "{agent_id} 不得被补齐逻辑关掉");
+        assert_eq!(record.config, serde_json::json!({}), "{agent_id}");
+    }
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
 /// 新适配器的回复收件箱必须落在隔离根下：写入隔离根的新鲜心跳只会被隔离根上的适配器读到，
 /// 真实用户目录（`%USERPROFILE%\.config\agent-notify`）不参与、也不会被写入。
 #[tokio::test]

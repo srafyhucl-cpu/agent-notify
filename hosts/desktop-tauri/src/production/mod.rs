@@ -17,7 +17,9 @@ use crate::bridge::error::CommandError;
 use crate::platform::AppPaths;
 use crate::update::{UpdateService, UpdateTransport};
 
-use agents::{assemble_agents, load_agent_configs, seed_disabled_agent_configs};
+use agents::{
+    assemble_agents, legacy_installation_detected, load_agent_configs, seed_disabled_agent_configs,
+};
 
 pub use events::EventForwarder;
 pub use runtime::ProductionRuntimeCoordinator;
@@ -116,8 +118,14 @@ async fn bootstrap_internal(
     // 装配同时把 Command Code 回复窗口写给 mod（应用自己的 window.json）。
     let agent_configs = load_agent_configs(&store).await?;
     let agent_registry = assemble_agents(&paths, &agent_configs)?;
-    // 新接入的适配器先补一条“默认关闭”的配置行，用户在界面启用后才会推送
-    seed_disabled_agent_configs(&store, &agent_registry).await?;
+    // 新接入的适配器先补一条“默认关闭”的配置行，用户在界面启用后才会推送；
+    // 旧版（Go 版）遗留存在时旧 Agent 的开关由迁移继承，这里不抢写默认关闭行。
+    seed_disabled_agent_configs(
+        &store,
+        &agent_registry,
+        legacy_installation_detected(&paths),
+    )
+    .await?;
     let agent_registry = Arc::new(agent_registry);
 
     // 注册 ClawBot Channel

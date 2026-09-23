@@ -50,7 +50,7 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 - 接入 OpenCode 通知插件：把 `plugin\rust\agent-notify.ts` 写到 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`，并把 `agentnotify-ingress.exe` 的绝对路径绑定进插件。接入后需要重启 OpenCode。
 - 接入 Codex / Antigravity / Devin / Command Code：由安装器调用对应接入脚本，只改写各自的配置项（Codex 的 `notify` 行、Antigravity 的 Hook 与启动器、Devin 的 Stop Hook 与 V2 扩展、Command Code 的 mod），第三方接入与自定义配置原样保留。不需要时可以取消勾选。
 
-安装完成页会启动 AgentNotify。首次启动做一次**只读**旧数据迁移：读取旧配置、登录状态、开关、推送历史与引用路由导入新库，旧文件保持不变，重复启动不会重复迁移。
+安装完成页会启动 AgentNotify。首次启动做一次**只读**旧数据迁移：读取旧配置、登录状态、开关、推送历史与引用路由导入新库，旧文件保持不变，重复启动不会重复迁移。从旧版升级时，**Agent 开关按旧版状态继承**：旧版开着的 Agent 升级后继续开着，旧版关掉的保持关闭，不会因为升级静默停掉通知。全新安装则相反：Codex、Antigravity、Devin、Command Code 默认关闭，需要在 Agents 页手动开启；只有 OpenCode 保持“无配置即启用”的历史默认。
 
 升级安装器保留原 AppId，会覆盖回原安装目录；安装时先停止旧进程，清理上一版本写入的旧接入（旧 Go 版 Hook 与 V1 扩展），再按勾选安装新的接入。用户数据一律保留。
 

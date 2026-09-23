@@ -21,7 +21,7 @@ use crate::row_codec::{claim_from_row, route_from_row, safe_error_parts, timesta
 use crate::sqlite_helpers::query_optional;
 
 use claims::prepare_claims;
-use config::{disabled_agent_configs, parse_config};
+use config::{agent_configs, parse_config};
 use credentials::{LegacyClawBotImport, prepare_credentials, sha256_hex, unbound_account};
 use history::{LegacyHistoryRecord, prepare_history};
 use routes::{LegacyRouteRecord, prepare_routes};
@@ -30,11 +30,16 @@ pub use report::{ImportReport, ImportWarning};
 
 const LEGACY_IMPORT_STATUS_KEY: &str = "legacyImportV1";
 
+/// Go 版支持过的 Agent。迁移继承它们的开关状态，宿主不得抢先补默认关闭行。
+pub const LEGACY_AGENT_IDS: [&str; 5] =
+    ["opencode", "codex", "antigravity", "devin", "commandcode"];
+
 /// 旧版 Agent-notify 使用的源文件位置。
 #[derive(Clone, Debug)]
 pub struct LegacyPaths {
     pub config_file: PathBuf,
     pub credential_file: PathBuf,
+    pub setup_state_file: PathBuf,
     pub opencode_marker: PathBuf,
     pub codex_marker: PathBuf,
     pub antigravity_marker: PathBuf,
@@ -62,6 +67,7 @@ impl LegacyPaths {
         Self {
             config_file: config_dir.join("config.json"),
             credential_file: config_dir.join("clawbot.json"),
+            setup_state_file: config_dir.join("setup-state.json"),
             opencode_marker: config_dir.join("opencode.off"),
             codex_marker: config_dir.join("codex.off"),
             antigravity_marker: config_dir.join("antigravity.off"),
@@ -79,14 +85,42 @@ impl LegacyPaths {
         self.source_files().iter().any(|(_, path)| path.is_file())
     }
 
-    fn agent_markers(&self) -> [(&'static str, &Path); 5] {
+    /// 旧版（Go 版）在这台机器上的只读痕迹：配置目录里存在旧版独有的文件。
+    ///
+    /// 不能用「配置目录是否存在」判断：新版启动时会在同一路径创建同名配置目录，
+    /// 全新安装也会有；也不能只看 `has_sources()`：其中的 `push.log` 在 `%TEMP%` 下，
+    /// 可能被系统清理。这里只看旧版写入配置目录、新版永不创建的文件
+    /// （`setup-state.json` 是旧版首次运行接入成功后写的）。
+    pub fn has_legacy_installation(&self) -> bool {
+        self.legacy_artifacts().iter().any(|path| path.is_file())
+    }
+
+    /// 旧版独有、位于配置目录的文件；新版对这些文件只读。
+    fn legacy_artifacts(&self) -> [&Path; 10] {
         [
-            ("opencode", self.opencode_marker.as_path()),
-            ("codex", self.codex_marker.as_path()),
-            ("antigravity", self.antigravity_marker.as_path()),
-            ("devin", self.devin_marker.as_path()),
-            ("commandcode", self.commandcode_marker.as_path()),
+            self.config_file.as_path(),
+            self.credential_file.as_path(),
+            self.setup_state_file.as_path(),
+            self.opencode_marker.as_path(),
+            self.codex_marker.as_path(),
+            self.antigravity_marker.as_path(),
+            self.devin_marker.as_path(),
+            self.commandcode_marker.as_path(),
+            self.reply_routes.as_path(),
+            self.reply_state.as_path(),
         ]
+    }
+
+    /// 旧版支持过的 Agent 与各自的 marker 文件；顺序与 `LEGACY_AGENT_IDS` 一致。
+    fn agent_markers(&self) -> impl Iterator<Item = (&'static str, &Path)> {
+        let markers = [
+            self.opencode_marker.as_path(),
+            self.codex_marker.as_path(),
+            self.antigravity_marker.as_path(),
+            self.devin_marker.as_path(),
+            self.commandcode_marker.as_path(),
+        ];
+        LEGACY_AGENT_IDS.into_iter().zip(markers)
     }
 
     fn source_files(&self) -> [(&'static str, &Path); 10] {
@@ -182,7 +216,8 @@ impl LegacyImport {
             report.secrets_imported += 1;
         }
 
-        let disabled_agents = disabled_agent_configs(&self.paths);
+        // 继承旧版开关：有 marker 的 Agent 关闭，没有 marker 的保持启用。
+        let inherited_agents = agent_configs(&self.paths);
         let report = self
             .store
             .run(move |connection| {
@@ -204,7 +239,7 @@ impl LegacyImport {
                         )
                         .map_err(|error| storage_error("导入旧设置失败", error))?;
                 }
-                for agent in disabled_agents {
+                for agent in inherited_agents {
                     counts.agent_configs_imported += transaction
                         .execute(
                             "INSERT OR IGNORE INTO agent_configs(\

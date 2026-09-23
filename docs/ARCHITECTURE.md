@@ -367,8 +367,8 @@ Agent-notify/
    `reply-routes.jsonl`、`reply-state.jsonl`）；一个都没有时直接进入 `NotDetected`。
 2. 先取得运行时独占锁；若旧版悬浮窗仍在运行（`%TEMP%\agent-notify\widget-alive.txt` 仍新鲜）则拒绝
    读取旧数据，进入只读诊断模式并提示先从旧版退出。
-3. 解析旧配置为设置项、把旧 marker 转成对应 Agent 的停用配置、把旧凭据写入凭据管理器、把推送历史
-   导入通知与投递、把旧路由与 Claim 导入对应表；损坏记录跳过并写入警告。
+3. 解析旧配置为设置项、按旧版语义继承五个旧 Agent 的开关（有 marker = 停用，没有 marker = 启用）、
+   把旧凭据写入凭据管理器、把推送历史导入通知与投递、把旧路由与 Claim 导入对应表；损坏记录跳过并写入警告。
 4. 导入结果写入 `legacy-import-report.json`，并把 `legacyImportV1` 状态写进 SQLite；重复启动直接复用
    已有报告，不会重复迁移。
 5. 迁移失败时启动"迁移诊断模式"：只允许查看诊断，不写入新数据；Diagnostics 页可备份旧目录后重试。
@@ -454,7 +454,8 @@ Settings → 更新 的「检查更新 / 下载并安装」调用 `hosts/desktop
    `agent-notify.ts`（OpenCode 插件与 Command Code mod 同名不同目录）。
 2. 所有用户可覆盖项统一使用 `AGENT_NOTIFY_*`。
 3. 旧 marker 文件名 `opencode.off`、`codex.off`、`antigravity.off`、`devin.off`、`commandcode.off`
-   只在首次迁移时读取；迁移后开关以 SQLite 为准。
+   只在首次迁移时读取；迁移后开关以 SQLite 为准。升级必须继承旧版开关（没有 marker 就是旧版开着），
+   “新适配器默认关闭”只适用于全新安装。
 4. ClawBot 登录、`context_token` 建立、凭据字段和发送消息结构。
 5. Codex notify 透传顺序：先上游，后推送；推送失败不得影响透传。
 6. 入口事件协议保持 `protocolVersion=1` 的 `agent.event` 形状与大小上限；spool 回退不得静默丢事件。
