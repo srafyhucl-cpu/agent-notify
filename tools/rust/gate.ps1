@@ -31,21 +31,27 @@ $cargo = $cargoCommand.Source
 # Linking one test binary per crate runs many link.exe processes at once, and that peak
 # commit charge is what exhausts the page file on small-RAM machines (Windows error 1455,
 # ERROR_COMMITMENT_LIMIT) and then breaks the build with "can't find crate" follow-ups.
+# Cap only when one job per logical processor would exceed the physical RAM budget:
+# many-core/low-RAM machines (the real failure case) get capped, 4-core CI runners do not.
 $LowMemoryJobCap = 2
-$LowMemoryThresholdBytes = 24GB
+$PerJobMemoryBudgetBytes = 3GB
 if ($Jobs -gt 0) {
     $env:CARGO_BUILD_JOBS = "$Jobs"
 } elseif (-not [string]::IsNullOrWhiteSpace($env:CARGO_BUILD_JOBS)) {
     # Explicit environment override wins over the automatic cap.
 } else {
     try {
-        $totalMemory = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+        $computerSystem = Get-CimInstance Win32_ComputerSystem
+        $totalMemory = $computerSystem.TotalPhysicalMemory
+        $logicalProcessors = $computerSystem.NumberOfLogicalProcessors
     } catch {
         $totalMemory = 0
+        $logicalProcessors = 0
     }
-    if ($totalMemory -gt 0 -and $totalMemory -lt $LowMemoryThresholdBytes) {
+    if ($totalMemory -gt 0 -and $logicalProcessors -gt 0 -and
+        $totalMemory -lt ($logicalProcessors * $PerJobMemoryBudgetBytes)) {
         $env:CARGO_BUILD_JOBS = "$LowMemoryJobCap"
-        Write-Warning "Low memory machine detected: capping cargo jobs to $LowMemoryJobCap (override with -Jobs or CARGO_BUILD_JOBS)."
+        Write-Warning "Memory-constrained machine ($([Math]::Round($totalMemory / 1GB, 1)) GB for $logicalProcessors logical processors): capping cargo jobs to $LowMemoryJobCap (override with -Jobs or CARGO_BUILD_JOBS)."
     }
 }
 
