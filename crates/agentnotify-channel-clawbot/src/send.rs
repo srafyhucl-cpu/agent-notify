@@ -469,6 +469,8 @@ fn outbound_text(message: &OutboundMessage) -> Result<String, ChannelError> {
         occurred_at: presentation.occurred_at,
         include_footer: presentation.include_footer,
         replyable: presentation.replyable,
+        // 页脚时间显示用户本地时间（与 Go 版一致），不写死偏移。
+        utc_offset_minutes: None,
     })
 }
 

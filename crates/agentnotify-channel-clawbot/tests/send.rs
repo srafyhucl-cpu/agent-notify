@@ -32,6 +32,7 @@ fn notification_uses_descriptor_display_name_and_standard_markdown() {
         session_name: "修复登录".into(),
         body: "正文 **Markdown**".into(),
         occurred_at: timestamp("2026-09-19T10:20:30+08:00"),
+        utc_offset_minutes: Some(8 * 60),
         include_footer: true,
         replyable: true,
     })
@@ -50,6 +51,7 @@ fn footer_can_be_disabled_without_fabricating_reply_support() {
         session_name: "任务完成".into(),
         body: "正文".into(),
         occurred_at: timestamp("2026-09-19T10:20:30+08:00"),
+        utc_offset_minutes: Some(8 * 60),
         include_footer: false,
         replyable: true,
     })
@@ -65,6 +67,7 @@ fn oversized_rendered_notification_is_permanent() {
         session_name: "任务完成".into(),
         body: "字".repeat(MAX_TEXT_BYTES),
         occurred_at: timestamp("2026-09-19T10:20:30+08:00"),
+        utc_offset_minutes: Some(8 * 60),
         include_footer: true,
         replyable: true,
     })

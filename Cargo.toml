@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.0.3"
+version = "2.0.4"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
@@ -41,7 +41,7 @@ schemars = "1"
 sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
-time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "local-offset"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "fs", "process", "net", "io-util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "ansi"] }
