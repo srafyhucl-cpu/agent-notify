@@ -1,9 +1,12 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  Agent-notify 安装脚本：分发 Go 单文件运行程序，安装 opencode 插件，接管 Codex notify。
+  Agent-notify 安装脚本（Go 1.x 遗留运行时）：分发 Go 单文件运行程序，安装 opencode 插件，接管 Codex notify。
 
 .DESCRIPTION
+  2.0 起正式入口是 Inno 安装器 Agent-notify-Setup-vX.Y.Z.exe（Tauri 桌面版 + ingress）。
+  本脚本只服务 Go 1.x 单文件运行时的源码安装与回滚窗口，普通用户请使用正式安装器。
+
   默认安装位置（可用参数覆盖）：
   - 运行程序：%USERPROFILE%\bin\agent-notify.exe
   - opencode 插件：%USERPROFILE%\.config\opencode\plugins\agent-notify.ts
@@ -57,6 +60,10 @@ $LegacyShortcutNames = @('Agent-notify.lnk', 'Agent-notify 悬浮窗.lnk')
 # 客户端正在读取被替换文件时的有界重试次数与间隔。
 $InstallReplaceAttempts = 5
 $InstallReplaceDelayMs = 300
+
+# 正式入口是 2.0 Inno 安装器；先把归属讲清楚，避免把遗留运行时误装给普通用户。
+Write-Output '[install] 注意：本脚本安装 Go 1.x 遗留单文件运行时（源码安装 / 回滚窗口用）。'
+Write-Output '[install] 2.0 正式入口是安装器 Agent-notify-Setup-vX.Y.Z.exe（Tauri 桌面版），普通用户请改用它。'
 
 $HasSource = Test-Path (Join-Path $RepoRoot 'go.mod')
 $HasDevinExtension = (Test-Path (Join-Path $RepoRoot 'plugin\devin-extension\package.json')) -and

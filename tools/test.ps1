@@ -102,6 +102,12 @@ if ($LASTEXITCODE -ne 0) {
   throw "卸载 V2 清理回归测试失败 exit=$LASTEXITCODE"
 }
 
+# 2.0 正式安装器的分发清单回归：不传 -Installer 只做脚本定义检查，CI 无需构建产物。
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tests\desktop-installer-smoke.ps1')
+if ($LASTEXITCODE -ne 0) {
+  throw "桌面安装器分发清单回归失败 exit=$LASTEXITCODE"
+}
+
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tests\smoke.ps1')
 if ($LASTEXITCODE -ne 0) {
   throw "冒烟测试失败 exit=$LASTEXITCODE"

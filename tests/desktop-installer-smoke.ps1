@@ -1,58 +1,87 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  验证 Rust 桌面预览包的安装、启动、单实例、关闭隐藏和卸载边界。
+  验证 2.0 正式安装器（Inno Setup）的分发清单，以及产物安装、启动、单实例、关闭隐藏和卸载边界。
+
+.DESCRIPTION
+  不传 -Installer 时只做安装器脚本定义检查（CI 门禁用，不需要构建产物）；
+  传 -Installer 时额外校验安装器 PE 元数据，-Execute 再执行真实安装与运行时冒烟。
 #>
 param(
-  [Parameter(Mandatory = $true)][string]$Installer,
+  # 正式安装器产物路径；缺省只跑脚本定义检查。
+  [string]$Installer = '',
   [switch]$Execute,
   [switch]$KeepInstall,
-  [string]$InstallRoot = 'D:\Temp\agentnotify-rust-smoke'
+  [string]$InstallRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
-if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {
-  throw "安装器不存在：$Installer"
+# 临时根跟随仓库所在盘（本地 D:、CI 各自的系统盘），不写死盘符。
+$driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
+$tempRoot = Join-Path $driveRoot 'Temp'
+if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
+  $InstallRoot = Join-Path $tempRoot 'agentnotify-rust-smoke'
+}
+if ($Execute -and [string]::IsNullOrWhiteSpace($Installer)) {
+  throw '-Execute 需要 -Installer 指向已构建的正式安装器'
 }
 
-$stream = [IO.File]::OpenRead($Installer)
-try {
-  $reader = New-Object IO.BinaryReader($stream)
-  if ($reader.ReadByte() -ne 0x4d -or $reader.ReadByte() -ne 0x5a) {
-    throw '预览安装器不是 Windows PE 文件'
+if (-not [string]::IsNullOrWhiteSpace($Installer)) {
+  if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {
+    throw "安装器不存在：$Installer"
   }
-} finally {
-  $stream.Dispose()
+
+  $stream = [IO.File]::OpenRead($Installer)
+  try {
+    $reader = New-Object IO.BinaryReader($stream)
+    if ($reader.ReadByte() -ne 0x4d -or $reader.ReadByte() -ne 0x5a) {
+      throw '正式安装器不是 Windows PE 文件'
+    }
+  } finally {
+    $stream.Dispose()
+  }
+
+  $installerInfo = Get-Item -LiteralPath $Installer
+  if ([string]::IsNullOrWhiteSpace($installerInfo.VersionInfo.ProductName)) {
+    throw '正式安装器缺少产品名称'
+  }
+  if ([string]::IsNullOrWhiteSpace($installerInfo.VersionInfo.ProductVersion)) {
+    throw '正式安装器缺少产品版本号'
+  }
 }
 
-$installerInfo = Get-Item -LiteralPath $Installer
-if ([string]::IsNullOrWhiteSpace($installerInfo.VersionInfo.ProductName)) {
-  throw '预览安装器缺少产品名称'
-}
-if ([string]::IsNullOrWhiteSpace($installerInfo.VersionInfo.ProductVersion)) {
-  throw '预览安装器缺少产品版本号'
-}
-$issPath = Join-Path $RepoRoot 'installer\agent-notify-rust.iss'
+$issPath = Join-Path $RepoRoot 'installer\agent-notify.iss'
 $issueScript = Get-Content -LiteralPath $issPath -Raw -Encoding utf8
-if (-not $issueScript.Contains('DestName: "agentnotify-desktop.exe"')) {
-  throw '预览安装器脚本没有安装 agentnotify-desktop.exe'
-}
-if (-not $issueScript.Contains('DestName: "agentnotify-ingress.exe"')) {
-  throw '预览安装器脚本没有安装 agentnotify-ingress.exe'
+# 2.0 分发清单：5 个二进制 + 三份 v2 插件/mod/扩展 + 五个接入助手 + 升级清理项。
+# 缺任何一项都会让用户装完缺组件，这里按项逐一钉住。
+foreach ($needle in @(
+    'DestName: "agentnotify-desktop.exe"',
+    'DestName: "agentnotify-ingress.exe"',
+    'DestName: "agentnotify-codex-hook.exe"',
+    'DestName: "agentnotify-antigravity-hook.exe"',
+    'DestName: "agentnotify-devin-hook.exe"',
+    'Source: "{#RepoRoot}\plugin\rust\agent-notify.ts"',
+    'Source: "{#RepoRoot}\plugin\devin-extension-v2\package.json"',
+    'Source: "{#RepoRoot}\plugin\commandcode-v2\agent-notify.ts"',
+    'Source: "{#RepoRoot}\tools\hooks\install-opencode-v2.ps1"',
+    'Source: "{#RepoRoot}\tools\hooks\install-codex-v2.ps1"',
+    'Source: "{#RepoRoot}\tools\hooks\install-antigravity-v2.ps1"',
+    'Source: "{#RepoRoot}\tools\hooks\install-devin-v2.ps1"',
+    'Source: "{#RepoRoot}\tools\hooks\install-commandcode-v2.ps1"',
+    "WizardIsTaskSelected('opencode')",
+    "WizardIsTaskSelected('codex')",
+    "WizardIsTaskSelected('antigravity')",
+    "WizardIsTaskSelected('devin')",
+    "WizardIsTaskSelected('commandcode')",
+    'Type: files; Name: "{app}\agent-notify.exe"'
+  )) {
+  if (-not $issueScript.Contains($needle)) {
+    throw "正式安装器脚本缺少 2.0 分发项：$needle"
+  }
 }
 
-if (-not $issueScript.Contains('Source: "{#RepoRoot}\plugin\rust\agent-notify.ts"')) {
-  throw '预览安装器脚本没有包含 OpenCode 插件模板'
-}
-if (-not $issueScript.Contains('install-opencode-v2.ps1')) {
-  throw '预览安装器脚本没有包含 OpenCode 插件安装助手'
-}
-if (-not $issueScript.Contains("WizardIsTaskSelected('opencode')")) {
-  throw '预览安装器脚本没有按任务接入 OpenCode 插件'
-}
-
-$pluginSmokeRoot = Join-Path 'D:\Temp' ('agentnotify-plugin-smoke-' + [guid]::NewGuid().ToString('N'))
+$pluginSmokeRoot = Join-Path $tempRoot ('agentnotify-plugin-smoke-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $pluginSmokeRoot | Out-Null
 try {
   $pluginSource = Join-Path $RepoRoot 'plugin\rust\agent-notify.ts'
@@ -77,14 +106,18 @@ try {
   }
 } finally {
   $resolvedPluginSmokeRoot = [IO.Path]::GetFullPath($pluginSmokeRoot)
-  $allowedPluginSmokeRoot = [IO.Path]::GetFullPath('D:\Temp')
+  $allowedPluginSmokeRoot = [IO.Path]::GetFullPath($tempRoot)
   if ($resolvedPluginSmokeRoot.StartsWith($allowedPluginSmokeRoot, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $resolvedPluginSmokeRoot)) {
     Remove-Item -LiteralPath $resolvedPluginSmokeRoot -Recurse -Force
   }
 }
 
 if (-not $Execute) {
-  Write-Output '[desktop-installer-smoke] 预览安装器结构检查通过'
+  if ([string]::IsNullOrWhiteSpace($Installer)) {
+    Write-Output '[desktop-installer-smoke] 安装器脚本定义检查通过（未提供 -Installer，跳过产物安装检查）'
+    exit 0
+  }
+  Write-Output '[desktop-installer-smoke] 正式安装器产物结构检查通过'
   exit 0
 }
 
@@ -109,7 +142,7 @@ if (-not (Test-WebView2Runtime)) {
 }
 
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
-$allowedRoot = [IO.Path]::GetFullPath('D:\Temp\agentnotify-rust-smoke')
+$allowedRoot = [IO.Path]::GetFullPath((Join-Path $tempRoot 'agentnotify-rust-smoke'))
 if (-not $InstallRoot.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
   throw "InstallRoot 必须位于 $allowedRoot 下：$InstallRoot"
 }
@@ -144,7 +177,7 @@ try {
   )
   $installResult = Start-Process -FilePath $Installer -ArgumentList $installArguments -Wait -PassThru
   if ($installResult.ExitCode -ne 0) {
-    throw "预览安装器退出码异常：$($installResult.ExitCode)"
+    throw "正式安装器退出码异常：$($installResult.ExitCode)"
   }
 
   $installedExe = Join-Path $installDir 'agentnotify-desktop.exe'
@@ -223,7 +256,7 @@ public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntP
 
   $uninstaller = Get-ChildItem -LiteralPath $installDir -Filter 'unins*.exe' -File | Select-Object -First 1
   if (-not $uninstaller) {
-    throw '预览安装器没有生成卸载程序。'
+    throw '正式安装器没有生成卸载程序。'
   }
   $uninstallResult = Start-Process -FilePath $uninstaller.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
   if ($uninstallResult.ExitCode -ne 0) {
