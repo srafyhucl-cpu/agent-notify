@@ -42,8 +42,10 @@ Agent 客户端
         └─ Command Code：本地收件箱 → V2 mod 回复窗口
 ```
 
-桌面端只提供图形界面：没有 `status` / `doctor` / `notify` / `sync` / `history` 等管理子命令，
-`agentnotify-ingress.exe` 也不面向用户。
+桌面端只提供图形界面：没有 `status` / `doctor` / `notify` / `sync` / `history` 等管理子命令。
+`agentnotify-ingress.exe` 无参数时是 stdin 事件协议；面向用户的能力只有只读自检
+`--doctor` / `--ping`（不提交事件、不写盘，退出码 0 正常、1 异常），供无头环境探活。
+Go 版源码的保留边界与删除条件见 [CONTRIBUTING](../CONTRIBUTING.md) 的「Go 1.x 遗留代码（回滚窗口保留）」。
 
 ## 代码职责
 
@@ -61,7 +63,7 @@ Agent 客户端
 | `crates/agentnotify-channel-sdk` / `channel-clawbot` | 渠道契约与 ClawBot 实现（登录、轮询、发送、渲染） | 凭据只进凭据管理器；账号作用域隔离 |
 | `crates/agentnotify-storage-sqlite` | SQLite WAL 仓储与旧数据只读导入 | 迁移不写回旧文件；导入状态入库，重复启动不重复迁移 |
 | `crates/agentnotify-runtime` | 运行时组装、事件总线、管道服务、spool 消费、迁移检查、日志 | 单实例运行时锁；离线事件先消费 spool |
-| `apps/ingress` | 入口协议、命名管道客户端、spool 写入 | 只接受 `protocolVersion=1` 的 `agent.event` |
+| `apps/ingress` | 入口协议、命名管道客户端、spool 写入、只读自检 | 只接受 `protocolVersion=1` 的 `agent.event`；`--doctor` / `--ping` 只读不写 |
 | `apps/hooks/{codex,antigravity,devin}` | 三个 Stop/notify Hook 的可执行文件 | 只提交事件与写诊断，绝不改变上游退出语义 |
 | `hosts/desktop-tauri` | Tauri 宿主：bridge 命令、生命周期（托盘/单实例/自启动）、生产组合根、更新 | 命令只返回脱敏 DTO；宿主初始化前命令等待而不是立刻失败 |
 | `apps/desktop-ui` | React 工作台（总览 / Agents / Channels / History / Diagnostics / Settings） | 页面由 descriptor 与 JSON Schema 驱动，不写死 Agent 分支 |

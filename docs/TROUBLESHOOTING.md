@@ -2,7 +2,8 @@
 
 2.0.0 的正式入口是 Tauri 桌面端 `agentnotify-desktop.exe`（工作台主窗口）和内部事件入口
 `agentnotify-ingress.exe`；旧的 Win32 悬浮窗、管理 CLI（`status` / `doctor` / `notify` / `sync` /
-`history` 等）和 Go 版 `agent-notify.exe` 都不再发布，故障排查一律通过桌面端界面与日志完成。
+`history` 等）和 Go 版 `agent-notify.exe` 都不再发布。故障排查通过桌面端界面与日志完成；界面打不开或
+在无头环境时，可以用 `agentnotify-ingress.exe --doctor` / `--ping` 做只读探活（见下文）。
 
 排查从三处开始：主窗口的 **Diagnostics / Agents / Channels** 页、应用运行日志、各 Agent 接入自己的
 失败日志。所有日志都不包含 ClawBot token、凭据、回复正文或通知正文，可以安全粘贴相关片段。
@@ -25,6 +26,23 @@
 旧版的 `%USERPROFILE%\.config\agent-notify`（`config.json`、`clawbot.json`、`.off` 开关、`push.log`、
 `reply-routes.jsonl`、`reply-state.jsonl`）在 2.0 只作为**只读迁移来源**：首次启动导入 SQLite 后不再被读写，
 程序也不会改写或删除这些文件。ClawBot 登录凭据改由 Windows 凭据管理器保存。
+
+## 无头环境探活：ingress 只读自检
+
+界面打不开、远程排障或写脚本时，先跑 `agentnotify-ingress.exe` 的只读自检（不提交事件、不写盘）：
+
+```powershell
+$app = "$env:LOCALAPPDATA\Programs\Agent-notify"
+& "$app\agentnotify-ingress.exe" --ping    # 一行结论，退出码 0 正常 / 1 异常
+$report = & "$app\agentnotify-ingress.exe" --doctor | ConvertFrom-Json
+$report.ok                # 总判定
+$report.pipe.listening    # 桌面端是否在监听事件管道
+$report.spool.pending     # 待补投事件数（> 0 = 核心离线积压）
+$report.spool.quarantined # 隔离事件数（附 .error 原因）
+```
+
+`ok=true` 的口径是「命名管道在监听 + spool 无积压无错误」。`pipe.listening=false` 多半是桌面端没在运行；
+`pending` 持续增长说明事件在积压、核心没消费，配合 `runtime.log` 看启动错误。
 
 ## 双击安装器后 Agent 仍未接入
 
@@ -363,6 +381,7 @@ AgentNotify 应在发送前透传原始参数和 stdin 给上游。检查：
 ## 提 Issue 前收集
 
 - 应用版本（主窗口底部状态栏或 Diagnostics 页显示的版本，也可看安装目录 `VERSION`）、Windows 版本。
+- `agentnotify-ingress.exe --doctor` 的 JSON 报告（只读，无敏感字段）。
 - Diagnostics 页的存储、后台组件与迁移状态文本；必要时附 `legacy-import-report.json`。
 - `%LOCALAPPDATA%\AgentNotify\logs\runtime.log` 最后 30 行（以及 `runtime.log.1` 的相关片段）。
 - 对应 Agent 的调试日志：`codex/antigravity/devin-notify-debug.log`，或打开

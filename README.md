@@ -1,7 +1,7 @@
 # AgentNotify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.5-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.0.6-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
 </p>
@@ -100,7 +100,7 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 
 设置项（勿扰、通知冷却、引用回复、路由有效期、更新通道、开机启动等）存在 SQLite 中，通过 Settings 页修改；ClawBot 凭据由 Windows 凭据管理器保存。迁移只读旧目录，不改写也不删除 `%USERPROFILE%\.config\agent-notify\` 里的文件。
 
-`agentnotify-ingress.exe` 只接收版本化 Agent 事件，不面向用户，也不提供管理命令行。
+`agentnotify-ingress.exe` 只接收版本化 Agent 事件；面向用户的能力只有只读自检 `--doctor`（输出 JSON 报告：命名管道是否在监听、spool 积压与隔离数）与 `--ping`（一行结论），两者都不提交事件、不写盘，退出码 0 正常、1 异常，供无头环境和远程排查探活。
 
 ## 卸载
 
