@@ -1,4 +1,8 @@
-param([switch]$RequireMsvc)
+param(
+    [switch]$RequireMsvc,
+    # Parallel rustc jobs (CARGO_BUILD_JOBS). 0 = auto: capped on low-memory machines.
+    [int]$Jobs = 0
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
@@ -23,6 +27,27 @@ if (-not $cargoCommand) {
     throw 'cargo.exe not found. Install the Rust toolchain (local convention: D:\Tools\cargo) or add cargo to PATH.'
 }
 $cargo = $cargoCommand.Source
+
+# Linking one test binary per crate runs many link.exe processes at once, and that peak
+# commit charge is what exhausts the page file on small-RAM machines (Windows error 1455,
+# ERROR_COMMITMENT_LIMIT) and then breaks the build with "can't find crate" follow-ups.
+$LowMemoryJobCap = 2
+$LowMemoryThresholdBytes = 24GB
+if ($Jobs -gt 0) {
+    $env:CARGO_BUILD_JOBS = "$Jobs"
+} elseif (-not [string]::IsNullOrWhiteSpace($env:CARGO_BUILD_JOBS)) {
+    # Explicit environment override wins over the automatic cap.
+} else {
+    try {
+        $totalMemory = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+    } catch {
+        $totalMemory = 0
+    }
+    if ($totalMemory -gt 0 -and $totalMemory -lt $LowMemoryThresholdBytes) {
+        $env:CARGO_BUILD_JOBS = "$LowMemoryJobCap"
+        Write-Warning "Low memory machine detected: capping cargo jobs to $LowMemoryJobCap (override with -Jobs or CARGO_BUILD_JOBS)."
+    }
+}
 
 $msvcLink = Get-Command link.exe -ErrorAction SilentlyContinue
 if (-not $msvcLink) {
