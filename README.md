@@ -1,7 +1,7 @@
 # AgentNotify
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.1-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.0.2-blue.svg?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
 </p>

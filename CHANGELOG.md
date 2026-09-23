@@ -4,6 +4,12 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是仓库根目录的 `VERSION`
 （2.0.0 起；此前为 `internal/app/version.go`）。
 
+## [2.0.2] - 2026-09-23
+
+### Fixed
+
+- 静默升级不再弹出「无法自动关闭所有应用程序」：旧版悬浮窗收到关闭请求时隐藏到托盘，安装器替换文件前关不掉它。现在安装器在静默模式下先结束旧进程（`agent-notify.exe`、`agentnotify-desktop.exe`），交互式安装行为不变。
+- 升级继承旧版 Agent 开关：旧版语义为「没有 marker 即开启」，此前只导入关闭状态、且新适配器默认关闭，导致从旧版升级后 Codex / Antigravity / Devin / Command Code 的通知静默停止。现在存在旧版遗留时按旧版状态继承，全新安装仍保持保守默认（需在 Agents 页手动开启）。
 ## [2.0.1] - 2026-09-22
 
 ### Fixed
