@@ -179,10 +179,42 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\Project\Agent-notify\tool
 
 > 本节先前列的 5 项（一键升级、ClawBot 诊断、安装器冒烟、卸载 V2 清理、发布签名门禁）**均已完成并提交**，见 `9d34ece`、`e1dbb7e`、`2e5b1cb` 与本文档的预检章节。
 
-1. **一键升级的真机端到端验证**：需要存在比当前更高的版本（本次 2.0.0 发布后，用下一次发布验证；或用旧版客户端升级到 2.0.0 验证同一套静默安装链路）。
+1. ~~**一键升级的真机端到端验证**~~：✅ 已完成（2026-09-23，Go 1.17.0 → 2.0.2 手动升级成功），结果与后续缺陷见 **第 11 节**。
 2. **计划 Task 6–10**：飞书渠道、多账号通知策略、外部适配器进程协议（属新增能力，按既定安排排在 2.0.0 之后）。
 3. **验收完整性**：其余三个适配器的「客户端退出」实测、超时/`Unknown` 的真机故障注入、Codex / Devin / Command Code 的客户端版本补记。
 4. **迁移遗留的死设置**：`defaultAgent`、`widgetAgentMode`、`theme` 已被迁移导入但无消费者（原本只服务已移除的悬浮窗）；清理需要动迁移契约，应独立评审。
 5. **`hook_installer` 能力没有应用内动作**：Agents 页显示「Hook 安装 可用」，但目前重装接入要手动跑 `tools\hooks\install-*-v2.ps1`（Go 版靠 `sync`）。
 6. **Devin 的 `replyInbox` 通道问题**：扩展只认环境变量 `AGENT_NOTIFY_DEVIN_REPLY_DIR` 或默认路径，界面里改 `replyInbox` 不会同步到扩展；修法可参考 Command Code 的 `commandcode-reply-inbox/window.json`。
 7. **升级时的自定义 Codex notify 不会被接管**（已知限制，非缺陷）：若 `notify` 指向第三方程序，接入脚本保持原样并打印手动接入说明——把任意程序包进 `--previous-notify` 会改变它的调用参数，Go 版也只对 CUA 做包装。
+
+## 11. 2.0.1 / 2.0.2 真机升级验收与两个发布链缺陷（2026-09-23）
+
+### 验收结果（用户机器，Go 1.17.0 → 2.0.2）
+
+| 项 | 结果 |
+| --- | --- |
+| 手动「检查更新 → 升级」 | ✅ 成功：下载安装器 → 静默替换 → 自动重启回到 2.0.2（注册表 `DisplayVersion=2.0.2`，进程运行中） |
+| 静默升级不再弹「无法关闭应用程序」 | ✅ 2.0.2 的 `PrepareToInstall` 强杀旧进程后未再出现（2.0.1 曾出现，用户点 Try again 才装成） |
+| 迁移继承 Agent 开关 | ✅ 四个 Agent（codex / antigravity / devin / commandcode）升级后均为启用 |
+| 数据库迁移 | ✅ 校验和按行尾归一化后可正常打开（2.0.1 修复的缺陷） |
+| 微信推送与引用回复 | ⏸ 升级后被测缺陷阻断（见下），待自愈/重启后回归 |
+
+### 缺陷 1：首启落入"迁移诊断模式"，**所有推送整段断掉**（2.0.3 修复）
+
+- **现象**：升级到 2.0.2 后收不到任何推送（用户先报 OpenCode，实测四个 Agent 全断）。
+- **证据**：`runtime.log` 记录 `旧数据迁移失败，启动迁移诊断模式 code=legacy_app_running`；`%TEMP%\agent-notify\widget-alive.txt`（旧版心跳）mtime `10:29:13`，新版启动 `10:29:26`，相差 13 秒，落在 runtime 的 **30 秒**存活判定窗口内。
+- **机理**：升级安装器先杀旧版、几秒后拉起新版 → 心跳必然新鲜 → `prepare_migration` 判定"旧版仍在运行" → `start_migration_diagnostics`（**不启动渠道、ingress 与 Outbox**）→ 推送全断，且**不会自动恢复**，只能手动重启应用或点界面"重新检测"。
+- **影响面**：所有从旧版原地升级的用户都会命中，属于升级路径缺陷。
+- **修复**（提交 `c133400`）：`ProductionRuntimeCoordinator::spawn_migration_autoretry` —— 诊断原因是 `legacy_app_running` 时后台每 35 秒重试一次常规启动（上限 6 次 ≈ 3.5 分钟），心跳过期即自愈，恢复后发 `snapshot.changed` 让界面刷新；其它迁移失败原因不重试，保持原样暴露。含 4 个单元测试（恢复即停、用尽次数、不可自愈错误即停、原因分类）。
+- **事件不丢**：ingress 的 spool 会保留事件（实测积压 10:31 / 10:48 共 6 条），运行时恢复后自动补推。
+
+### 缺陷 2：镜像存在"半成品窗口"，客户端可能选错升级路径（`b7f17e9` 修复）
+
+- **现象**：Go 版**自动**检查更新报 `更新包缺少文件：…\updates\2.0.2\extracted\Agent-notify\install.ps1`，手动点「检查更新」则成功。
+- **机理**：Go 升级器优先选安装器、回退压缩包（`ArtifactArchive`）；镜像用 `gh release create` **逐个**上传资产，Release 在 `Setup` 传完前就已可见并置 Latest，客户端在窗口期内查询只看到 ZIP → 选压缩包分支 → 该分支要求 Go 时代布局（`install.ps1` + `bin/agent-notify.exe`），Rust ZIP 必然不满足。
+- **修复**：`tools/publish-release.ps1` 改为**草稿创建 → 上传全部资产 → 最后一步 `--draft=false --latest` 发布**，客户端在资产齐备前看不到该 Release；下一次发布生效。
+
+### 待办（本轮新增）
+
+1. **2.0.3 发布**：带上缺陷 1 的自愈修复，并复验"自动检查更新"路径（缺陷 2 的修复在 workflow/工具侧，发布即生效）。
+2. **验收回归**：自愈后的微信推送与引用回复实测（含 spool 补推的观察）。
