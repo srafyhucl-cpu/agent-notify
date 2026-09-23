@@ -101,9 +101,29 @@ async fn structured_notification_is_rendered_with_title_bar_and_footer() {
 
     assert_eq!(receipt.state, DeliveryState::Sent);
     let request = capture.lock().unwrap().clone();
+    // 页脚时间按系统本地时区渲染（2.0.4 起）：期望值必须跟着本机时区算，
+    // 写死 UTC+8 会让 CI（UTC）必挂；拿不到本地偏移的平台跳过（Windows 必然支持）。
+    let Ok(local_offset) = time::UtcOffset::current_local_offset() else {
+        return;
+    };
+    let local = time::OffsetDateTime::parse(
+        "2026-09-19T10:20:30+08:00",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap()
+    .to_offset(local_offset);
+    let expected_time = format!(
+        "{:02}/{:02} {:02}:{:02}",
+        u8::from(local.month()),
+        local.day(),
+        local.hour(),
+        local.minute()
+    );
     assert_eq!(
         request_text(&request),
-        "**🟢 Registry Agent｜修复登录**\n\nhello **world**\n\n—\n*引用此消息可继续对话* · 09/19 10:20"
+        format!(
+            "**🟢 Registry Agent｜修复登录**\n\nhello **world**\n\n—\n*引用此消息可继续对话* · {expected_time}"
+        )
     );
 }
 
