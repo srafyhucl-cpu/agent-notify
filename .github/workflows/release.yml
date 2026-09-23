@@ -181,13 +181,17 @@ jobs:
           $failures = 0
           foreach ($target in $targets) {
             $env:GH_TOKEN = $target.Token
+            # Query the assets endpoint by release id: the release object embedded in
+            # /releases/tags/<tag> can lag behind (real case: v2.0.5 returned an empty
+            # asset list while the assets endpoint already had all three files).
             $release = (gh api "repos/$($target.Repo)/releases/tags/$tag" | Out-String) | ConvertFrom-Json
             if ($release.draft) {
               Write-Output "[verify] $($target.Repo) $tag is still a draft"
               $failures++
               continue
             }
-            $names = @($release.assets | ForEach-Object { $_.name })
+            $assetList = @(((gh api "repos/$($target.Repo)/releases/$($release.id)/assets" | Out-String) | ConvertFrom-Json))
+            $names = @($assetList | ForEach-Object { $_.name })
             $missing = @()
             foreach ($name in $expected) {
               if ($names -notcontains $name) { $missing += $name }
