@@ -82,6 +82,18 @@ foreach ($extensionRelative in @('plugin\devin-extension\package.json', 'plugin\
   Save-IfChanged $extensionRelative $extensionUpdated
 }
 
+# 桌面 UI 的 package.json 与锁文件：私有包，但版本属于发布元数据，跟产品版本保持一致。
+# 锁文件只改根包的版本字段，用 name 锚定，避免误伤依赖条目的 version。
+$desktopUiPackage = 'apps\desktop-ui\package.json'
+$packageText = [IO.File]::ReadAllText((Join-Path $RepoRoot $desktopUiPackage))
+$packageUpdated = [regex]::Replace($packageText, '(?m)^(\s*"version"\s*:\s*")[^"]*(")', ('${1}' + $Version + '${2}'), 1)
+Save-IfChanged $desktopUiPackage $packageUpdated
+
+$desktopUiLock = 'apps\desktop-ui\package-lock.json'
+$lockText = [IO.File]::ReadAllText((Join-Path $RepoRoot $desktopUiLock))
+$lockUpdated = [regex]::Replace($lockText, '("name"\s*:\s*"agentnotify-desktop-ui",\s*\r?\n\s*"version"\s*:\s*")[^"]*(")', ('${1}' + $Version + '${2}'))
+Save-IfChanged $desktopUiLock $lockUpdated
+
 # 阶段 D 的其余分发物没有独立产品版本字段，无需在这里同步：
 # 三个 Hook exe 的版本来自 Cargo.toml 的 [workspace.package] version（上面已同步），
 # plugin\commandcode-v2\agent-notify.ts 只有协议版本 PROTOCOL_VERSION，没有产品版本字段。

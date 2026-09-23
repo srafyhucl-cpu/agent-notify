@@ -75,6 +75,17 @@ foreach ($extensionRelative in @('plugin\devin-extension\package.json', 'plugin\
   }
 }
 
+# 桌面 UI 的 package.json 与锁文件随产品版本同步（sync-version.ps1 负责写入）。
+$desktopUiPackage = Read-TextFile 'apps\desktop-ui\package.json'
+if ($desktopUiPackage -notmatch ('(?m)^\s*"version"\s*:\s*"' + $escaped + '"\s*,?\s*$')) {
+  $failures.Add("apps/desktop-ui/package.json 版本不是 $Version")
+}
+$desktopUiLock = Read-TextFile 'apps\desktop-ui\package-lock.json'
+$lockRootVersions = [regex]::Matches($desktopUiLock, '("name"\s*:\s*"agentnotify-desktop-ui",\s*\r?\n\s*"version"\s*:\s*")' + $escaped + '(")')
+if ($lockRootVersions.Count -lt 2) {
+  $failures.Add("apps/desktop-ui/package-lock.json 的根包版本不是 $Version（顶层与 packages 根条目两处）")
+}
+
 # 阶段 D 的其余分发物没有独立产品版本字段，无需在这里校验：
 # - 三个 Hook exe（agentnotify-codex-hook / -antigravity-hook / -devin-hook）的版本来自
 #   Cargo.toml 的 [workspace.package] version，已由上面的 CARGO_PKG_VERSION 检查覆盖；

@@ -4,6 +4,26 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是仓库根目录的 `VERSION`
 （2.0.0 起；此前为 `internal/app/version.go`）。
 
+## [2.0.6] - 2026-09-23
+
+### Added
+
+- `agentnotify-ingress.exe` 增加只读自检命令行：`--doctor` 输出 JSON 报告（命名管道是否在监听、spool 待补投与隔离数），`--ping` 给一行结论；两者都不提交事件、不写盘，退出码 0 正常、1 异常，供无头环境与远程排查探活。
+
+### Changed
+
+- 维护者文档对齐 2.0 现状：`SECURITY.md`（凭据进 Windows 凭据管理器、Tauri 工作台、更新包签名与解包校验）、`CONTRIBUTING.md`（Rust 门禁、5 个发布二进制、发布流程以 `VERSION` 为准、Go 1.x 遗留代码的保留与冻结边界）、`.env.example`（按 2.0 与 Go 1.x 遗留分段，变量名以代码为准）。
+- 桌面 UI 包版本纳入版本一致性：`apps/desktop-ui/package.json` 与锁文件随 `VERSION` 同步（`tools\sync-version.ps1` / `tools\check-version.ps1`）。
+- Release workflow 移除无用的 Go 工具链安装：正式包只构建 Rust 产物，减少发版故障面。
+- `hosts/desktop-tauri` 里散落的时间与大小裸数字改为命名常量（Delivery 终态等待、事件订阅重试、进程默认超时、哈希分块等，行为不变）。
+
+### Fixed
+
+- OpenCode 适配器不再因事件类型改名而静默拒收：`eventType` 缺失、为空或为已知终态类型（`session.idle` / `session.error` / `session.execution.succeeded` / `session.execution.failed`）时照常推送，未知类型（如 `session.started`）仍然拒绝，与其余四个适配器的容错口径对称。
+- Rust 门禁在内存较小的机器上不再随机失败：`tools\rust\gate.ps1` 按物理内存限制 cargo 并发（可用 `-Jobs` 或 `CARGO_BUILD_JOBS` 覆盖），避免测试二进制并行链接打爆分页文件（Windows 错误 1455）。
+- `tests\desktop-installer-smoke.ps1` 改为校验正式安装器 `installer\agent-notify.iss` 的 2.0 分发清单（原先校验已废弃的 Rust 预览脚本），并纳入 `tools\test.ps1` 门禁；不传 `-Installer` 时只做定义检查，CI 无需构建产物。
+- 根目录 `install.ps1` 明确标注为 Go 1.x 遗留运行时安装入口，运行时提示普通用户改用 2.0 正式安装器。
+
 ## [2.0.5] - 2026-09-23
 
 ### Fixed
