@@ -266,3 +266,29 @@ Rust → Rust 升级不会自然触发"旧版心跳仍新鲜"（`widget-alive.tx
 升级后核对：版本 2.0.3；四个 Agent 保持启用；OpenCode 插件、Codex/Devin Hook、Command Code mod 均为 Rust 版（Antigravity 走 `agent-notify-hook.cmd` 启动器，第三方 `linkweixin-notify` 条目被原样保留）；通知总数 580、spool 0。
 
 **副产品**：Go 版在回退期间产生的完成事件（`push.log`）在升级后被迁移导入，未丢失。
+
+## 14. 2.0.4 发布记录与「页脚时间显示 UTC」缺陷修复（2026-09-23）
+
+### 缺陷
+
+- **现象**：微信推送页脚显示 `· 09/23 06:34`，而本地时间为 `14:34`（相差 8 小时，正好一个时区）。
+- **根因**：通知时间以 UTC 存储（`Timestamp::now_utc()`），而 `crates/agentnotify-channel-clawbot/src/render.rs` 的 `format_time` 直接取 RFC3339 里的 UTC 小时/分钟；Go 版显示的是本地时间，属 Rust 重写时丢失的行为。
+- **影响面**：每条带页脚的推送都会显示错误时间（用户可见）。
+
+### 修复（提交 `95c4089`）
+
+- 页脚默认按**系统本地时区**渲染（`time` 依赖启用 `local-offset` 特性），与 Go 版一致；本地偏移不可用时返回明确的永久错误，不做猜测式兜底。
+- 渲染函数保留显式偏移入参：生产路径传 `None`（系统本地），测试注入固定偏移，避免 Windows CI（UTC）与开发机（UTC+8）结果不一致。
+- 新增回归测试：`2026-09-23T06:34:00Z` → `Some(+08:00)` = `09/23 14:34`、`Some(0)` = `06:34`、`Some(-05:00)` = `01:34`；默认路径与系统本地偏移一致。
+- 全局排查：这是**唯一**一处把 UTC 当本地渲染的用户可见时间（安静时段等处均带显式偏移，正确）。
+
+### 发布
+
+| 项 | 值 |
+| --- | --- |
+| tag | `v2.0.4`（指向 `00cf14b`） |
+| Release workflow | 运行 `35829997082`，全部步骤成功（22 分 11 秒） |
+| 产物 | `Agent-notify-Setup-v2.0.4.exe`（8,036,624 B / SHA256 与 `SHA256SUMS.txt` 一致）、`Agent-notify-v2.0.4.zip`（9,120,091 B）、`SHA256SUMS.txt` |
+| 镜像 | 二进制仓库 `/releases/latest` = `v2.0.4`，**无草稿残留** ✅ |
+| 独立验证 | SHA256 一致 ✅；安装器 `ProductVersion=2.0.4.0`、签名指纹 `EDF9E283…09ACD` ✅；ZIP 内五个程序签名指纹一致、`VERSION=2.0.4` ✅ |
+| 门禁 | workspace fmt/clippy/test 全绿（489 用例），`lint` + 版本一致性通过 ✅ |
