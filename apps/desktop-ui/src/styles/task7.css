@@ -25,6 +25,9 @@
   gap: var(--space-1);
   width: fit-content;
   min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-2);
   font-weight: 600;
   white-space: nowrap;
@@ -33,27 +36,60 @@
 .page-count {
   flex: 0 0 auto;
   color: var(--color-text-muted);
+  background: var(--glass-bg-2);
 }
 
 .status-label,
 .delivery-state {
   flex: 0 0 auto;
+  /* 呼吸微光取当前语义色（currentColor），按变体自动同源 */
+  --badge-glow: color-mix(in srgb, currentColor 30%, transparent);
+}
+
+/* 呼吸微光：仅低强度 box-shadow 起伏，模糊半径与 --glow-sm 同档（--space-3） */
+@keyframes control-badge-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--badge-glow);
+  }
+
+  50% {
+    box-shadow: 0 0 var(--space-3) 0 var(--badge-glow);
+  }
 }
 
 .status-label--success,
 .delivery-state--sent {
   color: var(--color-success);
+  background: var(--color-success-soft);
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
 }
 
 .status-label--danger,
 .delivery-state--failed,
 .delivery-state--unknown {
   color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
+  animation: control-badge-breathe calc(var(--duration-base) * 12) var(--ease-out)
+    infinite;
 }
 
+/* 原先缺少 warning/info 变体，warning 徽标会退化成无色文字，此处补齐 */
+.status-label--warning,
 .delivery-state--pending,
 .delivery-state--skipped {
   color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
+  animation: control-badge-breathe calc(var(--duration-base) * 12) var(--ease-out)
+    infinite;
+}
+
+.status-label--info {
+  color: var(--color-info);
+  background: var(--color-info-soft);
+  border-color: color-mix(in srgb, var(--color-info) 30%, transparent);
 }
 
 .overview-page-content,
@@ -62,26 +98,20 @@
   gap: var(--space-4);
 }
 
+/* 信息卡片统一配方：--glass-bg-2 毛玻璃 + 微光描边 + 面板圆角，内边距统一 --space-4 */
 .health-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
+  gap: var(--space-4);
 }
 
 .overview-section {
   min-width: 0;
   padding: var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.health-summary .overview-section {
-  border-bottom: 0;
-  border-right: 1px solid var(--color-border);
-}
-
-.health-summary .overview-section:last-child {
-  border-right: 0;
+  background: var(--glass-bg-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
 }
 
 .overview-section-header,
@@ -118,14 +148,26 @@
   line-height: 1.35;
 }
 
-.section-count,
-.section-description {
+.section-count {
+  /* 计数胶囊：与 .page-count 同源配方，纯计数不呼吸 */
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  width: fit-content;
+  padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
+  background: var(--glass-bg-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-2);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .section-description {
   margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-2);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -164,6 +206,9 @@
   width: 100%;
   min-width: 0;
   overflow-x: auto;
+  /* 透明轨道：内部滚动条不留深色黑带 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 .data-table {
@@ -190,17 +235,22 @@
   white-space: nowrap;
 }
 
+/* 卡片内表格：末行不再画分割线，避免与卡片描边形成双线 */
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .monospace-cell {
   font-family: Consolas, "Courier New", monospace;
 }
 
 .error-cell {
+  /* 错误单元格只消费语义色文字：内容可能是占位「无」，加柔和红底会误报语义 */
   color: var(--color-danger);
 }
 
 .action-list {
   display: grid;
-  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -215,6 +265,10 @@
   border-top: 1px solid var(--color-border);
   font-size: var(--font-size-2);
   line-height: 1.5;
+}
+
+.action-list li:first-child {
+  border-top: 0;
 }
 
 .action-list strong,
@@ -235,15 +289,26 @@
   min-width: 0;
 }
 
+/* Agent 列表与详情同为一档毛玻璃卡片；列表横向滚动裁切在卡片圆角内 */
 .agent-list,
 .agent-detail {
   min-width: 0;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
+  background: var(--glass-bg-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
 }
 
 .agent-list {
+  /* 横向留白交给单元格，避免横向滚动时卡片内边距被滚走 */
+  padding: var(--space-4) 0;
   overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.agent-detail {
+  padding: var(--space-4);
 }
 
 .agent-list table {
@@ -270,10 +335,22 @@
   white-space: nowrap;
 }
 
-.agent-row--selected {
-  background: #e7f0ed;
+/* 卡片内表格：末行不再画分割线，避免与卡片描边形成双线 */
+.agent-list tbody tr:last-child th,
+.agent-list tbody tr:last-child td {
+  border-bottom: 0;
 }
 
+/* 选中行：token 派生的暗色叠加（半透明主色），选中行名称同步提亮 */
+.agent-row--selected {
+  background: var(--color-primary-soft);
+}
+
+.agent-row--selected .agent-name-button {
+  color: var(--color-primary);
+}
+
+/* 文本按钮：无底无边，hover 用同源文字光晕 + 1px 抬升 */
 .agent-name-button,
 .icon-text-button {
   display: inline-flex;
@@ -284,10 +361,31 @@
   color: var(--color-text);
   background: transparent;
   border: 0;
+  border-radius: var(--radius-control);
   font-size: var(--font-size-3);
   font-weight: 650;
   text-align: left;
   cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
+}
+
+.agent-name-button:hover:not(:disabled) {
+  color: var(--color-primary);
+  text-shadow: var(--glow-sm);
+  transform: translateY(-1px);
+}
+
+.agent-name-button:active:not(:disabled),
+.icon-text-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.agent-name-button:disabled,
+.icon-text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .icon-text-button {
@@ -295,9 +393,23 @@
   font-size: var(--font-size-2);
 }
 
+.icon-text-button:hover:not(:disabled) {
+  color: var(--color-primary-hover);
+  text-shadow: var(--glow-sm);
+  transform: translateY(-1px);
+}
+
 .agent-event-cell,
 .muted-value {
   color: var(--color-text-muted);
+}
+
+/* 选中行叠加半透明主色后底色变亮，次级文字需提亮一档才能维持正文 ≥4.5:1
+   （axe color-contrast 实测该行最低约 4.5:1，临界；提亮到约 6.8:1 留出余量）。
+   仅作用于选中行，未选中行仍用标准 --color-text-muted。 */
+.agent-row--selected .muted-value,
+.agent-row--selected .agent-event-cell {
+  color: color-mix(in srgb, var(--color-text-muted) 55%, var(--color-text));
 }
 
 .switch-control {
@@ -315,14 +427,18 @@
   opacity: 0;
 }
 
+/* 开关：未选为暗底内描边，选中为主色 + 克制光晕；滑块颜色随态反转保证 ≥3:1 */
 .switch-track {
   position: relative;
   display: block;
   width: 34px;
   height: 20px;
-  background: #aeb5af;
-  border-radius: 10px;
-  transition: background 120ms ease;
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  transition:
+    background var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out);
 }
 
 .switch-track::after {
@@ -332,30 +448,38 @@
   width: 14px;
   height: 14px;
   content: "";
-  background: var(--color-surface);
+  background: var(--color-text-muted);
   border-radius: 50%;
-  transition: transform 120ms ease;
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out);
 }
 
 .switch-control input:checked + .switch-track {
   background: var(--color-primary);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 60%, transparent),
+    var(--glow-sm);
 }
 
 .switch-control input:checked + .switch-track::after {
+  background: var(--color-surface);
   transform: translateX(14px);
 }
 
 .switch-control input:focus-visible + .switch-track {
-  outline: 2px solid var(--color-info);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+  box-shadow: var(--glow-sm);
 }
 
 .switch-control input:disabled + .switch-track {
-  opacity: 0.55;
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .agent-detail {
-  padding-top: var(--space-3);
+  padding: var(--space-4);
 }
 
 .descriptor-list {
@@ -392,16 +516,20 @@
 
 .capability-item {
   display: inline-flex;
+  align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
-  background: var(--color-surface-muted);
-  border-radius: var(--radius-control);
+  background: var(--glass-bg-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-1);
 }
 
 .capability-item--enabled {
   color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
 }
 
 .agent-config-section {
@@ -410,8 +538,9 @@
 }
 
 .agent-config-form {
+  /* 表单与错误提示间距固定 --space-2 */
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   margin-top: var(--space-3);
 }
 
@@ -442,6 +571,7 @@
   line-height: 1.5;
 }
 
+/* 表单控件：毛玻璃暗底 + 微细描边，聚焦由 reset 的高对比环 + 主色描边过渡呈现 */
 .schema-field input,
 .schema-field select,
 .schema-field textarea {
@@ -450,9 +580,33 @@
   min-height: var(--control-height);
   padding: var(--space-1) var(--space-2);
   color: var(--color-text);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--glass-bg-1);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
+  transition:
+    background var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out);
+}
+
+/* placeholder 也必须可读：--color-text-muted 在最亮毛玻璃底上 5.82:1 */
+.schema-field input::placeholder,
+.schema-field textarea::placeholder {
+  color: var(--color-text-muted);
+}
+
+.schema-field input:focus-visible,
+.schema-field select:focus-visible,
+.schema-field textarea:focus-visible {
+  background: var(--glass-bg-2);
+  border-color: var(--color-primary);
+}
+
+.schema-field input:disabled,
+.schema-field select:disabled,
+.schema-field textarea:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  cursor: not-allowed;
 }
 
 .schema-field textarea {
@@ -469,8 +623,14 @@
 }
 
 .schema-secret-status {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
+  background: var(--glass-bg-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-1);
 }
 
@@ -480,12 +640,18 @@
   gap: var(--space-2);
   min-height: var(--control-height);
   font-size: var(--font-size-2);
+  cursor: pointer;
 }
 
 .schema-checkbox input {
   width: 16px;
   min-height: 16px;
   accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.schema-checkbox input:disabled {
+  cursor: not-allowed;
 }
 
 .schema-field--unsupported,
@@ -498,17 +664,43 @@
 
 .schema-field--unsupported {
   padding: var(--space-2);
-  background: #fff8e8;
+  background: var(--color-warning-soft);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
   border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-control);
 }
 
 .schema-field-unsupported {
   margin: 0;
 }
 
+/* 无障碍：reduced-motion 下停用位移与呼吸，保留状态可辨识 */
+@media (prefers-reduced-motion: reduce) {
+  .status-label--danger,
+  .status-label--warning,
+  .delivery-state--failed,
+  .delivery-state--unknown,
+  .delivery-state--pending,
+  .delivery-state--skipped {
+    animation: none;
+  }
+
+  .agent-name-button:hover:not(:disabled),
+  .icon-text-button:hover:not(:disabled) {
+    transform: none;
+  }
+
+  .agent-name-button:active:not(:disabled),
+  .icon-text-button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
 .agent-config-actions {
   display: flex;
   justify-content: flex-end;
+  /* 与上方内容合计 12px（--space-2 + --space-1），保持操作区节奏 */
+  margin-top: var(--space-1);
 }
 
 @media (max-width: 1180px) {
@@ -521,22 +713,9 @@
   .health-summary {
     grid-template-columns: minmax(0, 1fr);
   }
-
-  .health-summary .overview-section {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .health-summary .overview-section:last-child {
-    border-bottom: 0;
-  }
 }
 
 @media (max-width: 640px) {
-  .overview-section {
-    padding: var(--space-3);
-  }
-
   .action-list li {
     grid-template-columns: minmax(0, 1fr);
   }

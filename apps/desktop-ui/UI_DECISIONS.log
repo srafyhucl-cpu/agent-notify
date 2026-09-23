@@ -1,0 +1,748 @@
+# Agent-notify 前端 UI/UX 深度重构 · 夜间自主决策日志
+
+- 任务：前端纯 UI/UX 视觉与交互深度重构（暗色 Cyberpunk + 毛玻璃 + 6 态微交互）
+- 执行方式：夜间无人值守、全自主裁决（依据 `.opencode/skills/agent-notify-ui-ux/SKILL.md`，它是本轮唯一设计权威）
+- 记录范围：主编排裁决 + 5 个子代理的设计裁决（子代理原始日志见文末附录）
+
+---
+
+## A. 主编排架构师裁决
+
+| # | 决策点 | 裁决 | 理由 |
+| --- | --- | --- | --- |
+| A1 | 子代理执行模型 | 全部编码子代理统一 `opencode-go/deepseek-v4.1-flash` | 任务书指定；先用 `opencode.models` 确认精确 ID 为 `opencode-go/deepseek-v4.1-flash`（providerID/modelID）后再派发，不猜 ID；未指定 variant，取默认档 |
+| A2 | 流水线拓扑 | Tokens 先行 →（AppShell ∥ 公共控件）→ 业务视图 → 守门人 → 主编排复核 | token 是全链路地基必须先落地；业务视图依赖前两者的控件与布局语言，故串行；守门人必须最后统一收口 |
+| A3 | 并行写冲突规避 | 共享样式文件按"选择器段"划归属，且强制**只用精确字符串替换式编辑、严禁整文件覆写** | `layout.css` 同时含壳层段与公共控件段、`task7/task9/channels.css` 同时含控件段与业务段。事后验证：两个并行子代理在同一文件成功共存，git diff 无 TSX、无整文件覆盖痕迹 |
+| A4 | 并行阶段门禁收敛 | 并行子代理只跑 `typecheck` + `vitest`，禁跑 `build` 与 playwright | `tsc -b && vite build` 会并发争抢 `dist/` 与 tsbuildinfo 造成假红；Playwright 浏览器运行时当时正在安装 |
+| A5 | 门禁分段执行 | `build` 在串行阶段补跑；Playwright 全量（a11y/visual/states/navigation/adapters）由守门人统一收口；主编排最后**独立复跑全部门禁** | 不采信子代理转述，最终态由主编排亲自验证并取证 |
+| A6 | Playwright 浏览器环境修复 | 预检 `test:a11y` 全红（`Executable doesn't exist`，纯环境问题）。按仓库 `tools/ui/gate.ps1` 既有约定安装到 `D:\Tools\playwright-browsers`（chromium-1243 + chromium_headless_shell-1243），并设用户级 `PLAYWRIGHT_BROWSERS_PATH` | AGENTS.md 明确"下载物/依赖缓存不落 C 盘"；默认路径在 C 盘 AppData。沿用仓库既有约定路径，并固化环境变量防止将来裸跑 `npx playwright install` 又落回 C 盘。每条 playwright 命令仍显式设置该变量（进程环境不保证继承用户级变量） |
+| A7 | 视觉基线变更策略 | 整体暗色改版下 6 张基线必然全变。按技能书"基线合法变化走基线更新流程并说明原因"执行：**先逐页目检 actual 图排除真缺陷，再 `--update-snapshots` 刷新，3 连跑验证稳定** | 严禁跳过审查直接覆盖（会掩盖真缺陷）；守门人逐页目检结论为"仅体现预期暗色改版、无裁切/无重叠/无脏边"后才刷新 |
+| A8 | a11y 失败自愈边界 | 只允许改 CSS 与 `aria-*`；若必须改业务逻辑/测试断言才能修复，宁可留红并标红上报 | 任务书红线"只允许改视图渲染表现与样式类"；结果：自愈 1 项（纯 CSS 对比度），零逻辑改动、零测试改动 |
+| A9 | 未调用 brainstorming 技能 | 跳过 | 任务书已给完整规格与工程指标，且明令"严禁中断或等待用户指令"；设计分歧的裁决权威是 `agent-notify-ui-ux` 技能书，二者已并行满足 |
+| A10 | 提交策略 | 只提交本轮前端相关文件（6 CSS + 6 视觉基线 PNG + 本日志 + 重构报告）；**不 push、不打 tag、不发版** | AGENTS.md 要求"只提交本次相关文件"（工作区曾有他人未完成的 Rust 改动，全程未碰）；发版涉及版本号/签名/镜像严格流程，本次未获授权，仅本地提交 |
+| A11 | 业务红线客观取证 | 以 `git diff` 证伪/证实：最终 diff 中 `.ts`/`.tsx` 文件数为 **0**，改动仅 CSS + PNG | 不依赖子代理自述，用 git 客观证明 bridge/数据层/路由/表单逻辑零改动 |
+| A12 | `global.css` 处置 | **不动**（仅记录） | 该文件未被任何模块引用（grep 零命中），属历史遗留死文件；按"只改需求相关代码、不顺手重构"原则保持原样，留待后续处置 |
+| A13 | 临时文件清理 | `UI_DECISIONS.d/` 五份子代理日志合并入本文件后按明确路径逐个删除 | AGENTS.md："临时文件随用随清"、"删除只针对明确路径，不批量删、不递归删目录" |
+| A14 | 本文件的入库方式 | 被 `.gitignore` 的 `*.log`（第 2 行）忽略，故用一次性 `git add -f` 强制纳入版本控制 | 任务书要求决策记录随提交入库且文件名固定为 `UI_DECISIONS.log`；改 `.gitignore` 加豁免规则会改变全仓库日志的共享语义（更侵入），一次性 force-add 既保住约定文件名又不动共享基建；文件入库后即持续受跟踪、不再受 gitignore 影响 |
+| A15 | 仓库级门禁补跑 | 追加 `go test ./...`、`go vet ./...`、`gofmt -l cmd internal` 全绿取证 | AGENTS.md 的门禁清单包含 Go 侧检查；本次虽只改 CSS，仍复跑以证明未波及仓库其他部分（17 个 Go 包全 ok） |
+
+---
+
+## B. 改动边界声明（红线）
+
+- `apps/desktop-ui/src/bridge/`（hostBridge.ts / types.ts / tauriHostBridge.ts / mockHostBridge.ts / index.ts）：**零改动**
+- 业务逻辑、数据结构、数据请求、TanStack Query 缓存 Key、表单提交逻辑、路由路径、业务状态机：**零改动**
+- 全部 `.ts` / `.tsx`：**零改动**（含 DOM 结构、文本、role、可访问名、事件、props、条件渲染分支、`@tanstack/react-virtual` 参数）
+- `tests/**/*.spec.ts` 测试代码与断言：**零改动**；唯一动过的 `tests/` 内容是 6 张视觉基线 PNG（见 A7 流程）
+- 其他 agent 的 Rust 改动（`crates/`、`hosts/desktop-tauri/`）：未碰、未提交、未还原
+
+---
+
+## C. 附：五个子代理的原始决策日志（完整细节）
+
+
+### ===== 附录：subagent-1-tokens.md =====
+
+# Subagent 1：视觉设计系统与 Design Tokens 奠基
+
+范围：仅 `apps/desktop-ui/src/styles/tokens.css` 与 `apps/desktop-ui/src/styles/reset.css`。
+方法：既有 token 名称零删除、零重命名，值演进为暗色阶梯，并扩展毛玻璃/发光/动效/层叠/胶囊圆角等新 token。
+未改动任何业务逻辑、bridge、组件 `.tsx`、依赖或其他 CSS 文件。
+
+## 一、暗色阶梯选型
+
+| Token | 旧值（浅色基线） | 新值（暗色） | 理由 |
+| --- | --- | --- | --- |
+| `--color-canvas` | `#f4f5f3` | `#0a0c12` | 最深蓝黑画布，给上层毛玻璃留出层次空间 |
+| `--color-surface` | `#ffffff` | `#12141d` | 卡片/面板不透明层；同时被既有组件用作「主色底上的文字色」，需足够深以在主色底上成立 |
+| `--color-surface-muted` | `#eef0ed` | `#1a2030` | 次级面/状态条底，比 surface 略亮一档做区分 |
+| `--color-border` | `#d7dbd6` | `#2a3142` | 与 `--border-subtle` 合成色同族的实线描边 |
+| `--color-text` | `#1f2521` | `#e9edf6` | 正文，对最深画布 16.67:1 |
+| `--color-text-muted` | `#5c645e` | `#949eb4` | 次级文字，最坏底（毛玻璃 3 档合成 `#1d2334`）仍有 5.82:1，兼顾「弱化」与无障碍余量 |
+| `--color-primary` | `#176b5b` | `#2ee0f0` | 青色主色，与 `--border-glow`/`--glow-*` 的 `rgba(0,240,255)` 同源 |
+| `--color-primary-hover` | `#125447` | `#67e8f9` | 暗色下 hover 走「提亮」，比主色更亮一档 |
+| `--color-info` | `#2878a8` | `#5cc8ff` | 提亮为天蓝，深底可读 |
+| `--color-warning` | `#8a4f0d` | `#f0b64a` | 提亮为琥珀 |
+| `--color-danger` | `#b33a32` | `#ff8b87` | 旧暗红在深底不可读；提亮为柔和珊瑚红（非高饱和纯红，避免刺眼） |
+| `--color-success` | `#26703f` | `#4ade80` | 提亮为柔和绿 |
+
+关键约束发现：既有 `layout.css` 中 `.app-nav-brand-mark`、`.button`、`.switch-track::after` 都把 `--color-surface` 当**前景文字/滑块色**用在 `--color-primary` 背景上（`color: var(--color-surface); background: var(--color-primary)`）。
+因此暗色化后 `--color-surface` 必须保持深色、`--color-primary` 必须足够亮，二者互为正反色，实测双向对比度均 ≥ 11:1，未改任何组件代码即自动成立。
+
+## 二、对比度实测（WCAG 2.1 相对亮度，正文门槛 4.5:1）
+
+毛玻璃叠在最深画布 `#0a0c12` 上的最坏（最亮）合成底：`--glass-bg-3` → `#1d2334`。
+
+### 正文 `--color-text` = `#e9edf6`
+
+| 底色 | 对比度 |
+| --- | --- |
+| `--color-canvas` `#0a0c12` | 16.67:1 |
+| `--color-surface` `#12141d` | 15.66:1 |
+| `--color-surface-muted` `#1a2030` | 13.85:1 |
+| 毛玻璃最坏合成底 `#1d2334` | 13.34:1 |
+
+### 次级文字 `--color-text-muted` = `#949eb4`
+
+| 底色 | 对比度 |
+| --- | --- |
+| `--color-canvas` | 7.27:1 |
+| `--color-surface` | 6.83:1 |
+| `--color-surface-muted` | 6.04:1 |
+| `--glass-bg-1` 合成 `#10121a` | 6.95:1 |
+| `--glass-bg-2` 合成 `#161a26` | 6.45:1 |
+| `--glass-bg-3` 合成 `#1d2334` | **5.82:1（最坏情况）** |
+
+### 主色（双向）
+
+| 组合 | 对比度 |
+| --- | --- |
+| `--color-primary` 文字 / `--color-surface` | 11.40:1 |
+| `--color-primary` 文字 / `--color-surface-muted` | 10.08:1 |
+| `--color-primary` 文字 / `--color-canvas` | 12.14:1 |
+| `--color-surface` 文字 / `--color-primary` 底 | 11.40:1 |
+| `--color-surface` 文字 / `--color-primary-hover` 底 | 12.67:1 |
+
+### 语义色作文字（`--color-*-soft` 为 16% 叠加）
+
+| 语义色 | / `--color-surface-muted` | / soft over surface-muted | / soft over surface | / soft over 毛玻璃最坏底 |
+| --- | --- | --- | --- | --- |
+| `--color-primary` `#2ee0f0` | 10.08:1 | 6.95:1 | 8.07:1 | 6.72:1 |
+| `--color-info` `#5cc8ff` | 8.63:1 | 6.12:1 | 7.10:1 | 5.93:1 |
+| `--color-warning` `#f0b64a` | 8.89:1 | 6.36:1 | 7.31:1 | 6.07:1 |
+| `--color-danger` `#ff8b87` | 7.19:1 | 5.40:1 | 6.21:1 | **5.19:1（全局最小）** |
+| `--color-success` `#4ade80` | 9.32:1 | 6.61:1 | 7.65:1 | 6.33:1 |
+
+全部 ≥ 4.5:1，无失败项；最小值为 danger 徽标组合 5.19:1，仍留有余量，axe `color-contrast`（serious）不会判红。
+
+## 三、自主裁决项
+
+| 决策点 | 选定值 | 理由 |
+| --- | --- | --- |
+| `--glass-saturate` | `saturate(1.25)` | 与 `--glass-blur-*` 组合使用，让磨砂后的底色更「活」；1.25 克制，避免高饱和脏边 |
+| `--border-hover` | `rgba(255, 255, 255, 0.1)` | 在 `--color-surface` 上合成 `#2a2c34`，相对亮度 0.0254，比 `--border-subtle`（0.0205）高约 24%，最接近「亮约 20%」的整数档 |
+| `--glow-md` | `0 0 20px rgba(0, 240, 255, 0.3)` | 与 `--glow-sm`（10px / 0.15）成 2 倍关系，形成「常态柔和 / 交互强调」两档；仅用于聚焦环与主操作，不做大面积辉光 |
+| `--duration-fast` | `120ms` | 微反馈（按压、图标态） |
+| `--duration-base` | `150ms` | hover/切换等常规过渡，落在技能书 100~200ms 区间 |
+| `--ease-out` | `ease-out` | 桌面端反馈「快出慢停」，与短时长搭配自然 |
+| `--radius-pill` | `999px` | 收敛现状散落的硬编码胶囊圆角，供状态徽标复用 |
+| `--color-*-soft`（新增 5 个） | 各自语义色 16% 透明叠加 | 让「半透明语义底 + 语义色文字」的徽标有统一来源，避免组件里写裸 rgba；16% 为实测对比度最优档 |
+| 聚焦环颜色 | `--color-primary`（非 `--border-glow`） | `--border-glow` 为 35% 透明青，叠在画布/表面上合成后仅 2.54:1，低于非文本 3:1 门槛；改用实心 `--color-primary`（12.14:1）保证高对比，青色 `--glow-sm` 外发光保留 Cyberpunk 观感 |
+
+## 四、reset.css 聚焦环
+
+保持其余 reset 规则不变，仅把全局 `:focus-visible` 从 `outline: 2px solid var(--color-info)` 升级为：
+
+```css
+outline: 2px solid var(--color-primary);
+outline-offset: 2px;
+box-shadow: var(--glow-sm);
+```
+
+- 2px 亮色描边 + 2px 偏移，任何底色上都清晰可辨；
+- `box-shadow: var(--glow-sm)` 提供克制青色外发光；
+- **无 `outline: none`**，键盘无障碍红线未触碰。
+
+## 五、层叠规则固化
+
+`tokens.css` 中已用中文注释固化：**Modal > Popover/Tooltip > Sticky > Content**，并提醒 `transform`/`filter`/`backdrop-filter`/`opacity<1` 会生成层叠上下文，毛玻璃容器内的浮层压不到容器外兄弟节点，必要时用 portal。
+
+## 六、备注（交给后续子代理）
+
+- `tokens.css` 已是暗色基线，但 `global.css`（未被 `main.tsx` 导入，属遗留死文件）与 `layout.css`/`task7.css`/`task9.css` 中仍有硬编码浅色与裸 `120ms ease`、`outline: 2px solid var(--color-info)`，不在本代理所有权内，留给后续子代理统一消费新 token。
+- 新增 token 均为增量，旧调用不受影响。
+
+
+
+### ===== 附录：subagent-2-shell.md =====
+
+# Subagent 2：AppShell 框架、窗口防御与无瑕疵布局
+
+范围：`src/app/AppShell.tsx`、`src/components/AppNav.tsx`、`src/components/RuntimeStatusBar.tsx`、`src/styles/layout.css` 的壳层段。
+实际改动：仅 `src/styles/layout.css` 壳层选择器。三个 TSX **零改动**（见文末说明），bridge 与业务逻辑零改动。
+
+设计依据：`.opencode/skills/agent-notify-ui-ux/SKILL.md`、`styles/tokens.css`、`UI_DECISIONS.d/subagent-1-tokens.md`。
+
+## 一、自主裁决清单
+
+| # | 决策点 | 选定值 | 理由 |
+| --- | --- | --- | --- |
+| 1 | 拼接缝隙与脏边处理 | 根 `.app-shell { overflow: hidden; isolation: isolate }`；导航/状态栏只保留 **单条 1px `--border-subtle`** 分割；玻璃底统一 `--glass-bg-1` | grid 轨道 `var(--nav-width) minmax(0,1fr)` 为整数像素，导航描边画在 208px 列内，第 2 列从 208px 起，拼接 0px 偏差。`isolation` 新建独立层叠上下文，子元素 z-index 不外溢。两处玻璃同档、同源底色，T 型接缝两侧合成色一致，不出现浅色白边或漏光黑边 |
+| 2 | 页壳定高 + 唯一滚动容器 | `.app-shell` 定高 `height:100%`；内容区用 grid 轨道 `minmax(0,1fr)` + `.app-main { min-height:0; overflow:auto }` 作**唯一**纵向滚动容器 | 纵向滚动只发生在 `.app-main` 一处，杜绝页面级与列表级双滚动条；`.app-main` 同时作为唯一横向兜底（`expectNoHorizontalOverflow` 会单独检查它） |
+| 3 | 导航激活态胶囊 | `--color-primary-soft` 底 + `--color-primary` 文字 + `--border-glow` 描边 + `--glow-sm` + `--radius-pill`；移除旧的硬编码浅色底 `#e3efeb` 与左侧 3px inset 竖条 | 旧 `#e3efeb` 是浅色基线残留，暗色下形成刺眼亮块；改为同源柔和主色底，圆角/填充/描边同一元素、同一半径，无双线错位。胶囊高亮符合 Cyberpunk 克制的发光气质；对比度沿用 subagent-1 实测（主色文字/柔和底 ≥6.72:1） |
+| 4 | 导航切换动效时长 | `--duration-base`（150ms）用于 color/background/border/box-shadow，`--duration-fast`（120ms）用于按压 transform，曲线 `--ease-out` | 落在技能书 100~200ms 区间；只动颜色/阴影/transform，不触发重排。`:active` 用技能书推荐的 `scale(0.98)` 收敛发光 |
+| 5 | 矮窗口防遮挡 | `.app-nav` 改为 `overflow-y:auto`（横向 hidden）内部滚动；`@media (max-height:600px)` 收紧导航 padding 与 brand 高度；状态栏置于滚动容器之外 | 导航项在极矮窗口内滚动而不是被裁切；状态栏是 grid 行、天然吸顶，比 sticky 更强（根本不在滚动流内），故不写无效的 `position:sticky`。`.runtime-status-action` 增加 `align-items:center`，操作按钮始终垂直居中不被溢出裁切 |
+| 6 | z-index 收口 | 领地内仅 `.app-nav` 新增 `position:relative; z-index:var(--z-sticky)`；其余壳层元素保持 static（无重叠无需层叠） | 收口到全局唯一位阶表；壳层原本无裸 z-index。导航是 glass（`backdrop-filter` 生成层叠上下文），显式 `--z-sticky` 表明它压在画布之上，且不越权压 Popover/Modal |
+| 7 | 图标 4px 网格对齐 | `.app-nav-icon` 用 CSS 覆盖为 `20×20`（`display:inline-flex; align-items:center; justify-content:center`），flex-basis 20px | 原 `size={18}` 属性非 4px 网格（18 造成半像素基线抖动）。按红线不能改 TSX 的 `size` prop，故在 CSS 用 `width/height` 覆盖（CSS 优先级高于 svg 宽高属性），落到 20px（4 的倍数），并由 flex 容器居中，无 1px 上浮/下沉，也不被边缘切半 |
+| 8 | 滚动条黑带与抖动 | `.app-main` / `.app-nav` 使用 `scrollbar-width:thin; scrollbar-color:var(--color-border) transparent`；`.app-main` 另加 `scrollbar-gutter:stable` | 标准属性（WebView2/Chromium 121+ 支持），透明轨道不再留深色黑带；拇指用 `--color-border` 与主题同源。预留滚动条槽避免切换页面时内容宽度左右抖动。避免 `::-webkit-scrollbar` 里的裸像素 hack |
+| 9 | 状态栏毛玻璃 | `.runtime-status-bar` 与导航同用 `--glass-bg-1` + `--glass-blur-md` + `--glass-saturate` | 同一界面 blur 强度不超过 2 档；顶部框架统一磨砂，与内容画布拉开层次，且接缝同源无色差 |
+| 10 | 降低动效 | 新增 `@media (prefers-reduced-motion: reduce)`：关闭导航过渡与按压位移 | 无障碍降级要求；只影响导航项，不动业务 |
+
+## 二、改动文件与选择器清单
+
+仅 `apps/desktop-ui/src/styles/layout.css`：
+
+- `.app-shell`：`overflow:hidden`、`isolation:isolate`（消除溢出漏光与层叠外溢）
+- `.app-nav`：glass 背景 + `backdrop-filter`、`border-right:1px var(--border-subtle)`、`position:relative`+`z-index:var(--z-sticky)`、`overflow-x:hidden/overflow-y:auto`+细滚动条
+- `.app-nav-brand`：圆角 + 过渡；新增 `.app-nav-brand:hover`
+- `.app-nav-brand-mark`：`box-shadow:var(--glow-sm)`、`line-height:1`
+- `.app-nav-link`：`border:1px solid transparent`（预留描边位防跳动）、`--radius-pill`、过渡；`:hover`、`:active`、`:focus-visible`、`[aria-current="page"]` 胶囊高亮
+- `.app-nav-icon`：20px / inline-flex 居中
+- `.runtime-status-bar`：glass 背景 + `border-bottom:1px var(--border-subtle)`
+- `.runtime-status-action`：`align-items:center`
+- `.app-main`：显式 `background:var(--color-canvas)`、细滚动条 + `scrollbar-gutter:stable`（唯一滚动容器不变）
+- `@media (max-height:600px)`：收紧 `.app-nav` / `.app-nav-brand`
+- 新增 `@media (prefers-reduced-motion: reduce)`
+
+**未触碰**：`.button*`、`.empty-state*`、`.inline-error*`、`.loading-row*` 段（并行子代理负责），以及所有业务/数据/路由文件。
+
+## 三、关于三个 TSX 零改动的说明
+
+需求 1~8 全部可由 CSS 达成：根裁切、唯一滚动、胶囊态、六态、图标对齐、z-index、矮窗口、缩放安全均落在选择器上。TSX 只做 `className`/`aria-*` 等允许改动，但本次没有任何一条需要改动 DOM 结构或可访问名才能实现的目标，按"改动最小化、不顺手重构"原则**保持 TSX 原样**，从而把破坏 `AppShell.test.tsx`（8 条）与 `navigation.spec.ts` 的风险降到零。DOM 结构、文本、`role`、可访问名、事件处理器、props、条件渲染分支全部未动。
+
+## 四、验收
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（tsc 无输出）
+- `npm --prefix apps/desktop-ui run test -- --run`：10 个测试文件、65 条用例全绿（含 `AppShell.test.tsx` 8 条）
+- 视觉/无障碍（Playwright）按编排要求由守门人统一执行，本阶段未跑。
+
+
+
+### ===== 附录：subagent-3-controls.md =====
+
+# Subagent 3：公共原子控件视觉质感 + 6 态闭环 + 状态呈现
+
+范围（仅此 4 个 CSS 文件的**控件段**）：
+
+- `src/styles/layout.css`：`.button*`、`.empty-state*`、`.inline-error*`、`.loading-rows`/`.loading-row*`
+- `src/styles/task7.css`：`.page-count`、`.status-label*`、`.delivery-state*`、`.agent-name-button`、`.icon-text-button`、`.switch-*`、`.capability-item*`、`.schema-*`
+- `src/styles/task9.css`：`.history-title-button`、`.history-body-toggle`、`.history-search-control*`、`.history-filters input/select`、`.diagnostic-level*`、`.settings-feedback*`、`.settings-switch-row input[type=checkbox]`、`.settings-inline-fields input`
+- `src/styles/channels.css`：`.button-danger*`、`.field-hint`/`.field-error`、`.dialog-overlay`、`.channel-login-dialog`/`.confirm-dialog`、`.dialog-header`、`.icon-button`、`.login-state-panel*`、`.qr-panel`/`.channel-login-qr`、`.verify-code-form*`、`.spin-icon`
+
+未改动：任何 `.tsx`（组件已具备所需 className/role/可访问名，无必要不动 DOM）、`src/bridge/**`、业务逻辑、数据请求、Query Key、路由、业务状态机。壳层段（`.app-shell`/`.app-nav*`/`.runtime-status-*`/`.app-main`/`.workbench-page*`）与各业务容器段（列表/表格/卡片/面板）未触碰，归属并行子代理。
+
+---
+
+## 一、6 态闭环取值（逐组件）
+
+统一过渡：`transform var(--duration-fast) var(--ease-out)`、颜色/背景/描边/发光 `var(--duration-base) var(--ease-out)`；只动 `transform` 与颜色类属性，不动尺寸，保证无布局位移。
+
+| 组件 | Default | :hover | :active | :focus-visible | :disabled | 加载态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `.button`（主操作） | 主色底 + `--glow-sm` 常驻柔光，尺寸基线仍为 `--control-height` | 底色提亮至 `--color-primary-hover` + `translateY(-1px)` + `--glow-md` | `translateY(0) scale(0.98)` + `box-shadow: none` | reset 的 2px `--color-primary` 环 + `outline-offset: 2px`，另加 `--glow-md` 与 hover 区分 | `opacity: .45` + `cursor: not-allowed` + 去发光（形态仍可辨识） | 由宿主按钮文案 + `:disabled` 表达；列表级由 `LoadingRows` 承担 |
+| `.button-secondary` | `--glass-bg-1` + `--border-subtle`，无发光（权重低于主按钮） | `--glass-bg-2` + `--border-hover`（描边亮度 +24%）+ `--glow-sm` + 抬升 1px | 同上（回弹触底） | 同上 | 同上 | 同上 |
+| `.button.button-danger` | 语义红底 + 深色文字 8.15:1 | 提亮红（`color-mix(danger 88%, text)`）+ 抬升 1px | 回弹 | 同上 | 同上 | — |
+| `.button.button-danger-text` | 语义红字 + 45% 红描边 | `--color-danger-soft` 底 + 实红描边 | 回弹 | 同上 | 同上 | — |
+| `.icon-button` | 透明底 + `--color-text-muted`，`place-items: center` 保证图标居中 | `--glass-bg-2` + 文字提亮 + `--glow-sm` + 抬升 1px | `--glass-bg-3` + 收敛发光 + `scale(.98)` | 同上 | `opacity: .45` + `not-allowed` | — |
+| `.agent-name-button` / `.icon-text-button` / `.history-title-button` / `.history-body-toggle` | 透明底无边，仅文字 | 语义色提亮 + `text-shadow: var(--glow-sm)`（同源文字光晕）+ 抬升 1px | 回弹 `scale(.98)` | 同上 | `opacity: .45` + `not-allowed` | — |
+| `.switch-control` / `.switch-track` | 暗底 `--color-surface-muted` + `inset 0 0 0 1px --border-subtle`，滑块 `--color-text-muted` | 由 label 的 `cursor: pointer` 表达；滑块/轨道按选中态过渡 | 由原生 checkbox 处理 | `outline: 2px solid var(--color-primary)` + `offset 2px` + `--glow-sm`（原为 `--color-info`，统一主色） | `opacity: .45` + `cursor: not-allowed` | — |
+| `.schema-*` / `.verify-code-form` / `.settings-inline-fields` / `.history-filters` 表单控件 | `--glass-bg-1` + `--border-subtle` | 由聚焦态表达（桌面表单不做 hover 位移，避免抖动） | — | `--color-primary` 描边 + `--glass-bg-2` 底 + reset 高对比环 | `--color-text-muted` 文字 + `--color-surface-muted` 底 + `not-allowed` | — |
+
+### 裁决 1：`.button` hover 用 `--glow-md` 而非 `--glow-sm`
+`--glow-sm` 已是主按钮**常驻**柔光（Subagent 1 定义其为「主按钮/常态柔和外发光」）。若 hover 仍用 `--glow-sm` 则反馈不可感知。故 hover 升级为 `--glow-md`（Subagent 1 定义的「交互强调发光」档），次级/危险按钮才用 `--glow-sm`。
+
+### 裁决 2：危险色按钮不做青色发光
+`--glow-*` 全部是 `rgba(0,240,255)` 青系。红底按钮叠加青色光晕会出现脏光（光污染）。故 `.button-danger` / `.button-danger-text` 的 hover 收敛为 `box-shadow: none`，仅用亮度/描边/位移表达反馈。
+
+### 裁决 3：`.button-danger*` 选择器提升为 `.button.button-danger*`
+实测打包顺序（读 `dist/assets/index-*.css` 验证）为：`channels.css → task9.css → task7.css → tokens.css → reset.css → layout.css`。即 `layout.css` 最后加载，同权重下 `.button` / `.button-secondary` 会**覆盖** `channels.css` 里的 `.button-danger` / `.button-danger-text`（现网表现：确认框「删除」按钮实际渲染成青色主按钮、危险文本按钮文字变青）。这是既有缺陷。修法：把危险按钮规则提升为 `.button.button-danger`（0,2,0）、hover 为 `.button.button-danger:hover:not(:disabled)`（0,4,0），权重压过 `.button*`，无需 `!important`。文字色 `#ffffff`（对珊瑚红仅 2.27:1，不达标）改为 `var(--color-surface)`（8.15:1）。
+
+### 裁决 3b：主按钮 hover 的「描边亮度 +20%」用 `--color-primary-hover` 实现
+主按钮的描边本身就是 `--color-primary`（实心青），若换成 `--border-hover`（白 8%）反而会「变暗」。故主按钮的描边亮度提升走 `--color-primary → --color-primary-hover`（同族提亮，合成亮度提升约 11%，观感与「亮约 20%」同向）；`--border-hover` 用在真正的细描边控件上（`.button-secondary`）。危险按钮同理走 `--color-danger` 提亮，不套 `--border-hover`。
+
+### 裁决 3c：`.field-hint` / `.field-error` 仅补 `line-height: 1.5`
+这两个类无硬编码浅色、对比度已达标（`--color-danger` 在最坏毛玻璃底 5.19:1），且不承载交互态，故只补行高让长中文提示换行后可读，不做多余改动。
+
+### 裁决 4：表单控件 disabled 不用 `opacity: .45`
+`.45` 会让输入值/标签落到 4.5:1 以下。表单控件改用「`--color-text-muted` 文字 + `--color-surface-muted` 底 + `cursor: not-allowed`」（6.04:1），`opacity: .45` 只用于按钮/开关/图标按钮。
+
+---
+
+## 二、骨架屏（防 CLS + 扫描微光）
+
+- 关键帧 `control-skeleton-sweep`：`background-position: 100% → -100%`（`background-size: 200% 100%`），自左向右单次扫过一个容器宽。
+- 时长 `calc(var(--duration-base) * 10)` = 1500ms、`linear`、`infinite`：循环微光不是微交互过渡，200ms 内会变成频闪；用动效 token 的整数倍派生，避免引入裸时长常量。
+- 扫描高光 `color-mix(in srgb, var(--color-primary) 14%, transparent)`：青色低强度，与底 `--color-surface-muted` 同族，不产生亮块。
+- **防 CLS**：骨架条高度由 `10px` 改为 `var(--font-size-2)`（13px），与真实行内文本字高 1:1；行高沿用既有 `min-height: 48px`（结构值，非本次引入），行数与真实数据量对齐（各页传入 `rows`）。骨架条改 `--radius-pill` 与胶囊化控件统一。
+- **已知约束（如实记录）**：`LoadingRows` 是跨页面共享的三列骨架组件，宿主既有 48px 表格行，也有设置页的分组区块，无法对所有宿主做到像素 1:1；本次在「不改组件结构」的红线内把可控部分（字高、行数、行高不变）对齐，未新引入跳变量。
+
+---
+
+## 三、状态徽标与呼吸微光
+
+| 徽标 | 底 | 文字 | 圆角 | 呼吸 |
+| --- | --- | --- | --- | --- |
+| `.page-count` | `--glass-bg-2` + `--border-subtle` | `--color-text-muted`（6.45:1） | `--radius-pill` | 无（纯计数，非告警） |
+| `.status-label--success` / `.delivery-state--sent` | `--color-success-soft` | `--color-success`（6.33:1 最坏） | pill | 无（正常态不需吸引注意） |
+| `.status-label--danger` / `.delivery-state--failed/--unknown` | `--color-danger-soft` | `--color-danger`（**5.19:1，全局最紧**） | pill | 有 |
+| `.status-label--warning`（**新增**）/ `.delivery-state--pending/--skipped` | `--color-warning-soft` | `--color-warning`（6.07:1） | pill | 有 |
+| `.status-label--info`（新增） | `--color-info-soft` | `--color-info`（5.93:1） | pill | 无 |
+| `.diagnostic-level--normal/--waiting/--error/--paused` | 各自 `--color-*-soft` | 各自语义色 | pill | 仅 waiting/error |
+| `.login-state-panel--error` / `--success` | 各自 `--color-*-soft` | 各自语义色 | `--radius-control` | 仅 error |
+
+- 全部对比度取值来自 `subagent-1-tokens.md` 实测表，最小 5.19:1（danger-on-soft over 毛玻璃最坏底），≥ 4.5:1，axe `color-contrast` 不会判红。
+- 补齐缺失变体：原 CSS 只有 `--success`/`--danger`，而 `ChannelAccountList` 会传 `tone: "warning"`（「已停用」），此前退化为无色文字；现补 `--warning`/`--info`。
+
+### 裁决 5：呼吸微光只给「需要注意」的状态
+成功/正常/已发送/计数不呼吸。若所有徽标一起呼吸即是光污染，也削弱告警语义。
+
+### 裁决 6：呼吸用 `currentColor` 派生同源发光 + 关键帧只定义一次
+```css
+--badge-glow: color-mix(in srgb, currentColor 30%, transparent);
+@keyframes control-badge-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 var(--badge-glow); }
+  50%      { box-shadow: 0 0 var(--space-3) 0 var(--badge-glow); }
+}
+```
+- 用 `currentColor` 让发光色随变体自动同源，避免为 4 个语义色各写一组关键帧，也不硬编码色值。
+- 模糊半径用 `--space-3`（12px，与 `--glow-sm` 的 10px 同档），不写裸 `10px` 发光常量。
+- 周期 `calc(var(--duration-base) * 12)` = 1800ms + `var(--ease-out)`。
+- 关键帧在 `task7.css` 定义**一次**，`task9.css`（`.diagnostic-level`）、`channels.css`（`.login-state-panel--error`）引用；三个文件由 `router.tsx` 同批加载，故不重复定义（`@keyframes` 是全局命名空间，重复定义会互相覆盖）。
+- **reduced-motion 降级**：三个文件各自的 `@media (prefers-reduced-motion: reduce)` 内 `animation: none`，徽标回落到静态柔和底 + 语义色文字，状态仍可辨识。
+
+---
+
+## 四、表单聚焦发光与 placeholder 对比度
+
+- Default 底由不透明 `--color-surface` 改为 `--glass-bg-1`（毛玻璃暗底），描边 `--border-subtle`。
+- `:focus-visible`：`border-color: var(--color-primary)` + 底提到 `--glass-bg-2`，配合 `reset.css` 的 2px 主色环 + `offset 2px` + `--glow-sm`，形成「描边过渡 + 高对比环 + 克制发光」三层反馈，全程无 `outline: none`。
+- placeholder 显式声明 `color: var(--color-text-muted)`：Chromium 暗色 `color-scheme: dark` 下的 UA 默认 placeholder 对比度不可控，显式取值在最亮毛玻璃底上 5.82:1。
+- 错误提示与表单间距按规范保持 `var(--space-2)`：`.verify-code-form` 与 `InlineError` 相邻场景由既有 `gap: var(--space-2)` 承担，未改动。
+
+### 裁决 7：搜索框（组合控件）聚焦环画在容器上
+`.history-search-control` 是「图标 + input」组合控件。实测打包顺序里 `reset.css` 在 `task9.css` **之后**加载，同权重下 reset 的 `input:focus-visible` 环会覆盖旧的 `outline: 0`，在容器内部画出与容器边框错位的第二个环（双线脏边）。修法：聚焦环与光晕统一由 `.history-search-control:focus-within` 提供（2px `--color-primary` + `offset 2px` + `--glow-sm`），内部 input 用 `outline-color: transparent; box-shadow: none` 取消重复环——焦点可见性由容器 100% 保留，不存在「取消焦点指示」。同时给内部 input 补 `background: transparent`（否则 `color-scheme: dark` 下 UA 默认底色会盖住容器毛玻璃底）。
+另：内部 input 的 `min-height: 30px` 改为 `calc(var(--control-height) - 2px)`（= 容器上下 1px 描边），渲染值不变，去掉游离数字。
+
+---
+
+## 五、浮层毛玻璃配方
+
+| 层 | 配方 |
+| --- | --- |
+| `.dialog-overlay` | `background: color-mix(in srgb, var(--color-canvas) 72%, transparent)` + `backdrop-filter: var(--glass-blur-sm) var(--glass-saturate)`；`z-index: var(--z-modal)`（替换裸 `100`） |
+| `.channel-login-dialog` / `.confirm-dialog` | `--glass-bg-3` + `backdrop-filter: var(--glass-blur-md) var(--glass-saturate)` + `1px solid var(--border-glow)` 微光边 + `box-shadow: var(--glow-sm), 0 18px 48px color-mix(canvas 60%, transparent)` |
+| `.dialog-header` | 吸顶：`position: sticky; top: 0; z-index: var(--z-sticky)` + `--glass-bg-3` + `--glass-blur-sm` + `--border-subtle` 分隔线 |
+
+- `max-height: calc(100vh - 32px)` → `calc(100vh - var(--space-6))`（同值，去游离数字），配合既有 `overflow-y: auto`：窗口矮化时对话框内部滚动，底部操作区不被裁切。
+- 头吸顶后，对话框自身 `overflow-y: auto` 会把 sticky 头裁切在 `--radius-panel` 圆角内，无圆角漏角。
+- `backdrop-filter` 会生成层叠上下文：overlay 是 `position: fixed` + `--z-modal`，对话框内的吸顶头只在对话框自己的层叠上下文里比较 `--z-sticky`，不会外溢；未新增任何浮层 DOM。
+- `.channel-login-qr` 保留 `#ffffff`：二维码需浅底才能被扫描，属**功能性例外**，非装饰浅色（已在代码注释中标注）。其余浅色硬编码全部清除。
+
+---
+
+## 六、清掉的硬编码浅色值对照表
+
+| 文件:选择器 | 旧值 | 新值 |
+| --- | --- | --- |
+| `layout.css` `.inline-error` | `#fbefed` | `linear-gradient(135deg, var(--color-danger-soft), color-mix(danger 4%, transparent))` |
+| `task7.css` `.switch-track` | `#aeb5af` | `var(--color-surface-muted)` + `inset 0 0 0 1px var(--border-subtle)` |
+| `task7.css` `.schema-field--unsupported` | `#fff8e8` | `var(--color-warning-soft)` + `1px` warning 30% 描边 |
+| `task9.css` `.diagnostic-level--normal` | `#e7f3ea` | `var(--color-success-soft)` |
+| `task9.css` `.diagnostic-level--waiting` | `#fff3db` | `var(--color-warning-soft)` |
+| `task9.css` `.diagnostic-level--error` | `#fbefed` | `var(--color-danger-soft)` |
+| `task9.css` `.diagnostic-level--paused` | `#e7f1f7` | `var(--color-info-soft)` |
+| `task9.css` `.settings-feedback--success` | `#e7f3ea` | `var(--color-success-soft)` |
+| `task9.css` `.settings-feedback--error` | `#fbefed` | `var(--color-danger-soft)` |
+| `channels.css` `.button-danger` | `color: #ffffff` | `var(--color-surface)`（2.27:1 → 8.15:1） |
+| `channels.css` `.button-danger:hover` | `#922d27` | `color-mix(in srgb, var(--color-danger) 88%, var(--color-text))` |
+| `channels.css` `.button-danger-text` | `color-mix(..., 45%, white)` | `color-mix(in srgb, var(--color-danger) 45%, var(--color-text))` |
+| `channels.css` `.dialog-overlay` | `rgb(22 29 25 / 42%)` | `color-mix(in srgb, var(--color-canvas) 72%, transparent)` |
+| `channels.css` 对话框阴影 | `rgb(25 32 28 / 22%)` | `color-mix(in srgb, var(--color-canvas) 60%, transparent)` |
+| `channels.css` `.login-state-panel--error` | `#fbefed` | `var(--color-danger-soft)` |
+| `channels.css` `.login-state-panel--success` | `#edf7f0` | `var(--color-success-soft)` |
+| `channels.css` `.channel-login-qr` | `#ffffff` | **保留**（二维码功能性浅底，见第五节） |
+
+其它同类替换：`--color-border` → `--border-subtle`（控件描边，暗色下更细更「切」）；`outline: 2px solid var(--color-info)` → `var(--color-primary)`（`.switch-track` 聚焦、`.history-title-button` 聚焦）；裸 `120ms ease` → `var(--duration-fast|base) var(--ease-out)`。
+
+---
+
+## 七、领地外但已发现的问题（留给后续子代理，本次未动）
+
+以下选择器不在本代理所有权内，暗色下会出现脏亮块/低对比，已记录不修改：
+
+- `task7.css` `.agent-row--selected { background: #e7f0ed }`（列表行）
+- `task9.css` `.history-row--selected { background: #e7f0ed !important }`、`.history-delivery-error { background: #fbefed }`（历史表格/详情容器段）
+- `channels.css` `.channel-account-row--selected { background: #e7f0ed }`（渠道表格容器段）
+- `task9.css` `.settings-field input/select`：本次按所有权只改了 `.history-filters input/select`，故把原共享声明块拆成两块，`.settings-field` 规则**逐字保留**（避免越权，也避免暗色下两个输入风格不一致时被误判为回归）；建议后续子代理一并统一为毛玻璃底。
+
+## 八、门禁与自检
+
+- `npm --prefix apps/desktop-ui run typecheck` → 通过（`tsc --noEmit` 无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run` → **10 个文件 / 65 条用例全绿**（含 `AppShell.test.tsx` 的 `role="status"` + `aria-label` 断言、`aria-label="正在加载列表"` 与 3 行子节点断言，未破坏）。
+- 额外静态自检（非门禁脚本）：用仓库内 `postcss` 解析 4 个 CSS 文件全部通过；扫描 4 个文件里所有 `var(--*)` 引用，除本地声明的 `--badge-glow` 外全部命中 `tokens.css`。
+- 未运行 `npm run build` 与任何 playwright 命令（遵守并行构建/浏览器占用约束，无障碍与视觉门禁由守门人统一执行）。
+- 本次未改任何 `.tsx`、`src/bridge/**`、业务逻辑与数据契约。
+
+
+
+### ===== 附录：subagent-4-views.md =====
+
+# Subagent 4：六个业务视图页面精细化 UI/UX 优化
+
+范围（仅 3 个 CSS 文件的**业务段**）：
+
+- `src/styles/task7.css`：总览 / Agent 管理的业务容器与表格、卡片、选中行
+- `src/styles/task9.css`：历史 / 诊断 / 设置的业务容器、历史长列表、设置表单
+- `src/styles/channels.css`：渠道页业务容器、账号列表、配置与测试发送表单
+
+**未改动**：任何 `.tsx`（本轮所有目标均可由 CSS 达成，按「改动最小化」原则保持 TSX 零改动）、`src/bridge/**`、`src/components/**`、`src/app/**`、`src/data/**`、`tests/**`、`layout.css`、`tokens.css`、`reset.css`、以及三个 CSS 文件里的**控件段**（`.button*`、`.status-label*`、`.delivery-state*`、`.diagnostic-level*`、`.switch-*`、`.schema-*`、`.icon-button*`、`.dialog-*`、`.login-state-panel*`、`.spin-icon`、`.field-hint`/`.field-error`、`.settings-feedback*`、`.settings-inline-fields input`、`.history-filters input/select`、`.history-title-button`、`.history-body-toggle`、`.history-search-control*`，均由 Subagent 3 完成）。
+
+依据：`.opencode/skills/agent-notify-ui-ux/SKILL.md`、`styles/tokens.css`、`UI_DECISIONS.d/subagent-1-tokens.md`、`subagent-2-shell.md`、`subagent-3-controls.md`。
+
+CSS 实测加载顺序：`channels → task9 → task7 → tokens → reset → layout`（`layout.css` 最后）。本轮的卡片/表单规则全部使用各自文件独有的类名，未与后置文件同权重冲突；唯一的同权重交叉点是 `.channel-config-form input:disabled`（channels，先）与 `.schema-field input:disabled`（task7，后），两者取值一致，且前者独有的 `border-color`/`cursor` 不被覆盖，实测生效。
+
+---
+
+## 一、信息卡片毛玻璃分档与内边距收敛对照表
+
+统一配方（第一档 / 页面级卡片）：
+
+```css
+padding: var(--space-4);
+background: var(--glass-bg-2);
+border: 1px solid var(--border-subtle);
+border-radius: var(--radius-panel);
+backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+```
+
+第二档（卡片内部的小卡/次级面，**不叠 backdrop-filter**，避免嵌套模糊与脏边）：
+
+```css
+padding: var(--space-3);
+background: var(--glass-bg-1);
+border: 1px solid var(--border-subtle);
+border-radius: var(--radius-control);
+```
+
+| 选择器 | 文件 | 旧状态 | 新档位 | 旧内边距 | 新内边距 |
+| --- | --- | --- | --- | --- | --- |
+| `.overview-section` | task7 | 仅 `border-bottom` 分割线 | 第一档 | `--space-4` | `--space-4` |
+| `.health-summary` | task7 | 上下实线 + 3 段 `border-right` 拼接 | 容器（`gap: --space-4`，无底无边） | — | — |
+| `.agent-list` | task7 | 上下实线 | 第一档 | 无 | `--space-4 0` |
+| `.agent-detail` | task7 | 上下实线 + `padding-top` | 第一档 | `--space-3`（仅上） | `--space-4` |
+| `.history-filters` | task9 | `padding-bottom` + `border-bottom` | 第一档 | `--space-4`（仅下） | `--space-4` |
+| `.history-table-wrap` | task9 | 上下实线 | 第一档 | 无 | `--space-4` |
+| `.history-detail` | task9 | 不透明 `--color-surface` + 上下实线 | 第一档 | `--space-3` | `--space-4` |
+| `.diagnostic-component` | task9 | `--color-surface-muted` + `--color-border` | 第一档 | `--space-3` | `--space-4` |
+| `.migration-issue` / `.migration-report` | task9 | 不透明 `--color-surface` | 第一档 | `--space-3` | `--space-4` |
+| `.settings-readonly-config` | task9 | `--color-surface-muted` + `--radius-control` | 第一档 | `--space-3` | `--space-4` |
+| `.channel-band` | channels | 上下实线 | 第一档 | `--space-3 0 --space-4` | `--space-4` |
+| `.channel-account-detail` | channels | 上下实线 | 第一档 | `--space-4 0` | `--space-4` |
+| `.test-notification-form` | channels | 上下实线 | 第一档 | `--space-4 0` | `--space-4` |
+| `.history-existence-list > div` | task9 | `--color-surface-muted` | 第二档 | `--space-2` | `--space-3` |
+| `.diagnostics-summary-list > div` | task9 | `--color-surface-muted` | 第二档 | `--space-2` | `--space-3` |
+| `.migration-issue-list > div` / `.migration-report-list > div` | task9 | `--color-surface-muted` | 第二档 | `--space-2` | `--space-3` |
+| `.migration-status` | task9 | `--color-surface-muted` + 仅左描边 | 第二档（保留 3px 语义左描边） | `--space-3` | `--space-3 --space-4` |
+| `.history-body` | task9 | `--color-surface-muted` | 第二档（代码块） | `--space-3` | `--space-3` |
+| `.history-row--header` | task9 | `--color-surface-muted` | 第二档（`--radius-control` 胶囊头） | — | — |
+| `.section-count` | task7 | 纯文字 | 与 `.page-count` 同源胶囊（`--glass-bg-1`） | — | `--space-1 --space-2` |
+
+### 裁决 1：blur 档位预算 = 内容区 1 档
+页面内容区**只用 `--glass-blur-sm` 一档**，壳层（导航 / 状态栏）沿用 Subagent 2 的 `--glass-blur-md`。同界面共 2 档，落在技能书「不超过 2~3 级」内。
+第二档小卡（`--glass-bg-1`）**不加 `backdrop-filter`**：它们都嵌在第一档卡片内，再叠一层 blur 既增加合成开销，也会因半透明层叠产生脏边。已逐条核对，全部卡片内部**无嵌套 backdrop-filter**（`.channel-band`→`.channel-account-list`、`.history-table-wrap`→`.history-table`、`.agent-detail`→`.agent-config-section`、`.settings-readonly-config`→`.schema-form-fields` 等均为「模糊父 + 无模糊子」）。
+
+### 裁决 2：`.health-summary` 由「三段拼接块」改为「三张并列卡片」
+旧实现用 `border-top/bottom` + `.overview-section` 的 `border-right` 拼成一条连续分割带，暗色下三条实线在毛玻璃上会显脏。改为 `.health-summary { gap: var(--space-4) }` + 三个独立卡片，并删除 880px 媒体查询里针对拼接线的 `border-right/bottom` 补丁。观感与总览页其余卡片完全一致，信息架构与 DOM 未变。
+
+### 裁决 3：卡片内表格去掉末行分割线
+卡片已有 1px 描边，表格每行 `border-bottom` 会在距卡片底边 16px 处再画一条线，形成「双线」。统一给卡片内表格末行去线：
+`.data-table tbody tr:last-child td`、`.agent-list tbody tr:last-child th/td`、`.channel-account-list tbody tr:last-child th/td`、`.diagnostic-item:last-child`、`.migration-warning-list li:last-child`、`.action-list li:first-child`（首行去顶线）。
+
+### 裁决 4：`.agent-list` 只加纵向内边距
+`.agent-list` 自身就是横向滚动容器（`overflow-x: auto`）。若加左右内边距，横向滚动时左内边距会被滚走，表格左缘直接贴到卡片描边。故 `padding: var(--space-4) 0`，横向呼吸交给单元格自带的 `var(--space-2)`。`.channel-account-list` 有独立滚动盒，不受此限，卡片内边距正常生效。
+
+### 裁决 5：`.settings-group` 保持「平铺分组 + 分割线」，不改成卡片
+设置页是表单页，5 个分组若各自成卡会变成「卡片墙」，且与组内 `--space-3` 字段节奏冲突。按任务书卡片清单（未列 `.settings-group`）保持现状，只统一了组内控件与只读预览卡（`.settings-readonly-config`）。诊断页同理：未新增 `.diagnostics-section` / `.diagnostics-summary` 选择器（不在所有权清单内），卡片落在 `.diagnostic-component`、`.migration-issue`、`.migration-report` 这一层，正好避开嵌套 blur。
+
+---
+
+## 二、表单控件同源化方案
+
+目标：`.settings-field input/select`、`.channel-config-form input/select/textarea`、`.test-notification-fields input/select/textarea` 与 Subagent 3 的 `.schema-field input` **视觉完全同源**。
+
+统一取值（逐字对齐 `.schema-field input`）：
+
+| 属性 | 取值 |
+| --- | --- |
+| 底 | `var(--glass-bg-1)`（毛玻璃暗底，非不透明 `--color-surface`） |
+| 描边 | `1px solid var(--border-subtle)` |
+| 圆角 | `var(--radius-control)` |
+| 内边距 | `var(--space-1) var(--space-2)` |
+| 最小高 | `var(--control-height)` |
+| 过渡 | `background / border-color var(--duration-base) var(--ease-out)` |
+| placeholder | `var(--color-text-muted)`（最亮毛玻璃底 5.82:1） |
+| `:focus-visible` | 底提到 `--glass-bg-2` + `border-color: var(--color-primary)`，叠加 `reset.css` 的 2px 主色环 + `offset 2px` + `--glow-sm`（Cyberpunk 发光边框过渡） |
+| `:disabled` | 文字 `--color-text-muted`（6.04:1）+ 底 `--color-surface-muted` + 描边 `--color-border` + `cursor: not-allowed` |
+
+- 改动点：`.settings-field` 控件由「`--color-surface` + `--color-border`、`padding: 0 --space-2`」改为上表；`.test-notification-fields` 控件同样改造并补齐 placeholder / focus / disabled 三态。
+- `.channel-config-form` 内部实际渲染的是 `SchemaForm` 的 `.schema-field` 控件（本就同源），故只把其 `:disabled` 补上 `border-color: var(--color-border)` + `cursor: not-allowed`，让只读展示的禁用态更可辨识（文字对比度 6.04:1 达标，未用 `opacity` 降级）。
+- **未动** `.history-filters input/select` 与 `.settings-inline-fields input`（Subagent 3 所有权，已是同源配方）。
+- 字段内节奏：`.history-filters label` / `.settings-field` 的 `gap` 由 `--space-1` 提到 `--space-2`（标签→控件→提示统一 8px）。
+- 裸数字清理：`.test-notification-fields textarea { min-height: 76px }` → `calc(var(--control-height) * 2 + var(--space-3))`（渲染值仍 76px）。
+
+---
+
+## 三、错误提示间距与渐变条参数
+
+- **错误条**：`.history-delivery-error` 由硬编码浅底 `#fbefed` 改为与 `layout.css` 的 `.inline-error` **同源配方**：
+  ```css
+  background: linear-gradient(135deg,
+    var(--color-danger-soft),
+    color-mix(in srgb, var(--color-danger) 4%, transparent));
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  ```
+- **账号健康错误**：`.channel-account-error` 由裸红字改为 `--color-danger` 文字 + `--color-danger-soft` 柔和底 + `--radius-control`（该处内容**必然**是错误，可安全上柔和底）；行高 `1.45` 归一为 `1.5`。
+- **错误提示与表单间距固定 `var(--space-2)`**：
+  - `.agent-config-form` 的 grid `gap` 由 `--space-3` 收到 `--space-2`（该容器只有 3 个子项：字段组 / InlineError / 操作区，gap 即错误邻接间距）；`.agent-config-actions` 补 `margin-top: var(--space-1)`，使「字段→操作区」仍为 12px，不塌陷无关节奏。
+  - 块级容器（不与 grid gap 叠加）直接给固定间距：`.history-detail > .inline-error`、`.diagnostic-item-main > .inline-error` 各 `margin-top: var(--space-2)`（这两处此前是 0 间距，紧贴上一段）。
+  - 其余页面级错误条位于 `.workbench-page-content` 的 grid 流中，间距由容器 gap 承担，不再额外叠加 margin（避免 8px+16px 的复合间距）。
+
+### 裁决 6：`.error-cell` / `.history-error-cell` 不做柔和底
+这两个单元格的内容是 `delivery.error?.message ?? "无"` / `historyErrorSummary(...)`（无错时返回「无」「无可见错误」）。组件无法区分「占位文案」与「真实错误」，统一上 `--color-danger-soft` 会把「无」渲染成红色告警块，属**语义误报**。故二者保持 `color: var(--color-danger)`（仍消费同一套语义 token，未另创风格），真正的错误提示条由 `.history-delivery-error`（必为错误）与 `InlineError` 承担。
+
+### 裁决 7：`.existence-value--yes/no` 上胶囊
+这两个 `<strong>` 只渲染「存在 / 不存在」，语义确定，直接复用状态徽标配方（柔和语义底 + 语义亮色文字 + `--radius-pill`），`--no` 带呼吸微光。副作用：「投递」行在 `deliveries.length > 0` 分支渲染的是无 class 的纯文本「存在（N 条）」，与两侧胶囊略不同构——这是不改 TSX 结构下的可接受折中，已在真机视觉验收清单中标注。
+
+---
+
+## 四、长列表虚拟滚动（历史页）
+
+| 项 | 取值 | 说明 |
+| --- | --- | --- |
+| 视口高度约束 | `height: min(58vh, 560px)` + `min-height: 320px` | 沿用既有结构值（非间距，未改），保证虚拟容器高度确定 |
+| 行高 | `HISTORY_ROW_HEIGHT = 54`（JS 未动） | 仅调 CSS，`@tanstack/react-virtual` 参数一行未改 |
+| 视口底 | `transparent` | 由原来的不透明 `--color-surface` 改为透明，直接透出卡片毛玻璃底 |
+| 行底 | 透明（删除 `.history-virtual-space .history-row` 的 `background`） | **行底与容器同源**：不再有「不透明行 + 半透明卡片」的色差接缝 |
+| 滚动条 | `scrollbar-width: thin` + `scrollbar-color: var(--color-border) transparent` | 透明轨道，杜绝深色黑带 |
+| 防抖动 | `scrollbar-gutter: stable` | 滚动条出现/消失不改变 clientWidth，行宽不抖动 |
+| 行分隔 | `border-bottom: 1px solid var(--color-border)`（既有） | 行底透明后靠 1px 分隔线保持可读性 |
+
+### 裁决 8：行底改透明的理由
+原实现行底与视口底都是不透明的 `--color-surface`，而卡片是半透明 `--glass-bg-2`：滚动时行块与卡片之间存在 `#12141d` vs `#161a26` 的色差，且在快速滚动/合成层切换时容易出现「白屏闪烁」与边缘抖动。改为**视口与行都透明、由卡片统一提供底色**后，滚动内容与容器天然同源，合成层也不再需要重新绘制不透明底。
+
+### 裁决 9：`.history-table-wrap` 加 `overflow: hidden`
+`>1120px` 时历史表格列宽合计最小约 954px，而 1280x800 下表格列只有约 665px（去掉卡片内边距后约 631px），表头行的 grid 轨道必然溢出容器。原实现靠右侧 `.history-detail` 的**不透明**底色把溢出「盖住」；本次详情面板改为半透明毛玻璃后，溢出文字会**透出**面板，形成新的脏边。故给表格卡片加 `overflow: hidden`，把溢出裁切在卡片圆角内。
+`≤1120px` 时由 `.history-table { overflow-x: auto }` 承担横向滚动，行为不变；`>1120px` 时第六列本就不可达（被详情面板覆盖），无功能回归。
+
+### 裁决 10：`.history-row--selected` 去掉 `!important`
+原 `background: #e7f0ed !important`（浅色残留）之所以必须 `!important`，是因为 `.history-virtual-space .history-row`（0,2,0）声明了 `background`，权重高于 `.history-row--selected`（0,1,0）。本次**同时删除** `.history-virtual-space .history-row` 的 `background` 声明，于是 `.history-row--selected { background: var(--color-primary-soft) }` 在无竞争声明的情况下必然生效——已静态核对：全仓库再无其它规则对 `.history-row` 设置 `background`（`.history-row--header` 作用于表头行，二者不会同时命中）。无需提高选择器权重，也无需 `!important`。
+
+---
+
+## 五、选中态暗色化与 `!important` 处理
+
+| 选择器 | 文件 | 旧值 | 新值 | 附加 |
+| --- | --- | --- | --- | --- |
+| `.agent-row--selected` | task7 | `#e7f0ed` | `var(--color-primary-soft)` | `.agent-row--selected .agent-name-button { color: var(--color-primary) }` |
+| `.history-row--selected` | task9 | `#e7f0ed !important` | `var(--color-primary-soft)`（**去 `!important`**） | `.history-row--selected .history-title-button { color: var(--color-primary) }` |
+| `.channel-account-row--selected` | channels | `#e7f0ed` | `var(--color-primary-soft)` | `.channel-account-row--selected .channel-account-name { color: var(--color-primary) }` |
+
+- 统一用**半透明主色叠加**（`--color-primary-soft` = 主色 16%），在任意毛玻璃/画布底上自动同源，不会出现浅色亮块与脏边。
+- 附加的名称提亮规则权重均为 (0,2,0)，高于名称按钮的 (0,1,0)，且低于 hover 的 (0,3,0)，选中与 hover 可叠加不冲突。
+- 文件内已无任何 `!important`（唯一残留字符串是说明用注释）。
+
+---
+
+## 六、清掉的硬编码色值 / 不透明底对照表
+
+| 文件:选择器 | 旧值 | 新值 |
+| --- | --- | --- |
+| `task7` `.agent-row--selected` | `#e7f0ed` | `var(--color-primary-soft)` |
+| `task9` `.history-row--selected` | `#e7f0ed !important` | `var(--color-primary-soft)` |
+| `task9` `.history-delivery-error` | `#fbefed` | `linear-gradient(135deg, var(--color-danger-soft), color-mix(danger 4%, transparent))` |
+| `channels` `.channel-account-row--selected` | `#e7f0ed` | `var(--color-primary-soft)` |
+| `channels` `.channel-account-error` | 无底 | `var(--color-danger-soft)` |
+| `task7` `.overview-section` / `.health-summary` | 无底（仅 `--color-border` 分割线） | `--glass-bg-2` + `--border-subtle` |
+| `task7` `.agent-list` / `.agent-detail` | 仅上下 `--color-border` | `--glass-bg-2` + `--border-subtle` |
+| `task9` `.history-filters` | `padding-bottom` + `border-bottom` | `--glass-bg-2` + `--border-subtle` |
+| `task9` `.history-table-wrap` | 上下 `--color-border` | `--glass-bg-2` + `--border-subtle` + `overflow: hidden` |
+| `task9` `.history-detail` | `var(--color-surface)`（不透明） | `--glass-bg-2` + `--border-subtle` |
+| `task9` `.history-virtual-viewport` | `var(--color-surface)` | `transparent` |
+| `task9` `.history-virtual-space .history-row` | `var(--color-surface)` | 透明（删除声明） |
+| `task9` `.history-row--header` | `var(--color-surface-muted)` | `--glass-bg-1` + `--radius-control` |
+| `task9` `.history-existence-list > div` / `.diagnostics-summary-list > div` | `var(--color-surface-muted)` | `--glass-bg-1` + `--border-subtle` |
+| `task9` `.migration-status` | `var(--color-surface-muted)` + `border-color` 变体 | `--glass-bg-1` + `--border-subtle`；变体改 `border-left-color`（避免整框变色） |
+| `task9` `.migration-issue` / `.migration-report` | `var(--color-surface)` + `--color-border` | `--glass-bg-2` + `--border-subtle` |
+| `task9` `.migration-issue-list > div` / `.migration-report-list > div` | `var(--color-surface-muted)` | `--glass-bg-1` + `--border-subtle` |
+| `task9` `.diagnostic-component` | `var(--color-surface-muted)` + `--color-border` | `--glass-bg-2` + `--border-subtle` |
+| `task9` `.history-body` | `var(--color-surface-muted)` | `--glass-bg-1` + `--border-subtle` |
+| `task9` `.settings-readonly-config` | `var(--color-surface-muted)` + `--radius-control` | `--glass-bg-2` + `--border-subtle` + `--radius-panel` |
+| `task9` `.settings-field input/select` | `var(--color-surface)` + `--color-border` | `--glass-bg-1` + `--border-subtle` |
+| `channels` `.channel-band` / `.channel-account-detail` / `.test-notification-form` | 上下 `--color-border` | `--glass-bg-2` + `--border-subtle` |
+| `channels` `.test-notification-fields input/select/textarea` | `var(--color-surface)` + `--color-border` | `--glass-bg-1` + `--border-subtle` |
+
+- 领地内已无裸 hex/rgba/hsl 字面量（唯一残留 `#ffffff` 是 `.channel-login-qr` 的二维码功能性浅底，属 Subagent 3 段，保留）。
+- 结构化分割线（表格行线、分组线）继续用 token `var(--color-border)`；卡片描边统一改用 `var(--border-subtle)`，与 Subagent 3 的控件描边同源。
+
+---
+
+## 七、间距游离值清理清单（4/8px 网格审计）
+
+| 位置 | 旧值 | 新值 |
+| --- | --- | --- |
+| `task7` `.action-list { gap }` | `0` | 删除（grid 默认即 0） |
+| `task9` `.diagnostic-list, .diagnostic-components { gap }` | `0` | 删除 |
+| `task9` `.migration-warning-list { gap }` | `0` | 删除 |
+| `task9` `.settings-form { gap }` | `0` | 删除 |
+| `task9` `.history-delivery-header > div { gap }` | `2px` | `var(--space-1)` |
+| `task9` `.migration-issue-list > div` / `.migration-report-list > div { gap }` | `2px` | `var(--space-1)` |
+| `task9` `.settings-switch-row > span` / `.settings-unavailable-row > span { gap }` | `1px` | `var(--space-1)` |
+| `task9` `.history-filters { gap }` | `--space-2` | `--space-3`（工具栏字段节奏） |
+| `task9` `.history-filters label` / `.settings-field { gap }` | `--space-1` | `--space-2` |
+| `task9` `.history-detail { padding }` | `--space-3` | `--space-4` |
+| `task9` `.history-existence-list > div { padding }` | `--space-2` | `--space-3` |
+| `task9` `.migration-issue-list > div { padding }` | `--space-2` | `--space-3` |
+| `task9` `.migration-status { padding }` | `--space-3` | `--space-3 --space-4` |
+| `task9` `.agent-config-form { gap }` | `--space-3` | `--space-2` |
+| `task9` `.agent-config-actions { margin-top }` | 无 | `var(--space-1)` |
+| `channels` `.test-notification-fields textarea { min-height }` | `76px` | `calc(var(--control-height) * 2 + var(--space-3))` |
+| `channels` `.channel-band { padding }` | `--space-3 0 --space-4` | `--space-4` |
+| `channels` `.test-notification-heading svg` | `flex: 0 0 18px` | `flex: 0 0 20px` + `20px/20px`（对齐 4px 网格，同 Subagent 2 裁决 7 手法） |
+| `task9` `.channel-account-error { line-height }` | `1.45` | `1.5`（与其它提示行高一致） |
+| `task9` `.history-row--header { z-index }`（≤1120px） | `1` | `var(--z-content)` |
+| `task7` `@media (max-width:640px) .overview-section { padding }` | `--space-3` | 删除（卡片内边距统一 `--space-4`） |
+| `task7` `@media (max-width:880px) .health-summary .overview-section` 拼接线补丁 | `border-right/bottom` | 删除（改卡片后无拼接线） |
+
+保留的裸数值均为**结构性尺寸**（非 padding/margin/gap）：`min-width: 72px`（metric 列）、`88px/92px`（描述列表标签列）、`680px/760px/820px`（表格最小宽）、`920px`（历史行最小宽）、`min(58vh,560px)`/`320px`（虚拟视口）、`240px`/`min(72vh,720px)`（滚动区最大高）、`150px/180px/190px`（诊断操作列）、`34px/20px`（开关，Subagent 3 段）等，均沿用既有命名/结构约定，未新增游离间距。
+
+---
+
+## 八、其余自主裁决
+
+| # | 决策点 | 选定值 | 理由 |
+| --- | --- | --- | --- |
+| 11 | `.section-count` 是否胶囊化 | 是，与 `.page-count` 完全同源（`--glass-bg-1` + `--border-subtle` + `--radius-pill` + `--font-size-2`/600），**不呼吸** | 同一页面出现两种计数样式（`.page-count` 胶囊、`.section-count` 裸文字）不成体系；纯计数不吸引注意，按 Subagent 3 裁决 5 不给呼吸 |
+| 12 | 状态徽标是否新建关键帧 | 否，复用 `control-badge-breathe`（task7 定义一次）+ `--badge-glow: color-mix(currentColor 30%, transparent)` | 关键帧是全局命名空间，重复定义会互相覆盖；`.history-state--*`、`.existence-value--no` 直接引用同一配方，`reduced-motion` 下并入既有 `animation: none` 块 |
+| 13 | 呼吸范围 | 仅 `.history-state--warning/--danger`、`.existence-value--no` | 「需要注意」的语义态才呼吸；success / neutral 不呼吸，避免光污染与告警语义稀释 |
+| 14 | 内层滚动条样式 | `.table-scroll`、`.agent-list`、`.channel-account-list`、`.history-table`、`.history-detail`、`.history-body` 统一 `scrollbar-width: thin` + `scrollbar-color: var(--color-border) transparent` | 与 Subagent 2 的 `.app-main`/`.app-nav` 同源，透明轨道不留滚动条黑带 |
+| 15 | TSX 是否改动 | **零改动** | 卡片分档、内边距、徽标、表单、虚拟列表、选中态全部可由 CSS 达成；DOM 结构、文本、`role`、可访问名、事件处理器、props、条件渲染分支、虚拟滚动 JS 参数一行未动，把破坏 `src/features/**/*.test.tsx`（含业务分支断言）的风险降到零 |
+| 16 | 长文本防御 | 沿用既有 `overflow-wrap: anywhere`（描述列表/表格/错误条）+ 省略号截断（历史标题/会话） | 1280x800 与 640x400 下：`.agent-list`(680)/`.channel-account-list`(820)/`.data-table`(760) 均由各自 `overflow-x: auto` 容器承接溢出；历史表格溢出由 `overflow: hidden` 裁切；`.history-filters` 在 ≤1320px 切换为 4 列、≤640px 单列，最小内容宽均小于可用宽，无页面级水平溢出 |
+
+---
+
+## 九、门禁与自检
+
+- `npm --prefix apps/desktop-ui run typecheck` → 通过（`tsc --noEmit` 无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run` → **10 个测试文件 / 65 条用例全绿**（含 `AppShell.test.tsx` 8 条、`HistoryPage.test.tsx` 6 条、`SettingsPage.test.tsx` 10 条、`ChannelsPage.test.tsx` 9 条、`AgentsPage.test.tsx` 7 条、`MigrationDiagnostics.test.tsx` 3 条）。
+- `npm --prefix apps/desktop-ui run build` → 通过（`tsc -b && vite build`，1989 modules，CSS 56.82 kB）。
+- 额外静态自检（非门禁脚本）：用仓库内 `postcss` 解析 3 个 CSS 文件全部通过（task7 90 规则 / task9 144 规则 / channels 75 规则）；扫描 3 个文件内 `var(--*)` 引用全部命中 `tokens.css`；`@keyframes control-badge-breathe` 在产物中**仅定义 1 次**；领地内无裸 hex/rgba/hsl 色值（除二维码功能性浅底）；无 `!important`。
+- 未运行任何 playwright 命令（视觉 / 无障碍 / 状态门禁由守门人 Subagent 5 统一执行，含基线截图重生成——`tests/visual.spec.ts-snapshots/*` 仍是重构前的浅色基线，需一并更新）。
+
+## 十、边界声明
+
+- **bridge 与业务逻辑零改动**：未触碰 `src/bridge/**`、`src/data/**`、`src/components/**`、`src/app/**`、`tests/**`、路由、Query Key、表单提交逻辑、业务状态机。
+- 未触碰仓库内其它 agent 的 Rust 改动（`crates/`、`hosts/desktop-tauri/`），未提交、未还原任何非本次相关文件。
+- 本次改动未提交，留给流水线统一收口。
+
+
+
+### ===== 附录：subagent-5-gates.md =====
+
+# Subagent 5：视觉门禁、A11y 无障碍与回归修复守门人
+
+职责：执行全量门禁、遇错自愈、并合法处理本次暗色 Cyberpunk 改版带来的视觉基线变化。
+工作目录：仓库根 `D:\Project\Agent-notify`。依据：`.opencode/skills/agent-notify-ui-ux/SKILL.md`、`src/styles/tokens.css`、`UI_DECISIONS.d/subagent-1~4*.md`。
+
+**本次改动文件（仅此两类）**：
+
+- `src/styles/task7.css`：新增一条选中行次级文字对比度修复规则（见第一节）。
+- `tests/visual.spec.ts-snapshots/*.png`（6 张）：暗色改版后的视觉基线刷新（技能书规定的合法例外，见第三节）。
+
+未触碰：`src/bridge/**`、`src/data/**`、`src/test/**`、任何 `.tsx`、任何业务逻辑/数据契约/路由/Query Key/表单提交逻辑、`tests/*.spec.ts` 断言与选择器、其它 CSS 文件、仓库内其它 agent 的 Rust 改动。
+
+---
+
+## 一、A11y 自愈清单
+
+### 问题 1（唯一）：`Agent 管理` 页选中行次级文字 `color-contrast` 不足
+
+- **门禁现象**：`npm run test:a11y` 中 `Agent 管理 没有严重可访问性问题` 失败，axe 报 `color-contrast: Elements must meet minimum color contrast ratio thresholds（2 处）`：
+  - `.agent-row--selected > td:nth-child(3) > .muted-value`（「回复」列）
+  - `.agent-row--selected > .agent-event-cell`（「最近事件」列）
+- **根因**：Subagent 4 把选中行底色由浅色 `#e7f0ed` 改为半透明主色叠加 `--color-primary-soft`（16% 青）。该叠加把行底合成色从 `#161a26` 抬到约 `#1a3946`（相对亮度由 0.031 升到约 0.036），而这两处文字仍用 `--color-text-muted`（`#949eb4`），对比度被压到 **≈4.5:1 临界值**，axe 判红。未选中行（底 `#161a26`）对比度 6.45:1，正常。
+- **修法（仅 CSS）**：在 `task7.css` 的 `.muted-value` / `.agent-event-cell` 规则后，**新增一条仅作用于选中行的提亮规则**：
+
+  ```css
+  .agent-row--selected .muted-value,
+  .agent-row--selected .agent-event-cell {
+    color: color-mix(in srgb, var(--color-text-muted) 55%, var(--color-text));
+  }
+  ```
+
+  - 55% 次级色 + 45% 正文色，在选中行合成底上约 **6.8:1**，留出余量；未选中行仍为标准 `--color-text-muted`，语义与观感不变。
+  - 未改任何 `aria-*`、未改 DOM、未抑制 axe 规则、未放宽断言。
+- **复跑结果**：`npm run test:a11y` → **7 passed**（6 页扫描 + 登录对话框 Escape 焦点恢复），全绿。
+
+**其余 5 页（总览/渠道/历史/诊断/设置）与对话框焦点管理首次即通过，无其它 serious/critical 问题。**
+
+---
+
+## 二、布局回归（`visual.spec.ts` 非截图断言）
+
+- `@visual 长文本不被裁切且关键区域不重叠`：基线刷新前后均 **通过**。覆盖：导航项不裁切、超长中文 Agent 名不裁切、名称与开关不重叠、详情标题不裁切、服务徽标不裁切、渠道/历史长文本不裁切、页面无水平溢出。
+- `@zoom 200% 缩放等价视口下无水平溢出`（全量 e2e 内）：**通过**。
+- `@visual *` 六页截图前的 `expectNoHorizontalOverflow(page)`：全部通过。
+- 结论：长文本、200% 视口、水平溢出、虚拟列表均无真缺陷，未用基线更新掩盖任何布局问题。
+
+---
+
+## 三、六张视觉基线目检结论与刷新原因
+
+`test:visual` 首跑：6 张基线全部失败，差异比例约 **0.98**（几乎全图像素），符合「整体暗色改版」预期；同批的非截图布局断言通过。
+逐页目检 `test-results/**/*-actual.png`（并对照旧浅色基线），结论如下：
+
+| 页 | 目检结论 | 刷新原因 |
+| --- | --- | --- |
+| 总览 | 暗色画布正确；三张信息卡（运行状态/Agent 接入/渠道账号）毛玻璃分层清晰、描边无脏边；「最近投递 / 需要处理」卡片完整；无浅色亮块、无黑边缝隙、无裁切/重叠 | 整体浅色→暗色 Cyberpunk 改版（画布、卡片、徽标、按钮全部换肤） |
+| Agent 管理 | 选中行半透明主色胶囊态正常，名称提亮；超长中文名换行不裁切；开关与名称不重叠；详情面板长 ID 自动换行不溢出 | 同上；另含本轮选中行次级文字提亮（第一节） |
+| 渠道 | 渠道卡/账号列表/详情卡毛玻璃分层一致；选中账号行主色胶囊态正常；超长标题与账号 ID 换行不溢出；二维码功能性浅底为设计例外 | 同上 |
+| 历史 | 筛选卡、历史表格卡、右侧详情骨架卡层次正确；虚拟列表视口/行底透明、无白闪色差；加载骨架为确定性状态（与旧基线同为骨架态，非 flaky） | 同上 |
+| 诊断 | 迁移/状态摘要/诊断项卡片统一；`正常/异常` 语义徽标柔和底可读；无浅色残留 | 同上 |
+| 设置 | 表单控件毛玻璃底同源、标签/开关对齐；长中文 Agent 开关行不裁切；分组节奏正常 | 同上 |
+
+- 逐页均**未发现真缺陷**（无浅色亮块/脏边、无黑边缝隙、无内容裁切或重叠、无白屏闪烁残留、图标与文字对齐、卡片/徽标/表单风格统一），因此进入基线更新。
+- 更新命令：`PLAYWRIGHT_BROWSERS_PATH=D:\Tools\playwright-browsers npm --prefix apps/desktop-ui run test:visual -- --update-snapshots` → 6 张 `*-desktop-win32.png` 重新生成，7 passed。
+
+### 稳定性复跑
+
+- 更新后 **连续两次** `test:visual` 全绿（第一次 7 passed / 第二次 7 passed），随后 **全量 `test:e2e`**（含 a11y/visual/states/navigation/dynamic-adapters 共 25 条）全绿。
+- `toHaveScreenshot` 已配 `animations: 'disabled'`；毛玻璃 `backdrop-filter` 与呼吸/扫描动画未造成抖动。历史页右侧骨架为确定性加载态（旧基线亦为骨架），非 flaky。连续 3 次运行基线零差异。
+
+---
+
+## 四、自主决策清单
+
+| # | 决策点 | 选定做法 | 理由 |
+| --- | --- | --- | --- |
+| 1 | 选中行次级文字对比度修复方式 | 仅对 `.agent-row--selected` 内 `.muted-value`/`.agent-event-cell` 用 `color-mix(55% muted + 45% text)` 提亮，不改底色、不改全局 muted | 底色半透明主色是「选中」语义载体，不应削弱；提亮仅作用于选中行，最小改动且不破坏其它页面 muted 观感 |
+| 2 | 是否用 `aria-*` 或改 DOM 修 a11y | 否，纯 CSS | 失败为纯色差问题，无需改动可访问名/结构，避免波及 Vitest 选择器 |
+| 3 | 是否抑制 axe 规则/放宽断言 | 否 | 红线禁止；实际修到 ≥4.5:1 |
+| 4 | 基线是否刷新 | 是，6 张全刷 | 本轮为有意的整体暗色改版，旧浅色基线必然全变，技能书允许走基线更新流程；已先逐页目检确认无真缺陷 |
+| 5 | 是否顺手清理历史页骨架/其它疑似项 | 否 | 骨架为既有确定性加载态，非缺陷；不扩大范围 |
+
+---
+
+## 五、六条门禁结果摘要（最终态，含 a11y 修复与基线刷新后复跑）
+
+| # | 门禁 | 结果 |
+| --- | --- | --- |
+| 1 | `npm --prefix apps/desktop-ui run typecheck` | ✅ 通过（`tsc --noEmit` 无输出） |
+| 2 | `npm --prefix apps/desktop-ui run test -- --run` | ✅ 10 files / **65 passed** |
+| 3 | `npm --prefix apps/desktop-ui run build` | ✅ 通过（1989 modules，CSS 56.97 kB） |
+| 4 | `npm run test:a11y` | ✅ **7 passed**（首跑 Agent 管理失败 → 自愈 → 复跑全绿） |
+| 5 | `npm run test:visual` | ✅ **7 passed** ×3（更新基线后连续两次 + 全量 e2e 内一次） |
+| 6 | `npm run test:e2e`（全量） | ✅ **25 passed**（a11y 7 + visual 7 + states 6 + navigation 2 + dynamic-adapters 3） |
+
+---
+
+## 六、边界声明
+
+- **bridge / 业务逻辑 / 测试断言零改动**：未触碰 `src/bridge/**`、`src/data/**`、`src/test/**`、任何 `.tsx`、任何 `*.spec.ts` 的断言与选择器；本次唯一源码改动是 `task7.css` 一条纯 CSS 对比度规则。
+- **唯一碰 `tests/**` 的情形**：按技能书规定刷新 6 张视觉基线 PNG（本轮有意暗色改版的合法产物），未改任何测试代码。
+- 未触碰仓库内其它 agent 的 Rust 改动（`crates/`、`hosts/desktop-tauri/`），未提交、未还原任何非本次相关文件。
+- 遗留项：无「因需改逻辑而未能修复」的门禁项；全部门禁绿。
+- **建议**：基线已刷新，请在真实桌面窗口（Tauri 宿主或 dev 模式）做最终视觉验收（缩放到 640×400 与最大化各看一遍），确认毛玻璃层次、发光强度与滚动条观感符合预期。
+
