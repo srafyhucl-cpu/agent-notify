@@ -1,3 +1,5 @@
+pub mod console;
+pub mod diagnostics;
 pub mod protocol;
 pub mod spool;
 #[cfg(windows)]

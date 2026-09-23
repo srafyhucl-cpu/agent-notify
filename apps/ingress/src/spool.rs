@@ -14,7 +14,8 @@ use crate::protocol::{IngressError, IngressEvent, encode_envelope};
 const DEFAULT_MAX_EVENTS: usize = 10_000;
 const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_MAX_EVENT_BYTES: u64 = 256 * 1024;
-const QUARANTINE_DIR: &str = "quarantine";
+/// 隔离目录名：无法解析或超限的事件移入这里，附 `.error` 原因文件。
+pub const QUARANTINE_DIR: &str = "quarantine";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SpoolLimits {

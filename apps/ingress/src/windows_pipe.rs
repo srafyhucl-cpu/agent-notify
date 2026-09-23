@@ -134,6 +134,27 @@ pub fn current_user_sddl() -> Result<String, PipeError> {
     Ok(format!("D:P(A;;GA;;;{sid})"))
 }
 
+/// 只读探测：给定全名的命名管道是否已被创建。枚举系统管道表，不连接、不写入，
+/// 因此不会给管道服务制造空连接噪音。
+pub fn named_pipe_exists(full_name: &str) -> io::Result<bool> {
+    let short_name = full_name
+        .rsplit('\\')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(full_name);
+    for entry in std::fs::read_dir(r"\\.\pipe\")? {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(short_name)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub async fn serve(
     handler: Arc<dyn IngressHandler>,
     cancel: watch::Receiver<bool>,
