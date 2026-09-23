@@ -73,3 +73,45 @@ fn other_agent_and_unknown_event_are_rejected() {
             .is_err()
     );
 }
+
+#[test]
+fn native_terminal_event_names_and_missing_type_are_accepted() {
+    // 插件改用 OpenCode 原生终态名、或不带 eventType 时都要照常推送，不能静默拒收。
+    for event_type in [
+        Some("session.completed"),
+        Some("session.idle"),
+        Some("session.error"),
+        Some("session.execution.succeeded"),
+        Some("session.execution.failed"),
+        Some(""),
+        Some("   "),
+        None,
+    ] {
+        let mut payload = serde_json::json!({
+            "sessionId": "session-1",
+            "title": "构建完成",
+            "body": "Release 已生成"
+        });
+        if let Some(event_type) = event_type {
+            payload["eventType"] = serde_json::Value::String(event_type.to_owned());
+        }
+        let event = agent()
+            .parse_event(envelope(payload))
+            .unwrap_or_else(|_| panic!("终态事件应被接受：{event_type:?}"));
+        assert_eq!(event.session_id.unwrap().as_str(), "session-1");
+    }
+}
+
+#[test]
+fn non_string_event_type_is_rejected() {
+    assert!(
+        agent()
+            .parse_event(envelope(serde_json::json!({
+                "eventType": 7,
+                "sessionId": "session-1",
+                "title": "标题",
+                "body": "正文"
+            })))
+            .is_err()
+    );
+}

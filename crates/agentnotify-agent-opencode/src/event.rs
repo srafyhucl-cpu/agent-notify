@@ -4,7 +4,17 @@ use serde_json::Value;
 
 use crate::descriptor::OPENCODE_AGENT_ID;
 
+/// 插件当前提交的终态事件类型。
 const COMPLETED_EVENT: &str = "session.completed";
+/// OpenCode 原生终态事件名：插件改用原生名或事件名漂移时照样推送，
+/// 与 Codex / Devin / Command Code 的容错口径对称，避免改名导致通知静默停止。
+const KNOWN_TERMINAL_EVENTS: [&str; 4] = [
+    "session.idle",
+    "session.error",
+    "session.execution.succeeded",
+    "session.execution.failed",
+];
+const EVENT_TYPE_FIELD: &str = "eventType";
 
 pub fn parse_event(envelope: AgentEventEnvelope) -> Result<NormalizedAgentEvent, AgentError> {
     let expected_agent = AgentId::new(OPENCODE_AGENT_ID).expect("OpenCode Agent ID 是固定有效值");
@@ -16,7 +26,7 @@ pub fn parse_event(envelope: AgentEventEnvelope) -> Result<NormalizedAgentEvent,
         .payload
         .as_object()
         .ok_or(AgentError::InvalidEvent)?;
-    if payload.get("eventType").and_then(Value::as_str) != Some(COMPLETED_EVENT) {
+    if !is_terminal_event(payload)? {
         return Err(AgentError::InvalidEvent);
     }
 
@@ -38,6 +48,21 @@ pub fn parse_event(envelope: AgentEventEnvelope) -> Result<NormalizedAgentEvent,
         body,
         metadata,
     })
+}
+
+/// `eventType` 缺失或为空时按 `session.completed` 处理；已知终态类型放行；
+/// 存在但未知（如 `session.started`）时拒绝，避免误收非终态事件。
+fn is_terminal_event(payload: &serde_json::Map<String, Value>) -> Result<bool, AgentError> {
+    match payload.get(EVENT_TYPE_FIELD) {
+        None | Some(Value::Null) => Ok(true),
+        Some(Value::String(value)) => {
+            let trimmed = value.trim();
+            Ok(trimmed.is_empty()
+                || trimmed == COMPLETED_EVENT
+                || KNOWN_TERMINAL_EVENTS.contains(&trimmed))
+        }
+        Some(_) => Err(AgentError::InvalidEvent),
+    }
 }
 
 fn required_text(payload: &serde_json::Map<String, Value>, field: &str) -> Option<String> {
