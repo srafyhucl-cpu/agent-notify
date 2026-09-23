@@ -546,11 +546,15 @@ async function processReplyJobs(
   }
 }
 
+// FNV-1a 32 位哈希：只用于事件幂等键，非加密用途。
+const FNV_OFFSET_BASIS = 2166136261
+const FNV_PRIME = 16777619
+
 function hashText(value: string): string {
-  let hash = 2166136261
+  let hash = FNV_OFFSET_BASIS
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
+    hash = Math.imul(hash, FNV_PRIME)
   }
   return (hash >>> 0).toString(16).padStart(8, "0")
 }

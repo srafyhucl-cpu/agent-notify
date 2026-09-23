@@ -296,12 +296,15 @@ fn display_thumbprint(value: &str) -> String {
     }
 }
 
+/// 文件哈希的分块读取大小。
+const HASH_CHUNK_BYTES: usize = 64 * 1024;
+
 pub fn sha256_file(path: &Path) -> Result<String, UpdateVerificationError> {
     let mut file = File::open(path).map_err(|error| {
         UpdateVerificationError::new("update_io_failed", format!("无法读取更新包：{error}"))
     })?;
     let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = [0_u8; HASH_CHUNK_BYTES];
     loop {
         let read = file.read(&mut buffer).map_err(|error| {
             UpdateVerificationError::new("update_io_failed", format!("读取更新包失败：{error}"))

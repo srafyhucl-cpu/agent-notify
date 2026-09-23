@@ -162,6 +162,9 @@ pub struct ProcessRequest {
     pub(crate) cancel: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
+/// 子进程默认超时：外部 CLI / Hook 都按这个上限收敛，防止挂死。
+pub const DEFAULT_PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
+
 impl ProcessRequest {
     pub fn new(program: impl Into<std::ffi::OsString>) -> Self {
         Self {
@@ -170,7 +173,7 @@ impl ProcessRequest {
             cwd: None,
             env: std::collections::BTreeMap::new(),
             env_allowlist: Vec::new(),
-            timeout: Duration::from_secs(30),
+            timeout: DEFAULT_PROCESS_TIMEOUT,
             cancel: None,
         }
     }

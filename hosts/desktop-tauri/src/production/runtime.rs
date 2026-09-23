@@ -35,6 +35,12 @@ const RUNTIME_LOG_FILE_NAME: &str = "runtime.log";
 /// "迁移诊断模式"——该模式不启动渠道与 ingress，用户表现为"所有推送突然收不到"。
 /// 重试间隔取略大于窗口，等心跳过期即可自愈。
 const MIGRATION_AUTORETRY_INTERVAL: Duration = Duration::from_secs(35);
+/// 运行时内部 worker 的空闲让步间隔。
+const WORKER_IDLE_DELAY: Duration = Duration::from_millis(250);
+/// 状态快照刷新间隔。
+const STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
+/// 渠道轮询间隔。
+const CHANNEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// 自愈重试上限（约 3.5 分钟）。旧版真的还在运行时不做无限重试，
 /// 保留诊断模式与界面上的"重新检测"入口，日志给出可操作提示。
 const MIGRATION_AUTORETRY_MAX_ATTEMPTS: u32 = 6;
@@ -239,9 +245,9 @@ impl ProductionRuntimeCoordinator {
                 log_path: self.paths.log_dir.join(RUNTIME_LOG_FILE_NAME),
             }),
             inbound_capacity: 256,
-            worker_idle_delay: Duration::from_millis(250),
-            status_refresh_interval: Duration::from_millis(100),
-            channel_poll_interval: Duration::from_millis(100),
+            worker_idle_delay: WORKER_IDLE_DELAY,
+            status_refresh_interval: STATUS_REFRESH_INTERVAL,
+            channel_poll_interval: CHANNEL_POLL_INTERVAL,
         }
     }
 

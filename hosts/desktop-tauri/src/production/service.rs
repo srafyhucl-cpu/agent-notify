@@ -33,6 +33,10 @@ use crate::update::{
 /// 安装器拉起成功到应用退出之间的等待：先让"正在安装"的响应回到界面，再走优雅退出。
 /// 必须明显短于安装器等待应用释放文件的窗口，避免安装器卡在关闭应用这一步。
 const UPDATE_EXIT_DELAY: Duration = Duration::from_millis(1000);
+/// 测试发送后等待 Delivery 落库并达到终态的上限。
+const DELIVERY_FINAL_STATE_TIMEOUT: Duration = Duration::from_secs(5);
+/// 等待 Delivery 终态期间的 SQLite 轮询间隔。
+const DELIVERY_FINAL_STATE_POLL: Duration = Duration::from_millis(150);
 
 pub struct ProductionHostCommandService {
     app: Option<AppHandle<Wry>>,
@@ -562,7 +566,7 @@ impl HostCommandService for ProductionHostCommandService {
         // 轮询 SQLite 等待 Delivery 产生并达到终态或最多等待 5 秒
         let mut final_delivery = None;
         let start_time = std::time::Instant::now();
-        let timeout = Duration::from_secs(5);
+        let timeout = DELIVERY_FINAL_STATE_TIMEOUT;
 
         while start_time.elapsed() < timeout {
             let detail = self
@@ -580,7 +584,7 @@ impl HostCommandService for ProductionHostCommandService {
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            tokio::time::sleep(DELIVERY_FINAL_STATE_POLL).await;
         }
 
         // 如果超时但产生了 delivery，也返回当前记录

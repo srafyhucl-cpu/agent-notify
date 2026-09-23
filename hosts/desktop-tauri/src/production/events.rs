@@ -11,6 +11,12 @@ use super::runtime::ProductionRuntimeCoordinator;
 use crate::bridge::dto::{DeliveryStateDto, LoginSessionStateDto};
 use crate::bridge::events::{ChannelLoginChangedEvent, DeliveryChangedEvent, SnapshotChangedEvent};
 
+/// runtime 尚未就绪时的事件订阅重试间隔。
+const EVENT_SUBSCRIBE_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+/// 事件流结束后的重订阅间隔。
+const EVENT_STREAM_RESUBSCRIBE_INTERVAL: std::time::Duration =
+    std::time::Duration::from_millis(100);
+
 pub struct EventForwarder {
     app: AppHandle<Wry>,
     runtime: Arc<ProductionRuntimeCoordinator>,
@@ -97,7 +103,7 @@ impl EventForwarder {
             loop {
                 let receiver = runtime_events.subscribe_events().await;
                 let Some(mut rx) = receiver else {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    tokio::time::sleep(EVENT_SUBSCRIBE_RETRY_INTERVAL).await;
                     continue;
                 };
 
@@ -132,7 +138,7 @@ impl EventForwarder {
                     }
                 }
 
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(EVENT_STREAM_RESUBSCRIBE_INTERVAL).await;
             }
         });
     }
