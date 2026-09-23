@@ -158,3 +158,47 @@ jobs:
           }
           $version = '${{ github.ref_name }}'.TrimStart('v')
           ./tools/publish-release.ps1 -Version $version -DistDir dist
+
+      # Fail loudly on an empty release: the publish steps can report success while
+      # the release ends up with zero assets (real case: v2.0.5).
+      - name: Verify release assets
+        shell: powershell
+        env:
+          SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MIRROR_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $tag = "v$version"
+          $expected = @(
+            "Agent-notify-Setup-v$version.exe",
+            "Agent-notify-v$version.zip",
+            "SHA256SUMS.txt"
+          )
+          $targets = @(
+            @{ Repo = '${{ github.repository }}'; Token = $env:SOURCE_TOKEN },
+            @{ Repo = 'srafyhucl-cpu/agent-notify-releases'; Token = $env:MIRROR_TOKEN }
+          )
+          $failures = 0
+          foreach ($target in $targets) {
+            $env:GH_TOKEN = $target.Token
+            $release = (gh api "repos/$($target.Repo)/releases/tags/$tag" | Out-String) | ConvertFrom-Json
+            if ($release.draft) {
+              Write-Output "[verify] $($target.Repo) $tag is still a draft"
+              $failures++
+              continue
+            }
+            $names = @($release.assets | ForEach-Object { $_.name })
+            $missing = @()
+            foreach ($name in $expected) {
+              if ($names -notcontains $name) { $missing += $name }
+            }
+            if ($missing.Count -gt 0) {
+              Write-Output "[verify] $($target.Repo) $tag is missing assets: $($missing -join ', ') (got: $($names -join ', '))"
+              $failures++
+            } else {
+              Write-Output "[verify] $($target.Repo) $tag carries all assets"
+            }
+          }
+          if ($failures -gt 0) {
+            throw "release verification failed: an empty or incomplete release would make clients report 'already up to date' while offering nothing to install"
+          }
