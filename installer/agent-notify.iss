@@ -173,6 +173,54 @@ begin
   end;
 end;
 
+// 静默安装（应用内一键升级）在替换文件前强制结束会占用待替换文件的旧进程，让 Restart Manager 无物可关。
+// 起因：Go 版悬浮窗收到关闭请求会隐藏到托盘而不退出，Restart Manager 关不掉它，安装器就会停在
+// 「无法自动关闭所有应用程序」；该提示只在 /SILENT 配合 /SUPPRESSMSGBOXES 时才被抑制，
+// 而 /SUPPRESSMSGBOXES 会把这种情况变成静默中止安装，所以只能消除原因，不能靠压制提示。
+// 只在静默下强杀：用户点「升级」即授权这次静默替换；交互式安装保持原行为，仍由用户在提示里自己决定。
+// 刻意不抽公共子过程：强杀逻辑集中在这一个带静默守卫的过程里，便于人工审计与结构测试断言。
+procedure TerminateStaleInstancesForSilentUpgrade();
+var
+  ResultCode: Integer;
+begin
+  if not WizardSilent then
+    exit;
+  // 进程不存在时 taskkill 返回非 0，属正常情况：只写日志、不算失败。
+  if Exec(
+    ExpandConstant('{sys}\taskkill.exe'),
+    '/F /IM agent-notify.exe',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+    Log('静默升级：已调用 taskkill 结束旧版 agent-notify.exe，退出码 ' + IntToStr(ResultCode) +
+      '（进程不存在或结束失败都不影响后续安装）。')
+  else
+    Log('静默升级：无法启动 taskkill 结束旧版 agent-notify.exe，交由 Restart Manager 处理。');
+  if Exec(
+    ExpandConstant('{sys}\taskkill.exe'),
+    '/F /IM agentnotify-desktop.exe',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+    Log('静默升级：已调用 taskkill 结束 agentnotify-desktop.exe，退出码 ' + IntToStr(ResultCode) +
+      '（进程不存在或结束失败都不影响后续安装）。')
+  else
+    Log('静默升级：无法启动 taskkill 结束 agentnotify-desktop.exe，交由 Restart Manager 处理。');
+end;
+
+// PrepareToInstall 在 Setup 检查文件占用（CloseApplications 的 Restart Manager 阶段）之前调用，
+// 是官方文档指定用于关闭待更新应用的时机；错过它就会在替换文件前弹出「无法自动关闭所有应用程序」。
+// NeedsRestart 有意不动：本过程没有重启需求，也不替 Setup 决定是否提示重启。
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  TerminateStaleInstancesForSilentUpgrade();
+end;
+
 procedure RunLegacyHookCleanup();
 var
   ResultCode: Integer;

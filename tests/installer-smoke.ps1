@@ -6,7 +6,8 @@
 .DESCRIPTION
   默认做通用检查，以及应用内一键升级依赖的静默安装契约：
   Inno 脚本里不得有裸 MsgBox（静默安装会被弹窗卡死），[Run] 段不得带 skipifsilent
-  （否则静默安装完成后不会自动重新打开桌面端）。
+  （否则静默安装完成后不会自动重新打开桌面端），静默安装必须在检查文件占用前
+  强制结束会占用待替换文件的旧进程（否则从 Go 版升级时会弹「无法自动关闭所有应用程序」）。
   加 -ExpectRust 时额外断言「正式包已是 Rust 桌面版」：
   安装桌面端、ingress 与阶段 D 的三个 Hook，保留旧 AppId 与安装目录、自启动指向新桌面程序、
   四个 Agent 适配器按任务接入、卸载会清理自己写入的 Hook / 扩展 / mod，
@@ -75,6 +76,69 @@ if (-not $runSection.Success) {
 }
 if ($runSection.Groups['body'].Value -match 'skipifsilent') {
   throw '[Run] 段带 skipifsilent：静默安装完成后不会自动启动 AgentNotify，应用内一键升级会停在没有界面的状态'
+}
+
+# 静默升级契约：应用内一键升级（/SILENT）替换文件前必须强制结束会占用待替换文件的旧进程。
+# Go 版悬浮窗收到 Restart Manager 的关闭请求会隐藏到托盘而不退出，安装器就会停在
+# 「无法自动关闭所有应用程序」；该对话框只在 /SILENT 配合 /SUPPRESSMSGBOXES 时才被抑制，
+# 而 /SUPPRESSMSGBOXES 会把这种情况变成静默中止安装，因此必须提前消除原因。
+# 强杀只能发生在静默分支里：交互式安装保持原行为，仍由用户自己在 Restart Manager 提示里决定。
+$taskkills = [regex]::Matches($issueEntries, '(?<![\w.])taskkill')
+if ($taskkills.Count -eq 0) {
+  throw '安装器脚本没有在静默升级前强制结束旧进程（taskkill），从 Go 版升级时会弹「无法自动关闭所有应用程序」'
+}
+$silentKillRoutines = @()
+foreach ($taskkill in $taskkills) {
+  # 取出承载这处 taskkill 的过程/函数：向前找最近的定义行，向后找顶格的 end;。
+  $declarations = [regex]::Matches($issueEntries.Substring(0, $taskkill.Index), '(?m)^\s*(?:procedure|function)\s+(?<name>\w+)')
+  if ($declarations.Count -eq 0) {
+    throw '安装器脚本里的 taskkill 不在任何过程/函数内，无法确认强杀只在静默分支里执行'
+  }
+  $declaration = $declarations[$declarations.Count - 1]
+  $routineName = $declaration.Groups['name'].Value
+  $routineEnd = [regex]::Match($issueEntries.Substring($taskkill.Index), '(?m)^end;')
+  if (-not $routineEnd.Success) {
+    throw "安装器脚本里 $routineName 没有以 end; 结束，无法确认强杀只在静默分支里执行"
+  }
+  $routine = $issueEntries.Substring($declaration.Index, $taskkill.Index - $declaration.Index + $routineEnd.Index + 4)
+  $killIndex = $taskkill.Index - $declaration.Index
+
+  # 静默守卫接受两种写法：早退式（if not WizardSilent then exit;）与块式（if WizardSilent then begin ... end;）。
+  # 守卫与 taskkill 之间不得出现顶格 end;，否则说明强杀已经离开了静默分支。
+  $guarded = $false
+  $earlyExit = [regex]::Match($routine, '(?s)if\s+not\s+WizardSilent\s+then\s+exit\s*;')
+  if ($earlyExit.Success -and $earlyExit.Index -lt $killIndex) {
+    $guarded = $routine.Substring($earlyExit.Index, $killIndex - $earlyExit.Index) -notmatch '(?m)^end;'
+  }
+  if (-not $guarded) {
+    $blockGuard = [regex]::Match($routine, '(?s)if\s+WizardSilent\s+then\s*begin')
+    if ($blockGuard.Success -and $blockGuard.Index -lt $killIndex) {
+      $guarded = $routine.Substring($blockGuard.Index, $killIndex - $blockGuard.Index) -notmatch '(?m)^end;'
+    }
+  }
+  if (-not $guarded) {
+    throw "安装器脚本在 $routineName 里的 taskkill 没有静默条件守卫：交互式安装会被误改成强杀"
+  }
+
+  # 两个旧进程都必须强杀，且真的带 /F：Go 版悬浮窗与当前桌面端都会占住待替换的文件。
+  foreach ($image in @('agent-notify\.exe', 'agentnotify-desktop\.exe')) {
+    if ($routine -notmatch ('(?<![\w])/F\s+/IM\s+' + $image + '(?![\w.])')) {
+      throw "安装器脚本的 $routineName 缺少 taskkill /F /IM $image，旧进程占用的文件仍会让 Restart Manager 弹窗"
+    }
+  }
+  if ($silentKillRoutines -notcontains $routineName) { $silentKillRoutines += $routineName }
+}
+
+# 强杀必须在 Inno 检查文件占用（CloseApplications 的 Restart Manager 阶段）之前执行：
+# PrepareToInstall 是官方文档指定的时机，漏掉这次调用，本次修复就不会生效。
+$prepareToInstall = [regex]::Match($issueEntries, '(?ms)^\s*function\s+PrepareToInstall\([^)]*\)\s*:\s*String;(?<body>.*?)^end;')
+if (-not $prepareToInstall.Success) {
+  throw '安装器脚本缺少 PrepareToInstall：静默升级的强杀不会在 Restart Manager 检查文件占用之前执行'
+}
+foreach ($routineName in $silentKillRoutines) {
+  if ($prepareToInstall.Groups['body'].Value -notmatch ('(?<![\w.])' + [regex]::Escape($routineName) + '\s*\(')) {
+    throw "安装器脚本的 PrepareToInstall 没有调用 $routineName：静默升级仍会弹「无法自动关闭所有应用程序」"
+  }
 }
 
 if ($ExpectRust) {
@@ -234,7 +298,7 @@ if ($ExpectRust) {
 
 Write-Output '[installer-smoke] 安装器结构检查通过'
 Write-Output '[installer-smoke] VERSION 安装清单检查通过'
-Write-Output '[installer-smoke] 静默安装契约检查通过（无裸 MsgBox，[Run] 不带 skipifsilent）'
+Write-Output '[installer-smoke] 静默安装契约检查通过（无裸 MsgBox，[Run] 不带 skipifsilent，静默升级前强杀旧进程）'
 if ($ExpectRust) {
   Write-Output '[installer-smoke] Rust 正式包契约检查通过'
 }
