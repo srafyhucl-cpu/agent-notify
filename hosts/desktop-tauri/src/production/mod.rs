@@ -1,5 +1,7 @@
 mod agents;
+mod app_exit;
 pub mod events;
+mod mapping;
 pub mod runtime;
 pub mod service;
 pub mod settings;

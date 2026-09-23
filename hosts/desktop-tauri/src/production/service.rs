@@ -9,30 +9,27 @@ use agentnotify_channel_sdk::{BeginLoginRequest, ChannelLoginAdapter, LoginSessi
 use agentnotify_domain::{
     AgentId, ChannelAccountId, DeliveryId, DeliveryState, NotificationId, RequestId, Timestamp,
 };
-use agentnotify_storage_sqlite::{
-    DeliveryViewRecord, NotificationQuery, NotificationRecord, SqliteStore,
-};
-use tauri::{AppHandle, Manager, Wry};
+use agentnotify_storage_sqlite::{NotificationQuery, SqliteStore};
+use tauri::{AppHandle, Wry};
 
-use super::events::{map_delivery_state, map_login_session_state};
+use super::app_exit::{ProductionAppExitRequester, spawn_graceful_exit};
+use super::events::map_delivery_state;
+use super::mapping::{
+    install_result_from_report, map_delivery_view_record, map_login_session_dto,
+    map_migration_snapshot, map_notification_record, sanitize_account_config,
+    update_state_for_error,
+};
 use super::runtime::ProductionRuntimeCoordinator;
 use super::settings::ProductionSettingsStore;
 use crate::bridge::commands::HostCommandService;
 use crate::bridge::dto::*;
 use crate::bridge::error::CommandError;
 use crate::lifecycle::{
-    LifecycleController,
     autostart::{TauriCurrentUserAutostart, set_autostart},
     tray::sync_tray_paused,
 };
-use crate::update::{
-    AppExitRequester, InstallReport, SystemInstallerLauncher, UpdateChannel, UpdateError,
-    UpdateService,
-};
+use crate::update::{SystemInstallerLauncher, UpdateChannel, UpdateService};
 
-/// 安装器拉起成功到应用退出之间的等待：先让"正在安装"的响应回到界面，再走优雅退出。
-/// 必须明显短于安装器等待应用释放文件的窗口，避免安装器卡在关闭应用这一步。
-const UPDATE_EXIT_DELAY: Duration = Duration::from_millis(1000);
 /// 测试发送后等待 Delivery 落库并达到终态的上限。
 const DELIVERY_FINAL_STATE_TIMEOUT: Duration = Duration::from_secs(5);
 /// 等待 Delivery 终态期间的 SQLite 轮询间隔。
@@ -66,72 +63,6 @@ impl ProductionHostCommandService {
     pub fn runtime(&self) -> Arc<ProductionRuntimeCoordinator> {
         self.runtime.clone()
     }
-}
-
-/// 生产退出端口：安装器成功拉起后，复用"退出应用"命令的优雅关闭路径退出进程。
-/// `request_exit` 只负责排期，不阻塞命令响应；测试装配（无窗口）时什么都不做。
-struct ProductionAppExitRequester {
-    app: Option<AppHandle<Wry>>,
-    runtime: Arc<ProductionRuntimeCoordinator>,
-    store: Arc<SqliteStore>,
-}
-
-impl ProductionAppExitRequester {
-    fn new(
-        app: Option<AppHandle<Wry>>,
-        runtime: Arc<ProductionRuntimeCoordinator>,
-        store: Arc<SqliteStore>,
-    ) -> Self {
-        Self {
-            app,
-            runtime,
-            store,
-        }
-    }
-}
-
-impl AppExitRequester for ProductionAppExitRequester {
-    fn request_exit(&self) {
-        let Some(app) = self.app.clone() else {
-            // headless/测试装配：没有可退出的进程，保持"不退出"语义。
-            tracing::warn!("更新安装器已启动，但当前装配没有窗口，不会自动退出");
-            return;
-        };
-        // 立刻标记"正在退出"：安装器可能同时通过 Restart Manager 请求关窗，
-        // 这时应该真的关窗，而不是缩回托盘让安装器一直等下去。
-        if let Some(controller) = app.try_state::<LifecycleController>() {
-            controller.begin_quit();
-        }
-        spawn_graceful_exit(
-            app,
-            self.runtime.clone(),
-            self.store.clone(),
-            UPDATE_EXIT_DELAY,
-        );
-    }
-}
-
-/// 既有的优雅退出路径：停运行时 → checkpoint WAL → 退出进程。
-/// 先等待 `delay` 再开始关闭，这样触发退出的命令响应能先回到界面；
-/// 单实例互斥随进程退出自动释放。
-fn spawn_graceful_exit(
-    app: AppHandle<Wry>,
-    runtime: Arc<ProductionRuntimeCoordinator>,
-    store: Arc<SqliteStore>,
-    delay: Duration,
-) {
-    tauri::async_runtime::spawn(async move {
-        if !delay.is_zero() {
-            tokio::time::sleep(delay).await;
-        }
-        if let Some(controller) = app.try_state::<LifecycleController>() {
-            let _ = controller.shutdown_for_quit().await;
-        } else {
-            let _ = runtime.shutdown_runtime().await;
-        }
-        let _ = store.wal_checkpoint_truncate().await;
-        app.exit(0);
-    });
 }
 
 #[async_trait::async_trait]
@@ -1105,26 +1036,6 @@ impl ProductionHostCommandService {
     }
 }
 
-/// 把更新错误码映射到界面状态：版本号不可比是 Unsupported，已是最新是 UpToDate，其余是 Failed。
-fn update_state_for_error(error: &UpdateError) -> UpdateStateDto {
-    match error.code() {
-        "update_version_unsupported" => UpdateStateDto::Unsupported,
-        "update_up_to_date" => UpdateStateDto::UpToDate,
-        _ => UpdateStateDto::Failed,
-    }
-}
-
-fn install_result_from_report(report: InstallReport) -> InstallUpdateResultDto {
-    InstallUpdateResultDto {
-        // 安装已就绪：安装器启动中或文件已替换，重启/安装完成后生效。
-        state: UpdateStateDto::ReadyToInstall,
-        message: report.message,
-        installed_version: Some(report.version),
-        signed: report.signed,
-        preview: report.preview,
-    }
-}
-
 /// 更新包要落回的安装目录就是当前程序所在目录（安装器路径用 /DIR= 锁定同一位置）。
 fn current_install_root() -> Result<PathBuf, CommandError> {
     let executable = std::env::current_exe().map_err(|error| {
@@ -1143,112 +1054,4 @@ fn current_install_root() -> Result<PathBuf, CommandError> {
                 format!("无法确定安装目录：{}", executable.display()),
             )
         })
-}
-
-fn sanitize_account_config(config: &serde_json::Value) -> serde_json::Value {
-    if let serde_json::Value::Object(map) = config {
-        let mut safe_map = serde_json::Map::new();
-        for (k, v) in map {
-            if !k.to_lowercase().contains("token")
-                && !k.to_lowercase().contains("secret")
-                && !k.to_lowercase().contains("password")
-            {
-                safe_map.insert(k.clone(), v.clone());
-            }
-        }
-        serde_json::Value::Object(safe_map)
-    } else {
-        config.clone()
-    }
-}
-
-fn map_login_session_dto(session: &agentnotify_channel_sdk::LoginSession) -> LoginSessionDto {
-    LoginSessionDto {
-        id: session.id().as_str().to_string(),
-        account_id: session.account_id().map(str::to_owned),
-        account_key: session.account_key().to_string(),
-        state: map_login_session_state(session.state()),
-        qr_payload: session.qr_payload().map(str::to_owned),
-        created_at: session.created_at().to_rfc3339(),
-        message: session.error().map(|e| e.message().to_string()),
-        error: session.error().map(|e| SafeErrorDto {
-            code: e.code().to_string(),
-            message: e.message().to_string(),
-        }),
-    }
-}
-
-fn map_delivery_view_record(record: DeliveryViewRecord) -> DeliveryDto {
-    DeliveryDto {
-        id: record.delivery.id().to_string(),
-        notification_id: record.delivery.notification_id().to_string(),
-        channel_id: record.delivery.channel_id().to_string(),
-        account_id: record.delivery.account_id().to_string(),
-        state: map_delivery_state(record.delivery.state()),
-        external_message_id: record.delivery.external_message_id().map(|m| m.to_string()),
-        error: record.delivery.error().map(|e| SafeErrorDto {
-            code: e.code().to_string(),
-            message: e.message().to_string(),
-        }),
-        retryable: record.delivery.can_retry(),
-        updated_at: record.updated_at.to_rfc3339(),
-    }
-}
-
-fn map_notification_record(record: NotificationRecord) -> NotificationSummaryDto {
-    NotificationSummaryDto {
-        id: record.notification.id.to_string(),
-        agent_id: record.notification.agent_id.to_string(),
-        session_id: record.notification.session_id.map(|s| s.to_string()),
-        session_title: record.notification.session_title,
-        title: record.notification.title,
-        preview: record.notification.body.chars().take(100).collect(),
-        occurred_at: record.notification.occurred_at.to_rfc3339(),
-        delivery_states: record
-            .delivery_states
-            .into_iter()
-            .map(map_delivery_state)
-            .collect(),
-    }
-}
-
-fn map_migration_snapshot(snapshot: &agentnotify_runtime::MigrationSnapshot) -> LegacyMigrationDto {
-    LegacyMigrationDto {
-        state: match snapshot.state {
-            agentnotify_runtime::MigrationState::NotConfigured => MigrationStateDto::NotConfigured,
-            agentnotify_runtime::MigrationState::NotDetected => MigrationStateDto::NotDetected,
-            agentnotify_runtime::MigrationState::Completed => MigrationStateDto::Completed,
-            agentnotify_runtime::MigrationState::Partial => MigrationStateDto::Partial,
-            agentnotify_runtime::MigrationState::Required => MigrationStateDto::Required,
-        },
-        source_detected: snapshot.source_detected,
-        report_file: snapshot.report_file.clone(),
-        report: snapshot.report.as_ref().map(|r| MigrationReportDto {
-            imported_at: r.imported_at.clone(),
-            source_file_count: r.source_file_count as u32,
-            settings_imported: r.settings_imported as u32,
-            agent_configs_imported: r.agent_configs_imported as u32,
-            accounts_imported: r.accounts_imported as u32,
-            notifications_imported: r.notifications_imported as u32,
-            deliveries_imported: r.deliveries_imported as u32,
-            routes_imported: r.routes_imported as u32,
-            claims_imported: r.claims_imported as u32,
-            skipped_records: r.skipped_records as u32,
-            warnings: r
-                .warnings
-                .iter()
-                .map(|w| MigrationWarningDto {
-                    code: w.code.clone(),
-                    file: w.file.clone(),
-                    record: w.record,
-                })
-                .collect(),
-        }),
-        error: snapshot.error.as_ref().map(|f| MigrationIssueDto {
-            code: f.code.clone(),
-            message: f.message.clone(),
-            file: f.file.clone(),
-            field: f.field.clone(),
-        }),
-    }
 }
