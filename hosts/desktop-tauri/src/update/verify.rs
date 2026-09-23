@@ -13,6 +13,19 @@ const PE_SIGNATURE: [u8; 4] = *b"PE\0\0";
 const PE_OFFSET_LOCATION: usize = 0x3c;
 const PE_COFF_HEADER_LENGTH: usize = 20;
 const PE64_OPTIONAL_MAGIC: u16 = 0x020b;
+const PE32_OPTIONAL_MAGIC: u16 = 0x010b;
+
+/// 更新包对 PE 位宽的要求。
+///
+/// 安装器（Inno Setup 的 setup 存根）是 32 位 PE，位宽不影响静默安装能力，因此放宽；
+/// 应用程序本体必须是 64 位，避免把 32 位程序替换进安装目录。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PeBitness {
+    /// 接受 32 位与 64 位 PE：安装器更新包用。
+    Any,
+    /// 必须 64 位 PE32+：应用程序本体用。
+    Require64,
+}
 
 /// 内置信任指纹，与 Go 版 `internal/update/signature.go` 的 defaultSignatureThumbprint 一致：
 /// 客户端只接受由该证书签名的更新包，轮换证书时必须先更新这里并发版。
@@ -96,6 +109,7 @@ pub fn verify_download(
     expected_sha256: &str,
     signature_requirement: SignatureRequirement,
     expected_version: Option<&str>,
+    bitness: PeBitness,
 ) -> Result<VerifiedUpdate, UpdateVerificationError> {
     let expected_hash = normalize_expected_sha256(expected_sha256)?;
     let actual_hash = sha256_file(path)?;
@@ -106,7 +120,8 @@ pub fn verify_download(
         ));
     }
 
-    let (version, signed) = verify_pe_and_signature(path, signature_requirement, expected_version)?;
+    let (version, signed) =
+        verify_pe_and_signature(path, signature_requirement, expected_version, bitness)?;
     Ok(VerifiedUpdate {
         sha256: actual_hash,
         version,
@@ -119,9 +134,11 @@ pub fn verify_executable(
     path: &Path,
     signature_requirement: SignatureRequirement,
     expected_version: Option<&str>,
+    bitness: PeBitness,
 ) -> Result<VerifiedUpdate, UpdateVerificationError> {
     let sha256 = sha256_file(path)?;
-    let (version, signed) = verify_pe_and_signature(path, signature_requirement, expected_version)?;
+    let (version, signed) =
+        verify_pe_and_signature(path, signature_requirement, expected_version, bitness)?;
     Ok(VerifiedUpdate {
         sha256,
         version,
@@ -239,8 +256,9 @@ fn verify_pe_and_signature(
     path: &Path,
     signature_requirement: SignatureRequirement,
     expected_version: Option<&str>,
+    bitness: PeBitness,
 ) -> Result<(Option<String>, bool), UpdateVerificationError> {
-    let pe = inspect_pe(path)?;
+    let pe = inspect_pe(path, bitness)?;
     if let Some(expected) = expected_version {
         let actual = pe.version.as_deref().ok_or_else(|| {
             UpdateVerificationError::new(
@@ -314,7 +332,7 @@ struct PeInspection {
     version: Option<String>,
 }
 
-fn inspect_pe(path: &Path) -> Result<PeInspection, UpdateVerificationError> {
+fn inspect_pe(path: &Path, bitness: PeBitness) -> Result<PeInspection, UpdateVerificationError> {
     let mut file = File::open(path).map_err(|error| {
         UpdateVerificationError::new("update_io_failed", format!("无法读取更新包：{error}"))
     })?;
@@ -349,11 +367,22 @@ fn inspect_pe(path: &Path) -> Result<PeInspection, UpdateVerificationError> {
     file.read_exact(&mut optional_magic_bytes)
         .map_err(|_| UpdateVerificationError::new("update_not_pe", "更新包缺少 PE 可选头。"))?;
     let optional_magic = u16::from_le_bytes(optional_magic_bytes);
-    if optional_magic != PE64_OPTIONAL_MAGIC {
-        return Err(UpdateVerificationError::new(
-            "update_not_pe",
-            "更新包不是 64 位 Windows 可执行文件。",
-        ));
+    match optional_magic {
+        PE64_OPTIONAL_MAGIC => {}
+        // 安装器（Inno Setup setup 存根）是 32 位 PE，位宽不影响安装能力。
+        PE32_OPTIONAL_MAGIC if bitness == PeBitness::Any => {}
+        PE32_OPTIONAL_MAGIC => {
+            return Err(UpdateVerificationError::new(
+                "update_not_pe",
+                "更新包不是 64 位 Windows 可执行文件。",
+            ));
+        }
+        _ => {
+            return Err(UpdateVerificationError::new(
+                "update_not_pe",
+                "更新包不是有效的 Windows 可执行文件。",
+            ));
+        }
     }
 
     Ok(PeInspection {

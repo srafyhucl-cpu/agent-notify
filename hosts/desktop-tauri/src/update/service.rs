@@ -26,7 +26,7 @@ use super::{
         REPOSITORY_ENV, ReleaseInfo, archive_asset_name, check_latest_release,
         installer_asset_name, is_newer_version,
     },
-    verify::{SignatureRequirement, VerifiedUpdate, verify_download, verify_executable},
+    verify::{PeBitness, SignatureRequirement, VerifiedUpdate, verify_download, verify_executable},
 };
 
 const UPDATE_DIR_NAME: &str = "updates";
@@ -455,6 +455,8 @@ async fn verify_installer_artifact(
             &expected_checksum,
             requirement,
             Some(&version),
+            // 安装器是 Inno Setup 的 32 位 setup 存根，位宽不影响安装能力。
+            PeBitness::Any,
         )
         .map_err(UpdateError::from)
     })
@@ -490,7 +492,13 @@ async fn prepare_archive_artifact(
         })?;
         extract_archive(&archive_path, &extract_dir)?;
         let staged = validate_staged_release(&extract_dir, &version)?;
-        let verified = verify_executable(&staged.executable, requirement, Some(&version))?;
+        let verified = verify_executable(
+            &staged.executable,
+            requirement,
+            Some(&version),
+            // 替换进安装目录的是应用程序本体，必须 64 位。
+            PeBitness::Require64,
+        )?;
         Ok((staged, verified))
     })
     .await

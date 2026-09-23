@@ -1,7 +1,7 @@
 use agentnotify_desktop::update::{
-    DEFAULT_SIGNATURE_THUMBPRINT, SignatureRequirement, SignatureStatus, normalize_thumbprint,
-    sha256_file, signature_policy, signer_thumbprint, verify_download, verify_executable,
-    verify_signature,
+    DEFAULT_SIGNATURE_THUMBPRINT, PeBitness, SignatureRequirement, SignatureStatus,
+    normalize_thumbprint, sha256_file, signature_policy, signer_thumbprint, verify_download,
+    verify_executable, verify_signature,
 };
 
 #[test]
@@ -12,6 +12,7 @@ fn updater_rejects_checksum_mismatch_and_unsigned_package_when_required() {
         "0000000000000000000000000000000000000000000000000000000000000000",
         SignatureRequirement::Required,
         None,
+        PeBitness::Require64,
     )
     .unwrap_err();
     assert_eq!(error.code(), "update_checksum_mismatch");
@@ -25,6 +26,7 @@ fn updater_rejects_malformed_sha256_before_opening_the_package() {
         "not-a-sha256",
         SignatureRequirement::Optional,
         None,
+        PeBitness::Require64,
     )
     .unwrap_err();
     assert_eq!(error.code(), "update_hash_invalid");
@@ -35,8 +37,14 @@ fn updater_rejects_non_pe_content_even_when_checksum_matches() {
     let file = tempfile::NamedTempFile::new().expect("临时更新包");
     std::fs::write(file.path(), b"not a windows executable").expect("写入测试文件");
     let hash = sha256_file(file.path()).expect("计算测试哈希");
-    let error =
-        verify_download(file.path(), &hash, SignatureRequirement::Optional, None).unwrap_err();
+    let error = verify_download(
+        file.path(),
+        &hash,
+        SignatureRequirement::Optional,
+        None,
+        PeBitness::Require64,
+    )
+    .unwrap_err();
     assert_eq!(error.code(), "update_not_pe");
 }
 
@@ -45,12 +53,24 @@ fn preview_can_accept_an_unsigned_pe_but_formal_channel_rejects_it() {
     let executable = std::env::current_exe().expect("测试可执行文件");
     let hash = sha256_file(&executable).expect("计算测试程序哈希");
 
-    let verified = verify_download(&executable, &hash, SignatureRequirement::Optional, None)
-        .expect("预览包允许未签名 PE");
+    let verified = verify_download(
+        &executable,
+        &hash,
+        SignatureRequirement::Optional,
+        None,
+        PeBitness::Require64,
+    )
+    .expect("预览包允许未签名 PE");
     assert!(!verified.signed);
 
-    let error =
-        verify_download(&executable, &hash, SignatureRequirement::Required, None).unwrap_err();
+    let error = verify_download(
+        &executable,
+        &hash,
+        SignatureRequirement::Required,
+        None,
+        PeBitness::Require64,
+    )
+    .unwrap_err();
     assert_eq!(error.code(), "update_signature_missing");
 }
 
@@ -65,9 +85,48 @@ fn updater_rejects_a_pe_with_the_wrong_version() {
         &hash,
         SignatureRequirement::Optional,
         Some("999.999.999"),
+        PeBitness::Require64,
     )
     .unwrap_err();
     assert_eq!(error.code(), "update_version_mismatch");
+}
+
+/// 安装器是 32 位 PE（Inno Setup 存根），位宽放宽后必须被接受；
+/// 同一文件按"应用程序本体"校验时仍必须拒绝。
+#[test]
+fn installer_accepts_a_32_bit_pe_while_the_application_requires_64_bit() {
+    let system_root = std::path::PathBuf::from(std::env::var_os("SystemRoot").expect("SystemRoot"));
+    let executable = system_root.join("SysWOW64").join("notepad.exe");
+    if !executable.exists() {
+        // 32 位 Windows 没有 SysWOW64；本机与 CI 都是 64 位，正常不会走到这里。
+        return;
+    }
+    let hash = sha256_file(&executable).expect("计算 32 位程序哈希");
+
+    let verified = verify_download(
+        &executable,
+        &hash,
+        SignatureRequirement::Optional,
+        None,
+        PeBitness::Any,
+    )
+    .expect("安装器通道必须接受 32 位 PE");
+    assert!(verified.version.is_some());
+
+    let error = verify_download(
+        &executable,
+        &hash,
+        SignatureRequirement::Optional,
+        None,
+        PeBitness::Require64,
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), "update_not_pe");
+    assert!(
+        error.message().contains("64 位"),
+        "错误提示要说明是位宽问题：{}",
+        error.message()
+    );
 }
 
 #[test]
@@ -196,7 +255,13 @@ fn unpinned_policy_requires_a_signature_only_on_the_formal_channel() {
 fn verify_executable_checks_pe_and_signature_without_a_release_checksum() {
     let file = tempfile::NamedTempFile::new().expect("临时文件");
     std::fs::write(file.path(), b"not a windows executable").expect("写入测试文件");
-    let error = verify_executable(file.path(), SignatureRequirement::Optional, None).unwrap_err();
+    let error = verify_executable(
+        file.path(),
+        SignatureRequirement::Optional,
+        None,
+        PeBitness::Require64,
+    )
+    .unwrap_err();
     assert_eq!(error.code(), "update_not_pe");
 }
 

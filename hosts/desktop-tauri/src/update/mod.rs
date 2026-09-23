@@ -26,7 +26,7 @@ pub use release::{
 };
 pub use service::{InstallMode, InstallReport, UpdateChannel, UpdateConfig, UpdateService};
 pub use verify::{
-    DEFAULT_SIGNATURE_THUMBPRINT, SignatureRequirement, SignatureStatus, UpdateVerificationError,
-    VerifiedUpdate, normalize_thumbprint, sha256_file, signature_policy, signer_thumbprint,
-    trusted_thumbprints, verify_download, verify_executable, verify_signature,
+    DEFAULT_SIGNATURE_THUMBPRINT, PeBitness, SignatureRequirement, SignatureStatus,
+    UpdateVerificationError, VerifiedUpdate, normalize_thumbprint, sha256_file, signature_policy,
+    signer_thumbprint, trusted_thumbprints, verify_download, verify_executable, verify_signature,
 };
