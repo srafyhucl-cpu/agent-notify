@@ -3,7 +3,7 @@
   "displayName": "Agent-notify Devin Reply (V2)",
   "description": "Receives Agent-notify replies and delivers them to the explicit Devin session through the desktop app.",
   "publisher": "agent-notify",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "private": true,
   "main": "./extension.js",
   "extensionKind": [
