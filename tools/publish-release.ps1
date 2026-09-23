@@ -95,17 +95,18 @@ try {
   & $gh.Source release view $tag --repo $Repository *> $null
   $releaseExists = $LASTEXITCODE -eq 0
   $ErrorActionPreference = $previousErrorAction
-  if ($releaseExists) {
-    & $gh.Source release upload $tag $setupPath $zipPath $sumsPath --repo $Repository --clobber
-    if ($LASTEXITCODE -ne 0) { throw "gh release upload failed: exit=$LASTEXITCODE" }
-    & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --latest
-    if ($LASTEXITCODE -ne 0) { throw "gh release edit failed: exit=$LASTEXITCODE" }
-    Write-Output "[publish] updated public release: $Repository $tag"
-  } else {
-    & $gh.Source release create $tag $setupPath $zipPath $sumsPath --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --latest
-    if ($LASTEXITCODE -ne 0) { throw "gh release create failed: exit=$LASTEXITCODE" }
-    Write-Output "[publish] created public release: $Repository $tag"
+  # 先创建为草稿（草稿对客户端不可见），把全部资产传完后再发布为 Latest。
+  # 曾出现的真实问题：gh release create 逐个上传资产，Release 在 Setup 传完前就已可见且被置为 Latest，
+  # 客户端若在窗口期内查询，会只看到 ZIP 而选错升级路径（压缩包分支要求旧版布局，必然失败）。
+  if (-not $releaseExists) {
+    & $gh.Source release create $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --draft
+    if ($LASTEXITCODE -ne 0) { throw "gh release create (draft) failed: exit=$LASTEXITCODE" }
   }
+  & $gh.Source release upload $tag $setupPath $zipPath $sumsPath --repo $Repository --clobber
+  if ($LASTEXITCODE -ne 0) { throw "gh release upload failed: exit=$LASTEXITCODE" }
+  & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --draft=false --latest
+  if ($LASTEXITCODE -ne 0) { throw "gh release edit (publish) failed: exit=$LASTEXITCODE" }
+  Write-Output "[publish] published release with all assets: $Repository $tag"
 } finally {
   if (Test-Path -LiteralPath $notesPath) {
     Remove-Item -LiteralPath $notesPath -Force
