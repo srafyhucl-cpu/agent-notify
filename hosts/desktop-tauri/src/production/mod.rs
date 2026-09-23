@@ -77,8 +77,11 @@ pub async fn bootstrap_production(
         bootstrap_internal(Some(app.clone()), paths, secret_store, updates).await?;
 
     // 启动事件转发任务
-    let forwarder = EventForwarder::new(app, coordinator.clone());
+    let forwarder = EventForwarder::new(app.clone(), coordinator.clone());
     forwarder.start();
+
+    // 升级后首启可能因旧版心跳仍在判定窗口内落到迁移诊断模式，后台自愈并在恢复后通知界面。
+    coordinator.spawn_migration_autoretry(Some(app));
 
     Ok((coordinator, service))
 }
