@@ -350,6 +350,24 @@ impl ProductionRuntimeCoordinator {
         self.start_or_restart().await
     }
 
+    /// 当前是否因"旧版仍在运行"落在迁移诊断模式；只有这种可自愈原因才值得自动重试。
+    async fn needs_migration_autoretry(&self) -> bool {
+        match self.current_snapshot().await {
+            Some(snapshot) => matches!(
+                migration_recovered(
+                    snapshot.state,
+                    snapshot
+                        .migration
+                        .error
+                        .as_ref()
+                        .map(|issue| issue.code.as_str()),
+                ),
+                Ok(false)
+            ),
+            None => false,
+        }
+    }
+
     /// 迁移诊断模式的自愈重试。
     ///
     /// 升级后首启常见"旧版心跳仍在 30 秒窗口内"，此时运行时会落到诊断模式（不启动渠道与
@@ -367,6 +385,13 @@ impl ProductionRuntimeCoordinator {
         let coordinator = self.clone();
         let inflight = self.migration_autoretry_inflight.clone();
         tokio::spawn(async move {
+            // 只有确实因"旧版仍在运行"落在诊断模式时才重试；
+            // 正常启动不该在几十秒后白白重启一次运行时。
+            if !coordinator.needs_migration_autoretry().await {
+                inflight.store(false, Ordering::SeqCst);
+                return;
+            }
+
             let outcome = retry_until_ready(
                 MIGRATION_AUTORETRY_INTERVAL,
                 MIGRATION_AUTORETRY_MAX_ATTEMPTS,
