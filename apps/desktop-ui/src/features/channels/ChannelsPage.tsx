@@ -1,10 +1,4 @@
-import {
-  AlertTriangle,
-  Plus,
-  RadioTower,
-  Send,
-  X,
-} from "lucide-react";
+import { AlertTriangle, Plus, Send, X } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -18,6 +12,11 @@ import type { ChannelAccountDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
+import {
+  EmptyFunnel,
+  PageHeader,
+  SectionCard,
+} from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import {
   useDisableChannelAccountMutation,
@@ -98,6 +97,7 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
   const [sendError, setSendError] = useState<unknown>(null);
 
   const channels = channelsQuery.data?.channels ?? [];
+  const firstChannel = channels[0] ?? null;
   const entries = useMemo(
     () => accountsFromChannels(channels),
     [channels],
@@ -108,6 +108,9 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
         channel.accounts.map((account) => ({ channel, account })),
       )
       .find((entry) => entry.account.id === selectedAccountId) ?? null;
+  const channelsLayoutClass = selectedEntry
+    ? "channels-layout channels-layout--split"
+    : "channels-layout";
   const loginChannel =
     channels.find((channel) => channel.id === loginChannelId) ??
     channels[0] ??
@@ -228,24 +231,11 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
   };
 
   return (
-    <section className="workbench-page" aria-labelledby="page-title-channels">
-      <header className="workbench-page-header">
-        <div>
-          <h1 className="workbench-page-title" id="page-title-channels">
-            渠道
-          </h1>
-          <p className="page-summary">
-            按 descriptor 管理多个渠道账号、登录状态和测试发送。
-          </p>
-        </div>
-        <span
-          className="page-count"
-          aria-label={`共 ${String(entries.length)} 个渠道账号`}
-        >
-          <RadioTower aria-hidden="true" size={16} />
-          {entries.length} 个账号
-        </span>
-      </header>
+    <section className="workbench-page channels-page">
+      <PageHeader
+        title="渠道"
+        summary="连接通知渠道；不通渠道，Agent 与历史都不会有数据。"
+      />
 
       <div className="workbench-page-content channels-page-content">
         {loadError ? (
@@ -275,6 +265,31 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
           <LoadingRows aria-label="正在加载渠道账号列表" />
         ) : null}
 
+        {!channelsQuery.isPending &&
+        !loadError &&
+        entries.length === 0 &&
+        firstChannel ? (
+          <EmptyFunnel
+            title="先连接渠道"
+            description="连接一个渠道并完成扫码登录后，通知才会开始流动；再发一条测试通知，确认链路真的通了。"
+            steps={[
+              { title: "选择渠道", description: "在下方选择要接入的渠道。" },
+              { title: "扫码登录", description: "用渠道客户端扫码，或提交配对码。" },
+              { title: "验证投递", description: "发送一条测试通知，确认能收到。" },
+            ]}
+            action={
+              <button
+                className="button"
+                type="button"
+                onClick={() => openLogin(firstChannel.id)}
+              >
+                <Plus aria-hidden="true" size={15} />
+                连接第一个渠道
+              </button>
+            }
+          />
+        ) : null}
+
         {!channelsQuery.isPending && channels.length === 0 && !loadError ? (
           <EmptyState
             title="暂无渠道"
@@ -282,53 +297,57 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
           />
         ) : null}
 
-        {channels.map((channel) => {
-          const channelEntries = entries.filter(
-            (entry) => entry.channel.id === channel.id,
-          );
-          return (
-            <section
-              className="channel-band"
-              aria-labelledby={`channel-${channel.id}`}
-              key={channel.id}
-            >
-              <header className="channel-band-header">
-                <div>
-                  <h2 id={`channel-${channel.id}`}>{channel.displayName}</h2>
-                  <p className="section-description">
-                    {channel.capabilities.sendText ? "支持文本发送" : "只接收消息"}
-                    {" · "}
-                    {channel.capabilities.replyRouting ? "支持回复路由" : "不支持回复路由"}
-                  </p>
-                </div>
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={() => openLogin(channel.id)}
-                >
-                  <Plus aria-hidden="true" size={15} />
-                  添加渠道账号
-                </button>
-              </header>
-
-              {channelEntries.length > 0 ? (
-                <ChannelAccountList
-                  entries={channelEntries}
-                  selectedAccountId={selectedAccountId}
-                  pendingAccountId={pendingAccountId}
-                  onSelect={setSelectedAccountId}
-                  onToggle={(account, enabled) =>
-                    void toggleAccount(account, enabled)
+        <div className={channelsLayoutClass}>
+          <div className="channels-main">
+            {channels.map((channel) => {
+              const channelEntries = entries.filter(
+                (entry) => entry.channel.id === channel.id,
+              );
+              const capabilitiesSummary = `${
+                channel.capabilities.sendText ? "支持文本发送" : "只接收消息"
+              } · ${
+                channel.capabilities.replyRouting
+                  ? "支持回复路由"
+                  : "不支持回复路由"
+              }`;
+              return (
+                <SectionCard
+                  key={channel.id}
+                  title={channel.displayName}
+                  count={channelEntries.length}
+                  description={capabilitiesSummary}
+                  action={
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() => openLogin(channel.id)}
+                    >
+                      <Plus aria-hidden="true" size={15} />
+                      添加渠道账号
+                    </button>
                   }
-                />
-              ) : (
-                <p className="section-empty">
-                  此渠道还没有账号，请添加账号并完成登录。
-                </p>
-              )}
-            </section>
-          );
-        })}
+                >
+                  {channelEntries.length > 0 ? (
+                    <ChannelAccountList
+                      entries={channelEntries}
+                      selectedAccountId={selectedAccountId}
+                      pendingAccountId={pendingAccountId}
+                      onSelect={setSelectedAccountId}
+                      onToggle={(account, enabled) =>
+                        void toggleAccount(account, enabled)
+                      }
+                    />
+                  ) : (
+                    <p className="section-empty">
+                      此渠道还没有账号，请添加账号并完成登录。
+                    </p>
+                  )}
+                </SectionCard>
+              );
+            })}
+          </div>
+
+          <div className="channels-detail">
 
         {detailError ? (
           <InlineError
@@ -364,19 +383,16 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
         ) : null}
 
         {sendEntries.length > 0 ? (
-          <form
-            className="test-notification-form"
-            aria-label="测试发送"
-            onSubmit={(event) => void submitTestNotification(event)}
+          <SectionCard
+            className="test-notification-card"
+            title="测试发送"
+            description="必须选择具体账号，不会使用隐式默认账号。"
           >
-            <div className="test-notification-heading">
-              <Send aria-hidden="true" size={18} />
-              <div>
-                <h2>测试发送</h2>
-                <p>必须选择具体账号，不会使用隐式默认账号。</p>
-              </div>
-            </div>
-
+            <form
+              className="test-notification-form"
+              aria-label="测试发送"
+              onSubmit={(event) => void submitTestNotification(event)}
+            >
             <div className="test-notification-fields">
               <label>
                 <span>测试发送账号</span>
@@ -450,8 +466,11 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
                 message={sendUserError.message}
               />
             ) : null}
-          </form>
+            </form>
+          </SectionCard>
         ) : null}
+          </div>
+        </div>
       </div>
 
       <ChannelLoginDialog

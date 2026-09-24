@@ -1,150 +1,233 @@
+:root {
+  /* 二维码必须白底才可扫，与主题无关，单独命名 token */
+  --channels-qr-surface: #ffffff;
+  /* 二维码展示尺寸、登录加载旋转周期与模态宽度（无现成语义 token） */
+  --channels-qr-size: 180px;
+  --channels-spin-duration: 900ms;
+  --channels-dialog-width: 560px;
+  /* 模态遮罩：明暗两主题共用的压暗层 */
+  --channels-scrim: rgb(15 20 30 / 55%);
+}
+
 .channels-page-content {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-5);
   min-width: 0;
 }
 
-.channel-band,
-.channel-account-detail,
-.test-notification-form {
-  min-width: 0;
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
+/* 页头已提供 24px 间距，内容区不再重复留白 */
+.channels-page .channels-page-content {
+  padding-top: 0;
 }
 
-.channel-band {
-  padding: var(--space-3) 0 var(--space-4);
-}
-
-.channel-band-header,
-.test-notification-heading,
-.test-notification-footer {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
+/* Master–Detail：左渠道卡带、右账号详情；窄窗降为单列 */
+.channels-layout {
+  display: grid;
+  gap: var(--space-5);
   min-width: 0;
 }
 
-.channel-band-header {
-  margin-bottom: var(--space-3);
+.channels-layout--split {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.9fr);
+  align-items: start;
 }
 
-.channel-band-header h2,
-.channel-account-detail h2,
-.test-notification-form h2,
-.channel-config-section h3 {
+.channels-main,
+.channels-detail {
+  display: grid;
+  gap: var(--space-5);
+  align-content: start;
   min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-size: var(--font-size-4);
-  line-height: 1.35;
 }
 
 .channel-account-list {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
 }
 
 .channel-account-list table {
   width: 100%;
-  min-width: 820px;
-  border-collapse: collapse;
-  font-size: var(--font-size-2);
-}
-
-.channel-account-list th,
-.channel-account-list td {
   min-width: 0;
-  padding: var(--space-3) var(--space-2);
-  text-align: left;
-  vertical-align: middle;
-  border-bottom: 1px solid var(--color-border);
-  overflow-wrap: anywhere;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0 var(--space-2);
+  font-size: var(--font-body);
 }
 
 .channel-account-list thead th {
+  padding: 0 var(--space-3) var(--space-1);
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  background: transparent;
+  border: 0;
+  font-size: var(--font-caption);
   font-weight: 650;
+  text-align: left;
   white-space: nowrap;
 }
 
-.channel-account-row--selected {
-  background: #e7f0ed;
+/* 行卡：行内单元格拼成带圆角的表面条 */
+.channel-account-list tbody th,
+.channel-account-list tbody td {
+  min-width: 0;
+  padding: var(--space-3);
+  text-align: left;
+  vertical-align: middle;
+  background: var(--surface-2);
+  border-top: 1px solid var(--surface-2-border);
+  border-bottom: 1px solid var(--surface-2-border);
+  overflow-wrap: anywhere;
+}
+
+.channel-account-list tbody th:first-child,
+.channel-account-list tbody td:first-child {
+  border-left: 1px solid var(--surface-2-border);
+  border-top-left-radius: var(--radius-panel);
+  border-bottom-left-radius: var(--radius-panel);
+}
+
+.channel-account-list tbody th:last-child,
+.channel-account-list tbody td:last-child {
+  border-right: 1px solid var(--surface-2-border);
+  border-top-right-radius: var(--radius-panel);
+  border-bottom-right-radius: var(--radius-panel);
+}
+
+/* 列宽：账号 / 状态 / 启用 / 详情 */
+.channel-account-list thead th:nth-child(1) {
+  width: 46%;
+}
+
+.channel-account-list thead th:nth-child(2) {
+  width: 30%;
+}
+
+.channel-account-list thead th:nth-child(3) {
+  width: 12%;
+}
+
+.channel-account-list thead th:nth-child(4) {
+  width: 12%;
+}
+
+.channel-account-row--selected th,
+.channel-account-row--selected td {
+  background: var(--color-primary-soft);
+  border-color: var(--surface-3-border);
+}
+
+.channel-account-list tbody tr:not(.channel-account-row--selected):hover th,
+.channel-account-list tbody tr:not(.channel-account-row--selected):hover td {
+  background: var(--color-surface-muted);
 }
 
 .channel-account-name {
+  display: block;
+  width: 100%;
   min-width: 0;
+  overflow: hidden;
   padding: 0;
   color: var(--color-text);
   background: transparent;
   border: 0;
-  font-size: var(--font-size-3);
+  font-size: var(--font-body);
   font-weight: 650;
   text-align: left;
-  overflow-wrap: anywhere;
   cursor: pointer;
+}
+
+.channel-account-name-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-account-name:hover .channel-account-name-text {
+  color: var(--color-primary);
 }
 
 .channel-account-error {
   display: block;
   margin-top: var(--space-1);
+  overflow: hidden;
   color: var(--color-danger);
+  font-size: var(--font-caption);
   line-height: 1.45;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .channel-account-detail {
-  padding: var(--space-4) 0;
+  min-width: 0;
 }
 
-.channel-descriptor-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.channel-detail-segments {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
 }
 
-.channel-descriptor-list > div {
-  grid-template-columns: 92px minmax(0, 1fr);
+.channel-detail-segment {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.channel-detail-actions {
+.channel-detail-segment + .channel-detail-segment {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--hairline);
+}
+
+.channel-detail-segment-title {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.channel-detail-health {
   display: flex;
-  justify-content: flex-start;
-  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.channel-detail-health-message {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--font-body);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .button-danger-text {
   color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 45%, white);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
 }
 
 .button-danger {
-  color: #ffffff;
+  color: var(--color-surface);
   background: var(--color-danger);
   border-color: var(--color-danger);
 }
 
 .button-danger:hover:not(:disabled) {
-  background: #922d27;
-  border-color: #922d27;
-}
-
-.channel-config-section {
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-danger) 88%, var(--color-canvas));
+  border-color: color-mix(in srgb, var(--color-danger) 88%, var(--color-canvas));
 }
 
 .channel-config-form {
   display: grid;
   gap: var(--space-3);
-  margin-top: var(--space-3);
+  margin-top: var(--space-2);
 }
 
 .channel-config-note {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -156,31 +239,19 @@
   background: var(--color-surface-muted);
 }
 
+.test-notification-card {
+  min-width: 0;
+}
+
 .test-notification-form {
   display: grid;
   gap: var(--space-4);
-  padding: var(--space-4) 0;
-}
-
-.test-notification-heading {
-  justify-content: flex-start;
-  align-items: center;
-}
-
-.test-notification-heading svg {
-  flex: 0 0 18px;
-  color: var(--color-primary);
-}
-
-.test-notification-heading p {
-  margin: var(--space-1) 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  min-width: 0;
 }
 
 .test-notification-fields {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
   gap: var(--space-3);
 }
 
@@ -191,7 +262,7 @@
 }
 
 .test-notification-fields label > span {
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
   font-weight: 600;
 }
 
@@ -213,19 +284,23 @@
 }
 
 .test-notification-fields textarea {
-  min-height: 76px;
+  min-height: calc(var(--space-6) * 2);
   resize: vertical;
 }
 
 .test-notification-footer {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .field-hint,
 .field-error {
   min-width: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
   overflow-wrap: anywhere;
 }
 
@@ -235,23 +310,25 @@
 
 .dialog-overlay {
   position: fixed;
-  z-index: 100;
+  z-index: var(--z-modal);
   inset: 0;
   display: grid;
   place-items: center;
   padding: var(--space-4);
-  background: rgb(22 29 25 / 42%);
+  background: var(--channels-scrim);
 }
 
 .channel-login-dialog,
 .confirm-dialog {
-  width: min(560px, 100%);
-  max-height: calc(100vh - 32px);
+  width: min(var(--channels-dialog-width), 100%);
+  max-height: calc(100vh - var(--space-6));
   overflow-y: auto;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--surface-3);
+  border: 1px solid var(--surface-3-border);
   border-radius: var(--radius-panel);
-  box-shadow: 0 18px 48px rgb(25 32 28 / 22%);
+  box-shadow: var(--surface-3-shadow);
+  -webkit-backdrop-filter: var(--surface-3-blur);
+  backdrop-filter: var(--surface-3-blur);
 }
 
 .dialog-header {
@@ -260,19 +337,19 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .dialog-header h2 {
   margin: 0;
-  font-size: var(--font-size-4);
+  font-size: var(--font-heading);
   overflow-wrap: anywhere;
 }
 
 .dialog-subtitle {
   margin: var(--space-1) 0 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
 }
 
 .icon-button {
@@ -323,12 +400,12 @@
 
 .login-state-panel--error {
   color: var(--color-danger);
-  background: #fbefed;
+  background: var(--color-danger-soft);
 }
 
 .login-state-panel--success {
   color: var(--color-success);
-  background: #edf7f0;
+  background: var(--color-success-soft);
 }
 
 .login-state-panel--success strong {
@@ -337,7 +414,7 @@
 
 .qr-panel {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-columns: var(--channels-qr-size) minmax(0, 1fr);
   align-items: center;
   gap: var(--space-4);
   min-width: 0;
@@ -345,12 +422,12 @@
 
 .channel-login-qr {
   display: block;
-  width: 180px;
+  width: var(--channels-qr-size);
   max-width: 100%;
   aspect-ratio: 1;
   padding: var(--space-2);
   object-fit: contain;
-  background: #ffffff;
+  background: var(--channels-qr-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
 }
@@ -377,14 +454,14 @@
 }
 
 .verify-code-form label {
-  font-size: var(--font-size-3);
+  font-size: var(--font-body);
   font-weight: 650;
 }
 
 .verify-code-form p {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
   line-height: 1.5;
 }
 
@@ -401,7 +478,7 @@
 }
 
 .spin-icon {
-  animation: channel-login-spin 900ms linear infinite;
+  animation: channel-login-spin var(--channels-spin-duration) linear infinite;
 }
 
 .confirm-dialog {
@@ -417,7 +494,7 @@
 
 .confirm-dialog h2 {
   margin: 0;
-  font-size: var(--font-size-4);
+  font-size: var(--font-heading);
 }
 
 .confirm-dialog p {
@@ -440,8 +517,13 @@
   }
 }
 
+@media (max-width: 1080px) {
+  .channels-layout--split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 900px) {
-  .channel-descriptor-list,
   .test-notification-fields {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -452,14 +534,12 @@
 }
 
 @media (max-width: 640px) {
-  .channel-band-header,
   .test-notification-footer,
   .dialog-header {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .channel-band-header .button,
   .test-notification-footer .button {
     width: 100%;
   }
@@ -469,7 +549,7 @@
   }
 
   .channel-login-qr {
-    width: min(220px, 100%);
+    width: min(var(--channels-qr-size), 100%);
     margin-inline: auto;
   }
 

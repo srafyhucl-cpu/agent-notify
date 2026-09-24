@@ -4,6 +4,7 @@ import type {
   ChannelAccountDto,
   ChannelDto,
 } from "../../bridge/types";
+import { StatusBadge, type StatusBadgeTone } from "../../components/patterns";
 
 export interface ChannelAccountEntry {
   channel: ChannelDto;
@@ -18,24 +19,9 @@ export interface ChannelAccountListProps {
   onToggle: (account: ChannelAccountDto, enabled: boolean) => void;
 }
 
-function formatTime(value: string | null): string {
-  if (!value) {
-    return "无记录";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString("zh-CN", {
-    hour12: false,
-  });
-}
-
 function accountStatus(account: ChannelAccountDto): {
   label: string;
-  tone: "success" | "danger" | "warning";
+  tone: StatusBadgeTone;
 } {
   if (!account.enabled) {
     return { label: "已停用", tone: "warning" };
@@ -64,9 +50,6 @@ export function ChannelAccountList({
           <tr>
             <th scope="col">账号</th>
             <th scope="col">状态</th>
-            <th scope="col">绑定标识</th>
-            <th scope="col">最近入站</th>
-            <th scope="col">最近投递</th>
             <th scope="col">启用</th>
             <th scope="col">详情</th>
           </tr>
@@ -90,24 +73,19 @@ export function ChannelAccountList({
                     aria-pressed={account.id === selectedAccountId}
                     onClick={() => onSelect(account.id)}
                   >
-                    {account.displayName}
+                    <span className="channel-account-name-text">
+                      {account.displayName}
+                    </span>
                   </button>
                 </th>
                 <td>
-                  <span
-                    className={`status-label status-label--${status.tone}`}
-                  >
-                    {status.label}
-                  </span>
+                  <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
                   {account.health.detail ? (
                     <span className="channel-account-error">
                       {account.health.detail.message}
                     </span>
                   ) : null}
                 </td>
-                <td className="monospace-cell">{account.id}</td>
-                <td>{formatTime(account.lastInboundAt)}</td>
-                <td>{formatTime(account.lastDeliveryAt)}</td>
                 <td>
                   <label className="switch-control">
                     <input
