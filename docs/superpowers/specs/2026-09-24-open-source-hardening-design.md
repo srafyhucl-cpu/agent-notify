@@ -1,7 +1,7 @@
 # Agent-notify 开源成熟度平衡加固设计
 
 - 日期：2026-09-24
-- 状态：待用户书面审阅
+- 状态：已确认，实施中
 - 目标版本：v2.0.7
 - 适用范围：公开源码前的平衡加固，不包含 UI 视觉改版
 
@@ -72,7 +72,7 @@ Agent-notify/
 └─ tools/...
 ```
 
-文件名、格式版本和大小上限由 Rust 客户端常量定义；PowerShell 门禁通过合同测试读取并比对这些值，禁止在构建脚本中维护一套可能漂移的独立常量。
+文件名、产品名、格式版本、哈希算法和大小上限由仓库根的 `config/release-manifest-contract.json` 统一定义；Rust 通过 `include_str!` 读取，PowerShell 构建与门禁通过 `ConvertFrom-Json` 读取同一份合同，禁止在两端维护可能漂移的独立常量。
 
 ### 5.3 清单格式
 
@@ -219,13 +219,14 @@ Agent-notify/
 - `contents: write` 只分配给最终发布 job，不分配给工具安装和构建 job；
 - 签名 PFX 只进入构建 job；镜像 Token 只进入发布 job；
 - 在仓库存在第二位维护者前，Environment 至少限制为 tag；具备第二位审核人后再启用 Required Reviewer，避免配置一个只有维护者本人能通过的形式化审批；
+- 可复用发布 workflow 必须从受保护 `main` 解析，tag 中即使存在恶意 `publish` job 或脚本也不能获得镜像 Token；
 - 文档明确说明：拥有 tag 创建权限的单一维护者仍是最高风险来源，HSM/OIDC 是后续高价值增强。
 
 ### 6.4 构建与发布拆分
 
 1. `validate`：无 Secret、只读权限，校验 tag、版本、tag 提交属于受保护 `main` 的可达历史以及工具摘要；
 2. `build`：读取签名材料，运行完整门禁、构建、签名和 ZIP 清单验证，暂存 Release 资产；
-3. `publish`：不读取 PFX，预检两个仓库写权限，下载已验证资产；
+3. `publish`：调用固定到受保护 `main` 的可复用 workflow；该 workflow 从 `main` checkout 编排脚本，不执行 tag 中的仓库脚本，不读取 PFX，只下载调用方提供的已验证资产并预检两个仓库写权限；
 4. 两个仓库都先创建 Draft，上传并验证资产与签名；
 5. 镜像更新仓先发布为 Latest，源码仓随后发布；跨 GitHub 仓库无法提供真正事务，因此称为“近原子发布”；
 6. 任一验证失败时两个 Release 都保持 Draft，不把半成品暴露给用户；
@@ -263,7 +264,7 @@ README 和 SECURITY 明确区分：
 - `AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 统一描述为“覆盖内置信任列表”，不再写成追加；
 - `AGENT_NOTIFY_REQUIRE_SIGNATURE` 明确只属于 Go 1.x 遗留更新器；
 - 签名文档删除“仓库私有”前提，改为 tag、协作者和 Secret 的威胁模型；
-- 私密漏洞报告作为首选后备，补充独立安全邮箱；公开 Issue 不再作为漏洞报告渠道；
+- 公开后只使用 GitHub Private Vulnerability Reporting 作为私密漏洞入口，不虚构未实际收件的安全邮箱；公开 Issue 不作为漏洞报告渠道；仓库转公开前尚不承诺外部漏洞受理入口；
 - 日志建议改为“只附必要行，并先移除用户名、路径、账号提示、客户端标识和消息标识”。
 
 ### 7.3 用户文档
