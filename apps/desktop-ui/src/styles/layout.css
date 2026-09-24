@@ -19,8 +19,10 @@
   min-height: 0;
   padding: var(--space-3);
   overflow: hidden;
-  background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
+  background: var(--surface-1);
+  border-right: 1px solid var(--surface-1-border);
+  -webkit-backdrop-filter: var(--surface-1-blur);
+  backdrop-filter: var(--surface-1-blur);
 }
 
 .app-nav-brand {
@@ -87,7 +89,7 @@
 
 .app-nav-link[aria-current="page"] {
   color: var(--color-primary);
-  background: #e3efeb;
+  background: var(--color-primary-soft);
   box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
@@ -100,6 +102,75 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 主题切换：明 / 暗 / 跟随系统（radiogroup）。落在导航底部，用表面语义层换肤。 */
+.theme-switcher {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-top: auto;
+  padding: var(--space-1);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-2-border);
+  border-radius: var(--radius-control);
+}
+
+.theme-switcher-option {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-1);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.theme-switcher-option:hover {
+  color: var(--color-text);
+}
+
+/* 选中态：颜色 + 柔和底 + 边框 + 字重冗余，不靠颜色单载 */
+.theme-switcher-option[aria-checked="true"] {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-color: var(--surface-3-border);
+  font-weight: 700;
+}
+
+.theme-switcher-option:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.theme-switcher-icon {
+  flex: 0 0 16px;
+}
+
+.theme-switcher-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-switcher-option {
+    transition: none;
+  }
 }
 
 .runtime-status-bar {
@@ -377,6 +448,23 @@
   .app-nav-link {
     justify-content: center;
     padding-inline: 0;
+  }
+
+  /* 窄栏主题切换收成纵向图标形态，避免水平溢出 */
+  .theme-switcher {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .theme-switcher-label {
+    display: none;
+  }
+
+  .theme-switcher-option {
+    flex: 0 0 auto;
+    width: var(--control-height);
+    min-height: var(--control-height);
+    padding: 0;
   }
 }
 

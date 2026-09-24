@@ -1,25 +1,27 @@
+/* Agent-notify 设计令牌唯一来源（双主题）。
+   当前主题由根元素 data-theme 属性决定：dark / light；无属性时兜底 dark（见下方兜底块）。
+   组件一律消费 var(--*)，禁止硬编码色值/时长/发光/阴影。
+   表面语义层（--surface-*）是组件零分支换肤的关键，后续所有卡片/面板/浮层都消费它：
+     --surface-1/2/3        内容卡面 / 次级面 / 浮层面
+     --surface-*-blur       dark=毛玻璃模糊（glass-blur），light=none
+     --surface-*-border     该层描边（dark=微光细边，light=冷灰细边）
+     --surface-*-shadow     该层阴影（dark=微光/无，light=elevation 1/2/3）
+   --hairline 用于分割线；--elevation-1/2/3 为亮色阴影刻度。
+   两套主题逐对对比度核算，正文 ≥4.5:1、非文本 ≥3:1，数值见 UI_DECISIONS.d/phase1-2-theme.md。 */
+
 :root {
-  color-scheme: light;
-  --color-canvas: #f4f5f3;
-  --color-surface: #ffffff;
-  --color-surface-muted: #eef0ed;
-  --color-border: #d7dbd6;
-  --color-text: #1f2521;
-  --color-text-muted: #5c645e;
-  --color-primary: #176b5b;
-  --color-primary-hover: #125447;
-  --color-info: #2878a8;
-  --color-warning: #8a4f0d;
-  --color-danger: #b33a32;
-  --color-success: #26703f;
-  --radius-control: 6px;
-  --radius-panel: 8px;
+  /* 主题无关令牌：间距 / 圆角 / 字体 / 结构尺寸 / 动效 / 层叠位阶 */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+
+  --radius-control: 6px;
+  --radius-panel: 8px;
+  --radius-pill: 999px;
+
   --font-size-1: 12px;
   --font-size-2: 13px;
   --font-size-3: 14px;
@@ -30,8 +32,136 @@
     "Segoe UI",
     system-ui,
     sans-serif;
+
   --nav-width: 208px;
   --nav-width-compact: 64px;
   --control-height: 32px;
   --status-height: 48px;
+
+  /* 动效：时长/缓动统一走 token，禁止裸时长 */
+  --duration-fast: 120ms;
+  --duration-base: 150ms;
+  --ease-out: ease-out;
+
+  /* 层叠位阶（全局唯一）：Modal > Popover/Tooltip > Sticky > Content */
+  --z-content: 1;
+  --z-sticky: 10;
+  --z-popover: 50;
+  --z-modal: 100;
+
+  /* 亮色阴影刻度：供 light 主题的表面语义层引用 */
+  --elevation-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --elevation-2:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 4px 12px rgba(16, 24, 40, 0.05);
+  --elevation-3: 0 8px 24px rgba(16, 24, 40, 0.12);
+}
+
+/* 暗色（默认兜底）：现暗色基线，按气质 B 收敛发光预算 */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: #0a0c12;
+  --color-surface: #12141d;
+  --color-surface-muted: #1a2030;
+  --color-border: #2a3142;
+  --color-text: #e9edf6;
+  --color-text-muted: #949eb4;
+  --color-primary: #2ee0f0;
+  --color-primary-hover: #67e8f9;
+  --color-info: #5cc8ff;
+  --color-warning: #f0b64a;
+  --color-danger: #ff8b87;
+  --color-success: #4ade80;
+
+  /* 语义柔和底：半透明语义色，供「柔和底 + 语义色文字」的徽标/提示条复用 */
+  --color-primary-soft: rgba(46, 224, 240, 0.16);
+  --color-info-soft: rgba(92, 200, 255, 0.16);
+  --color-warning-soft: rgba(240, 182, 74, 0.16);
+  --color-danger-soft: rgba(255, 139, 135, 0.16);
+  --color-success-soft: rgba(74, 222, 128, 0.16);
+
+  --glass-bg-1: rgba(18, 20, 29, 0.7);
+  --glass-bg-2: rgba(24, 28, 41, 0.85);
+  --glass-bg-3: rgba(30, 36, 54, 0.95);
+  --glass-blur-sm: blur(8px);
+  --glass-blur-md: blur(16px);
+  --glass-saturate: saturate(1.25);
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.1);
+  --border-glow: rgba(0, 240, 255, 0.35);
+  --glow-sm: 0 0 10px rgba(0, 240, 255, 0.15);
+  --glow-md: 0 0 20px rgba(0, 240, 255, 0.3);
+
+  --surface-1: var(--glass-bg-1);
+  --surface-2: var(--glass-bg-2);
+  --surface-3: var(--glass-bg-3);
+  --surface-1-blur: var(--glass-blur-sm);
+  --surface-2-blur: var(--glass-blur-sm);
+  --surface-3-blur: var(--glass-blur-md);
+  --surface-1-border: var(--border-subtle);
+  --surface-2-border: var(--border-subtle);
+  --surface-3-border: var(--border-glow);
+  --surface-1-shadow: none;
+  --surface-2-shadow: var(--glow-sm);
+  --surface-3-shadow: var(--glow-md);
+
+  --hairline: rgba(255, 255, 255, 0.08);
+}
+
+/* 亮色（专门设计，非暗色反色）：白面 + 冷灰细边 + 阴影抬升，零玻璃零辉光 */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-canvas: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-surface-muted: #eef1f6;
+  --color-border: #dfe4ec;
+  --color-text: #1a2230;
+  --color-text-muted: #5b6675;
+  --color-primary: #0e7490;
+  --color-primary-hover: #0b5c73;
+  --color-info: #0b6fa4;
+  --color-warning: #9a5b06;
+  --color-danger: #b42318;
+  --color-success: #117a35;
+
+  /* 柔和底：加深饱和（约 12% 深色调叠加），保证语义色文字在其上仍 ≥4.5:1 */
+  --color-primary-soft: rgba(14, 116, 144, 0.12);
+  --color-info-soft: rgba(11, 111, 164, 0.12);
+  --color-warning-soft: rgba(154, 91, 6, 0.12);
+  --color-danger-soft: rgba(180, 35, 24, 0.12);
+  --color-success-soft: rgba(17, 122, 53, 0.12);
+
+  /* 亮色关闭毛玻璃：浅底玻璃易脏，改用「白面 + 细边 + 阴影」分层 */
+  --glass-bg-1: rgba(255, 255, 255, 0.92);
+  --glass-bg-2: rgba(255, 255, 255, 0.96);
+  --glass-bg-3: #ffffff;
+  --glass-blur-sm: none;
+  --glass-blur-md: none;
+  --glass-saturate: saturate(1);
+
+  --border-subtle: #dfe4ec;
+  --border-hover: #cfd6e0;
+  --border-glow: rgba(14, 116, 144, 0.35);
+  /* 亮色零辉光：hover/浮层用阴影表达 */
+  --glow-sm: var(--elevation-1);
+  --glow-md: var(--elevation-2);
+
+  --surface-1: #ffffff;
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --surface-1-blur: none;
+  --surface-2-blur: none;
+  --surface-3-blur: none;
+  --surface-1-border: #dfe4ec;
+  --surface-2-border: #dfe4ec;
+  --surface-3-border: #cfd6e0;
+  --surface-1-shadow: var(--elevation-1);
+  --surface-2-shadow: var(--elevation-2);
+  --surface-3-shadow: var(--elevation-3);
+
+  --hairline: #e6eaf1;
 }

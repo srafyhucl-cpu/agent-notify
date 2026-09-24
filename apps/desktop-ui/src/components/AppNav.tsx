@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 
 import { navigationItems } from "../app/navigation";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 
 export function AppNav() {
   return (
@@ -35,6 +36,8 @@ export function AppNav() {
           );
         })}
       </ul>
+
+      <ThemeSwitcher />
     </nav>
   );
 }
