@@ -14,6 +14,12 @@ import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
 import { RUNTIME_STATE_LABELS } from "../../components/RuntimeStatusBar";
+import {
+  PageHeader,
+  SectionCard,
+  StatusBadge,
+  type StatusBadgeTone,
+} from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { useDiagnosticActionMutation } from "../../data/mutations";
 import { queryKeys } from "../../data/queryKeys";
@@ -31,7 +37,7 @@ const MIGRATION_STATE_LABELS: Record<MigrationStateDto, string> = {
   Required: "失败，当前处于只读诊断模式",
 };
 
-const MIGRATION_STATE_TONES: Record<MigrationStateDto, string> = {
+const MIGRATION_STATE_TONES: Record<MigrationStateDto, StatusBadgeTone> = {
   NotConfigured: "neutral",
   NotDetected: "neutral",
   Completed: "success",
@@ -196,15 +202,17 @@ function MigrationDiagnostics({
 
   return (
     <div className="migration-diagnostics">
-      <div
-        className={`migration-status migration-status--${MIGRATION_STATE_TONES[migration.state]}`}
-      >
-        <strong>{migrationStateLabel(migration)}</strong>
+      <div className="migration-status">
+        <div className="migration-status-heading">
+          <StatusBadge tone={MIGRATION_STATE_TONES[migration.state]}>
+            {migrationStateLabel(migration)}
+          </StatusBadge>
+          <span className="migration-source-state">
+            旧数据来源：
+            {migration.sourceDetected ? "已检测到" : "未检测到"}
+          </span>
+        </div>
         <p>{migrationStateDescription(migration)}</p>
-        <p className="migration-source-state">
-          旧数据来源：
-          {migration.sourceDetected ? "已检测到" : "未检测到"}
-        </p>
       </div>
 
       {migration.reportFile ? (
@@ -297,37 +305,33 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
   };
 
   return (
-    <section className="workbench-page" aria-labelledby="page-title-diagnostics">
-      <header className="workbench-page-header">
-        <div>
-          <h1 className="workbench-page-title" id="page-title-diagnostics">
-            诊断
-          </h1>
-          <p className="page-summary">
-            所有诊断结论直接来自 StatusService，页面只展示和刷新这些结果。
-          </p>
-        </div>
-        <div className="page-actions">
-          <button
-            className="button button-secondary"
-            type="button"
-            disabled={diagnosticsQuery.isFetching}
-            onClick={() => void diagnosticsQuery.refetch()}
-          >
-            <RefreshCw aria-hidden="true" size={15} />
-            {diagnosticsQuery.isFetching ? "正在刷新" : "刷新"}
-          </button>
-          <button
-            className="button"
-            type="button"
-            disabled={!diagnostics}
-            onClick={() => void copyDiagnostics()}
-          >
-            <Clipboard aria-hidden="true" size={15} />
-            复制安全诊断信息
-          </button>
-        </div>
-      </header>
+    <section className="workbench-page diagnostics-page" aria-label="诊断">
+      <PageHeader
+        title="诊断"
+        summary="所有诊断结论直接来自 StatusService，页面只展示和刷新这些结果。"
+        actions={
+          <>
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={diagnosticsQuery.isFetching}
+              onClick={() => void diagnosticsQuery.refetch()}
+            >
+              <RefreshCw aria-hidden="true" size={15} />
+              {diagnosticsQuery.isFetching ? "正在刷新" : "刷新"}
+            </button>
+            <button
+              className="button"
+              type="button"
+              disabled={!diagnostics}
+              onClick={() => void copyDiagnostics()}
+            >
+              <Clipboard aria-hidden="true" size={15} />
+              复制安全诊断信息
+            </button>
+          </>
+        }
+      />
 
       <div className="workbench-page-content diagnostics-page-content">
         {loadError ? (
@@ -372,36 +376,21 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
 
         {diagnostics ? (
           <>
-            <section
-              className="diagnostics-section"
-              aria-labelledby="diagnostics-migration-title"
+            <SectionCard
+              title="旧数据迁移"
+              description="迁移状态来自运行时快照；失败时仅提供查看报告和重新检测。"
             >
-              <header className="section-heading">
-                <div>
-                  <h2 id="diagnostics-migration-title">旧数据迁移</h2>
-                  <p className="section-description">
-                    迁移状态来自运行时快照；失败时仅提供查看报告和重新检测。
-                  </p>
-                </div>
-              </header>
               <MigrationDiagnostics
                 bridge={bridge}
                 migration={diagnostics.migration}
               />
-            </section>
+            </SectionCard>
 
-            <section
-              className="diagnostics-summary"
-              aria-labelledby="diagnostics-summary-title"
+            <SectionCard
+              className="diagnostics-summary-card"
+              title="状态摘要"
+              description={`最近生成：${diagnostics.generatedAt}`}
             >
-              <header className="section-heading">
-                <div>
-                  <h2 id="diagnostics-summary-title">状态摘要</h2>
-                  <p className="section-description">
-                    最近生成：{diagnostics.generatedAt}
-                  </p>
-                </div>
-              </header>
               <dl className="diagnostics-summary-list">
                 <div>
                   <dt>应用版本</dt>
@@ -431,32 +420,16 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
                   <dd>{diagnostics.storage.recentError?.message ?? "无"}</dd>
                 </div>
               </dl>
-            </section>
+            </SectionCard>
 
-            <section
-              className="diagnostics-section"
-              aria-labelledby="diagnostics-items-title"
+            <SectionCard
+              title="诊断项"
+              description="修复动作仅执行 StatusService 声明的 HostBridge 命令。"
             >
-              <header className="section-heading">
-                <div>
-                  <h2 id="diagnostics-items-title">诊断项</h2>
-                  <p className="section-description">
-                    修复动作仅执行 StatusService 声明的 HostBridge 命令。
-                  </p>
-                </div>
-              </header>
               <DiagnosticList bridge={bridge} items={diagnostics.items} />
-            </section>
+            </SectionCard>
 
-            <section
-              className="diagnostics-section"
-              aria-labelledby="diagnostics-components-title"
-            >
-              <header className="section-heading">
-                <div>
-                  <h2 id="diagnostics-components-title">组件状态</h2>
-                </div>
-              </header>
+            <SectionCard title="组件状态">
               {diagnostics.components.length === 0 ? (
                 <p className="section-empty">StatusService 未返回组件状态。</p>
               ) : (
@@ -470,7 +443,7 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
                   ))}
                 </div>
               )}
-            </section>
+            </SectionCard>
           </>
         ) : null}
       </div>

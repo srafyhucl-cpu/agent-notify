@@ -436,15 +436,66 @@
   line-height: 1.5;
 }
 
-.diagnostic-list,
-.diagnostic-components {
-  display: grid;
-  gap: 0;
-  border-top: 1px solid var(--color-border);
+/* ========== 诊断页（Phase 5d：例外分诊 · 按严重度分组 + 动作行右对齐 + 迁移卡独立成组） ========== */
+:root {
+  /* 诊断项动作列最小宽度：保证各行动作按钮右对齐成列（无现成语义 token，集中命名） */
+  --diagnostic-action-column: 168px;
 }
 
-.diagnostic-item,
-.diagnostic-component {
+/* 页头已提供 24px 间距，内容区不再重复留白；组间统一 24px */
+.diagnostics-page .diagnostics-page-content {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+  padding-top: 0;
+}
+
+/* 状态摘要卡：共享列表自带底距由卡片间距取代（仅诊断页覆盖，不动共享规则） */
+.diagnostics-summary-card .diagnostics-summary-list {
+  margin-bottom: 0;
+}
+
+/* 诊断项列表：按严重度分组，组间 24px */
+.diagnostic-list {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.diagnostic-group {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+}
+
+.diagnostic-group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.diagnostic-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-5);
+  min-height: var(--space-4);
+  padding: 0 var(--space-2);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 动作行：内容左、动作右对齐成列 */
+.diagnostic-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-4);
@@ -453,8 +504,7 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.diagnostic-item-main,
-.diagnostic-component {
+.diagnostic-item-main {
   min-width: 0;
 }
 
@@ -472,37 +522,9 @@
   overflow-wrap: anywhere;
 }
 
-.diagnostic-level {
-  flex: 0 0 auto;
-  padding: 2px var(--space-2);
-  border-radius: 999px;
-  font-size: var(--font-size-1);
-  font-weight: 700;
-}
-
-.diagnostic-level--normal {
-  color: var(--color-success);
-  background: #e7f3ea;
-}
-
-.diagnostic-level--waiting {
-  color: var(--color-warning);
-  background: #fff3db;
-}
-
-.diagnostic-level--error {
-  color: var(--color-danger);
-  background: #fbefed;
-}
-
-.diagnostic-level--paused {
-  color: var(--color-info);
-  background: #e7f1f7;
-}
-
 .diagnostic-message {
   margin: var(--space-2) 0;
-  font-size: var(--font-size-3);
+  font-size: var(--font-body);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -511,30 +533,35 @@
 .diagnostic-action-unavailable {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
 }
 
 .diagnostic-action {
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  min-width: 150px;
+  min-width: var(--diagnostic-action-column);
 }
 
 .diagnostic-action-unavailable {
-  max-width: 180px;
+  max-width: var(--diagnostic-action-column);
   line-height: 1.5;
   text-align: right;
 }
 
+/* 组件状态：两列卡片，窄窗折单列 */
 .diagnostic-components {
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
-  border-top: 0;
+  min-width: 0;
 }
 
 .diagnostic-component {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  min-width: 0;
   padding: var(--space-3);
   background: var(--color-surface-muted);
   border: 1px solid var(--color-border);
@@ -552,10 +579,11 @@
   grid-column: 1 / -1;
   margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
   line-height: 1.5;
 }
 
+/* ========== 迁移卡（独立成组） ========== */
 .migration-diagnostics {
   display: grid;
   gap: var(--space-3);
@@ -564,27 +592,21 @@
 
 .migration-status {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: 0;
   padding: var(--space-3);
   background: var(--color-surface-muted);
-  border-left: 3px solid var(--color-border);
   border-radius: var(--radius-control);
 }
 
-.migration-status--success {
-  border-color: var(--color-success);
+.migration-status-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.migration-status--warning {
-  border-color: var(--color-warning);
-}
-
-.migration-status--danger {
-  border-color: var(--color-danger);
-}
-
-.migration-status strong,
 .migration-status p,
 .migration-report-file,
 .migration-backup-advice {
@@ -592,16 +614,21 @@
   overflow-wrap: anywhere;
 }
 
-.migration-status p,
+.migration-status p {
+  color: var(--color-text-muted);
+  font-size: var(--font-body);
+  line-height: 1.5;
+}
+
 .migration-report-file,
 .migration-backup-advice {
   color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
   line-height: 1.5;
 }
 
 .migration-source-state {
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
 }
 
 .migration-report-file {
@@ -617,7 +644,7 @@
 
 .migration-report-unavailable {
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
 }
 
 .migration-issue,
@@ -633,7 +660,7 @@
 
 .migration-issue h3 {
   margin: 0;
-  font-size: var(--font-size-3);
+  font-size: var(--font-body);
 }
 
 .migration-issue-list,
@@ -647,7 +674,7 @@
 .migration-issue-list > div,
 .migration-report-list > div {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
   padding: var(--space-2);
   background: var(--color-surface-muted);
@@ -657,14 +684,14 @@
 .migration-issue-list dt,
 .migration-report-list dt {
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
 }
 
 .migration-issue-list dd,
 .migration-report-list dd {
   min-width: 0;
   margin: 0;
-  font-size: var(--font-size-2);
+  font-size: var(--font-body);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -672,7 +699,7 @@
 .migration-report-empty {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
 }
 
 .migration-warning-list {
@@ -701,7 +728,7 @@
 
 .migration-warning-list span {
   color: var(--color-text-muted);
-  font-size: var(--font-size-2);
+  font-size: var(--font-caption);
 }
 
 /* ========== 设置页（Phase 5e：左分组目录（sticky）+ 右分组面板，一决策一行） ========== */
