@@ -16,7 +16,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agentnotify-agent-antigravity"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-domain",
@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-agent-codex"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-domain",
@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-agent-commandcode"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-domain",
@@ -60,7 +60,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-agent-devin"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-domain",
@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-agent-opencode"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-domain",
@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-agent-sdk"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-domain",
  "async-trait",
@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-antigravity-hook"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "async-trait",
  "serde",
@@ -119,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-application"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-channel-sdk",
@@ -137,7 +137,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-channel-clawbot"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-application",
  "agentnotify-channel-sdk",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-channel-sdk"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-domain",
  "async-trait",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-codex-hook"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "async-trait",
  "serde",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-desktop"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-antigravity",
  "agentnotify-agent-codex",
@@ -225,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-devin-hook"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "async-trait",
  "serde",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-domain"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "serde",
  "sha2",
@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-ingress"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-domain",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-runtime"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-sdk",
  "agentnotify-application",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-storage-sqlite"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-application",
  "agentnotify-channel-clawbot",
@@ -311,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "agentnotify-testkit"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "agentnotify-agent-opencode",
  "agentnotify-agent-sdk",

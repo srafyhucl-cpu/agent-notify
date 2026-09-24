@@ -3,7 +3,7 @@
   "displayName": "Agent-notify Devin Reply",
   "description": "Receives Agent-notify replies and delivers them to the original Devin Cascade through the desktop app.",
   "publisher": "agent-notify",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "private": true,
   "main": "./extension.js",
   "extensionKind": [

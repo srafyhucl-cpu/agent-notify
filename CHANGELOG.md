@@ -4,6 +4,12 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是仓库根目录的 `VERSION`
 （2.0.0 起；此前为 `internal/app/version.go`）。
 
+## [2.0.7] - 2026-09-24
+
+### Changed
+
+- 内部重构，行为不变：命令服务 `service.rs`（1254 行）拆出 `mapping.rs`（7 个纯映射与脱敏函数）和 `app_exit.rs`（更新器与退出命令共用的退出端口）；运行时 `runtime.rs`（966 行）拆出 `error.rs`（错误归一化）和 `workers.rs`（入站消费、投递、状态刷新与监督 worker）。全量测试验证零行为变化，方便后续 UI 迭代在清晰的模块边界上进行。
+
 ## [2.0.6] - 2026-09-23
 
 ### Added
