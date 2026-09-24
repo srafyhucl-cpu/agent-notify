@@ -1,5 +1,5 @@
 name: Bug 报告
-description: 推送、开关、悬浮窗、安装或卸载出现问题时使用
+description: 推送、Agent 接入、桌面端、更新、安装或卸载出现问题时使用
 title: "[Bug] "
 labels: ["bug"]
 body:
@@ -7,43 +7,48 @@ body:
     attributes:
       value: |
         提交前请先查看 `docs/TROUBLESHOOTING.md`。
-        日志不包含 ClawBot 凭据，可放心粘贴相关片段。
+        日志不会写入 ClawBot token 或通知正文，但仍可能包含用户名、本机路径、账号提示、客户端标识和消息标识；提交前必须检查并移除不需要的个人信息。
   - type: dropdown
     id: area
     attributes:
       label: 出问题的部分
       options:
-        - 推送（收不到、重复或内容不对）
-        - OpenCode 插件
-        - Codex 事件
-        - 悬浮窗（窗口、托盘、开关或运行状态）
-        - 安装或卸载
+        - 微信推送（收不到、重复或内容不对）
+        - 引用回复
+        - OpenCode 接入
+        - Codex 接入
+        - Antigravity 接入
+        - Devin 接入
+        - Command Code 接入
+        - 桌面端（窗口、托盘、设置或运行状态）
+        - 应用更新
+        - 安装、升级或卸载
         - 文档或其它
     validations:
       required: true
   - type: input
-    id: env
+    id: environment
     attributes:
       label: 环境
-      description: Windows 版本、Agent-notify 版本、OpenCode 或 Codex 版本
-      placeholder: "例：Windows 11 23H2 / Agent-notify 1.0.0 / Codex 1.x"
+      description: Windows 版本与架构、Agent-notify 版本、相关 Agent 客户端版本
+      placeholder: "例：Windows 11 23H2 x64 / Agent-notify 2.0.7 / Codex 1.x"
     validations:
       required: true
   - type: textarea
-    id: what
+    id: reproduction
     attributes:
       label: 现象与复现步骤
-      description: 发生了什么、期望是什么、如何复现
+      description: 发生了什么、期望是什么、从哪一步开始能稳定复现
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
       label: 相关日志
-      description: "推送记录：%TEMP%\\agent-notify\\push.log；插件调试：opencode-debug.log；Codex 调试：codex-notify-debug.log；悬浮窗：widget-error.log"
+      description: '桌面端：%LOCALAPPDATA%\AgentNotify\logs\runtime.log；接入调试：%TEMP%\agent-notify\*-debug.log；更新：%LOCALAPPDATA%\AgentNotify\temp\updates\last-update.log。只粘贴解决问题所需的片段。'
       render: text
   - type: textarea
     id: tried
     attributes:
       label: 已尝试的排查
-      description: 例如重跑 `agent-notify doctor`、重启桌面端或检查开关状态
+    description: 例如查看 Diagnostics / Agents / Channels、重启相关客户端、运行 agentnotify-ingress.exe --doctor，或按故障排查文档处理

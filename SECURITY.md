@@ -6,13 +6,13 @@
 
 ## 报告漏洞
 
-请不要用公开 Issue 报告安全问题。
+请不要用公开 Issue、公开 PR 或讨论区报告安全问题。
 
-首选在 GitHub 仓库的 **Security** 页面选择 **Report a vulnerability**。如果无法使用私密报告，可先提交一个不含复现细节的 Issue，说明需要私下联系渠道。
+仓库转为公开后，唯一私密入口是 GitHub 仓库的 **Security → Report a vulnerability**。请在私密报告中描述影响版本、复现步骤、可能影响和建议修复；不要先在公开渠道透露漏洞细节。仓库公开前尚未承诺外部漏洞受理入口。
 
 ## 凭据与数据
 
-- ClawBot token、bot id、recipient user id、`context_token` 等凭据保存在 Windows 凭据管理器（按「渠道 + 账号 + 密钥类型」命名的通用凭据），不落明文文件。
+- ClawBot token、bot id、recipient user id、`context_token` 等凭据保存在 Windows 凭据管理器（目标名以 `AgentNotify/` 开头，后接不可逆账号摘要），不落明文文件；在 Channels 页点「退出账号」会删除该账号由应用管理的凭据与会话上下文。
 - 旧版 `%USERPROFILE%\.config\agent-notify\clawbot.json` 只在首次启动时只读导入；旧文件不改写、不删除。
 - 状态数据（开关、推送历史、引用路由、入站 Claim）保存在 `%LOCALAPPDATA%\AgentNotify\data\state.db`（SQLite WAL）。
 - 界面、状态快照与日志只显示脱敏后的用户标识和元数据，不输出 token 或 context token。
@@ -31,7 +31,7 @@
 
 - 旧数据迁移是只读的：`%USERPROFILE%\.config\agent-notify` 下的旧配置与凭据不会被改写或删除。
 - 离线事件写入 `%LOCALAPPDATA%\AgentNotify\spool`，核心恢复后补投；超限或损坏的事件进隔离目录并记录原因，不静默丢弃。
-- 安装器只复制声明的文件并调用固定的接入脚本；卸载只删除程序文件、快捷方式与自启动项，用户数据一律保留。
+- 安装器只复制声明的文件并调用固定接入脚本；普通卸载会删除程序、快捷方式和 AgentNotify 自己写入的 Codex / Antigravity / Devin / Command Code 接入，但保留 OpenCode 插件、SQLite、旧配置与 Windows 凭据。手动彻底清理的顺序见 README。
 - Codex 配置只改写 notify 链内指向本产品的路径，修改前创建备份；自定义 notify 程序不会被覆盖。
 
 ## Agent 接入隔离
@@ -43,9 +43,9 @@
 
 ## 更新与安装包
 
-- 应用内升级只接受带 Authenticode 签名、且签名指纹命中内置指纹的安装包（可用 `AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 追加信任指纹）；未签名或指纹不符一律拒绝，不会静默放行。
+- 应用内升级只接受带 Authenticode 签名、且签名指纹命中内置信任列表的安装包；`AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 会**覆盖**内置列表而不是追加，未签名或指纹不符一律拒绝。
 - 下载产物先校验 SHA256、签名与 PE 版本再替换文件；校验失败不触碰已安装文件，当前版本继续可用。
-- ZIP 回退替换按固定文件清单落盘，条目路径逐项清洗，拒绝越界路径。
+- 当前 ZIP 回退会清洗条目路径、拒绝符号链接与越界路径，并验签主程序；ZIP 内其它可执行文件、插件和脚本尚未由独立签名清单认证，因此该回退链路正在加固，不能把“ZIP 外层 SHA256 一致”理解为全部内容已由签名者认证。
 - `AGENT_NOTIFY_REQUIRE_SIGNATURE` 只被 Go 1.x 更新器读取；2.0 更新器固定要求签名。
 
 ## 依赖与构建

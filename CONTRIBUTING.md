@@ -4,10 +4,13 @@
 
 ## 环境要求
 
-- Windows 10 / 11
+- Windows 10 / 11 x64
 - Rust stable（版本见 `rust-toolchain.toml`）：2.0 核心、桌面端与 Hook 的主语言
-- Go 1.26+（最低版本以 `go.mod` 的 `go` 行为准）：只用于仓库保留的 Go 版运行时及其门禁（回滚窗口）
-- Node.js 22：桌面 UI、OpenCode 插件与 Devin 扩展的类型检查和测试
+- Visual Studio 2022 Build Tools 的“使用 C++ 的桌面开发”和 Windows SDK：编译 Tauri 宿主
+- Microsoft Edge WebView2 Runtime：运行桌面界面
+- Node.js 22 与 npm 10：桌面 UI、OpenCode 插件与 Devin 扩展
+- Tauri CLI 2：本地启动桌面开发窗口；发布构建不依赖全局 CLI
+- Go 1.26+（最低版本以 `go.mod` 的 `go` 行为准）：只跑冻结的 Go 1.x 回滚门禁时需要
 - Windows PowerShell 5.1+，用于门禁与构建脚本
 - Inno Setup 6 与签名工具，仅本地构建正式安装器时需要
 
@@ -23,31 +26,50 @@ $env:CARGO_TARGET_DIR = 'D:\Temp\agentnotify-rust-target'
 
 ## 本地开发
 
+### 从克隆到启动桌面端
+
+以下命令在仓库根目录执行。`CARGO_HOME`、`CARGO_TARGET_DIR` 和 npm 缓存应继续使用前文配置，避免落到 C 盘。
+
 ```powershell
 git clone https://github.com/srafyhucl-cpu/agent-notify.git
 cd agent-notify
 npm ci
+npm --prefix .\apps\desktop-ui ci
 
-# 静态检查
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\lint.ps1
-node_modules\.bin\tsc.cmd --noEmit
+# 仅首次需要；Tauri CLI 2 用于本地 dev 窗口
+cargo install tauri-cli --version "^2.0.0" --locked
 
-# Rust 门禁：cargo fmt / clippy / test
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
+# 修改 Rust bridge 命令后才需要重新生成；生成结果必须提交
+cargo run --locked -p agentnotify-desktop --bin export-bindings --target x86_64-pc-windows-msvc
 
-# Go 门禁 + 插件状态机测试 + 隔离冒烟
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
-
-# 桌面 UI 类型检查与单测
-cd apps\desktop-ui
-npm ci
-npm run typecheck
-npm test
+# Tauri 会按 tauri.conf.json 自动启动 Vite，再编译并打开桌面端
+cargo tauri dev --config .\hosts\desktop-tauri\tauri.conf.json
 ```
 
-- `tools\test.ps1` 需要 `node_modules`；未修改插件时可以运行 `-SkipTypeScript`，但发布前应跑完整套件。
-- `tools\rust\gate.ps1` 在内存较小的机器上会自动限制 cargo 并发（避免链接期打爆分页文件），需要提速时用 `-Jobs N` 或 `CARGO_BUILD_JOBS` 覆盖。
-- 修改 `cmd\agent-notify\agent-notify.manifest`（Go 版遗留）后，在仓库根目录运行 `go generate ./cmd/agent-notify`，并提交重新生成的三个 `rsrc_windows_*.syso`。
+如果只改桌面 UI，也可以先运行 `npm --prefix .\apps\desktop-ui run dev`，再在浏览器打开
+`http://localhost:1420`；这条路径不会启动 Rust 运行时，因此不能验证命名管道、凭据、SQLite 或更新器。
+
+### 开发门禁
+
+```powershell
+# 根 TypeScript / 插件、Go 遗留、脚本和隔离冒烟
+node_modules\.bin\tsc.cmd --noEmit
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
+
+# Rust fmt / clippy / test
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
+
+# UI bridge、类型、Vitest、构建、Playwright 与 Rust 联合门禁
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ui\gate.ps1
+
+# 脚本、workflow ASCII 与版本一致性
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\lint.ps1
+```
+
+- `tools\test.ps1` **不是仓库全部测试**：它覆盖 Go 遗留、根 TypeScript、脚本、签名门禁和隔离冒烟，不替代 Rust 或 UI 门禁。
+- `tools\test.ps1` 需要根 `node_modules`；未修改插件时可以运行 `-SkipTypeScript`，但发布前不能跳过。
+- `tools\rust\gate.ps1` 会按可用内存限制 cargo 并发；需要提速时用 `-Jobs N` 或 `CARGO_BUILD_JOBS` 覆盖。
+- 修改 `cmd\agent-notify\agent-notify.manifest`（Go 版遗留）后，运行 `go generate ./cmd/agent-notify`，并提交重新生成的三个 `rsrc_windows_*.syso`。
 
 ## Go 1.x 遗留代码（回滚窗口保留）
 
@@ -63,12 +85,14 @@ npm test
 ## 提交前检查
 
 - [ ] `tools\rust\gate.ps1` 全绿（fmt / clippy / test）
-- [ ] `go test ./...` 与 `go vet ./...` 全绿（Go 遗留代码门禁）
+- [ ] `tools\ui\gate.ps1` 全绿（bridge / typecheck / Vitest / build / Playwright / Rust）
+- [ ] `go test ./...`、`go vet ./...` 与 `gofmt -l cmd internal` 无输出（Go 遗留代码门禁）
 - [ ] `node_modules\.bin\tsc.cmd --noEmit` 全绿
 - [ ] `tools\lint.ps1` 全绿
 - [ ] `tools\test.ps1` 全绿
 - [ ] 新增或修改 `.ps1` / `.psm1` / `.psd1` 时保留 UTF-8 BOM + CRLF
-- [ ] `.github/workflows/*.yml` 保持纯 ASCII
+- [ ] `.github/workflows/*.yml` 保持纯 ASCII，第三方 Actions 固定到完整 commit SHA
+- [ ] 没有提交 token、证书私钥、真实账号标识、平台消息 ID 或未经脱敏的个人日志
 - [ ] 行为变化已写入 `CHANGELOG.md`
 - [ ] 没有重新引入旧品牌、旧模块或旧路径兼容层
 
@@ -86,6 +110,17 @@ npm test
 10. OpenCode 插件与 Command Code mod 靠安装器写入的 `BAKED_INGRESS` 定位入口，修改路径解析时必须同步 `tools\hooks\install-opencode-v2.ps1`、`tools\hooks\install-commandcode-v2.ps1` 与冒烟用例。
 
 完整契约见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+## Issue、分支与 PR 流程
+
+1. 先搜索现有 Issue；Bug 按 `docs/TROUBLESHOOTING.md` 最小化复现并移除日志中的个人信息；安全漏洞只走 GitHub 私密报告。
+2. 大型功能先创建或更新设计文档，写清目标、边界、兼容策略和验收标准，再开始实现。
+3. 从最新 `main` 创建短生命周期分支；一个 PR 只处理一个可独立验证的问题，不顺带重构无关模块。
+4. 提交前运行“提交前检查”全部适用门禁；只暂存本 PR 相关文件。
+5. PR 说明用户可见变化、风险、真实链路验收和未完成项，并关联 Issue；维护者按安全、兼容、可测试性和文档一致性评审。
+6. 评审意见解决后压缩无意义中间提交，但保留能解释设计演进的提交；不使用 force push 掩盖未评审变化。
+
+当前不要求 DCO 或 CLA；若未来引入，会先在本文件更新流程，不追溯要求历史贡献者补签。
 
 ## 提交规范
 

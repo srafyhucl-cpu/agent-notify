@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.0.7-blue.svg?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6.svg?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
 </p>
 
@@ -17,7 +17,7 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 - 凭据由 Windows 凭据管理器保存；运行日志和界面不显示 token 等敏感字段。
 - OpenCode 使用 V2 插件监听会话完成/失败事件，经 `agentnotify-ingress.exe` 提交；插件出错不会阻塞 OpenCode。
 - Codex、Antigravity、Devin、Command Code 四个 Agent 各自通过独立接入上报完成事件：Codex 走 notify Hook、Antigravity 走 Stop Hook、Devin 走 Stop Hook 与桌面扩展、Command Code 走 V2 mod；接入失败不会阻塞各自客户端，失败原因写入各自的调试日志。
-- 应用内一键升级：Settings → 更新 里检查最新版本，点「下载并安装」后静默完成安装并自动重启；正式渠道只接受通过内置指纹校验的签名安装包。
+- 应用内一键升级：Settings → 更新 里检查最新版本，点「下载并安装」后优先静默安装并自动重启；安装器不可用时回退到 ZIP，文件就绪后需手动重启。正式渠道只接受通过内置指纹校验的签名安装包。
 - 通知内容为会话标题加摘要正文，正文保留 Markdown；超过渠道长度上限时明确失败，不静默截断。
 - 推送历史存 SQLite：History 页可按 Agent、渠道、账号、状态和时间定位通知，查看投递详情；失败且标记为可重试的投递可以手动重试。
 - Diagnostics 页展示存储、后台组件与旧数据迁移诊断，失败都会给出可读原因。
@@ -33,7 +33,7 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 
 - Agent：OpenCode（V2 插件）、Codex（notify Hook）、Antigravity（Stop Hook）、Devin（Stop Hook + 桌面扩展）、Command Code（V2 mod）。
 - 渠道：ClawBot / 微信。
-- 应用内一键升级：检查更新、下载、校验、静默安装并自动重启。
+- 应用内一键升级：检查更新、下载、校验、静默安装；安装器成功时自动重启，ZIP 回退时手动重启。
 
 后续扩展（尚未实现）：
 
@@ -42,19 +42,40 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 
 ## 安装
 
-普通用户从[公开 Release](https://github.com/srafyhucl-cpu/agent-notify-releases/releases/latest)下载 `Agent-notify-Setup-vX.Y.Z.exe`，双击后按向导完成安装。安装器默认按当前用户安装到 `%LOCALAPPDATA%\Programs\Agent-notify`，不要求管理员权限；安装前会检查 Microsoft Edge WebView2 运行时，缺失时提示先安装。
+### 前置条件
+
+- Windows 10 / 11 **x64**；
+- Microsoft Edge WebView2 Runtime。安装器会检查，缺失时停止并给出下载提示；
+- 微信端能够使用 ClawBot 扫码登录。
+
+普通用户从[公开 Release](https://github.com/srafyhucl-cpu/agent-notify-releases/releases/latest)下载 `Agent-notify-Setup-vX.Y.Z.exe`。安装器按当前用户安装到 `%LOCALAPPDATA%\Programs\Agent-notify`，不要求管理员权限。
+
+当前发布使用私有代码签名证书。Windows SmartScreen 可能显示“未知发布者”；这不代表文件损坏，但必须先完成下面的摘要和发布者指纹核对，再决定是否运行。不要关闭安全软件或绕过系统安全提示来消除警告。
+
+```powershell
+# 1. 核对 Release 附件 SHA256SUMS.txt 中对应安装器的值
+Get-FileHash .\Agent-notify-Setup-vX.Y.Z.exe -Algorithm SHA256
+
+# 2. 核对 Authenticode 签名者指纹
+(Get-AuthenticodeSignature .\Agent-notify-Setup-vX.Y.Z.exe).SignerCertificate.Thumbprint
+# 当前发布指纹：EDF9E283DF2407B318E65D59BB430FD546509ACD
+```
+
+两项都一致后再双击安装。指纹轮换时，以仓库当前 `SECURITY.md` 和 `docs/code-signing.md` 公布的值为准。
+
+### 安装向导
 
 向导默认勾选：
 
-- 创建桌面快捷方式、开机自动启动。
-- 接入 OpenCode 通知插件：把 `plugin\rust\agent-notify.ts` 写到 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`，并把 `agentnotify-ingress.exe` 的绝对路径绑定进插件。接入后需要重启 OpenCode。
-- 接入 Codex / Antigravity / Devin / Command Code：由安装器调用对应接入脚本，只改写各自的配置项（Codex 的 `notify` 行、Antigravity 的 Hook 与启动器、Devin 的 Stop Hook 与 V2 扩展、Command Code 的 mod），第三方接入与自定义配置原样保留。不需要时可以取消勾选。
+- 创建桌面快捷方式、开机自动启动；
+- 接入 OpenCode 通知插件：把 `plugin\rust\agent-notify.ts` 写到 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`，并绑定本次安装目录中的 `agentnotify-ingress.exe`；接入后需要重启 OpenCode；
+- 接入 Codex / Antigravity / Devin / Command Code：安装器只改写 AgentNotify 自己管理的 Codex `notify`、Antigravity Hook/启动器、Devin Stop Hook/V2 扩展和 Command Code mod。第三方配置与归属校验不通过的自定义内容会保留并报告冲突。
 
-安装完成页会启动 AgentNotify。首次启动做一次**只读**旧数据迁移：读取旧配置、登录状态、开关、推送历史与引用路由导入新库，旧文件保持不变，重复启动不会重复迁移。从旧版升级时，**Agent 开关按旧版状态继承**：旧版开着的 Agent 升级后继续开着，旧版关掉的保持关闭，不会因为升级静默停掉通知。全新安装则相反：Codex、Antigravity、Devin、Command Code 默认关闭，需要在 Agents 页手动开启；只有 OpenCode 保持“无配置即启用”的历史默认。
+安装完成页会启动 AgentNotify。首次启动只读迁移旧配置、登录状态、开关、推送历史与引用路由，不改写旧文件。从旧版升级时继承旧 Agent 开关；全新安装时 Codex、Antigravity、Devin、Command Code 默认关闭，需要在 Agents 页手动开启，OpenCode 保持无配置即启用。
 
-升级安装器保留原 AppId，会覆盖回原安装目录；安装时先停止旧进程，清理上一版本写入的旧接入（旧 Go 版 Hook 与 V1 扩展），再按勾选安装新的接入。用户数据一律保留。
+升级安装器保留原 AppId 并覆盖原目录；会停止旧进程、清理上一版本接入并安装本次勾选的接入。SQLite 状态库、凭据、历史与引用路由不随升级删除。
 
-发布的安装器与程序都带 Authenticode 签名，Release 同时发布 `SHA256SUMS.txt` 供校验。ZIP 包 `Agent-notify-vX.Y.Z.zip` 用于便携与开发，不是普通用户的主安装入口。
+`Agent-notify-vX.Y.Z.zip` 是开发与备用包，不是普通用户的主安装入口。解压后可直接运行 `Agent-notify\bin\agentnotify-desktop.exe`，但不会自动创建快捷方式、自启动或部署 Agent 接入；需要接入时按[故障排查](docs/TROUBLESHOOTING.md#双击安装器后-agent-仍未接入)运行包内脚本。ZIP 仍使用同一 `%LOCALAPPDATA%\AgentNotify` 数据目录，不是完全隔离的免安装环境。
 
 ## 首次使用
 
@@ -68,13 +89,14 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 
 ## 更新与回滚
 
-在 Settings → 更新 里点「检查更新」查询[发布仓库](https://github.com/srafyhucl-cpu/agent-notify-releases/releases)的最新版本；存在更高版本时点「下载并安装」，应用会下载安装包、校验 SHA256 与签名指纹，然后**静默安装并自动重启**（安装期间主窗口会关闭，安装器显示进度，装完自动启动）。
+在 Settings → 更新 里点「检查更新」查询[发布仓库](https://github.com/srafyhucl-cpu/agent-notify-releases/releases)的最新版本。安装器通道会下载安装包，校验 SHA256、PE 版本与 Authenticode 签名者指纹，再静默安装并自动重启。安装器缺失或启动失败时才回退 ZIP；ZIP 文件替换成功后**不会自动重启 AgentNotify**，需手动完全退出并重新打开。
 
-- 正式渠道只接受由内置指纹签名、且 PE 版本号匹配的安装包；未签名或指纹不符一律拒绝安装，不会静默放行。
-- 下载或校验失败不会触碰已安装的文件，当前版本继续可用，失败原因会在界面里给出可读说明。
-- 也可以手动安装：从发布仓库下载 `Agent-notify-Setup-vX.Y.Z.exe` 覆盖安装，校验值以 Release 附件 `SHA256SUMS.txt` 为准。
+- 正式渠道不接受未签名、指纹不符、版本不匹配或校验失败的包；失败不会触碰已安装文件。
+- 2.0.0–2.0.4 的更新器会误拒 32 位 Inno Setup 安装器存根，无法直接升级到 2.0.5 及以后版本。请先手动下载并覆盖安装一次 `Agent-notify-Setup-v2.0.5.exe` 或更高版本。
+- 手动安装时，从发布仓库下载 `Agent-notify-Setup-vX.Y.Z.exe`，先按[安装校验](#安装)核对摘要和签名者，再覆盖安装。
+- 更新失败、ZIP 回退和回滚到 v1.17.0 的详细步骤见[故障排查](docs/TROUBLESHOOTING.md#升级失败与回滚)。
 
-回滚窗口内可以安装上一稳定版 `Agent-notify-Setup-v1.17.0.exe` 回到旧版；校验和、回滚步骤与窗口结束条件见 [Windows 正式入口切换到 Rust 桌面版](docs/superpowers/specs/2026-09-19-windows-rust-cutover.md)。回滚安装器同样保留 AppId，会覆盖回原安装目录；配置、凭据、历史与 SQLite 都不会删除。
+回滚安装器保留原 AppId，会覆盖回原安装目录；配置、凭据、历史与 SQLite 都不会因覆盖安装自动删除。
 
 ## 微信引用回复
 
@@ -98,47 +120,75 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 | OpenCode 插件 | `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts` |
 | 旧配置与凭据（只读） | `%USERPROFILE%\.config\agent-notify\` |
 
-设置项（勿扰、通知冷却、引用回复、路由有效期、更新通道、开机启动等）存在 SQLite 中，通过 Settings 页修改；ClawBot 凭据由 Windows 凭据管理器保存。迁移只读旧目录，不改写也不删除 `%USERPROFILE%\.config\agent-notify\` 里的文件。
+设置项（勿扰、通知冷却、引用回复、路由有效期、更新通道、开机启动等）存在 SQLite 中，通过 Settings 页修改；ClawBot 凭据由 Windows 凭据管理器保存，目标名以 `AgentNotify/` 开头，后接不可逆账号摘要。迁移只读旧目录，不改写也不删除 `%USERPROFILE%\.config\agent-notify\` 里的文件。
 
 `agentnotify-ingress.exe` 只接收版本化 Agent 事件；面向用户的能力只有只读自检 `--doctor`（输出 JSON 报告：命名管道是否在监听、spool 积压与隔离数）与 `--ping`（一行结论），两者都不提交事件、不写盘，退出码 0 正常、1 异常，供无头环境和远程排查探活。
 
-## 卸载
+## 卸载与彻底清理
 
-在 Windows「设置 → 应用 → 已安装的应用」中选择 AgentNotify 卸载。卸载只删除程序文件、快捷方式与自启动项；SQLite 状态库、迁移报告、旧配置与凭据都会保留，OpenCode 配置目录里的插件文件也不会被删除。需要彻底清理时请先备份，再手动删除 `%LOCALAPPDATA%\AgentNotify`、`%USERPROFILE%\.config\agent-notify` 与 `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`。
+### 普通卸载
+
+先从托盘完全退出 AgentNotify，再在 Windows「设置 → 应用 → 已安装的应用」中卸载。普通卸载会：
+
+- 删除安装目录、开始菜单/桌面快捷方式和自启动快捷方式；
+- 从 Codex `notify` 链中移除 AgentNotify 入口，并尽可能还原先前 notify；
+- 删除 AgentNotify 写入的 Antigravity Hook/启动器、Devin Stop Hook/回复扩展和 Command Code mod；
+- 保留第三方 notify、自定义 matcher 以及其它用户文件。
+
+### 普通卸载不会删除
+
+- `%LOCALAPPDATA%\AgentNotify` 中的 SQLite 状态库、日志、spool 和更新备份；
+- Windows 凭据管理器中的 ClawBot 凭据；
+- `%USERPROFILE%\.config\agent-notify` 旧版只读迁移来源；
+- `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts` OpenCode 插件。
+
+### 手动彻底清理
+
+彻底清理会永久删除登录状态、设置、历史和引用路由，操作前必须备份：
+
+1. 打开 Channels 页，对每个 ClawBot 账号点「退出账号」。该操作会删除应用管理的 token、bot/recipient 标识和会话上下文，但账号摘要与历史仍留在 SQLite；
+2. 从托盘完全退出并运行普通卸载；
+3. 删除遗留 OpenCode 插件：`%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`；
+4. 删除 `%LOCALAPPDATA%\AgentNotify`；
+5. 如不再需要回滚，删除 `%USERPROFILE%\.config\agent-notify`；
+6. 打开「控制面板 → 凭据管理器 → Windows 凭据 → 通用凭据」，删除所有以 `AgentNotify/` 开头的条目。
+
+正常卸载优先使用；只有明确不再需要账号、历史和旧数据时才执行彻底清理。
 
 ## 开发
 
-要求：
-
-- Windows 10 / 11
-- Rust stable（版本见 `rust-toolchain.toml`）
-- Node.js 22，用于桌面 UI 与插件类型检查
-- Windows PowerShell 5.1+，用于门禁与构建脚本
-- Inno Setup 6，仅构建正式安装器时需要
+要求：Windows 10/11 x64、Rust stable、Visual Studio 2022 Build Tools 的 C++ 桌面开发工具与 Windows SDK、WebView2 Runtime、Node.js 22/npm 10、Tauri CLI 2、Windows PowerShell 5.1+。Go 1.26+ 只在执行冻结的 Go 1.x 回滚门禁时需要；Inno Setup 6 与签名工具只在本地构建正式安装器时需要。
 
 ```powershell
-# 依赖缓存请留在当前项目盘，不要指向 C 盘
+git clone https://github.com/srafyhucl-cpu/agent-notify.git
+cd agent-notify
+
+# 缓存放在非系统盘
 $env:npm_config_cache = 'D:\Temp\npm-cache'
+$env:CARGO_TARGET_DIR = 'D:\Temp\agentnotify-rust-target'
 
-# Rust 门禁：cargo fmt / clippy / test（本地工具链约定见 tools\rust\gate.ps1）
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
-
-# 插件类型检查
 npm ci
-node_modules\.bin\tsc.cmd --noEmit
+npm --prefix .\apps\desktop-ui ci
+cargo install tauri-cli --version "^2.0.0" --locked
 
-# 桌面 UI 类型检查与单测
-cd apps\desktop-ui
-npm ci
-npm run typecheck
-npm test
+# 修改 Rust bridge 命令后重新生成并提交 types.ts
+cargo run --locked -p agentnotify-desktop --bin export-bindings --target x86_64-pc-windows-msvc
 
-# 静态检查与完整门禁
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\lint.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
+# 启动 Vite、编译 Rust 并打开 Tauri 桌面端
+cargo tauri dev --config .\hosts\desktop-tauri\tauri.conf.json
 ```
 
-`tools\lint.ps1` 校验脚本语法、workflow 纯 ASCII 与版本号一致性（唯一来源是仓库根 `VERSION`）；`tools\test.ps1` 运行仓库保留的全部测试、签名门禁回归与隔离冒烟。正式包由 Rust 桌面端构建：构建机需要 `D:\Tools\cargo` + `D:\Tools\rustup`（约定见 `tools\rust\gate.ps1`），本地发布门禁还需要 Inno Setup 6 与签名工具；Release workflow 签名后发布产物，并镜像到二进制仓库 `srafyhucl-cpu/agent-notify-releases`。
+完整门禁：
+
+```powershell
+node_modules\.bin\tsc.cmd --noEmit
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\lint.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ui\gate.ps1
+```
+
+`tools\test.ps1` 覆盖 Go 遗留、根 TypeScript、脚本、签名门禁与隔离冒烟，**不是仓库全部测试**；Rust 与 UI 必须分别运行对应门禁。`tools\lint.ps1` 校验脚本语法、workflow 纯 ASCII 和版本一致性，版本唯一来源是仓库根 `VERSION`。正式发布还需要签名材料和 Inno Setup，Release 会同时发布到源码仓并镜像到客户端更新仓。详细流程见[贡献指南](CONTRIBUTING.md)。
 
 ## 文档
 
@@ -146,6 +196,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test.ps1
 - [故障排查](docs/TROUBLESHOOTING.md)
 - [贡献指南](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
+- [代码签名与发布信任](docs/code-signing.md)
 - [更新日志](CHANGELOG.md)
 
 ## License

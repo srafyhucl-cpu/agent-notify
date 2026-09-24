@@ -1,7 +1,8 @@
 # 代码签名接入清单
 
-产物的 Authenticode 签名是自动更新链路唯一的"防篡改 + 防冒充"锚点：
-`SHA256SUMS.txt` 与安装包同源下载，能同时被篡改；只有签名能把伪造者挡在外面。
+安装器与桌面主程序的 Authenticode 签名是自动更新链路的“防篡改 + 防冒充”锚点：
+`SHA256SUMS.txt` 与安装包同源下载，能同时被篡改；只有签名能把伪造者挡在外面。ZIP 内的插件、Hook 和
+脚本还需要独立的签名文件清单，清单实现前不能把外层 ZIP 哈希当作全部内容的签名证明。
 本仓库**已启用**代码签名（自签名证书 + 指纹锁定）：`gh secret list` 包含
 `AGENT_NOTIFY_SIGN_PFX_BASE64` / `AGENT_NOTIFY_SIGN_PFX_PASSWORD`，产物以 `UnknownError`
 状态签名，指纹为 `EDF9E283DF2407B318E65D59BB430FD546509ACD`。构建脚本与发布门禁会在发布前强制校验
@@ -70,7 +71,7 @@ secret 被删除或改名时会在构建前直接失败，而不是发出未签�
 5. 局限与注意：
    - 手动运行安装器时仍会提示"未知发布者"（要消除该提示必须用 CA 签发的证书）；
    - 证书轮换/过期前，**先**更新 `defaultSignatureThumbprint` 并发版，否则老客户端会拒绝新版本；
-   - 私钥泄露时吊销证书，并在下一版移除旧指纹。
+   - 私钥泄露时立即停止信任旧指纹并轮换证书；自签名证书无法依赖公共 CRL，客户端安全边界是内置指纹而不是系统信任链。
 
 本地联调：
 
@@ -98,9 +99,9 @@ $expected = Get-ExpectedSignatureThumbprint -RepoRoot .
 Assert-SumsCoversArtifact -SumsPath .\dist\SHA256SUMS.txt -ArtifactPath .\dist\Agent-notify-Setup-vX.Y.Z.exe
 Assert-ArchiveExecutables -ZipPath .\dist\Agent-notify-vX.Y.Z.zip -ExpectedThumbprint $expected
 
-# 客户端视角：强制要求签名（先在 CI 配好，再用此环境变量自测）
-$env:AGENT_NOTIFY_REQUIRE_SIGNATURE = '1'
-# 桌面端 Settings → 更新 的「下载并安装」会下载并校验；未签名/无效会直接报错并给出原因
+# 2.0 桌面端固定要求签名，没有关闭开关；
+# 如需在开发机临时限定另一张证书，使用 AGENT_NOTIFY_SIGNATURE_THUMBPRINT 覆盖内置信任列表。
+# 桌面端 Settings → 更新 会下载并校验；未签名、无效或指纹不符会直接报错。
 ```
 
 ## 4. 让所有客户端只信任你的证书（可选但推荐）
@@ -124,27 +125,22 @@ $env:AGENT_NOTIFY_REQUIRE_SIGNATURE = '1'
   再发版，否则老客户端会拒绝新版本；构建脚本与补发门禁的指纹校验会在两者不一致时直接失败，
   所以顺序必须是：**先改常量并与新版本一起发布，再轮换 secret 里的证书**；
 - 建议同时配置时间戳（`/tr`），证书过期后既有产物的签名仍然有效；
-- 证书私钥泄露时立即吊销，并在下一版移除旧指纹。
+- 证书私钥泄露时立即从发布流程移除旧证书，并在下一版停止信任旧指纹；自签名证书本身不依赖公共吊销服务。
 
-## 6. 可选加固：把签名密钥放进受保护环境
+## 6. 公开发布后的 Secret 信任边界
 
-默认情况下签名密钥是**仓库级 secret**：任何能修改 workflow 的协作者都能通过 CI 读取它。
-如果以后协作者增多（或想给发版加一道人工确认），可以这样做：
+源码公开不代表 Secret 会公开，但**任何能修改发布 workflow 或创建发布 tag 的协作者，都可能让代码在
+CI 中读取仓库级 Secret**。因此公开发布不能只依赖“只有一位维护者”这一假设。
 
-1. 仓库 `Settings → Environments → New environment`，命名 `release`；
-2. 勾选 **Required reviewers**，把你自己加进去；
-3. 把 `AGENT_NOTIFY_SIGN_PFX_BASE64`、`AGENT_NOTIFY_SIGN_PFX_PASSWORD`、`RELEASE_REPO_TOKEN`
-   三个 secret 从仓库级删除，改为在该 environment 下新建（`gh secret set NAME --env release`）；
-4. `.github/workflows/release.yml` 的 `release` job 加上：
+发布链必须遵守以下边界：
 
-   ```yaml
-   jobs:
-     release:
-       environment: release
-   ```
+1. `main` 与 `v*` tag 使用 branch/tag ruleset 保护，禁止协作者绕过评审修改发布入口；
+2. 使用 `release` Environment 承载签名与镜像权限；具备第二位维护者后再配置 Required Reviewer，
+   不能把只有本人能批准的形式化审批当作独立制衡；
+3. 签名 PFX 只进入构建 job，`RELEASE_REPO_TOKEN` 只进入受保护 `main` 上调用的发布 workflow；
+4. 发布 workflow 不执行 tag 中可修改的仓库脚本，只接收已构建并通过门禁的资产；
+5. 工具下载、Actions 和构建依赖固定版本或不可变摘要，避免 Secret 注入前先执行未校验代码；
+6. 维护者账号启用 2FA，定期审查 tag、workflow 运行和 Release 资产变更。
 
-之后每次发版，workflow 会停在等待批准的状态，你在 GitHub 的 Actions 页面点 **Approve** 后
-才会拿到密钥并开始构建。当前仓库只有单一协作者，未启用该加固。
-
-**安全边界一句话**：能读到 secrets 的人 = 拥有签名能力；仓库私有 + 只有你一个协作者时，
-边界就是你的账号安全（请开启 2FA）。
+**安全边界一句话**：能控制受保护发布入口或读取 Environment Secret 的人，实际上拥有对应签名/发布能力；
+单一维护者阶段还必须把账号安全作为根信任。

@@ -6,7 +6,8 @@
 在无头环境时，可以用 `agentnotify-ingress.exe --doctor` / `--ping` 做只读探活（见下文）。
 
 排查从三处开始：主窗口的 **Diagnostics / Agents / Channels** 页、应用运行日志、各 Agent 接入自己的
-失败日志。所有日志都不包含 ClawBot token、凭据、回复正文或通知正文，可以安全粘贴相关片段。
+失败日志。日志不会写入 ClawBot token、凭据、回复正文或通知正文，但仍可能包含用户名、本机路径、账号提示、
+客户端标识和平台消息标识；只附必要行，并在提交公开 Issue 前移除个人信息。
 
 ## 日志与数据位置
 
@@ -75,7 +76,7 @@ $report.spool.quarantined # 隔离事件数（附 .error 原因）
 5. 桌面端界面需要 Microsoft Edge **WebView2 运行时**；安装器会检查，缺失时提示先安装。静默安装（一键升级）
    遇到 WebView2 缺失会直接中止，并把原因写进升级日志。
 
-## 一键升级失败
+## 升级失败与回滚
 
 「检查更新」查询二进制仓库 `srafyhucl-cpu/agent-notify-releases` 的 `/releases/latest`；「下载并安装」会：
 
@@ -119,6 +120,21 @@ $report.spool.quarantined # 隔离事件数（附 .error 原因）
   AppId 不变，会覆盖回原安装目录，SQLite 状态库、凭据与旧配置都不会被删除。
 - **数据安全**：下载或校验失败不会触碰已安装文件；升级也不会改动账号、设置、历史或引用路由，
   不要为了升级删除 `%LOCALAPPDATA%\AgentNotify`。
+- **手动回滚**：确认下载包摘要和签名者后，运行上一稳定版安装器覆盖安装。AppId 不变，原程序目录会被覆盖，
+  但 SQLite、凭据、旧配置和 OpenCode 接入不会被删除；回到 2.0 后可在 Agents/Channels 页检查开关和账号状态。
+
+## 卸载后仍无法登录或接入
+
+普通卸载只删除程序和 AgentNotify 自己管理的 Codex / Antigravity / Devin / Command Code 接入，以下内容会保留：
+
+- `%LOCALAPPDATA%\AgentNotify`：SQLite、日志、spool 和更新备份；
+- Windows 凭据管理器中以 `AgentNotify/` 开头的通用凭据；
+- `%USERPROFILE%\.config\agent-notify`：旧版只读迁移来源；
+- `%USERPROFILE%\.config\opencode\plugins\agent-notify.ts`：OpenCode 插件。
+
+需要彻底清理时，先在 Channels 页对每个账号点「退出账号」，再卸载；随后按 README 的步骤删除上述残留，
+并在「控制面板 → 凭据管理器 → Windows 凭据 → 通用凭据」中删除 `AgentNotify/` 条目。退出账号不会删除
+SQLite 中的历史记录，只有删除 `%LOCALAPPDATA%\AgentNotify` 才会清掉本机历史和设置。
 
 ## 微信完全收不到
 
@@ -380,7 +396,10 @@ AgentNotify 应在发送前透传原始参数和 stdin 给上游。检查：
 
 ## 提 Issue 前收集
 
-- 应用版本（主窗口底部状态栏或 Diagnostics 页显示的版本，也可看安装目录 `VERSION`）、Windows 版本。
+先移除用户名、本机路径、账号提示、客户端标识和平台消息标识；日志不会包含 token，但仍需要人工检查。
+只附解决问题所需的片段，不要直接上传整份 `state.db` 或完整日志。
+
+- 应用版本（主窗口底部状态栏或 Diagnostics 页显示的版本，也可看安装目录 `VERSION`）、Windows 版本与架构。
 - `agentnotify-ingress.exe --doctor` 的 JSON 报告（只读，无敏感字段）。
 - Diagnostics 页的存储、后台组件与迁移状态文本；必要时附 `legacy-import-report.json`。
 - `%LOCALAPPDATA%\AgentNotify\logs\runtime.log` 最后 30 行（以及 `runtime.log.1` 的相关片段）。

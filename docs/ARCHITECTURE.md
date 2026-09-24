@@ -349,7 +349,7 @@ Devin V2 扩展、Command Code V2 mod 与五个接入脚本，创建开始菜单
 `tools\hooks\install-*-v2.ps1`，用本次安装目录的绝对路径写入各 Agent 配置。接入失败只记录并在结束时
 统一提示，不影响程序本体安装；升级时先清理上一版本写入的旧 Go 版 Hook 与 V1 扩展，再装新接入。
 
-ZIP 保留给便携、开发和旧版更新兼容，内部结构仍为：
+ZIP 保留给开发、备用部署和旧版更新兼容，不是普通用户的主安装入口；它仍使用当前用户的 `%LOCALAPPDATA%\AgentNotify` 数据目录，不会自动创建快捷方式、自启动或部署 Agent 接入。内部结构为：
 
 ```text
 Agent-notify/
@@ -375,9 +375,11 @@ Agent-notify/
    已有报告，不会重复迁移。
 5. 迁移失败时启动"迁移诊断模式"：只允许查看诊断，不写入新数据；Diagnostics 页可备份旧目录后重试。
 
-卸载入口由 Inno Setup 注册，卸载时先用 `uninstall.ps1 -HooksOnly` 移除 AgentNotify 自己写入的 Codex
-notify、Antigravity Hook 与启动器、Devin handler 与 V2 扩展、Command Code mod，再删除程序文件与快捷
-方式；SQLite 状态库、迁移报告、旧配置与 OpenCode 插件文件都保留。
+卸载入口由 Inno Setup 注册。普通卸载先用 `uninstall.ps1 -HooksOnly` 移除 AgentNotify 自己写入的 Codex
+notify、Antigravity Hook 与启动器、Devin handler 与 V2 扩展、Command Code mod，再删除程序文件与快捷方式；
+第三方 notify、自定义 matcher、OpenCode 插件、SQLite 状态库、迁移报告和旧配置都保留。Windows 凭据同样保留，
+只有在 Channels 页对具体账号执行「退出账号」才会删除该账号由应用管理的凭据与上下文。彻底清理必须先退出
+账号，再删除遗留 OpenCode 插件、状态目录和旧配置，并在 Windows 凭据管理器中移除 `AgentNotify/` 条目。
 
 ## 桌面端宿主与界面
 
@@ -409,7 +411,8 @@ notify、Antigravity Hook 与启动器、Devin handler 与 V2 扩展、Command C
 
 `runtime.log` 是 tracing 的结构化文本日志：记录投递结果、引用回复结果、迁移检查与稳定错误码；
 写入前对 `token`、`secret`、`authorization`、`cookie`、`context_token`、`body`、`message`、`prompt`、
-`text` 等键做递归脱敏，超过 8 MiB 在下次启动时轮换为 `runtime.log.1`。
+`text` 等键做递归脱敏，超过 8 MiB 在下次启动时轮换为 `runtime.log.1`。引用诊断仍可能记录脱敏账号提示、
+客户端生成的 `client_id` 与解析出的引用消息 ID；对外分享前仍需移除用户名、本机路径和其它个人元数据。
 
 接入侧日志各自独立：
 

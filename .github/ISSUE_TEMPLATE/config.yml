@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 故障排查
+    url: https://github.com/srafyhucl-cpu/agent-notify/blob/main/docs/TROUBLESHOOTING.md
+    about: 安装、更新、推送或接入异常请先按文档排查，再提交包含必要信息的 Bug。
+  - name: 贡献指南
+    url: https://github.com/srafyhucl-cpu/agent-notify/blob/main/CONTRIBUTING.md
+    about: 新功能、修复或文档改进请先了解开发环境、门禁和 PR 流程。
+  - name: 私密安全报告
+    url: https://github.com/srafyhucl-cpu/agent-notify/security/advisories/new
+    about: 漏洞或可能泄露凭据的问题请使用 GitHub 私密漏洞报告，不要创建公开 Issue。
