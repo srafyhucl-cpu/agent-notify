@@ -152,6 +152,9 @@ export function HistoryTable({
                 ? `${delivery.channelId} / ${delivery.accountId}`
                 : "查看详情";
               const selected = notification.id === selectedId;
+              // 错误摘要与状态徽标同源：仅真错误（Unknown/Failed）用 danger，
+              // 占位与等待类文案用弱化色，避免语义色误用。
+              const stateTone = deliveryStateTone(notification.deliveryStates);
 
               return (
                 <div
@@ -193,13 +196,16 @@ export function HistoryTable({
                     {channelAccount}
                   </span>
                   <span className="history-state-cell" role="cell">
-                    <StatusBadge
-                      tone={deliveryStateTone(notification.deliveryStates)}
-                    >
+                    <StatusBadge tone={stateTone}>
                       {historyStateLabel(notification.deliveryStates)}
                     </StatusBadge>
                   </span>
-                  <span className="history-error-cell" role="cell">
+                  <span
+                    className={`history-error-cell${
+                      stateTone === "danger" ? "" : " history-error-cell--muted"
+                    }`}
+                    role="cell"
+                  >
                     {historyErrorSummary(notification.deliveryStates)}
                   </span>
                 </div>

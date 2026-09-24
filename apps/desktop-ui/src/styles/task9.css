@@ -248,8 +248,13 @@
   font-size: var(--font-caption);
 }
 
+/* 错误摘要：默认随状态徽标语义——真错误用 danger，其余（含占位与等待）弱化 */
 .history-error-cell {
   color: var(--color-danger);
+}
+
+.history-error-cell--muted {
+  color: var(--color-text-muted);
 }
 
 .history-load-more {
