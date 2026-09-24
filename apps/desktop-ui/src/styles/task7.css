@@ -56,7 +56,6 @@
   color: var(--color-warning);
 }
 
-.overview-page-content,
 .agents-page-content {
   display: grid;
   gap: var(--space-4);
@@ -68,29 +67,63 @@
   gap: var(--space-5);
 }
 
-.health-summary {
+/* ===== 总览页（阶段 5b · 监控仪表盘）===== */
+
+.overview-page-content {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+/* 页头自带 24px 间距，内容区不再重复留白 */
+.overview-page .overview-page-content {
+  padding-top: 0;
+}
+
+/* KPI 锚点带：4 张等宽卡，窄窗自动折行 */
+.overview-kpi-band {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* 健康明细：三段并排，窄窗折单列 */
+.overview-health {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.overview-section {
+  gap: var(--space-5);
   min-width: 0;
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--color-border);
 }
 
-.health-summary .overview-section {
-  border-bottom: 0;
-  border-right: 1px solid var(--color-border);
+.overview-health-section {
+  min-width: 0;
 }
 
-.health-summary .overview-section:last-child {
-  border-right: 0;
+.overview-health-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-bottom: var(--space-3);
 }
 
-.overview-section-header,
+.overview-health-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.overview-health-title h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-heading);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
 .section-heading {
   display: flex;
   align-items: flex-start;
@@ -109,14 +142,6 @@
   max-width: 100%;
 }
 
-.overview-section-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.overview-section h2,
 .section-heading h2 {
   margin: 0;
   font-size: var(--font-size-4);
@@ -138,22 +163,23 @@
 .metric-list {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
+  gap: var(--space-2) var(--space-5);
   margin: 0;
 }
 
 .metric-list > div {
-  min-width: 72px;
+  min-width: 0;
 }
 
 .metric-list dt {
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
+  line-height: 1.4;
 }
 
 .metric-list dd {
   margin: var(--space-1) 0 0;
-  font-size: var(--font-size-3);
+  font-size: var(--font-body);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -213,13 +239,17 @@
 
 .action-list li {
   display: grid;
-  grid-template-columns: minmax(160px, 0.45fr) minmax(0, 1fr);
-  gap: var(--space-3);
+  gap: var(--space-1);
   min-width: 0;
   padding: var(--space-3) 0;
-  border-top: 1px solid var(--color-border);
-  font-size: var(--font-size-2);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--font-body);
   line-height: 1.5;
+}
+
+.action-list li:first-child {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .action-list strong,
@@ -230,6 +260,82 @@
 
 .action-list span {
   color: var(--color-text-muted);
+}
+
+/* 投递流：按时间分组；行内标题 / 摘要（单行省略）/ 相对时间 / 状态徽标 */
+.delivery-stream {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.delivery-group {
+  min-width: 0;
+}
+
+.delivery-group-label {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.delivery-rows {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.delivery-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.delivery-row:first-child {
+  border-top: 0;
+}
+
+.delivery-row-main {
+  min-width: 0;
+}
+
+.delivery-row-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-row-summary {
+  display: block;
+  min-width: 0;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-row-time {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .agents-workspace {
@@ -624,27 +730,16 @@
 }
 
 @media (max-width: 880px) {
-  .health-summary {
+  .overview-health {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .health-summary .overview-section {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .health-summary .overview-section:last-child {
-    border-bottom: 0;
   }
 }
 
 @media (max-width: 640px) {
-  .overview-section {
-    padding: var(--space-3);
-  }
-
-  .action-list li {
+  .delivery-row {
     grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    gap: var(--space-2);
   }
 
   .agent-detail-header {

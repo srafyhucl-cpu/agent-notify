@@ -6,7 +6,7 @@ import type {
   RuntimeSummaryDto,
 } from "../../bridge/types";
 
-const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
+export const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
   Starting: "启动中",
   Running: "运行中",
   Paused: "已暂停",
@@ -16,7 +16,7 @@ const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
   Failed: "异常",
 };
 
-function channelWaitingLogin(account: ChannelAccountDto): boolean {
+export function channelWaitingLogin(account: ChannelAccountDto): boolean {
   return (
     account.enabled &&
     !account.health.available &&
@@ -25,11 +25,11 @@ function channelWaitingLogin(account: ChannelAccountDto): boolean {
   );
 }
 
-function channelInvalid(account: ChannelAccountDto): boolean {
+export function channelInvalid(account: ChannelAccountDto): boolean {
   return !account.enabled || account.health.stale;
 }
 
-function channelOnline(account: ChannelAccountDto): boolean {
+export function channelOnline(account: ChannelAccountDto): boolean {
   return account.enabled && account.health.available && !account.health.stale;
 }
 
@@ -55,10 +55,10 @@ export function HealthSummary({
   const invalidChannels = channels.filter(channelInvalid).length;
 
   return (
-    <div className="health-summary">
-      <section className="overview-section" aria-labelledby="overview-runtime">
-        <header className="overview-section-header">
-          <div className="overview-section-title">
+    <div className="overview-health">
+      <section className="overview-health-section" aria-labelledby="overview-runtime">
+        <header className="overview-health-header">
+          <div className="overview-health-title">
             <Gauge aria-hidden="true" size={17} />
             <h2 id="overview-runtime">运行状态</h2>
           </div>
@@ -91,9 +91,9 @@ export function HealthSummary({
         </dl>
       </section>
 
-      <section className="overview-section" aria-labelledby="overview-agents">
-        <header className="overview-section-header">
-          <div className="overview-section-title">
+      <section className="overview-health-section" aria-labelledby="overview-agents">
+        <header className="overview-health-header">
+          <div className="overview-health-title">
             <Bot aria-hidden="true" size={17} />
             <h2 id="overview-agents">Agent 接入</h2>
           </div>
@@ -110,9 +110,9 @@ export function HealthSummary({
         </dl>
       </section>
 
-      <section className="overview-section" aria-labelledby="overview-channels">
-        <header className="overview-section-header">
-          <div className="overview-section-title">
+      <section className="overview-health-section" aria-labelledby="overview-channels">
+        <header className="overview-health-header">
+          <div className="overview-health-title">
             <RadioTower aria-hidden="true" size={17} />
             <h2 id="overview-channels">渠道账号</h2>
           </div>
