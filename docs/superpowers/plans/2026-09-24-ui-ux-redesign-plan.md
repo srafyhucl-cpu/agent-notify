@@ -20,7 +20,7 @@
 
 **目标**：语义角色 token 不变、新增"表面语义层"使组件零分支换肤；亮色主题完整设计（非反色）；主题切换（明/暗/跟随系统）+ 记忆；导航顺序改渠道优先。
 
-**文件**：`styles/tokens.css`、`app/theme.ts`(新)、`components/ThemeSwitcher.tsx`(新)、`components/AppNav.tsx`、`app/navigation.ts`(仅顺序)、`main.tsx`(首帧应用)、`styles/layout.css`(仅 .app-nav* 段 + 开关样式)、`tests/playwright.config.ts`(desktop 项目显式 `colorScheme:'dark'`)、`tests/navigation.spec.ts`(Tab 顺序同步)。
+**文件**：`styles/tokens.css`、`app/theme.ts`(新)、`components/ThemeSwitcher.tsx`(新)、`components/AppNav.tsx`、`app/navigation.ts`(仅顺序)、`app/App.tsx`(模块作用域首帧应用——真实入口与测试 harness 都经过 App)、`styles/layout.css`(仅 .app-nav* 段 + 开关样式)、`tests/playwright.config.ts`(两项目显式 `colorScheme:'light'`：**过渡期**——未迁移页 CSS 仍浅色语义，强制 dark 会使 a11y 红；Phase 6 画面迁移完成后再加 dark 项目)、`tests/navigation.spec.ts`(Tab 顺序同步)。
 
 **关键点**：
 - 新增表面语义层：`--surface-1/2/3`、`--surface-*-blur`（dark=glass-blur、light=none）、`--surface-*-border`、`--surface-*-shadow`（dark=微光、light=elevation 1/2/3）、`--hairline`、`--elevation-1/2/3`。
@@ -52,7 +52,7 @@
 
 ## Phase 6｜双主题回归 + 全量门禁 + 视觉矩阵
 
-- `playwright.config.ts`：新增 `light` 项目（`colorScheme:'light'`）跑 `@visual`/`@a11y`；dark 项目同样跑（矩阵 = 6 页 × 2 主题）。
+- `playwright.config.ts`：新增 `dark` 项目（`colorScheme:'dark'`）跑 `@visual`/`@a11y`（light 已在阶段 1+2 显式钉住）；矩阵 = 6 页 × 2 主题。**前提**：task7/task9/channels 的硬编码浅底全部迁移为表面语义层，否则 dark 下 axe 必红。
 - 视觉基线：先逐页目检 actual（两主题）排除真缺陷 → `--update-snapshots` → 3 连跑验证稳定。
 - 全量：typecheck / vitest / build / a11y / visual / e2e + 仓库级 `go test ./...`、`go vet ./...`、`gofmt -l cmd internal`。
 - 收口：合并决策日志、更新报告（第二轮章节）、git diff 红线取证、提交。
