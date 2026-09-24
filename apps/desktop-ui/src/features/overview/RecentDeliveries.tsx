@@ -1,4 +1,7 @@
+import { Link } from "react-router-dom";
+
 import type { DeliveryDto } from "../../bridge/types";
+import { EmptyState } from "../../components/EmptyState";
 import {
   SectionCard,
   StatusBadge,
@@ -116,7 +119,15 @@ export function RecentDeliveries({ deliveries }: RecentDeliveriesProps) {
   return (
     <SectionCard title="最近投递" count={recent.length}>
       {recent.length === 0 ? (
-        <p className="section-empty">最近没有投递记录。</p>
+        <EmptyState
+          title="最近没有投递记录"
+          description="连接渠道并触发通知后，这里才会出现投递记录。"
+          action={
+            <Link className="button" to="/channels">
+              去连接渠道
+            </Link>
+          }
+        />
       ) : (
         <div className="delivery-stream">
           {groups.map((group) => (

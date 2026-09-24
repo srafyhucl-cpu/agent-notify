@@ -364,7 +364,7 @@
   min-width: 0;
   padding: var(--space-3);
   color: var(--color-text);
-  background: #fbefed;
+  background: var(--color-danger-soft);
   border-left: 3px solid var(--color-danger);
 }
 

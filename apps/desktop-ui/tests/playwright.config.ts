@@ -57,6 +57,18 @@ export default defineConfig({
         colorScheme: "light",
       },
     },
+    {
+      // 暗色矩阵：与 desktop 项目同视口/设备，仅切 colorScheme，专跑 @a11y 与 @visual。
+      // light 由 desktop 项目承担（colorScheme 显式钉住），dark 与它组成双主题矩阵。
+      name: "dark",
+      grep: /@(a11y|visual)/,
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 800 },
+        deviceScaleFactor: 1,
+        colorScheme: "dark",
+      },
+    },
   ],
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${String(port)} --strictPort`,

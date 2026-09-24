@@ -1,5 +1,6 @@
 import { History as HistoryIcon, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import type { HostBridge } from "../../bridge";
 import type { DeliveryDto, DeliveryStateDto } from "../../bridge/types";
@@ -300,7 +301,12 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
         {!historyQuery.isPending && notifications.length === 0 && !loadError ? (
           <EmptyState
             title="暂无历史通知"
-            description="当前筛选条件下没有通知记录。可以调整筛选条件后重新查看。"
+            description="当前筛选条件下没有通知记录。连接渠道并触发通知后，这里才会出现投递记录。"
+            action={
+              <Link className="button" to="/channels">
+                去连接渠道
+              </Link>
+            }
           />
         ) : null}
 

@@ -50,7 +50,7 @@ function migrationStateDescription(migration: LegacyMigrationDto): string {
     case "NotConfigured":
       return "未配置旧版迁移来源，当前没有需要导入的数据。";
     case "NotDetected":
-      return "已检查常见旧版安装位置，未发现可迁移的数据。";
+      return "已检查常见旧版安装位置，未发现可迁移的数据，无需处理。";
     case "Completed":
       return "旧数据已导入，应用可以继续正常写入。";
     case "Partial":
@@ -431,7 +431,7 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
 
             <SectionCard title="组件状态">
               {diagnostics.components.length === 0 ? (
-                <p className="section-empty">StatusService 未返回组件状态。</p>
+                <p className="section-empty">StatusService 未返回组件状态；当前没有可上报的组件，无需处理。</p>
               ) : (
                 <div className="diagnostic-components">
                   {diagnostics.components.map((component) => (

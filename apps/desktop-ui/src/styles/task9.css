@@ -1,11 +1,3 @@
-.page-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
 /* ========== 历史页（Phase 5c：检索报表范式 · 筛选带收拢 + 固定轨道表 + 详情三段） ========== */
 :root {
   /* 虚拟列表视口与表头高度；详情面板据此与列表底部对齐 */

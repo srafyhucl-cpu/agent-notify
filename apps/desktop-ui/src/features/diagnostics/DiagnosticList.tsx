@@ -136,7 +136,7 @@ export interface DiagnosticListProps {
 export function DiagnosticList({ bridge, items }: DiagnosticListProps) {
   if (items.length === 0) {
     return (
-      <p className="section-empty">StatusService 当前没有返回诊断项。</p>
+      <p className="section-empty">StatusService 当前没有返回诊断项；运行与存储检查未发现问题，因此没有需要处理的项。</p>
     );
   }
 
