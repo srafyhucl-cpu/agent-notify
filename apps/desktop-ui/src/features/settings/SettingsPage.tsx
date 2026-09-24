@@ -12,6 +12,11 @@ import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
 import { getSecretFieldNames, SchemaForm } from "../../components/SchemaForm";
+import {
+  FieldRow,
+  PageHeader,
+  SectionCard,
+} from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import {
   useUpdateAgentConfigMutation,
@@ -48,6 +53,18 @@ const UNAVAILABLE_DATA_ACTIONS: UnavailableAction[] = [
     description: "当前版本没有稳定的数据库备份命令。",
   },
 ];
+
+/** 设置分组目录：与实际渲染的分组一一对应，仅用于锚点跳转与当前位置高亮。 */
+const SETTINGS_SECTIONS = [
+  { id: "settings-notifications", label: "通知" },
+  { id: "settings-replies", label: "回复" },
+  { id: "settings-channels", label: "渠道" },
+  { id: "settings-application", label: "应用" },
+  { id: "settings-data", label: "数据" },
+] as const;
+
+/** 滚动侦测（当前分组高亮）的视口裁剪：顶部避开页头、底部留出后续分组。 */
+const SETTINGS_SCROLL_SPY_ROOT_MARGIN = "-96px 0px -55% 0px";
 
 function cloneSettings(settings: SettingsDto): SettingsDto {
   return {
@@ -125,6 +142,9 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [agentActionError, setAgentActionError] = useState<unknown>(null);
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<string>(
+    SETTINGS_SECTIONS[0].id,
+  );
 
   useEffect(() => {
     if (settingsQuery.data) {
@@ -132,6 +152,38 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
       setValidationError(null);
     }
   }, [settingsQuery.data]);
+
+  const settingsReady = draft !== null;
+
+  // 目录当前位置高亮：仅视图层滚动侦测，不参与任何业务状态。
+  useEffect(() => {
+    if (!settingsReady || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const targets = SETTINGS_SECTIONS.map((section) =>
+      document.getElementById(section.id),
+    ).filter((element): element is HTMLElement => element !== null);
+    if (targets.length === 0) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort(
+            (first, second) =>
+              first.boundingClientRect.top - second.boundingClientRect.top,
+          );
+        const first = visible[0];
+        if (first) {
+          setActiveSection(first.target.id);
+        }
+      },
+      { rootMargin: SETTINGS_SCROLL_SPY_ROOT_MARGIN, threshold: 0 },
+    );
+    targets.forEach((target) => observer.observe(target));
+    return () => observer.disconnect();
+  }, [settingsReady]);
 
   const channels = channelsQuery.data?.channels ?? [];
   const agents = agentsQuery.data ?? [];
@@ -209,27 +261,23 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
   };
 
   return (
-    <section className="workbench-page" aria-labelledby="page-title-settings">
-      <header className="workbench-page-header">
-        <div>
-          <h1 className="workbench-page-title" id="page-title-settings">
-            设置
-          </h1>
-          <p className="page-summary">
-            设置按通知、回复、渠道、应用和数据分组；未提供稳定命令的操作保持不可用。
-          </p>
-        </div>
-        <button
-          className="button"
-          type="button"
-          disabled={!canSave}
-          onClick={() => void submit()}
-          aria-label="保存设置（顶部）"
-        >
-          <Save aria-hidden="true" size={15} />
-          {updateSettingsMutation.isPending ? "正在保存" : "保存设置"}
-        </button>
-      </header>
+    <section className="workbench-page settings-page">
+      <PageHeader
+        title="设置"
+        summary="设置按通知、回复、渠道、应用和数据分组；未提供稳定命令的操作保持不可用。"
+        actions={
+          <button
+            className="button"
+            type="button"
+            disabled={!canSave}
+            onClick={() => void submit()}
+            aria-label="保存设置（顶部）"
+          >
+            <Save aria-hidden="true" size={15} />
+            {updateSettingsMutation.isPending ? "正在保存" : "保存设置"}
+          </button>
+        }
+      />
 
       <div className="workbench-page-content settings-page-content">
         {loadError ? (
@@ -276,230 +324,269 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
         ) : null}
 
         {draft ? (
-          <form
-            className="settings-form"
-            aria-label="AgentNotify 设置"
-            aria-busy={updateSettingsMutation.isPending}
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submit();
-            }}
-          >
-            <section className="settings-group" aria-labelledby="settings-notifications">
-              <header>
-                <h2 id="settings-notifications">通知</h2>
-                <p>控制通知暂停、勿扰和 Agent 默认接入。</p>
-              </header>
-              <div className="settings-fields">
-                <label className="settings-switch-row">
-                  <span>
-                    <strong>全局暂停</strong>
-                    <small>保存后暂停新的通知调度</small>
-                  </span>
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label="全局暂停"
-                    checked={draft.notificationsPaused}
-                    disabled={updateSettingsMutation.isPending}
-                    onChange={(event) =>
-                      patchDraft({ notificationsPaused: event.currentTarget.checked })
-                    }
-                  />
-                </label>
+          <div className="settings-layout">
+            <nav className="settings-index" aria-label="设置分组">
+              <p className="settings-index-title">分组</p>
+              <ul className="settings-index-list">
+                {SETTINGS_SECTIONS.map((section) => (
+                  <li key={section.id}>
+                    <a
+                      className="settings-index-link"
+                      href={`#${section.id}`}
+                      aria-current={
+                        activeSection === section.id ? "true" : undefined
+                      }
+                      onClick={() => setActiveSection(section.id)}
+                    >
+                      {section.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
 
-                <QuietHoursForm
-                  value={draft.quietHours}
-                  disabled={updateSettingsMutation.isPending}
-                  onChange={(quietHours) => patchDraft({ quietHours })}
-                />
-
-                <label className="settings-field">
-                  <span>通知冷却（秒）</span>
-                  <input
-                    aria-label="通知冷却（秒）"
-                    type="number"
-                    min={COOLDOWN_MIN_SECONDS}
-                    max={COOLDOWN_MAX_SECONDS}
-                    step={1}
-                    value={draft.cooldownSeconds}
-                    disabled={updateSettingsMutation.isPending}
-                    onChange={(event) =>
-                      patchDraft({
-                        cooldownSeconds:
-                          Number.parseInt(event.currentTarget.value, 10) || 0,
-                      })
-                    }
-                  />
-                  <small>允许 0 到 3600 秒。</small>
-                </label>
-
-                <div className="settings-subsection">
-                  <div className="settings-subsection-heading">
-                    <strong>Agent 默认开关</strong>
-                    <small>修改后立即保存，不等待页面保存按钮。</small>
-                  </div>
-                  {agentUserError ? (
-                    <InlineError
-                      title={agentUserError.title}
-                      message={agentUserError.message}
-                    />
-                  ) : null}
-                  {agents.length === 0 ? (
-                    <p className="section-empty">当前没有已接入 Agent。</p>
-                  ) : (
-                    <div className="settings-agent-list">
-                      {agents.map((agent) => (
-                        <label className="settings-switch-row" key={agent.id}>
-                          <span>
-                            <strong>{agent.displayName}</strong>
-                            <small>{agent.id}</small>
-                          </span>
+            <form
+              className="settings-form"
+              aria-label="AgentNotify 设置"
+              aria-busy={updateSettingsMutation.isPending}
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submit();
+              }}
+            >
+              <div className="settings-panels">
+                <div id="settings-notifications" className="settings-anchor">
+                  <SectionCard
+                    title="通知"
+                    description="控制通知暂停、勿扰时段与 Agent 默认接入。"
+                  >
+                    <div className="settings-fields">
+                      <FieldRow
+                        label="全局暂停"
+                        description="保存后暂停新的通知调度"
+                        control={
                           <input
                             type="checkbox"
                             role="switch"
-                            aria-label={`${agent.displayName} 默认通知`}
-                            checked={agent.enabled}
-                            disabled={
-                              pendingAgentId === agent.id ||
-                              !agent.capabilities.notify
-                            }
+                            aria-label="全局暂停"
+                            checked={draft.notificationsPaused}
+                            disabled={updateSettingsMutation.isPending}
                             onChange={(event) =>
-                              void toggleAgent(agent, event.currentTarget.checked)
+                              patchDraft({
+                                notificationsPaused: event.currentTarget.checked,
+                              })
                             }
                           />
-                        </label>
+                        }
+                      />
+
+                      <QuietHoursForm
+                        value={draft.quietHours}
+                        disabled={updateSettingsMutation.isPending}
+                        onChange={(quietHours) => patchDraft({ quietHours })}
+                      />
+
+                      <FieldRow
+                        label="通知冷却（秒）"
+                        description="允许 0 到 3600 秒。"
+                        control={
+                          <input
+                            className="settings-control"
+                            aria-label="通知冷却（秒）"
+                            type="number"
+                            min={COOLDOWN_MIN_SECONDS}
+                            max={COOLDOWN_MAX_SECONDS}
+                            step={1}
+                            value={draft.cooldownSeconds}
+                            disabled={updateSettingsMutation.isPending}
+                            onChange={(event) =>
+                              patchDraft({
+                                cooldownSeconds:
+                                  Number.parseInt(event.currentTarget.value, 10) || 0,
+                              })
+                            }
+                          />
+                        }
+                      />
+
+                      <div className="settings-subsection">
+                        <div className="settings-subsection-heading">
+                          <strong>Agent 默认开关</strong>
+                          <small>修改后立即保存，不等待页面保存按钮。</small>
+                        </div>
+                        {agentUserError ? (
+                          <InlineError
+                            title={agentUserError.title}
+                            message={agentUserError.message}
+                          />
+                        ) : null}
+                        {agents.length === 0 ? (
+                          <p className="section-empty">当前没有已接入 Agent。</p>
+                        ) : (
+                          <div className="settings-agent-list">
+                            {agents.map((agent) => (
+                              <FieldRow
+                                key={agent.id}
+                                label={agent.displayName}
+                                description={agent.id}
+                                control={
+                                  <input
+                                    type="checkbox"
+                                    role="switch"
+                                    aria-label={`${agent.displayName} 默认通知`}
+                                    checked={agent.enabled}
+                                    disabled={
+                                      pendingAgentId === agent.id ||
+                                      !agent.capabilities.notify
+                                    }
+                                    onChange={(event) =>
+                                      void toggleAgent(agent, event.currentTarget.checked)
+                                    }
+                                  />
+                                }
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </SectionCard>
+                </div>
+
+                <div id="settings-replies" className="settings-anchor">
+                  <SectionCard
+                    title="回复"
+                    description="控制引用回复、送达确认和路由有效期。"
+                  >
+                    <ReplySettingsForm
+                      value={draft}
+                      disabled={updateSettingsMutation.isPending}
+                      onChange={patchDraft}
+                    />
+                  </SectionCard>
+                </div>
+
+                <div id="settings-channels" className="settings-anchor">
+                  <SectionCard
+                    title="渠道"
+                    description="默认通知账号必须显示具体账号 ID。"
+                  >
+                    <div className="settings-fields">
+                      <FieldRow
+                        label="默认通知账号"
+                        description="选择默认用于发送通知的渠道账号。"
+                        control={
+                          <select
+                            className="settings-control"
+                            aria-label="默认通知账号"
+                            value={draft.defaultChannelAccountId ?? ""}
+                            disabled={updateSettingsMutation.isPending}
+                            onChange={(event) =>
+                              patchDraft({
+                                defaultChannelAccountId:
+                                  event.currentTarget.value || null,
+                              })
+                            }
+                          >
+                            <option value="">未选择</option>
+                            {channels.flatMap((channel) =>
+                              channel.accounts.map((account) => (
+                                <option value={account.id} key={account.id}>
+                                  {channel.displayName} / {account.displayName}（
+                                  {account.id}）
+                                </option>
+                              )),
+                            )}
+                          </select>
+                        }
+                      />
+
+                      <div className="settings-unavailable-row">
+                        <span>
+                          <strong>渠道连接配置更新</strong>
+                          <small>当前版本不可用，请到渠道页面登录或管理账号。</small>
+                        </span>
+                        <span className="settings-unavailable-label">当前版本不可用</span>
+                      </div>
+
+                      {selectedChannelAccount ? (
+                        <div className="settings-readonly-config">
+                          <div className="settings-subsection-heading">
+                            <strong>账号配置只读预览</strong>
+                            <small>
+                              {selectedChannelAccount.channel.displayName} /{" "}
+                              {selectedChannelAccount.account.id}
+                            </small>
+                          </div>
+                          <SchemaForm
+                            schema={selectedChannelAccount.channel.configSchema}
+                            value={configRecord(selectedChannelAccount.account.config)}
+                            onChange={() => undefined}
+                            secretValues={{}}
+                            onSecretValueChange={() => undefined}
+                            secretConfigured={channelSecretConfigured}
+                            idPrefix={`settings-channel-${selectedChannelAccount.account.id}`}
+                            disabled
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </SectionCard>
+                </div>
+
+                <div id="settings-application" className="settings-anchor">
+                  <SectionCard
+                    title="应用"
+                    description="控制启动行为和更新通道。"
+                  >
+                    <UpdateSettings
+                      bridge={bridge}
+                      value={draft}
+                      disabled={updateSettingsMutation.isPending}
+                      onChange={patchDraft}
+                    />
+                  </SectionCard>
+                </div>
+
+                <div id="settings-data" className="settings-anchor">
+                  <SectionCard
+                    title="数据"
+                    description="数据操作仅在宿主提供稳定业务命令后启用。"
+                  >
+                    <div className="settings-data-actions">
+                      {UNAVAILABLE_DATA_ACTIONS.map((action) => (
+                        <div className="settings-unavailable-row" key={action.name}>
+                          <span>
+                            <strong>{action.name}</strong>
+                            <small>{action.description}</small>
+                          </span>
+                          <button
+                            className="button button-secondary"
+                            type="button"
+                            disabled
+                            aria-label={action.name}
+                          >
+                            当前版本不可用
+                          </button>
+                        </div>
                       ))}
                     </div>
-                  )}
+                  </SectionCard>
                 </div>
               </div>
-            </section>
 
-            <section className="settings-group" aria-labelledby="settings-replies">
-              <header>
-                <h2 id="settings-replies">回复</h2>
-                <p>控制引用回复、送达确认和路由有效期。</p>
-              </header>
-              <ReplySettingsForm
-                value={draft}
-                disabled={updateSettingsMutation.isPending}
-                onChange={patchDraft}
-              />
-            </section>
-
-            <section className="settings-group" aria-labelledby="settings-channels">
-              <header>
-                <h2 id="settings-channels">渠道</h2>
-                <p>默认通知账号必须显示具体账号 ID。</p>
-              </header>
-              <div className="settings-fields">
-                <label className="settings-field">
-                  <span>默认通知账号</span>
-                  <select
-                    aria-label="默认通知账号"
-                    value={draft.defaultChannelAccountId ?? ""}
-                    disabled={updateSettingsMutation.isPending}
-                    onChange={(event) =>
-                      patchDraft({
-                        defaultChannelAccountId:
-                          event.currentTarget.value || null,
-                      })
-                    }
-                  >
-                    <option value="">未选择</option>
-                    {channels.flatMap((channel) =>
-                      channel.accounts.map((account) => (
-                        <option value={account.id} key={account.id}>
-                          {channel.displayName} / {account.displayName}（
-                          {account.id}）
-                        </option>
-                      )),
-                    )}
-                  </select>
-                </label>
-
-                <div className="settings-unavailable-row">
-                  <span>
-                    <strong>渠道连接配置更新</strong>
-                    <small>当前版本不可用，请到渠道页面登录或管理账号。</small>
-                  </span>
-                  <span className="settings-unavailable-label">当前版本不可用</span>
-                </div>
-
-                {selectedChannelAccount ? (
-                  <div className="settings-readonly-config">
-                    <div className="settings-subsection-heading">
-                      <strong>账号配置只读预览</strong>
-                      <small>
-                        {selectedChannelAccount.channel.displayName} /{" "}
-                        {selectedChannelAccount.account.id}
-                      </small>
-                    </div>
-                    <SchemaForm
-                      schema={selectedChannelAccount.channel.configSchema}
-                      value={configRecord(selectedChannelAccount.account.config)}
-                      onChange={() => undefined}
-                      secretValues={{}}
-                      onSecretValueChange={() => undefined}
-                      secretConfigured={channelSecretConfigured}
-                      idPrefix={`settings-channel-${selectedChannelAccount.account.id}`}
-                      disabled
-                    />
-                  </div>
-                ) : null}
+              <div className="settings-save-row">
+                <span>
+                  {canSave ? "有尚未保存的修改" : "所有已支持设置均已保存"}
+                </span>
+                <button className="button" type="submit" disabled={!canSave}>
+                  <Save aria-hidden="true" size={15} />
+                  {updateSettingsMutation.isPending ? "正在保存" : "保存设置"}
+                </button>
               </div>
-            </section>
-
-            <section className="settings-group" aria-labelledby="settings-application">
-              <header>
-                <h2 id="settings-application">应用</h2>
-                <p>控制启动行为和更新通道。</p>
-              </header>
-              <UpdateSettings
-                bridge={bridge}
-                value={draft}
-                disabled={updateSettingsMutation.isPending}
-                onChange={patchDraft}
-              />
-            </section>
-
-            <section className="settings-group" aria-labelledby="settings-data">
-              <header>
-                <h2 id="settings-data">数据</h2>
-                <p>数据操作仅在宿主提供稳定业务命令后启用。</p>
-              </header>
-              <div className="settings-data-actions">
-                {UNAVAILABLE_DATA_ACTIONS.map((action) => (
-                  <div className="settings-unavailable-row" key={action.name}>
-                    <span>
-                      <strong>{action.name}</strong>
-                      <small>{action.description}</small>
-                    </span>
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      disabled
-                      aria-label={action.name}
-                    >
-                      当前版本不可用
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <div className="settings-save-row">
-              <span>
-                {canSave ? "有尚未保存的修改" : "所有已支持设置均已保存"}
-              </span>
-              <button className="button" type="submit" disabled={!canSave}>
-                <Save aria-hidden="true" size={15} />
-                {updateSettingsMutation.isPending ? "正在保存" : "保存设置"}
-              </button>
-            </div>
-          </form>
+            </form>
+          </div>
         ) : null}
       </div>
     </section>
