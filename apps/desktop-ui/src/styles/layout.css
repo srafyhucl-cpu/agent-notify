@@ -119,7 +119,8 @@
 
 .theme-switcher-option {
   display: inline-flex;
-  flex: 1 1 0;
+  /* 按内容定基宽再均分余量：等分（1 1 0）会把「系统」段压到 58px 以下产生省略号截断 */
+  flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   gap: var(--space-1);

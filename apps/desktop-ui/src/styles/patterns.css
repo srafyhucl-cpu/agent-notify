@@ -360,7 +360,9 @@
 }
 
 .pattern-empty-funnel-description {
-  max-width: 72ch;
+  /* 88ch 让漏斗的单句描述在宽屏一行放下（72ch 会在句子中场强行折行）；窄屏自然折行 */
+  max-width: 88ch;
+  text-wrap: pretty;
   margin: var(--space-2) 0 0;
   color: var(--color-text-muted);
   font-size: var(--font-body);

@@ -220,7 +220,13 @@ export function OverviewPage({ bridge }: OverviewPageProps) {
               <KpiCard
                 value={onlineChannels}
                 suffix={`/ ${String(channels.length)}`}
-                label={`渠道账号在线 · 等待登录 ${String(waitingChannels)} · 失效 ${String(invalidChannels)}`}
+                label={
+                  invalidChannels > 0
+                    ? `渠道账号在线 · 失效 ${String(invalidChannels)}`
+                    : waitingChannels > 0
+                      ? `渠道账号在线 · 等待登录 ${String(waitingChannels)}`
+                      : "渠道账号在线"
+                }
                 tone={channelTone}
               />
               <KpiCard
