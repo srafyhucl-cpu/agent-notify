@@ -1,4 +1,13 @@
+# 本地环境变量与签名材料不得进入仓库。
 .env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.p12
+*.cer
+*.snk
+*.key
 *.log
 *.tsbuildinfo
 *.tmp
