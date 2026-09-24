@@ -1,7 +1,6 @@
 .page-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
   min-width: 0;
@@ -14,7 +13,6 @@
   gap: var(--space-4);
 }
 
-/* 筛选工具栏：与内容卡片同档毛玻璃，内边距收敛 --space-4 */
 .history-filters {
   display: grid;
   grid-template-columns:
@@ -27,19 +25,16 @@
     minmax(180px, 1.2fr)
     auto;
   align-items: end;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-4);
-  background: var(--glass-bg-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .history-filters label,
 .settings-field {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -51,62 +46,17 @@
 }
 
 .history-filters input,
-.history-filters select {
-  width: 100%;
-  min-width: 0;
-  min-height: var(--control-height);
-  padding: 0 var(--space-2);
-  color: var(--color-text);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  transition:
-    background var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out);
-}
-
-.history-filters input::placeholder {
-  color: var(--color-text-muted);
-}
-
-.history-filters input:focus-visible,
-.history-filters select:focus-visible {
-  background: var(--glass-bg-2);
-  border-color: var(--color-primary);
-}
-
-/* 设置表单控件：与 .schema-field 控件完全同源（毛玻璃底 + 微细描边 + 聚焦发光 + disabled 降级） */
+.history-filters select,
 .settings-field input,
 .settings-field select {
   width: 100%;
   min-width: 0;
   min-height: var(--control-height);
-  padding: var(--space-1) var(--space-2);
+  padding: 0 var(--space-2);
   color: var(--color-text);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  transition:
-    background var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out);
-}
-
-.settings-field input::placeholder {
-  color: var(--color-text-muted);
-}
-
-.settings-field input:focus-visible,
-.settings-field select:focus-visible {
-  background: var(--glass-bg-2);
-  border-color: var(--color-primary);
-}
-
-.settings-field input:disabled,
-.settings-field select:disabled {
-  color: var(--color-text-muted);
-  background: var(--color-surface-muted);
-  border-color: var(--color-border);
-  cursor: not-allowed;
 }
 
 .history-search-control {
@@ -116,40 +66,16 @@
   min-width: 0;
   padding-left: var(--space-2);
   color: var(--color-text-muted);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  transition:
-    background var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out),
-    box-shadow var(--duration-base) var(--ease-out);
-}
-
-/* 组合控件：聚焦环统一画在容器上，避免内部 input 出环造成双线脏边 */
-.history-search-control:focus-within {
-  background: var(--glass-bg-2);
-  border-color: var(--color-primary);
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-  box-shadow: var(--glow-sm);
 }
 
 .history-search-control input {
-  min-height: calc(var(--control-height) - 2px);
+  min-height: 30px;
   padding-left: 0;
-  color: var(--color-text);
-  background: transparent;
   border: 0;
-}
-
-/* 聚焦环与光晕由容器统一承载，内部 input 不再重复出环（可见性未削弱） */
-.history-search-control input:focus-visible {
-  outline-color: transparent;
-  box-shadow: none;
-}
-
-.history-search-control input::placeholder {
-  color: var(--color-text-muted);
+  outline: 0;
 }
 
 .history-reset-button {
@@ -164,30 +90,15 @@
   min-width: 0;
 }
 
-/* 历史表格与详情同档毛玻璃卡片；表格横向溢出裁切在卡片圆角内，避免穿透半透明详情面板 */
-.history-table-wrap {
-  min-width: 0;
-  padding: var(--space-4);
-  overflow: hidden;
-  background: var(--glass-bg-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
-}
-
+.history-table-wrap,
 .history-detail {
   min-width: 0;
-  padding: var(--space-4);
-  background: var(--glass-bg-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .history-table {
   min-width: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
 }
 
 .history-row {
@@ -217,21 +128,16 @@
 .history-row--header {
   min-height: 38px;
   color: var(--color-text-muted);
-  background: var(--glass-bg-1);
-  border-radius: var(--radius-control);
+  background: var(--color-surface-muted);
   font-size: var(--font-size-1);
   font-weight: 650;
 }
 
-/* 虚拟列表视口：定高约束 + 稳定滚动条槽；底色与行同源（透明），滚动无白屏闪烁与抖动 */
 .history-virtual-viewport {
   height: min(58vh, 560px);
   min-height: 320px;
   overflow: auto;
-  background: transparent;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-  scrollbar-gutter: stable;
+  background: var(--color-surface);
 }
 
 .history-virtual-space {
@@ -239,21 +145,16 @@
   width: 100%;
 }
 
-/* 行底色透明：直接透出卡片毛玻璃底，与容器同源，杜绝滚动时的白屏闪烁与边缘抖动 */
 .history-virtual-space .history-row {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
+  background: var(--color-surface);
 }
 
-/* 选中态：token 派生的暗色叠加（半透明主色），无需 !important */
 .history-row--selected {
-  background: var(--color-primary-soft);
-}
-
-.history-row--selected .history-title-button {
-  color: var(--color-primary);
+  background: #e7f0ed !important;
 }
 
 .history-session-cell {
@@ -270,34 +171,14 @@
   color: var(--color-text);
   background: transparent;
   border: 0;
-  border-radius: var(--radius-control);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition:
-    transform var(--duration-fast) var(--ease-out),
-    color var(--duration-base) var(--ease-out);
-}
-
-.history-title-button:hover:not(:disabled) {
-  color: var(--color-primary);
-  text-shadow: var(--glow-sm);
-  transform: translateY(-1px);
-}
-
-.history-title-button:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
-}
-
-.history-title-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
 }
 
 .history-title-button:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-info);
   outline-offset: 2px;
-  box-shadow: var(--glow-sm);
 }
 
 .history-title-text,
@@ -313,48 +194,29 @@
   font-size: var(--font-size-1);
 }
 
-/* 状态徽标：与 .status-label 同源胶囊配方（柔和语义底 + 语义亮色文字 + 呼吸微光） */
 .history-state {
   display: inline-flex;
   width: fit-content;
   max-width: 100%;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-2);
   font-weight: 650;
-  /* 呼吸微光取当前语义色（currentColor），按变体自动同源 */
-  --badge-glow: color-mix(in srgb, currentColor 30%, transparent);
 }
 
 .history-state--success {
   color: var(--color-success);
-  background: var(--color-success-soft);
-  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
 }
 
 .history-state--warning {
   color: var(--color-warning);
-  background: var(--color-warning-soft);
-  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
-  animation: control-badge-breathe calc(var(--duration-base) * 12) var(--ease-out)
-    infinite;
 }
 
 .history-state--danger {
   color: var(--color-danger);
-  background: var(--color-danger-soft);
-  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
-  animation: control-badge-breathe calc(var(--duration-base) * 12) var(--ease-out)
-    infinite;
 }
 
 .history-state--neutral {
   color: var(--color-text-muted);
-  background: var(--glass-bg-1);
 }
 
 .history-error-cell {
@@ -369,9 +231,9 @@
   position: sticky;
   top: var(--space-4);
   max-height: min(72vh, 720px);
+  padding: var(--space-3);
   overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  background: var(--color-surface);
 }
 
 .history-detail--empty {
@@ -390,13 +252,6 @@
   line-height: 1.5;
 }
 
-/* 错误提示与所在块的间距固定 --space-2（块级容器不会与 grid gap 叠加） */
-.history-detail > .inline-error,
-.diagnostic-item-main > .inline-error {
-  margin-top: var(--space-2);
-}
-
-/* 内部统计小卡：第二档层次（--glass-bg-1），不再叠 backdrop-filter 控制层数 */
 .history-existence-list,
 .diagnostics-summary-list {
   display: grid;
@@ -408,9 +263,8 @@
 .history-existence-list > div,
 .diagnostics-summary-list > div {
   min-width: 0;
-  padding: var(--space-3);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  padding: var(--space-2);
+  background: var(--color-surface-muted);
   border-radius: var(--radius-control);
 }
 
@@ -429,34 +283,12 @@
   overflow-wrap: anywhere;
 }
 
-/* 存在性徽标：与状态徽标同源胶囊配方 */
-.existence-value--yes,
-.existence-value--no {
-  display: inline-flex;
-  width: fit-content;
-  max-width: 100%;
-  align-items: center;
-  padding: var(--space-1) var(--space-2);
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-2);
-  font-weight: 650;
-  --badge-glow: color-mix(in srgb, currentColor 30%, transparent);
-}
-
 .existence-value--yes {
   color: var(--color-success);
-  background: var(--color-success-soft);
-  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
 }
 
 .existence-value--no {
   color: var(--color-danger);
-  background: var(--color-danger-soft);
-  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
-  animation: control-badge-breathe calc(var(--duration-base) * 12) var(--ease-out)
-    infinite;
 }
 
 .history-body-section {
@@ -473,28 +305,9 @@
   color: var(--color-primary);
   background: transparent;
   border: 0;
-  border-radius: var(--radius-control);
   font-size: var(--font-size-2);
   font-weight: 650;
   cursor: pointer;
-  transition:
-    transform var(--duration-fast) var(--ease-out),
-    color var(--duration-base) var(--ease-out);
-}
-
-.history-body-toggle:hover:not(:disabled) {
-  color: var(--color-primary-hover);
-  text-shadow: var(--glow-sm);
-  transform: translateY(-1px);
-}
-
-.history-body-toggle:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
-}
-
-.history-body-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
 }
 
 .history-body {
@@ -502,11 +315,8 @@
   margin: var(--space-3) 0 0;
   padding: var(--space-3);
   overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
   color: var(--color-text);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-surface-muted);
   border-radius: var(--radius-control);
   font-family: var(--font-family-ui);
   font-size: var(--font-size-2);
@@ -535,7 +345,7 @@
 
 .history-delivery-header > div {
   display: grid;
-  gap: var(--space-1);
+  gap: 2px;
   min-width: 0;
 }
 
@@ -559,21 +369,14 @@
   line-height: 1.5;
 }
 
-/* 投递错误条：与 InlineError 同源柔和红渐变（非浅色硬底），左描边保留语义强调 */
 .history-delivery-error {
   display: grid;
   gap: var(--space-1);
   margin-top: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2);
   color: var(--color-danger);
-  background: linear-gradient(
-    135deg,
-    var(--color-danger-soft),
-    color-mix(in srgb, var(--color-danger) 4%, transparent)
-  );
-  border: 1px solid var(--border-subtle);
+  background: #fbefed;
   border-left: 3px solid var(--color-danger);
-  border-radius: var(--radius-control);
   font-size: var(--font-size-2);
 }
 
@@ -597,6 +400,7 @@
 .diagnostic-list,
 .diagnostic-components {
   display: grid;
+  gap: 0;
   border-top: 1px solid var(--color-border);
 }
 
@@ -608,11 +412,6 @@
   min-width: 0;
   padding: var(--space-3) 0;
   border-bottom: 1px solid var(--color-border);
-}
-
-/* 诊断列表末项不再画分割线，避免与外层卡片描边形成双线 */
-.diagnostic-item:last-child {
-  border-bottom: 0;
 }
 
 .diagnostic-item-main,
@@ -636,41 +435,30 @@
 
 .diagnostic-level {
   flex: 0 0 auto;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
   font-size: var(--font-size-1);
   font-weight: 700;
-  /* 呼吸微光取当前语义色；关键帧 control-badge-breathe 定义于 task7.css（随路由一并加载） */
-  --badge-glow: color-mix(in srgb, currentColor 30%, transparent);
 }
 
 .diagnostic-level--normal {
   color: var(--color-success);
-  background: var(--color-success-soft);
-  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  background: #e7f3ea;
 }
 
 .diagnostic-level--waiting {
   color: var(--color-warning);
-  background: var(--color-warning-soft);
-  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
-  animation: control-badge-breathe calc(var(--duration-base) * 12) var(--ease-out)
-    infinite;
+  background: #fff3db;
 }
 
 .diagnostic-level--error {
   color: var(--color-danger);
-  background: var(--color-danger-soft);
-  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
-  animation: control-badge-breathe calc(var(--duration-base) * 12) var(--ease-out)
-    infinite;
+  background: #fbefed;
 }
 
 .diagnostic-level--paused {
   color: var(--color-info);
-  background: var(--color-info-soft);
-  border-color: color-mix(in srgb, var(--color-info) 30%, transparent);
+  background: #e7f1f7;
 }
 
 .diagnostic-message {
@@ -706,14 +494,12 @@
   border-top: 0;
 }
 
-/* 组件状态卡片：与其它信息卡片同档毛玻璃，内边距 --space-4 */
 .diagnostic-component {
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: var(--space-4);
-  background: var(--glass-bg-2);
-  border: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
 }
 
 .diagnostic-component strong,
@@ -741,23 +527,22 @@
   display: grid;
   gap: var(--space-1);
   min-width: 0;
-  padding: var(--space-3) var(--space-4);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+  background: var(--color-surface-muted);
   border-left: 3px solid var(--color-border);
   border-radius: var(--radius-control);
 }
 
 .migration-status--success {
-  border-left-color: var(--color-success);
+  border-color: var(--color-success);
 }
 
 .migration-status--warning {
-  border-left-color: var(--color-warning);
+  border-color: var(--color-warning);
 }
 
 .migration-status--danger {
-  border-left-color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 .migration-status strong,
@@ -796,17 +581,15 @@
   font-size: var(--font-size-1);
 }
 
-/* 迁移问题/报告卡片：与其它信息卡片同档毛玻璃，内边距 --space-4 */
 .migration-issue,
 .migration-report {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
-  padding: var(--space-4);
-  background: var(--glass-bg-2);
-  border: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
 }
 
 .migration-issue h3 {
@@ -825,11 +608,10 @@
 .migration-issue-list > div,
 .migration-report-list > div {
   display: grid;
-  gap: var(--space-1);
+  gap: 2px;
   min-width: 0;
-  padding: var(--space-3);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  padding: var(--space-2);
+  background: var(--color-surface-muted);
   border-radius: var(--radius-control);
 }
 
@@ -856,6 +638,7 @@
 
 .migration-warning-list {
   display: grid;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -871,10 +654,6 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.migration-warning-list li:last-child {
-  border-bottom: 0;
-}
-
 .migration-warning-list code,
 .migration-warning-list span {
   min-width: 0;
@@ -888,6 +667,7 @@
 
 .settings-form {
   display: grid;
+  gap: 0;
   min-width: 0;
 }
 
@@ -955,7 +735,7 @@
 .settings-switch-row > span,
 .settings-unavailable-row > span {
   display: grid;
-  gap: var(--space-1);
+  gap: 1px;
   min-width: 0;
 }
 
@@ -971,12 +751,6 @@
   width: 18px;
   height: 18px;
   accent-color: var(--color-primary);
-  cursor: pointer;
-}
-
-.settings-switch-row input[type="checkbox"]:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
 }
 
 .settings-inline-fields {
@@ -999,27 +773,9 @@
   min-height: var(--control-height);
   padding: 0 var(--space-2);
   color: var(--color-text);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  transition:
-    background var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out);
-}
-
-.settings-inline-fields input::placeholder {
-  color: var(--color-text-muted);
-}
-
-.settings-inline-fields input:focus-visible {
-  background: var(--glass-bg-2);
-  border-color: var(--color-primary);
-}
-
-.settings-inline-fields input:disabled {
-  color: var(--color-text-muted);
-  background: var(--color-surface-muted);
-  cursor: not-allowed;
 }
 
 .settings-unavailable-label {
@@ -1037,16 +793,13 @@
   gap: var(--space-2);
 }
 
-/* 只读配置预览：与其它信息卡片同档毛玻璃，内边距 --space-4 */
 .settings-readonly-config {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-4);
-  background: var(--glass-bg-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  padding: var(--space-3);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-control);
 }
 
 .settings-agent-list {
@@ -1057,45 +810,20 @@
 .settings-feedback {
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-subtle);
   border-left: 3px solid;
-  border-radius: var(--radius-control);
   font-size: var(--font-size-2);
 }
 
 .settings-feedback--success {
   color: var(--color-success);
-  background: var(--color-success-soft);
-  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
-  border-left-color: var(--color-success);
+  background: #e7f3ea;
+  border-color: var(--color-success);
 }
 
 .settings-feedback--error {
   color: var(--color-danger);
-  background: var(--color-danger-soft);
-  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
-  border-left-color: var(--color-danger);
-}
-
-/* 无障碍：reduced-motion 下停用呼吸与位移，保留状态可辨识 */
-@media (prefers-reduced-motion: reduce) {
-  .diagnostic-level--waiting,
-  .diagnostic-level--error,
-  .history-state--warning,
-  .history-state--danger,
-  .existence-value--no {
-    animation: none;
-  }
-
-  .history-title-button:hover:not(:disabled),
-  .history-body-toggle:hover:not(:disabled) {
-    transform: none;
-  }
-
-  .history-title-button:active:not(:disabled),
-  .history-body-toggle:active:not(:disabled) {
-    transform: none;
-  }
+  background: #fbefed;
+  border-color: var(--color-danger);
 }
 
 .settings-save-row {
@@ -1142,7 +870,7 @@
   .history-row--header {
     position: sticky;
     top: 0;
-    z-index: var(--z-content);
+    z-index: 1;
   }
 }
 

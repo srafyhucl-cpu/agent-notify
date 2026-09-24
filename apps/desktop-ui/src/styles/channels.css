@@ -4,16 +4,16 @@
   min-width: 0;
 }
 
-/* 渠道页卡片统一配方：--glass-bg-2 毛玻璃 + 微光描边 + 面板圆角，内边距统一 --space-4 */
 .channel-band,
 .channel-account-detail,
 .test-notification-form {
   min-width: 0;
-  padding: var(--space-4);
-  background: var(--glass-bg-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.channel-band {
+  padding: var(--space-3) 0 var(--space-4);
 }
 
 .channel-band-header,
@@ -45,8 +45,6 @@
   width: 100%;
   min-width: 0;
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
 }
 
 .channel-account-list table {
@@ -73,19 +71,8 @@
   white-space: nowrap;
 }
 
-/* 卡片内表格：末行不再画分割线，避免与卡片描边形成双线 */
-.channel-account-list tbody tr:last-child th,
-.channel-account-list tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-/* 选中行：token 派生的暗色叠加（半透明主色），选中行名称同步提亮 */
 .channel-account-row--selected {
-  background: var(--color-primary-soft);
-}
-
-.channel-account-row--selected .channel-account-name {
-  color: var(--color-primary);
+  background: #e7f0ed;
 }
 
 .channel-account-name {
@@ -101,16 +88,16 @@
   cursor: pointer;
 }
 
-/* 账号健康错误：与状态徽标同源柔和红底（此处内容必为错误，可安全上柔和底） */
 .channel-account-error {
   display: block;
   margin-top: var(--space-1);
-  padding: var(--space-1) var(--space-2);
   color: var(--color-danger);
-  background: var(--color-danger-soft);
-  border-radius: var(--radius-control);
-  line-height: 1.5;
+  line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.channel-account-detail {
+  padding: var(--space-4) 0;
 }
 
 .channel-descriptor-list {
@@ -127,31 +114,20 @@
   margin-bottom: var(--space-4);
 }
 
-/* 危险文本按钮：提高选择器权重，避免被后置的 .button-secondary 青色覆盖 */
-.button.button-danger-text {
+.button-danger-text {
   color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-danger) 45%, white);
 }
 
-.button.button-danger-text:hover:not(:disabled) {
-  color: var(--color-danger);
-  background: var(--color-danger-soft);
-  border-color: var(--color-danger);
-  box-shadow: none;
-}
-
-/* 危险实底按钮：底色语义红 + 深色文字（8.15:1），禁用青色发光避免脏光 */
-.button.button-danger {
-  color: var(--color-surface);
+.button-danger {
+  color: #ffffff;
   background: var(--color-danger);
   border-color: var(--color-danger);
-  box-shadow: none;
 }
 
-.button.button-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-danger) 88%, var(--color-text));
-  border-color: color-mix(in srgb, var(--color-danger) 88%, var(--color-text));
-  box-shadow: none;
+.button-danger:hover:not(:disabled) {
+  background: #922d27;
+  border-color: #922d27;
 }
 
 .channel-config-section {
@@ -173,19 +149,17 @@
   overflow-wrap: anywhere;
 }
 
-/* 渠道配置为只读展示：禁用控件仍要可辨识且对比度达标（--color-text-muted 6.04:1） */
 .channel-config-form input:disabled,
 .channel-config-form select:disabled,
 .channel-config-form textarea:disabled {
   color: var(--color-text-muted);
   background: var(--color-surface-muted);
-  border-color: var(--color-border);
-  cursor: not-allowed;
 }
 
 .test-notification-form {
   display: grid;
   gap: var(--space-4);
+  padding: var(--space-4) 0;
 }
 
 .test-notification-heading {
@@ -194,10 +168,7 @@
 }
 
 .test-notification-heading svg {
-  /* 图标对齐 4px 网格：TSX size=18 非 4 的倍数，用 CSS 覆盖为 20 */
-  flex: 0 0 20px;
-  width: 20px;
-  height: 20px;
+  flex: 0 0 18px;
   color: var(--color-primary);
 }
 
@@ -224,7 +195,6 @@
   font-weight: 600;
 }
 
-/* 测试发送表单控件：与 .schema-field 控件完全同源（毛玻璃底 + 微细描边 + 聚焦发光 + disabled 降级） */
 .test-notification-fields input,
 .test-notification-fields select,
 .test-notification-fields textarea {
@@ -233,42 +203,17 @@
   min-height: var(--control-height);
   padding: var(--space-1) var(--space-2);
   color: var(--color-text);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  transition:
-    background var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out);
-}
-
-.test-notification-fields input::placeholder,
-.test-notification-fields textarea::placeholder {
-  color: var(--color-text-muted);
-}
-
-.test-notification-fields input:focus-visible,
-.test-notification-fields select:focus-visible,
-.test-notification-fields textarea:focus-visible {
-  background: var(--glass-bg-2);
-  border-color: var(--color-primary);
-}
-
-.test-notification-fields input:disabled,
-.test-notification-fields select:disabled,
-.test-notification-fields textarea:disabled {
-  color: var(--color-text-muted);
-  background: var(--color-surface-muted);
-  border-color: var(--color-border);
-  cursor: not-allowed;
 }
 
 .test-body-field {
   grid-column: 1 / -1;
 }
 
-/* 正文框高度由控件高度派生（2 行 + 行距），不写裸像素 */
 .test-notification-fields textarea {
-  min-height: calc(var(--control-height) * 2 + var(--space-3));
+  min-height: 76px;
   resize: vertical;
 }
 
@@ -281,7 +226,6 @@
   min-width: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-2);
-  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -289,46 +233,34 @@
   color: var(--color-danger);
 }
 
-/* 遮罩：深色 scrim + 轻磨砂，层叠走 --z-modal */
 .dialog-overlay {
   position: fixed;
-  z-index: var(--z-modal);
+  z-index: 100;
   inset: 0;
   display: grid;
   place-items: center;
   padding: var(--space-4);
-  background: color-mix(in srgb, var(--color-canvas) 72%, transparent);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  background: rgb(22 29 25 / 42%);
 }
 
-/* 浮层：毛玻璃 + 微光描边；max-height 内滚动，窗口矮化时操作区不被裁切 */
 .channel-login-dialog,
 .confirm-dialog {
   width: min(560px, 100%);
-  max-height: calc(100vh - var(--space-6));
+  max-height: calc(100vh - 32px);
   overflow-y: auto;
-  background: var(--glass-bg-3);
-  border: 1px solid var(--border-glow);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
-  box-shadow:
-    var(--glow-sm),
-    0 18px 48px color-mix(in srgb, var(--color-canvas) 60%, transparent);
-  backdrop-filter: var(--glass-blur-md) var(--glass-saturate);
+  box-shadow: 0 18px 48px rgb(25 32 28 / 22%);
 }
 
-/* 对话框头吸顶：内部滚动时标题与关闭按钮保持可见（sticky 层） */
 .dialog-header {
-  position: sticky;
-  top: 0;
-  z-index: var(--z-sticky);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-4);
-  background: var(--glass-bg-3);
-  border-bottom: 1px solid var(--border-subtle);
-  backdrop-filter: var(--glass-blur-sm) var(--glass-saturate);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .dialog-header h2 {
@@ -355,29 +287,11 @@
   border: 0;
   border-radius: var(--radius-control);
   cursor: pointer;
-  transition:
-    transform var(--duration-fast) var(--ease-out),
-    color var(--duration-base) var(--ease-out),
-    background var(--duration-base) var(--ease-out),
-    box-shadow var(--duration-base) var(--ease-out);
 }
 
-.icon-button:hover:not(:disabled) {
+.icon-button:hover {
   color: var(--color-text);
-  background: var(--glass-bg-2);
-  box-shadow: var(--glow-sm);
-  transform: translateY(-1px);
-}
-
-.icon-button:active:not(:disabled) {
-  background: var(--glass-bg-3);
-  box-shadow: none;
-  transform: translateY(0) scale(0.98);
-}
-
-.icon-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+  background: var(--color-surface-muted);
 }
 
 .channel-login-body {
@@ -393,10 +307,8 @@
   min-width: 0;
   padding: var(--space-4);
   color: var(--color-text-muted);
-  background: var(--glass-bg-2);
-  border: 1px solid var(--border-subtle);
+  background: var(--color-surface-muted);
   border-radius: var(--radius-control);
-  --badge-glow: color-mix(in srgb, currentColor 30%, transparent);
 }
 
 .login-state-panel p {
@@ -411,16 +323,12 @@
 
 .login-state-panel--error {
   color: var(--color-danger);
-  background: var(--color-danger-soft);
-  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
-  animation: control-badge-breathe calc(var(--duration-base) * 12) var(--ease-out)
-    infinite;
+  background: #fbefed;
 }
 
 .login-state-panel--success {
   color: var(--color-success);
-  background: var(--color-success-soft);
-  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  background: #edf7f0;
 }
 
 .login-state-panel--success strong {
@@ -435,7 +343,6 @@
   min-width: 0;
 }
 
-/* 二维码必须保持浅底才能被扫描，故此处保留白色（功能性例外，非装饰浅色） */
 .channel-login-qr {
   display: block;
   width: 180px;
@@ -444,7 +351,7 @@
   padding: var(--space-2);
   object-fit: contain;
   background: #ffffff;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
 }
 
@@ -485,54 +392,16 @@
   width: 100%;
   min-height: var(--control-height);
   padding: var(--space-1) var(--space-2);
-  color: var(--color-text);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  transition:
-    background var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out);
-}
-
-.verify-code-form input::placeholder {
-  color: var(--color-text-muted);
-}
-
-.verify-code-form input:focus-visible {
-  background: var(--glass-bg-2);
-  border-color: var(--color-primary);
 }
 
 .verify-code-form .button {
   justify-self: end;
 }
 
-/* 旋转保留但收敛为克制发光版 */
 .spin-icon {
-  color: var(--color-primary);
-  filter: drop-shadow(
-    0 0 var(--space-1) color-mix(in srgb, var(--color-primary) 45%, transparent)
-  );
   animation: channel-login-spin 900ms linear infinite;
-}
-
-/* 无障碍：reduced-motion 下停用位移、旋转与呼吸，保留文字状态可辨识 */
-@media (prefers-reduced-motion: reduce) {
-  .spin-icon {
-    animation: none;
-  }
-
-  .login-state-panel--error {
-    animation: none;
-  }
-
-  .icon-button:hover:not(:disabled) {
-    transform: none;
-  }
-
-  .icon-button:active:not(:disabled) {
-    transform: none;
-  }
 }
 
 .confirm-dialog {

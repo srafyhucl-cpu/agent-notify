@@ -6,9 +6,6 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-  /* 根容器裁切 + 独立层叠上下文：杜绝任何溢出漏光与子层叠外溢 */
-  overflow: hidden;
-  isolation: isolate;
   color: var(--color-text);
   background: var(--color-canvas);
 }
@@ -18,20 +15,12 @@
   grid-row: 1 / -1;
   display: flex;
   flex-direction: column;
-  position: relative;
-  z-index: var(--z-sticky);
   min-width: 0;
   min-height: 0;
   padding: var(--space-3);
-  /* 矮窗口内滚动而非裁切导航项；横向 hidden 防溢出，12px 内边距保证聚焦环不被切 */
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-  /* 毛玻璃导航栏：与内容区拼接处只留 1px 微光描边，无缝隙 */
-  background: var(--glass-bg-1);
-  backdrop-filter: var(--glass-blur-md) var(--glass-saturate);
-  border-right: 1px solid var(--border-subtle);
+  overflow: hidden;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
 }
 
 .app-nav-brand {
@@ -42,13 +31,7 @@
   min-height: 40px;
   margin-bottom: var(--space-5);
   padding: 0 var(--space-2);
-  border-radius: var(--radius-control);
   text-decoration: none;
-  transition: background-color var(--duration-fast) var(--ease-out);
-}
-
-.app-nav-brand:hover {
-  background: var(--glass-bg-3);
 }
 
 .app-nav-brand-mark {
@@ -60,10 +43,8 @@
   color: var(--color-surface);
   background: var(--color-primary);
   border-radius: var(--radius-control);
-  box-shadow: var(--glow-sm);
   font-size: var(--font-size-3);
   font-weight: 700;
-  line-height: 1;
 }
 
 .app-nav-brand-label {
@@ -93,53 +74,25 @@
   min-height: 40px;
   padding: 0 var(--space-3);
   color: var(--color-text-muted);
-  /* 透明描边预留位：hover/激活态切换不产生 1px 布局跳动 */
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
   font-size: var(--font-size-3);
   font-weight: 550;
   text-decoration: none;
-  transition:
-    color var(--duration-base) var(--ease-out),
-    background-color var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out),
-    box-shadow var(--duration-base) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
 }
 
 .app-nav-link:hover {
   color: var(--color-text);
-  background: var(--glass-bg-3);
-  border-color: var(--border-hover);
-}
-
-.app-nav-link:active {
-  transform: scale(0.98);
-  box-shadow: none;
-}
-
-.app-nav-link:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-  box-shadow: var(--glow-sm);
+  background: var(--color-surface-muted);
 }
 
 .app-nav-link[aria-current="page"] {
-  /* 激活态胶囊高亮：柔和主色底 + 主色文字 + 同源微光描边，圆角与填充同源无双线 */
   color: var(--color-primary);
-  background: var(--color-primary-soft);
-  border-color: var(--border-glow);
-  box-shadow: var(--glow-sm);
+  background: #e3efeb;
+  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 .app-nav-icon {
-  display: inline-flex;
-  flex: 0 0 20px;
-  align-items: center;
-  justify-content: center;
-  /* 尺寸对齐 4px 网格，避免亚像素上浮/下沉 */
-  width: 20px;
-  height: 20px;
+  flex: 0 0 18px;
 }
 
 .app-nav-label {
@@ -159,10 +112,8 @@
   min-width: 0;
   min-height: var(--status-height);
   padding: var(--space-2) var(--space-4);
-  /* 状态栏位于滚动容器之外，天然吸顶不被遮挡；毛玻璃与导航栏同档 */
-  background: var(--glass-bg-1);
-  backdrop-filter: var(--glass-blur-md) var(--glass-saturate);
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .runtime-status-summary {
@@ -214,7 +165,6 @@
 
 .runtime-status-action {
   display: flex;
-  align-items: center;
   justify-content: flex-end;
   min-width: 0;
 }
@@ -229,13 +179,7 @@
   grid-row: 2;
   min-width: 0;
   min-height: 0;
-  /* 唯一滚动容器：纵向只此一处滚动，横向作兜底；透明轨道杜绝滚动条黑带 */
   overflow: auto;
-  background: var(--color-canvas);
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-  /* 预留滚动条槽，切换页面时内容宽度不抖动 */
-  scrollbar-gutter: stable;
 }
 
 .workbench-page {
@@ -267,7 +211,6 @@
   padding-top: var(--space-5);
 }
 
-/* 主操作控件：尺寸基线保持 --control-height，六态只改视觉不改布局 */
 .button {
   display: inline-flex;
   align-items: center;
@@ -279,58 +222,34 @@
   background: var(--color-primary);
   border: 1px solid var(--color-primary);
   border-radius: var(--radius-control);
-  box-shadow: var(--glow-sm);
   font-size: var(--font-size-3);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  transition:
-    transform var(--duration-fast) var(--ease-out),
-    color var(--duration-base) var(--ease-out),
-    background var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out),
-    box-shadow var(--duration-base) var(--ease-out);
 }
 
 .button:hover:not(:disabled) {
   background: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
-  box-shadow: var(--glow-md);
-  transform: translateY(-1px);
-}
-
-.button:active:not(:disabled) {
-  box-shadow: none;
-  transform: translateY(0) scale(0.98);
-}
-
-.button:focus-visible {
-  box-shadow: var(--glow-md);
 }
 
 .button:disabled {
-  box-shadow: none;
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 0.55;
 }
 
-/* 次级按钮：毛玻璃暗底 + 微细描边，权重低于主按钮，不做常驻发光 */
 .button-secondary {
   color: var(--color-primary);
-  background: var(--glass-bg-1);
-  border-color: var(--border-subtle);
-  box-shadow: none;
+  background: var(--color-surface);
 }
 
 .button-secondary:hover:not(:disabled) {
   color: var(--color-primary-hover);
-  background: var(--glass-bg-2);
-  border-color: var(--border-hover);
-  box-shadow: var(--glow-sm);
+  background: var(--color-surface-muted);
+  border-color: var(--color-primary-hover);
 }
 
-/* 空态：毛玻璃面板，替代原先的上下实线，避免暗色下出现生硬分割线 */
 .empty-state {
   display: flex;
   align-items: flex-start;
@@ -338,10 +257,9 @@
   gap: var(--space-5);
   width: 100%;
   min-width: 0;
-  padding: var(--space-5) var(--space-4);
-  background: var(--glass-bg-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .empty-state-copy {
@@ -367,7 +285,6 @@
   flex: 0 0 auto;
 }
 
-/* 错误态：柔和红色微渐变提示条（左描边保留语义强调，禁止浅色硬底） */
 .inline-error {
   display: flex;
   align-items: flex-start;
@@ -376,22 +293,12 @@
   min-width: 0;
   padding: var(--space-3);
   color: var(--color-text);
-  background: linear-gradient(
-    135deg,
-    var(--color-danger-soft),
-    color-mix(in srgb, var(--color-danger) 4%, transparent)
-  );
-  border: 1px solid var(--border-subtle);
+  background: #fbefed;
   border-left: 3px solid var(--color-danger);
-  border-radius: var(--radius-control);
 }
 
-/* 图标与首行文字像素级对齐：18px 图标 + 1px 半行距差 */
 .inline-error-icon {
-  display: inline-flex;
   flex: 0 0 18px;
-  align-items: center;
-  justify-content: center;
   margin-top: 1px;
   color: var(--color-danger);
 }
@@ -419,23 +326,12 @@
   flex: 0 0 auto;
 }
 
-/* 骨架屏扫描微光：低频横向扫过，时长由动效 token 派生（150ms × 10） */
-@keyframes control-skeleton-sweep {
-  from {
-    background-position: 100% 0;
-  }
-
-  to {
-    background-position: -100% 0;
-  }
-}
-
 .loading-rows {
   display: flex;
   flex-direction: column;
   width: 100%;
   min-width: 0;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--color-border);
 }
 
 .loading-row {
@@ -444,47 +340,19 @@
   align-items: center;
   gap: var(--space-4);
   min-height: 48px;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--color-border);
 }
 
-/* 骨架条高度取 --font-size-2，与真实行内 13px 文本字高 1:1；行高沿用真实行 48px，加载完成无 CLS 跳动 */
 .loading-row-bar {
   display: block;
   width: 100%;
-  height: var(--font-size-2);
-  background-color: var(--color-surface-muted);
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--color-primary) 14%, transparent) 50%,
-    transparent 100%
-  );
-  background-repeat: no-repeat;
-  background-size: 200% 100%;
-  border-radius: var(--radius-pill);
-  animation: control-skeleton-sweep calc(var(--duration-base) * 10) linear
-    infinite;
+  height: 10px;
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-control);
 }
 
 .loading-row-bar-short {
   width: 64%;
-}
-
-/* 无障碍：reduced-motion 下停用位移与循环扫描，保留状态可辨识 */
-@media (prefers-reduced-motion: reduce) {
-  .loading-row-bar {
-    background-image: none;
-    animation: none;
-  }
-
-  .button:hover:not(:disabled),
-  .button-secondary:hover:not(:disabled) {
-    transform: none;
-  }
-
-  .button:active:not(:disabled) {
-    transform: none;
-  }
 }
 
 @media (max-width: 960px) {
@@ -545,27 +413,5 @@
   .workbench-page {
     padding-top: var(--space-4);
     padding-bottom: var(--space-4);
-  }
-
-  /* 矮窗口：收紧壳层留白，保证导航与状态栏操作不被裁切 */
-  .app-nav {
-    padding-block: var(--space-2);
-  }
-
-  .app-nav-brand {
-    min-height: var(--control-height);
-    margin-bottom: var(--space-3);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* 降低动效偏好：关闭导航过渡与按压位移 */
-  .app-nav-brand,
-  .app-nav-link {
-    transition: none;
-  }
-
-  .app-nav-link:active {
-    transform: none;
   }
 }

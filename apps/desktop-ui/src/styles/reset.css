@@ -43,8 +43,6 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  /* 键盘聚焦环：高对比亮色描边 + 克制青色外发光（禁止 outline: none） */
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-info);
   outline-offset: 2px;
-  box-shadow: var(--glow-sm);
 }

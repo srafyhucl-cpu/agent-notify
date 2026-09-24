@@ -1,60 +1,25 @@
-/* Design Tokens 唯一来源：Cyberpunk 暗色 + 毛玻璃层次 + 克制发光。
-   本文件只放视觉常量，组件一律通过 var(--*) 消费，禁止散落硬编码色值/时长/发光。
-   暗色阶梯保证 WCAG 正文 ≥4.5:1（实测见 UI_DECISIONS.d/subagent-1-tokens.md）。 */
 :root {
-  /* 让原生滚动条、表单控件跟随暗色 */
-  color-scheme: dark;
-
-  /* 画布与文字阶梯（由深到浅；--color-surface 同时用作主色底上的文字色） */
-  --color-canvas: #0a0c12;
-  --color-surface: #12141d;
-  --color-surface-muted: #1a2030;
-  --color-border: #2a3142;
-  --color-text: #e9edf6;
-  --color-text-muted: #949eb4;
-  --color-primary: #2ee0f0;
-  --color-primary-hover: #67e8f9;
-  --color-info: #5cc8ff;
-  --color-warning: #f0b64a;
-  --color-danger: #ff8b87;
-  --color-success: #4ade80;
-
-  /* 语义柔和底：半透明语义色，供「柔和底 + 语义色文字」的状态徽标/提示条复用（统一 16% 叠加） */
-  --color-primary-soft: rgba(46, 224, 240, 0.16);
-  --color-info-soft: rgba(92, 200, 255, 0.16);
-  --color-warning-soft: rgba(240, 182, 74, 0.16);
-  --color-danger-soft: rgba(255, 139, 135, 0.16);
-  --color-success-soft: rgba(74, 222, 128, 0.16);
-
-  /* 表面与毛玻璃：--glass-bg-1/2/3 逐层加深，配 backdrop-filter: var(--glass-blur-*) var(--glass-saturate) */
-  --glass-bg-1: rgba(18, 20, 29, 0.7);
-  --glass-bg-2: rgba(24, 28, 41, 0.85);
-  --glass-bg-3: rgba(30, 36, 54, 0.95);
-  --glass-blur-sm: blur(8px);
-  --glass-blur-md: blur(16px);
-  --glass-saturate: saturate(1.25);
-
-  /* 边框与发光：微光描边把毛玻璃层从深底上「切」出来；发光只做点缀，禁止大面积辉光 */
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.1);
-  --border-glow: rgba(0, 240, 255, 0.35);
-  --glow-sm: 0 0 10px rgba(0, 240, 255, 0.15);
-  --glow-md: 0 0 20px rgba(0, 240, 255, 0.3);
-
-  /* 间距（4/8px 网格，保持原值） */
+  color-scheme: light;
+  --color-canvas: #f4f5f3;
+  --color-surface: #ffffff;
+  --color-surface-muted: #eef0ed;
+  --color-border: #d7dbd6;
+  --color-text: #1f2521;
+  --color-text-muted: #5c645e;
+  --color-primary: #176b5b;
+  --color-primary-hover: #125447;
+  --color-info: #2878a8;
+  --color-warning: #8a4f0d;
+  --color-danger: #b33a32;
+  --color-success: #26703f;
+  --radius-control: 6px;
+  --radius-panel: 8px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
-
-  /* 圆角 */
-  --radius-control: 6px;
-  --radius-panel: 8px;
-  --radius-pill: 999px;
-
-  /* 字体 */
   --font-size-1: 12px;
   --font-size-2: 13px;
   --font-size-3: 14px;
@@ -65,23 +30,8 @@
     "Segoe UI",
     system-ui,
     sans-serif;
-
-  /* 结构尺寸 */
   --nav-width: 208px;
   --nav-width-compact: 64px;
   --control-height: 32px;
   --status-height: 48px;
-
-  /* 动效：时长/缓动统一走 token，禁止裸时长 */
-  --duration-fast: 120ms;
-  --duration-base: 150ms;
-  --ease-out: ease-out;
-
-  /* 层叠位阶（全局唯一）：Modal > Popover/Tooltip > Sticky > Content。
-     浮层不要临时加数字，按上表选档；注意 transform / filter / backdrop-filter / opacity<1
-     会生成新的层叠上下文，毛玻璃容器内的浮层压不到容器外兄弟节点，必要时用 portal 挂到 body。 */
-  --z-content: 1;
-  --z-sticky: 10;
-  --z-popover: 50;
-  --z-modal: 100;
 }
