@@ -6,6 +6,10 @@ import type {
   NotificationDetailDto,
   NotificationSummaryDto,
 } from "../../bridge/types";
+import {
+  StatusBadge,
+  type StatusBadgeTone,
+} from "../../components/patterns";
 
 const HISTORY_ROW_HEIGHT = 54;
 const HISTORY_OVERSCAN = 8;
@@ -54,14 +58,17 @@ export function historyErrorSummary(states: DeliveryStateDto[]): string {
   return "无可见错误";
 }
 
-function deliveryStateTone(states: DeliveryStateDto[]): string {
+function deliveryStateTone(states: DeliveryStateDto[]): StatusBadgeTone {
   if (states.includes("Unknown") || states.includes("Failed")) {
-    return "history-state--danger";
+    return "danger";
   }
   if (states.includes("Pending") || states.includes("Skipped")) {
-    return "history-state--warning";
+    return "warning";
   }
-  return "history-state--success";
+  if (states.length === 0) {
+    return "neutral";
+  }
+  return "success";
 }
 
 export interface HistoryTableProps {
@@ -185,13 +192,12 @@ export function HistoryTable({
                   <span role="cell" title={channelAccount}>
                     {channelAccount}
                   </span>
-                  <span
-                    className={`history-state ${deliveryStateTone(
-                      notification.deliveryStates,
-                    )}`}
-                    role="cell"
-                  >
-                    {historyStateLabel(notification.deliveryStates)}
+                  <span className="history-state-cell" role="cell">
+                    <StatusBadge
+                      tone={deliveryStateTone(notification.deliveryStates)}
+                    >
+                      {historyStateLabel(notification.deliveryStates)}
+                    </StatusBadge>
                   </span>
                   <span className="history-error-cell" role="cell">
                     {historyErrorSummary(notification.deliveryStates)}

@@ -4,6 +4,11 @@ import { useState } from "react";
 import type { DeliveryDto, NotificationDetailDto } from "../../bridge/types";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
+import {
+  SectionCard,
+  StatusBadge,
+  type StatusBadgeTone,
+} from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { historyStateLabel } from "./HistoryTable";
 
@@ -43,14 +48,14 @@ function ExistenceValue({ exists }: { exists: boolean }) {
   );
 }
 
-function deliveryStateTone(state: DeliveryDto["state"]): string {
+function deliveryStateTone(state: DeliveryDto["state"]): StatusBadgeTone {
   if (state === "Failed" || state === "Unknown") {
-    return "history-state--danger";
+    return "danger";
   }
   if (state === "Pending" || state === "Skipped") {
-    return "history-state--warning";
+    return "warning";
   }
-  return "history-state--success";
+  return "success";
 }
 
 export interface HistoryDetailProps {
@@ -102,66 +107,73 @@ export function HistoryDetail({
 
   return (
     <section className="history-detail" aria-label="通知详情">
-      <header className="section-heading">
+      <header className="section-heading history-detail-heading">
         <div>
           <h2>{detail.notification.title}</h2>
           <p className="section-description">
             {formatTimestamp(detail.notification.occurredAt)}
           </p>
         </div>
-        <span className="history-state history-state--neutral">
+        <StatusBadge tone="neutral">
           {historyStateLabel(detail.notification.deliveryStates)}
-        </span>
+        </StatusBadge>
       </header>
 
-      <dl className="history-existence-list">
-        <div>
-          <dt>通知</dt>
-          <dd>
-            <ExistenceValue exists />
-          </dd>
-        </div>
-        <div>
-          <dt>投递</dt>
-          <dd>
-            {detail.deliveries.length > 0 ? (
-              <>存在（{detail.deliveries.length} 条）</>
-            ) : (
-              <ExistenceValue exists={false} />
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>路由</dt>
-          <dd>
-            <ExistenceValue exists={detail.routeExists} />
-          </dd>
-        </div>
-      </dl>
+      <SectionCard title="存在性" className="history-existence-card">
+        <dl className="history-existence-list">
+          <div>
+            <dt>通知</dt>
+            <dd>
+              <ExistenceValue exists />
+            </dd>
+          </div>
+          <div>
+            <dt>投递</dt>
+            <dd>
+              {detail.deliveries.length > 0 ? (
+                <>存在（{detail.deliveries.length} 条）</>
+              ) : (
+                <ExistenceValue exists={false} />
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>路由</dt>
+            <dd>
+              <ExistenceValue exists={detail.routeExists} />
+            </dd>
+          </div>
+        </dl>
+      </SectionCard>
 
-      <div className="history-body-section">
-        <button
-          className="history-body-toggle"
-          type="button"
-          aria-expanded={bodyExpanded}
-          onClick={() => setBodyExpanded((current) => !current)}
-        >
-          {bodyExpanded ? (
-            <ChevronUp aria-hidden="true" size={16} />
-          ) : (
-            <ChevronDown aria-hidden="true" size={16} />
-          )}
-          {bodyExpanded ? "收起正文" : "展开正文"}
-        </button>
-        {bodyExpanded ? <pre className="history-body">{detail.body}</pre> : null}
-      </div>
+      <SectionCard title="正文" className="history-body-card">
+        <div className="history-body-section">
+          <button
+            className="history-body-toggle"
+            type="button"
+            aria-expanded={bodyExpanded}
+            onClick={() => setBodyExpanded((current) => !current)}
+          >
+            {bodyExpanded ? (
+              <ChevronUp aria-hidden="true" size={16} />
+            ) : (
+              <ChevronDown aria-hidden="true" size={16} />
+            )}
+            {bodyExpanded ? "收起正文" : "展开正文"}
+          </button>
+          {bodyExpanded ? <pre className="history-body">{detail.body}</pre> : null}
+        </div>
+      </SectionCard>
 
       {actionError ? (
         <InlineError title={actionError.title} message={actionError.message} />
       ) : null}
 
-      <div className="history-deliveries">
-        <h3>投递记录</h3>
+      <SectionCard
+        title="投递记录"
+        count={detail.deliveries.length}
+        className="history-deliveries"
+      >
         {detail.deliveries.length === 0 ? (
           <p className="section-empty">没有投递记录。</p>
         ) : (
@@ -176,11 +188,9 @@ export function HistoryDetail({
                     <strong>{delivery.channelId}</strong>
                     <span>{delivery.accountId}</span>
                   </div>
-                  <span
-                    className={`history-state ${deliveryStateTone(delivery.state)}`}
-                  >
+                  <StatusBadge tone={deliveryStateTone(delivery.state)}>
                     {historyStateLabel([delivery.state])}
-                  </span>
+                  </StatusBadge>
                 </div>
                 <p>
                   更新时间：{formatTimestamp(delivery.updatedAt)}
@@ -212,7 +222,7 @@ export function HistoryDetail({
             );
           })
         )}
-      </div>
+      </SectionCard>
     </section>
   );
 }

@@ -6,6 +6,14 @@
   min-width: 0;
 }
 
+/* ========== 历史页（Phase 5c：检索报表范式 · 筛选带收拢 + 固定轨道表 + 详情三段） ========== */
+:root {
+  /* 虚拟列表视口与表头高度；详情面板据此与列表底部对齐 */
+  --history-viewport-height: min(58vh, 560px);
+  --history-header-height: 38px;
+  --history-scrollbar-size: var(--space-2);
+}
+
 .history-page-content,
 .diagnostics-page-content,
 .settings-page-content {
@@ -13,22 +21,55 @@
   gap: var(--space-4);
 }
 
+/* 页头已提供 24px 间距，内容区不再重复留白；组间统一 24px */
+.history-page .history-page-content {
+  padding-top: 0;
+  gap: var(--space-5);
+}
+
+/* 筛选带收拢：主筛选一行、次筛选折第二行、重置并入行尾 */
 .history-filters {
   display: grid;
-  grid-template-columns:
-    minmax(130px, 0.8fr)
-    minmax(130px, 0.8fr)
-    minmax(150px, 1fr)
-    minmax(140px, 0.8fr)
-    minmax(160px, 0.9fr)
-    minmax(160px, 0.9fr)
-    minmax(180px, 1.2fr)
-    auto;
-  align-items: end;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--color-border);
+}
+
+.history-filter-primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.history-filter-primary > label {
+  flex: 1 1 170px;
+  min-width: 0;
+}
+
+.history-filter-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.history-filter-secondary > label {
+  flex: 1 1 170px;
+  min-width: 0;
+}
+
+.history-filter-secondary .history-keyword-filter {
+  flex: 1.4 1 220px;
+}
+
+/* 重置并入行尾：换行后仍贴最后一行的右端 */
+.history-filter-secondary .history-reset-button {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .history-filters label,
@@ -84,14 +125,13 @@
 
 .history-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 0.85fr);
   align-items: start;
-  gap: var(--space-4);
+  gap: var(--space-5);
   min-width: 0;
 }
 
-.history-table-wrap,
-.history-detail {
+.history-table-wrap {
   min-width: 0;
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
@@ -101,20 +141,22 @@
   min-width: 0;
 }
 
+/* 固定列轨道：时间/状态定宽，其余按比例分配并在超长时省略号截断，
+   保证表格始终落在左列内（不越入详情面板、不产生水平溢出） */
 .history-row {
   display: grid;
   grid-template-columns:
     132px
-    110px
-    minmax(190px, 1.15fr)
-    minmax(170px, 1fr)
-    132px
-    minmax(180px, 1.15fr);
+    minmax(0, 1.1fr)
+    minmax(0, 1.6fr)
+    minmax(0, 1.2fr)
+    112px
+    minmax(0, 1.4fr);
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
   padding: 0 var(--space-2);
-  font-size: var(--font-size-2);
+  font-size: var(--font-body);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -123,21 +165,35 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  word-break: keep-all;
 }
 
 .history-row--header {
-  min-height: 38px;
+  min-height: var(--history-header-height);
   color: var(--color-text-muted);
   background: var(--color-surface-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
   font-weight: 650;
 }
 
 .history-virtual-viewport {
-  height: min(58vh, 560px);
+  height: var(--history-viewport-height);
   min-height: 320px;
   overflow: auto;
   background: var(--color-surface);
+  /* 常驻滚动条槽位防抖动；透明轨道防白闪 */
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.history-virtual-viewport::-webkit-scrollbar {
+  width: var(--history-scrollbar-size);
+  height: var(--history-scrollbar-size);
+}
+
+.history-virtual-viewport::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .history-virtual-space {
@@ -145,21 +201,27 @@
   width: 100%;
 }
 
+/* 虚拟行底透明：与视口同源，滚动时不露白 */
 .history-virtual-space .history-row {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
-  background: var(--color-surface);
 }
 
 .history-row--selected {
-  background: #e7f0ed !important;
+  background: var(--color-primary-soft);
 }
 
 .history-session-cell {
   display: block;
   width: 100%;
+}
+
+/* 状态单元格：承载 StatusBadge（语义色 + 文字双载） */
+.history-state-cell {
+  display: flex;
+  align-items: center;
 }
 
 .history-title-button {
@@ -191,32 +253,7 @@
 
 .history-session-text {
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
-}
-
-.history-state {
-  display: inline-flex;
-  width: fit-content;
-  max-width: 100%;
-  align-items: center;
-  gap: var(--space-1);
-  font-weight: 650;
-}
-
-.history-state--success {
-  color: var(--color-success);
-}
-
-.history-state--warning {
-  color: var(--color-warning);
-}
-
-.history-state--danger {
-  color: var(--color-danger);
-}
-
-.history-state--neutral {
-  color: var(--color-text-muted);
+  font-size: var(--font-caption);
 }
 
 .history-error-cell {
@@ -227,13 +264,15 @@
   margin-top: var(--space-2);
 }
 
+/* 详情面板：三段 SectionCard；与左侧列表底部对齐（同一行高，面板内部滚动） */
 .history-detail {
-  position: sticky;
-  top: var(--space-4);
-  max-height: min(72vh, 720px);
-  padding: var(--space-3);
+  display: grid;
+  align-content: start;
+  align-self: stretch;
+  gap: var(--space-5);
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
-  background: var(--color-surface);
 }
 
 .history-detail--empty {
@@ -243,12 +282,12 @@
 .history-detail--empty h2 {
   margin: 0 0 var(--space-2);
   color: var(--color-text);
-  font-size: var(--font-size-4);
+  font-size: var(--font-heading);
 }
 
 .history-detail--empty p {
   margin: 0;
-  font-size: var(--font-size-2);
+  font-size: var(--font-body);
   line-height: 1.5;
 }
 
@@ -291,10 +330,14 @@
   color: var(--color-danger);
 }
 
+/* 存在性段在 SectionCard 内：卡片已提供间距，去掉列表自带底距 */
+.history-existence-card .history-existence-list {
+  margin-bottom: 0;
+}
+
+/* 正文段：SectionCard 已提供间距，去掉旧的分隔线与外边距 */
 .history-body-section {
-  margin-bottom: var(--space-4);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  min-width: 0;
 }
 
 .history-body-toggle {
@@ -305,7 +348,7 @@
   color: var(--color-primary);
   background: transparent;
   border: 0;
-  font-size: var(--font-size-2);
+  font-size: var(--font-body);
   font-weight: 650;
   cursor: pointer;
 }
@@ -319,20 +362,15 @@
   background: var(--color-surface-muted);
   border-radius: var(--radius-control);
   font-family: var(--font-family-ui);
-  font-size: var(--font-size-2);
+  font-size: var(--font-body);
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.history-deliveries h3 {
-  margin: 0 0 var(--space-2);
-  font-size: var(--font-size-3);
-}
-
 .history-delivery {
   padding: var(--space-3) 0;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--hairline);
 }
 
 .history-delivery-header {
@@ -345,7 +383,7 @@
 
 .history-delivery-header > div {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -361,7 +399,7 @@
 .history-delivery-header span,
 .history-delivery p {
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
 }
 
 .history-delivery p {
@@ -369,15 +407,16 @@
   line-height: 1.5;
 }
 
+/* 与 InlineError 同源：语义柔和底 + 左侧语义色描边，两主题自动换肤 */
 .history-delivery-error {
   display: grid;
   gap: var(--space-1);
   margin-top: var(--space-2);
   padding: var(--space-2);
   color: var(--color-danger);
-  background: #fbefed;
+  background: var(--color-danger-soft);
   border-left: 3px solid var(--color-danger);
-  font-size: var(--font-size-2);
+  font-size: var(--font-body);
 }
 
 .history-retry {
@@ -393,7 +432,7 @@
   flex: 1 1 190px;
   margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
   line-height: 1.5;
 }
 
@@ -976,32 +1015,15 @@
   font-size: var(--font-body);
 }
 
-@media (max-width: 1320px) {
-  .history-filters {
-    grid-template-columns: repeat(4, minmax(150px, 1fr));
-  }
-
-  .history-keyword-filter {
-    grid-column: span 2;
-  }
-}
-
 @media (max-width: 1120px) {
   .history-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* 单列布局：详情面板随内容自然高度，不再拉伸 */
   .history-detail {
-    position: static;
-    max-height: none;
-  }
-
-  .history-row {
-    min-width: 920px;
-  }
-
-  .history-table {
-    overflow-x: auto;
+    align-self: auto;
+    overflow: visible;
   }
 
   .history-row--header {
@@ -1034,14 +1056,6 @@
 }
 
 @media (max-width: 640px) {
-  .history-filters {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .history-keyword-filter {
-    grid-column: auto;
-  }
-
   .history-existence-list,
   .diagnostics-summary-list {
     grid-template-columns: minmax(0, 1fr);
