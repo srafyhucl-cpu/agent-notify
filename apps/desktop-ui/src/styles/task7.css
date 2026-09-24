@@ -47,48 +47,81 @@
   padding-top: 0;
 }
 
-/* KPI 锚点带：4 张等宽卡，窄窗自动折行 */
-.overview-kpi-band {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-/* 健康明细：三段并排，窄窗折单列 */
-.overview-health {
+/* 运行概况汇总卡：渠道账号 / Agent 接入 / 运行状态 三列一张容器（渠道健康居首），窄窗折单列 */
+.overview-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-5);
   min-width: 0;
+  padding: var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--surface-1-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--surface-1-shadow);
+  -webkit-backdrop-filter: var(--surface-1-blur);
+  backdrop-filter: var(--surface-1-blur);
 }
 
-.overview-health-section {
-  min-width: 0;
-}
-
-.overview-health-header {
+.overview-summary-section {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-width: 0;
-  margin-bottom: var(--space-3);
-}
-
-.overview-health-title {
-  display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-2);
   min-width: 0;
 }
 
-.overview-health-title h2 {
+/* 宽屏三列之间用细线分隔（同容器内，不引入第二层边框语言） */
+.overview-summary-section + .overview-summary-section {
+  padding-left: var(--space-5);
+  border-left: 1px solid var(--hairline);
+}
+
+.overview-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.overview-summary-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text-muted);
+}
+
+.overview-summary-title h2 {
   margin: 0;
-  color: var(--color-text);
-  font-size: var(--font-heading);
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
   font-weight: 650;
   line-height: 1.3;
+}
+
+/* 28px 大数字：全页唯一视觉锚点层级 */
+.overview-summary-value {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-display);
+  font-weight: 650;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-summary-suffix {
+  color: var(--color-text-muted);
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+
+/* 次级明细：弱化小字，不抢锚点 */
+.overview-summary-detail {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .section-heading {
@@ -662,8 +695,16 @@
 }
 
 @media (max-width: 880px) {
-  .overview-health {
+  .overview-summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 单列时改用横向分隔，去掉竖线 */
+  .overview-summary-section + .overview-summary-section {
+    padding-top: var(--space-4);
+    padding-left: 0;
+    border-top: 1px solid var(--hairline);
+    border-left: 0;
   }
 }
 

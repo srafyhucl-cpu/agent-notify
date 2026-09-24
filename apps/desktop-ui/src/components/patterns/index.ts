@@ -7,8 +7,6 @@ export { EmptyFunnel } from "./EmptyFunnel";
 export type { EmptyFunnelProps, EmptyFunnelStep } from "./EmptyFunnel";
 export { FieldRow } from "./FieldRow";
 export type { FieldRowProps } from "./FieldRow";
-export { KpiCard } from "./KpiCard";
-export type { KpiCardProps, KpiTone } from "./KpiCard";
 export { PageHeader } from "./PageHeader";
 export type { PageHeaderProps } from "./PageHeader";
 export { SectionCard } from "./SectionCard";

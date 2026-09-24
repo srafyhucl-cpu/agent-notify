@@ -6,22 +6,11 @@ import type { RuntimeSnapshotDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
-import {
-  KpiCard,
-  PageHeader,
-  SectionCard,
-  type KpiTone,
-} from "../../components/patterns";
+import { PageHeader, SectionCard } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { useSetRuntimePausedMutation } from "../../data/mutations";
 import { useSnapshot } from "../../data/useSnapshot";
-import {
-  HealthSummary,
-  RUNTIME_STATE_LABELS,
-  channelInvalid,
-  channelOnline,
-  channelWaitingLogin,
-} from "./HealthSummary";
+import { HealthSummary } from "./HealthSummary";
 import { RecentDeliveries } from "./RecentDeliveries";
 
 interface ActionItem {
@@ -98,24 +87,6 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
   return items;
 }
 
-/** 运行状态 KPI 语义色：正常 / 等待 / 异常三档（颜色 + 文字双载）。 */
-function runtimeKpiTone(state: RuntimeSnapshotDto["runtime"]["state"]): KpiTone {
-  switch (state) {
-    case "Running":
-      return "success";
-    case "Failed":
-    case "Stopped":
-      return "danger";
-    case "Starting":
-    case "Paused":
-    case "MigrationRequired":
-    case "Stopping":
-      return "warning";
-    default:
-      return "default";
-  }
-}
-
 export interface OverviewPageProps {
   bridge: HostBridge;
 }
@@ -130,29 +101,6 @@ export function OverviewPage({ bridge }: OverviewPageProps) {
     : null;
   const actionError = pauseError ? toUserError(pauseError) : null;
   const items = snapshot ? actionItems(snapshot) : [];
-  // KPI 锚点带：只取现有快照字段直接可得的指标，不发明新度量。
-  const agents = snapshot?.overview.agents ?? [];
-  const channels = snapshot?.overview.channels ?? [];
-  const onlineChannels = channels.filter(channelOnline).length;
-  const waitingChannels = channels.filter(channelWaitingLogin).length;
-  const invalidChannels = channels.filter(channelInvalid).length;
-  const unhealthyAgents = agents.filter(
-    (agent) => !agent.health.available,
-  ).length;
-  const channelTone: KpiTone =
-    channels.length === 0
-      ? "default"
-      : invalidChannels > 0
-        ? "danger"
-        : waitingChannels > 0
-          ? "warning"
-          : "success";
-  const agentTone: KpiTone =
-    unhealthyAgents > 0 ? "danger" : agents.length > 0 ? "success" : "default";
-  const runtimeTone: KpiTone = snapshot
-    ? runtimeKpiTone(snapshot.runtime.state)
-    : "default";
-  const pendingTone: KpiTone = items.length > 0 ? "warning" : "success";
 
   const togglePause = async () => {
     if (!snapshot) {
@@ -215,38 +163,6 @@ export function OverviewPage({ bridge }: OverviewPageProps) {
 
         {snapshot ? (
           <>
-            {/* KPI 锚点带：渠道账号健康居首，其后 Agent 接入 / 运行状态 / 待处理 */}
-            <div className="overview-kpi-band">
-              <KpiCard
-                value={onlineChannels}
-                suffix={`/ ${String(channels.length)}`}
-                label={
-                  invalidChannels > 0
-                    ? `渠道账号在线 · 失效 ${String(invalidChannels)}`
-                    : waitingChannels > 0
-                      ? `渠道账号在线 · 等待登录 ${String(waitingChannels)}`
-                      : "渠道账号在线"
-                }
-                tone={channelTone}
-              />
-              <KpiCard
-                value={agents.length}
-                suffix={
-                  unhealthyAgents > 0
-                    ? `· ${String(unhealthyAgents)} 异常`
-                    : undefined
-                }
-                label="Agent 接入"
-                tone={agentTone}
-              />
-              <KpiCard
-                value={RUNTIME_STATE_LABELS[snapshot.runtime.state]}
-                label="运行状态"
-                tone={runtimeTone}
-              />
-              <KpiCard value={items.length} label="待处理" tone={pendingTone} />
-            </div>
-
             <HealthSummary
               snapshot={snapshot}
               pausePending={pauseMutation.isPending}
