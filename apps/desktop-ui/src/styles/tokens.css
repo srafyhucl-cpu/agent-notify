@@ -27,6 +27,14 @@
   --font-size-3: 14px;
   --font-size-4: 16px;
   --font-size-5: 20px;
+
+  /* 语义字阶别名（五原则「字阶少而差大」= 28/18/14/12 四档）：
+     组件只消费别名；旧 --font-size-* 原样保留，向后兼容。 */
+  --font-display: 28px;
+  --font-heading: 18px;
+  --font-body: 14px;
+  --font-caption: 12px;
+
   --font-family-ui:
     "Segoe UI Variable",
     "Segoe UI",
