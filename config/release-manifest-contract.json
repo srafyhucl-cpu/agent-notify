@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "product": "AgentNotify",
+  "manifestFileName": "RELEASE-MANIFEST.json",
+  "signatureFileName": "RELEASE-MANIFEST.p7s",
+  "hashAlgorithm": "sha256",
+  "maxManifestBytes": 1048576,
+  "maxSignatureBytes": 65536,
+  "maxFileEntries": 256
+}

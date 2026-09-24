@@ -8,3 +8,4 @@
 *.md text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+*.p7s binary

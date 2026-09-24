@@ -1,0 +1,23 @@
+{
+    "schemaVersion":  1,
+    "product":  "AgentNotify",
+    "version":  "2.0.7",
+    "hashAlgorithm":  "sha256",
+    "files":  [
+                  {
+                      "path":  "VERSION",
+                      "size":  5,
+                      "sha256":  "59b3269556acbab956cf6753f01942bc6a698d717550f37ea87ff878c1627be4"
+                  },
+                  {
+                      "path":  "plugin/agent-notify.ts",
+                      "size":  29,
+                      "sha256":  "ddf066ee341c060cca67ed6faa462602690b490d98c6fecdf607c447754e14bb"
+                  },
+                  {
+                      "path":  "tools/hooks/install-opencode-v2.ps1",
+                      "size":  10,
+                      "sha256":  "faa5b4816800b8cbe1595e5533fe36c53f396c0c26a3a876dd3e4085232348a1"
+                  }
+              ]
+}

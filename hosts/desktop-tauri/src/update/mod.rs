@@ -1,6 +1,8 @@
 mod download;
 mod error;
 mod install;
+mod manifest;
+mod manifest_cms;
 mod release;
 mod service;
 mod verify;
@@ -18,6 +20,7 @@ pub use install::{
     installer_arguments, launch_installer, safe_entry_path, validate_staged_release,
     within_extraction_budget,
 };
+pub use manifest::{ManifestFile, VerifiedReleaseManifest, verify_release_manifest_at};
 pub use release::{
     API_BASE_ENV, ArtifactKind, CHECKSUM_ASSET_NAME, DEFAULT_API_BASE_URL, DEFAULT_REPOSITORY,
     DEFAULT_WEB_BASE_URL, REPOSITORY_ENV, ReleaseInfo, archive_asset_name, check_latest_release,
