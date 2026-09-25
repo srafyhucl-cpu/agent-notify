@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     fmt::Display,
     panic::AssertUnwindSafe,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use agentnotify_domain::SafeError;
@@ -108,16 +108,29 @@ impl Supervisor {
         self.runtime_state.send_replace(state);
     }
 
+    /// 取组件表写锁；中毒只说明曾有线程持锁时 panic，快照表本身仍可用。
+    /// 显式恢复而不是静默丢弃：丢弃会让界面显示成「没有任何后台组件」且不报错。
+    fn components_write(&self) -> RwLockWriteGuard<'_, BTreeMap<String, ComponentRecord>> {
+        self.inner
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 取组件表读锁；中毒处理同 [`Self::components_write`]。
+    fn components_read(&self) -> RwLockReadGuard<'_, BTreeMap<String, ComponentRecord>> {
+        self.inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn set_state(&self, name: &str, state: ComponentState) {
-        if let Ok(mut components) = self.inner.write() {
-            components
-                .entry(name.to_owned())
-                .and_modify(|record| record.state = state)
-                .or_insert(ComponentRecord {
-                    state,
-                    last_error: None,
-                });
-        }
+        self.components_write()
+            .entry(name.to_owned())
+            .and_modify(|record| record.state = state)
+            .or_insert(ComponentRecord {
+                state,
+                last_error: None,
+            });
     }
 
     pub fn mark_running(&self, name: &str) {
@@ -125,15 +138,13 @@ impl Supervisor {
     }
 
     pub fn report_failure(&self, name: &str, failure: &ComponentFailure) {
-        if let Ok(mut components) = self.inner.write() {
-            components.insert(
-                name.to_owned(),
-                ComponentRecord {
-                    state: ComponentState::Failed,
-                    last_error: Some(failure.error.clone()),
-                },
-            );
-        }
+        self.components_write().insert(
+            name.to_owned(),
+            ComponentRecord {
+                state: ComponentState::Failed,
+                last_error: Some(failure.error.clone()),
+            },
+        );
         if failure.fatal {
             self.fatal_error.send_replace(Some(failure.error.clone()));
             self.set_runtime_state(RuntimeState::Failed);
@@ -146,19 +157,14 @@ impl Supervisor {
     }
 
     pub fn components(&self) -> Vec<ComponentSnapshot> {
-        self.inner
-            .read()
-            .map(|components| {
-                components
-                    .iter()
-                    .map(|(name, record)| ComponentSnapshot {
-                        name: name.clone(),
-                        state: record.state,
-                        last_error: record.last_error.clone(),
-                    })
-                    .collect()
+        self.components_read()
+            .iter()
+            .map(|(name, record)| ComponentSnapshot {
+                name: name.clone(),
+                state: record.state,
+                last_error: record.last_error.clone(),
             })
-            .unwrap_or_default()
+            .collect()
     }
 
     pub fn spawn_component<F>(&self, name: impl Into<String>, future: F) -> JoinHandle<()>
@@ -184,5 +190,33 @@ impl Supervisor {
                 ),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{ComponentState, Supervisor};
+
+    #[test]
+    fn poisoned_lock_still_reports_and_updates_components() {
+        let supervisor = Supervisor::new();
+        supervisor.set_state("outbox", ComponentState::Running);
+
+        let inner = Arc::clone(&supervisor.inner);
+        let poisoned = std::thread::spawn(move || {
+            let _guard = inner.write().expect("首次加锁必须成功");
+            panic!("测试故意持锁 panic，制造锁中毒");
+        })
+        .join();
+        assert!(poisoned.is_err(), "测试线程必须 panic 才能制造中毒");
+
+        // 中毒后组件表不能被静默清空，且必须仍可写入新状态。
+        assert_eq!(supervisor.components().len(), 1);
+        supervisor.set_state("outbox", ComponentState::Stopped);
+        let snapshot = supervisor.components();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].state, ComponentState::Stopped);
     }
 }
