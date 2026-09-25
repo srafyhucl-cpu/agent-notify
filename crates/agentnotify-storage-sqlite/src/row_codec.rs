@@ -10,7 +10,8 @@ use rusqlite::Row;
 use time::format_description::{FormatItem, well_known::Rfc3339};
 
 static DATABASE_TIMESTAMP_FORMAT: LazyLock<Vec<FormatItem<'static>>> = LazyLock::new(|| {
-    time::format_description::parse(
+    // 用 parse_borrowed：time 0.3.55 起废弃了 format_description::parse。
+    time::format_description::parse_borrowed::<2>(
         "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z",
     )
     .expect("数据库时间格式必须有效")
