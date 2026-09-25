@@ -8,7 +8,8 @@ use agentnotify_desktop::update::{
     SignatureRequirement, VerifiedReleaseManifest, verify_release_manifest_at,
 };
 
-const THUMBPRINT: &str = "6F6A079FF598F7C671A3F4E85461B708A8416824";
+// 夹具证书由临时自签证书生成（仅用于测试，私钥不入库），换签名时必须同步此指纹。
+const THUMBPRINT: &str = "50343302D62028C5315FCFEE67C063CD759C2009";
 const VERSION: &[u8] = include_bytes!("fixtures/release-manifest/VERSION");
 const PLUGIN: &[u8] = include_bytes!("fixtures/release-manifest/plugin/agent-notify.ts");
 const HOOK: &[u8] = include_bytes!("fixtures/release-manifest/tools/hooks/install-opencode-v2.ps1");
