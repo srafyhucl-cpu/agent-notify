@@ -43,17 +43,22 @@
 
 ## 更新与安装包
 
-- 应用内升级只接受带 Authenticode 签名、且签名指纹命中内置信任列表的安装包；`AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 会**覆盖**内置列表而不是追加，未签名或指纹不符一律拒绝。
-- 下载产物先校验 SHA256、签名与 PE 版本再替换文件；校验失败不触碰已安装文件，当前版本继续可用。
-- 当前 ZIP 回退会清洗条目路径、拒绝符号链接与越界路径，并验签主程序；ZIP 内其它可执行文件、插件和脚本尚未由独立签名清单认证，因此该回退链路正在加固，不能把“ZIP 外层 SHA256 一致”理解为全部内容已由签名者认证。
+- 应用内安装器路径只接受带 Authenticode 签名、且签名指纹命中内置信任列表的安装包；`AGENT_NOTIFY_SIGNATURE_THUMBPRINT` 会**覆盖**内置列表而不是追加，未签名或指纹不符一律拒绝。
+- 下载产物先校验 SHA256、签名与 PE 版本再替换文件；ZIP 回退还要通过下述签名清单；校验失败不触碰已安装文件，当前版本继续可用。
+- ZIP 回退会清洗重复/越界条目、拒绝符号链接与特殊文件，并先验证 `RELEASE-MANIFEST.json` 与
+  `RELEASE-MANIFEST.p7s` 的 CMS 签名、证书有效期、信任指纹、完整文件集合和逐文件 SHA-256；随后只复制
+  清单声明的安装文件。`SHA256SUMS.txt` 只验证外层下载完整性，不能替代 ZIP 内清单。Stable 缺少任一控制
+  文件或清单内容不一致都会在替换前拒绝；Beta 仅在两个控制文件同时缺失时兼容旧开发 ZIP。
 - `AGENT_NOTIFY_REQUIRE_SIGNATURE` 只被 Go 1.x 更新器读取；2.0 更新器固定要求签名。
 
 ## 依赖与构建
 
 - Rust 依赖由 `Cargo.lock` 固定；Go 模块依赖由 `go.mod` 与 `go.sum` 固定（Go 侧只保留回滚窗口）。
 - 桌面 UI 的 npm 依赖会构建进正式安装包；插件与扩展的 npm 依赖只用于类型检查与测试，不进入发布运行时。
-- GitHub Actions 使用官方 actions，在 Windows 上运行测试与冒烟；CI 静态检查包含 `govulncheck`。
-- Release 由 workflow 签名后发布，附 `SHA256SUMS.txt` 供校验。
+- GitHub Actions 固定到完整 commit SHA，checkout 不持久化凭据；CI 静态检查包含 `govulncheck` 与 CodeQL。
+- Release workflow 分为无 Secret 的 validate、带 PFX 的 build 和受保护 `main` 上的 publish；源码与客户端
+  更新仓均先创建 Draft、上传后复核名称/摘要/签名，镜像先发布为 Latest。已发布 Release 不会被 workflow
+  自动覆盖，补发必须显式审计。
 
 ## 范围之外
 

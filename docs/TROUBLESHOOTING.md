@@ -82,10 +82,13 @@ $report.spool.quarantined # 隔离事件数（附 .error 原因）
 
 1. 把 `SHA256SUMS.txt` 和 `Agent-notify-Setup-vX.Y.Z.exe`（Release 没有安装器时退回
    `Agent-notify-vX.Y.Z.zip`）下载到 `%LOCALAPPDATA%\AgentNotify\temp\updates\<版本>`；
-2. 依次校验 SHA256、PE 文件与文件版本号、Authenticode 签名者指纹；正式通道必须命中内置指纹
+2. 校验外层 SHA256；ZIP 回退还会解包并校验 `RELEASE-MANIFEST.json` / `RELEASE-MANIFEST.p7s`
+   的 CMS 签名、证书有效期和信任指纹，再逐文件核对大小、SHA-256 与完整文件集合；
+3. 清单通过后校验主程序 PE、文件版本和 Authenticode 签名者指纹；正式通道必须命中内置指纹
    `EDF9E283DF2407B318E65D59BB430FD546509ACD`；
-3. 校验通过才以 `/SILENT /NORESTART /LOG=<应用临时目录>\updates\last-update.log /DIR=<安装目录>`
-   拉起安装器；安装器启动成功后应用自动退出，安装结束由安装器自动重新启动。
+4. 全部校验通过才以 `/SILENT /NORESTART /LOG=<应用临时目录>\updates\last-update.log /DIR=<安装目录>`
+   拉起安装器；安装器启动成功后应用自动退出，安装结束由安装器自动重新启动。ZIP 回退只复制清单声明的文件，
+   不会复制清单控制文件，替换失败会回滚。
 
 排查顺序：
 
@@ -110,12 +113,21 @@ $report.spool.quarantined # 隔离事件数（附 .error 原因）
   这些都说明下载到的不是官方发布包（或发布流程异常）。**不要手动运行这个安装包**：删除
   `%LOCALAPPDATA%\AgentNotify\temp\updates` 后重试；仍失败就从发布仓库手动下载，用 Release 附件的
   `SHA256SUMS.txt` 核对后再安装。
+- **ZIP 清单被拒**：Stable 看到 `update_manifest_missing` / `update_manifest_signature_missing` 时，说明
+  Release ZIP 不完整；`update_manifest_signature_invalid`、`update_manifest_signature_untrusted` 或
+  `update_manifest_expired` 表示签名、信任指纹或证书有效期异常；`update_manifest_file_extra`、
+  `update_manifest_file_missing`、`update_manifest_hash_mismatch` 表示文件集合或内容不一致。
+  这些错误都发生在替换安装目录前，不要手工把控制文件删掉或修改 ZIP；删除
+  `%LOCALAPPDATA%\AgentNotify\temp\updates` 后从官方 Release 重新下载。
+- **Beta 兼容边界**：Beta 只有 `RELEASE-MANIFEST.json` 和 `RELEASE-MANIFEST.p7s` 两个控制文件同时缺失时
+  才接受旧开发 ZIP；只缺一个、清单损坏或签名无效仍会拒绝。正式 Stable 永远要求完整清单。
 - **安装没有继续**：查看 `%LOCALAPPDATA%\AgentNotify\temp\updates\last-update.log`。常见原因有
   WebView2 缺失（静默安装中止）、安装目录不可写、安装器在 2 秒观察窗口内非零退出（界面会给出退出码和
   日志路径）。先完全退出 AgentNotify 再重试。
-- **安装器启动失败的回退**：更新器会改下载 ZIP，校验后原地替换安装目录文件（旧文件备份到
-  `updates\backup\<版本>-<随机>`），提示「更新文件已就绪，重启 AgentNotify 后生效」；替换过程任何一步
-  失败都会回滚到替换前状态。
+- **安装器启动失败的回退**：更新器会改下载 ZIP，先通过签名清单和主程序校验，再只复制清单声明的文件
+  原地替换安装目录（旧文件备份到
+  `updates\backup\<版本>-<随机>`），提示「更新文件已就绪，重启 AgentNotify 后生效」；
+  清单或替换任一步失败都会回滚到替换前状态。
 - **回滚**：手动安装上一稳定版安装器（例如 `Agent-notify-Setup-v1.17.0.exe`）即可回到旧版；安装器
   AppId 不变，会覆盖回原安装目录，SQLite 状态库、凭据与旧配置都不会被删除。
 - **数据安全**：下载或校验失败不会触碰已安装文件；升级也不会改动账号、设置、历史或引用路由，

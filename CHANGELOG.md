@@ -6,9 +6,15 @@
 
 ## [2.0.7] - 2026-09-24
 
+### Added
+
+- 正式 ZIP 更新包新增 `RELEASE-MANIFEST.json` 与 detached CMS 签名 `RELEASE-MANIFEST.p7s`；清单覆盖 ZIP 内全部普通文件，Stable 会在替换安装目录前拒绝缺清单、签名无效、文件集合不一致或哈希不符的包，Beta 保留两个控制文件同时缺失时的旧开发包兼容边界。
+- Release 构建与补发门禁现在使用 Rust `DEFAULT_SIGNATURE_THUMBPRINT` 作为 2.0 唯一信任锚，并校验安装器、五个 ZIP 内程序、清单和资产摘要；发布流程拆为 validate、build、受保护 `main` 上的 publish，源码与客户端更新仓均先 Draft 后复核发布。
+
 ### Changed
 
 - 内部重构，行为不变：命令服务 `service.rs`（1254 行）拆出 `mapping.rs`（7 个纯映射与脱敏函数）和 `app_exit.rs`（更新器与退出命令共用的退出端口）；运行时 `runtime.rs`（966 行）拆出 `error.rs`（错误归一化）和 `workers.rs`（入站消费、投递、状态刷新与监督 worker）。全量测试验证零行为变化，方便后续 UI 迭代在清晰的模块边界上进行。
+- 更新器 ZIP 回退只复制已验证清单声明的文件；安装器启动失败时复用同一清单、PE、版本和 Authenticode 校验链，失败会回滚，不触碰已安装文件。
 
 ## [2.0.6] - 2026-09-23
 

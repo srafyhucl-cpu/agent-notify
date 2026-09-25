@@ -92,13 +92,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\lint.ps1
 - [ ] `tools\test.ps1` 全绿
 - [ ] 新增或修改 `.ps1` / `.psm1` / `.psd1` 时保留 UTF-8 BOM + CRLF
 - [ ] `.github/workflows/*.yml` 保持纯 ASCII，第三方 Actions 固定到完整 commit SHA
+- [ ] 正式 ZIP 含 `RELEASE-MANIFEST.json` / `.p7s`，清单文件集合与哈希通过发布门禁
 - [ ] 没有提交 token、证书私钥、真实账号标识、平台消息 ID 或未经脱敏的个人日志
 - [ ] 行为变化已写入 `CHANGELOG.md`
 - [ ] 没有重新引入旧品牌、旧模块或旧路径兼容层
 
 ## 架构约束
 
-1. 2.0 发布物是 5 个二进制：`agentnotify-desktop.exe`（Tauri 桌面端）、`agentnotify-ingress.exe`（事件入口）与三个 Hook exe（`agentnotify-codex-hook` / `-antigravity-hook` / `-devin-hook`）。
+1. 2.0 发布物是 5 个二进制：`agentnotify-desktop.exe`（Tauri 桌面端）、`agentnotify-ingress.exe`（事件入口）与三个 Hook exe（`agentnotify-codex-hook` / `-antigravity-hook` / `-devin-hook`）；正式 ZIP 还必须带签名发布清单，清单覆盖全部普通文件。
 2. OpenCode 插件、Command Code mod 与三个 Hook 只通过 `agentnotify-ingress.exe` 提交版本化事件（当前用户命名管道，离线落 spool）；Hook 用 `AGENT_NOTIFY_INGRESS`、插件与 mod 用 `AGENT_NOTIFY_INGRESS_BIN` 定位入口。
 3. Codex 接入必须保留 `codex-computer-use.exe` 的原始透传。
 4. 所有用户可配置项统一使用 `AGENT_NOTIFY_*`。
@@ -156,8 +157,15 @@ docs/                 架构与排障
 1. 递增仓库根 `VERSION`（唯一版本来源，SemVer）。
 2. 运行 `powershell -File tools\sync-version.ps1` 把版本同步到各发布位置并提交（`tauri.conf.json`、`Cargo.toml` 的 workspace 版本、Devin 扩展、桌面 UI 包）。
 3. 在 `CHANGELOG.md` 顶部增加对应版本段落。
-4. 提交并推送 `main`，确认 CI 全绿。
-5. 打 tag：`git tag vX.Y.Z`。
-6. 推送 tag：`git push origin vX.Y.Z`。Release workflow 校验 tag 与 `VERSION` 一致并强制签名，构建安装器与 ZIP 后发布到源码仓库，再镜像到 `srafyhucl-cpu/agent-notify-releases`（客户端更新源）。
+4. 提交并推送 `main`，确认 CI、CodeQL、`tools\lint.ps1`、`tools\test.ps1`、`tools\rust\gate.ps1` 与
+   `tools\ui\gate.ps1` 全绿；`main` 与 `v*` tag 必须已启用保护规则。
+5. 配置 `release` Environment 的签名 Secret（`AGENT_NOTIFY_SIGN_PFX_BASE64` /
+   `AGENT_NOTIFY_SIGN_PFX_PASSWORD`），并确认仓库 Secret `RELEASE_REPO_TOKEN` 只进入发布阶段的权限边界；
+   不要把 PFX 写入仓库或 artifact。
+6. 打 tag：`git tag vX.Y.Z`，推送 tag：`git push origin vX.Y.Z`。Release workflow 先在精确 tag 上
+   validate，再在带 PFX 的 build job 生成安装器、ZIP 清单和外层摘要；源码与客户端更新仓的 Draft 发布
+   由受保护 `main` 上的 `.github/workflows/publish-release.yml@main` 接收 artifact 完成。
+7. 发布后核对两个仓库的资产名称、SHA256、清单和签名；已发布 Release 不得用 workflow `--clobber` 覆盖，
+   失败时保留 Draft 并按 `tools\publish-release.ps1` 的显式补发流程处理。
 
 版本一致性由 `tools\check-version.ps1` 校验，`tools\lint.ps1` 与 Release workflow 都会调用它。

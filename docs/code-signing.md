@@ -1,13 +1,14 @@
 # 代码签名接入清单
 
-安装器与桌面主程序的 Authenticode 签名是自动更新链路的“防篡改 + 防冒充”锚点：
-`SHA256SUMS.txt` 与安装包同源下载，能同时被篡改；只有签名能把伪造者挡在外面。ZIP 内的插件、Hook 和
-脚本还需要独立的签名文件清单，清单实现前不能把外层 ZIP 哈希当作全部内容的签名证明。
-本仓库**已启用**代码签名（自签名证书 + 指纹锁定）：`gh secret list` 包含
-`AGENT_NOTIFY_SIGN_PFX_BASE64` / `AGENT_NOTIFY_SIGN_PFX_PASSWORD`，产物以 `UnknownError`
-状态签名，指纹为 `EDF9E283DF2407B318E65D59BB430FD546509ACD`。构建脚本与发布门禁会在发布前强制校验
-"五个可执行文件与安装器都已签名且指纹等于内置常量"（见 `tools/signature-common.ps1` 与
-`tools/release-gate.ps1`），未签名或指纹不符直接失败。
+安装器与五个 Rust 可执行文件的 Authenticode 签名是第一层信任锚；正式 ZIP 还必须携带
+`RELEASE-MANIFEST.json` 与 detached CMS 签名 `RELEASE-MANIFEST.p7s`，清单覆盖 ZIP 根目录下的
+全部普通文件。`SHA256SUMS.txt` 只检查外层下载是否与 Release 同源，不能单独证明 ZIP 内部内容；
+清单验签失败、文件集合不一致或任一文件哈希不符时，Stable 更新器会在替换安装目录前拒绝。
+本仓库使用代码签名（自签名证书 + 指纹锁定）：CI Secret 名称为
+`AGENT_NOTIFY_SIGN_PFX_BASE64` / `AGENT_NOTIFY_SIGN_PFX_PASSWORD`，产物可以显示
+`UnknownError` 状态，但签名者指纹必须为 `EDF9E283DF2407B318E65D59BB430FD546509ACD`。
+构建脚本与发布门禁会在发布前强制校验安装器、五个程序、清单签名和 ZIP 文件集合（见
+`tools/signature-common.ps1`、`tools/release-manifest.ps1` 与 `tools/release-gate.ps1`）。
 
 ## 1. 准备证书
 
@@ -32,13 +33,13 @@
 
 配置后构建会强制校验签名：五个可执行文件（`agentnotify-desktop.exe`、`agentnotify-ingress.exe`、
 `agentnotify-codex-hook.exe`、`agentnotify-antigravity-hook.exe`、`agentnotify-devin-hook.exe`）
-与安装器必须已签名，且签名者指纹必须等于客户端内置的 `defaultSignatureThumbprint`，否则直接失败。
+与安装器必须已签名，且签名者指纹必须等于 Rust 客户端内置的 `DEFAULT_SIGNATURE_THUMBPRINT`，否则直接失败。
 补发路径 `tools\publish-release.ps1`（编排在 `tools\release-gate.ps1`）会在上传前再校验一次：
-安装器签名、`SHA256SUMS.txt` 覆盖安装器与 ZIP 且哈希一致，以及 ZIP 内这五个程序的签名指纹；
-任一项不符都拒绝补发。这样既能挡住"secret 丢失导致静默发出未签名包"，
-也能挡住"换证书只改了 secret、忘了同步内置指纹"（后者会让客户端报"签名者不匹配"而无法
-自动更新自救）。Release workflow 另有一道前置步骤强制要求 `AGENT_NOTIFY_SIGN_PFX_BASE64` 存在，
-secret 被删除或改名时会在构建前直接失败，而不是发出未签名包。
+安装器签名、`SHA256SUMS.txt` 覆盖安装器与 ZIP 且哈希一致、ZIP 内五个程序的签名指纹，以及
+`RELEASE-MANIFEST.json`/`.p7s` 的 CMS 验签、完整文件集合和逐文件哈希；任一项不符都拒绝补发。
+Release workflow 的 build job 只接收 PFX，validate job 不读取 Secret；发布 job 从受保护 `main`
+调用可复用 workflow，不再执行 tag 中的脚本。这样既能挡住 secret 丢失或换证书未同步指纹，
+也能挡住 ZIP 内部插件、Hook 或脚本被替换。
 
 ## 2.5 零成本方案：自签名证书 + 指纹锁定
 
@@ -60,17 +61,16 @@ secret 被删除或改名时会在构建前直接失败，而不是发出未签�
 3. `AGENT_NOTIFY_SIGNTOOL` 指向仓库自带的垫片脚本 `tools\sign-selfsigned.cmd`
    （它转发到 `sign-selfsigned.ps1`，按 `<tool> sign <file>` 约定签名，并在签名后立刻从证书存储清理；
    Inno Setup 无法直接执行 .ps1，所以必须用 .cmd）；
-4. 把指纹（去掉空格）同时填进两处常量，保证发布门禁与客户端同一信任锚：
-   - Rust 客户端：`hosts/desktop-tauri/src/update/verify.rs` 的 `DEFAULT_SIGNATURE_THUMBPRINT`；
-   - 发布门禁来源：`internal/update/signature.go` 的 `defaultSignatureThumbprint`
-     （`tools\signature-common.ps1` 固定从这个文件读取期望指纹）。
-   两处一致后发一版，之后所有客户端都会只信任这张证书；
+4. 把指纹（去掉空格）填入 2.0 唯一信任锚：
+   `hosts/desktop-tauri/src/update/verify.rs` 的 `DEFAULT_SIGNATURE_THUMBPRINT`。
+   `tools\signature-common.ps1` 优先读取这份 Rust 常量；旧 `internal/update/signature.go`
+   只为没有 Rust 源文件的旧工具链保留兼容读取路径，不是新的发布信任源。
    - 本仓库当前已内置指纹：`EDF9E283DF2407B318E65D59BB430FD546509ACD`（2026-09-16 启用，2031-09-16 到期）；
    - CI 侧凭据在 GitHub secrets（`AGENT_NOTIFY_SIGN_PFX_BASE64` / `AGENT_NOTIFY_SIGN_PFX_PASSWORD`），
-     Release workflow 检测到 PFX secret 后会自动把 `AGENT_NOTIFY_SIGNTOOL` 指向垫片脚本；
+     Release 的 build job 固定使用仓库内 `tools\sign-selfsigned.cmd`，PFX 不进入 validate 或 publish job；
 5. 局限与注意：
    - 手动运行安装器时仍会提示"未知发布者"（要消除该提示必须用 CA 签发的证书）；
-   - 证书轮换/过期前，**先**更新 `defaultSignatureThumbprint` 并发版，否则老客户端会拒绝新版本；
+   - 证书轮换/过期前，**先**更新 Rust 的 `DEFAULT_SIGNATURE_THUMBPRINT` 并发版，否则老客户端会拒绝新版本；
    - 私钥泄露时立即停止信任旧指纹并轮换证书；自签名证书无法依赖公共 CRL，客户端安全边界是内置指纹而不是系统信任链。
 
 本地联调：
@@ -90,14 +90,15 @@ $env:AGENT_NOTIFY_SIGNATURE_THUMBPRINT = '<证书指纹>'
 ```powershell
 # 本地：对已下载的产物检查
 Get-AuthenticodeSignature -LiteralPath .\Agent-notify-Setup-vX.Y.Z.exe | Format-List Status, SignerCertificate
-Get-AuthenticodeSignature -LiteralPath .\Agent-notify-vX.Y.Z.zip  # ZIP 本身不签名，校验解压后的五个 exe
+Get-AuthenticodeSignature -LiteralPath .\Agent-notify-vX.Y.Z.zip  # ZIP 不做 Authenticode；改验 CMS 清单和解压后的五个 exe
 
-# 发布门禁：校验安装器 + ZIP 内五个程序 + SHA256SUMS.txt 覆盖与哈希（只读，不上传）
+# 发布门禁：校验安装器 + ZIP 签名清单/五个程序 + SHA256SUMS.txt（只读，不上传）
 . .\tools\signature-common.ps1
 . .\tools\release-gate.ps1
 $expected = Get-ExpectedSignatureThumbprint -RepoRoot .
+$version = 'X.Y.Z'
 Assert-SumsCoversArtifact -SumsPath .\dist\SHA256SUMS.txt -ArtifactPath .\dist\Agent-notify-Setup-vX.Y.Z.exe
-Assert-ArchiveExecutables -ZipPath .\dist\Agent-notify-vX.Y.Z.zip -ExpectedThumbprint $expected
+Assert-ArchiveExecutables -ZipPath .\dist\Agent-notify-vX.Y.Z.zip -ExpectedThumbprint $expected -ExpectedManifestThumbprint $expected -RepoRoot . -ExpectedVersion $version
 
 # 2.0 桌面端固定要求签名，没有关闭开关；
 # 如需在开发机临时限定另一张证书，使用 AGENT_NOTIFY_SIGNATURE_THUMBPRINT 覆盖内置信任列表。
@@ -106,9 +107,9 @@ Assert-ArchiveExecutables -ZipPath .\dist\Agent-notify-vX.Y.Z.zip -ExpectedThumb
 
 ## 4. 让所有客户端只信任你的证书（可选但推荐）
 
-配置签名后，攻击者若拿到**另一张**有效证书仍可署名。把签发证书的 SHA1 指纹写进两处常量
-（Rust 客户端的 `hosts/desktop-tauri/src/update/verify.rs` 与发布门禁读取的
-`internal/update/signature.go`，两处必须一致），所有客户端就只接受该签名者：
+配置签名后，攻击者若拿到**另一张**有效证书仍可署名。把签发证书的 SHA1 指纹写进 2.0 唯一信任锚
+`hosts/desktop-tauri/src/update/verify.rs` 的 `DEFAULT_SIGNATURE_THUMBPRINT`；发布门禁从同一份 Rust
+源码读取期望值，旧 Go 常量不再作为新发布的来源。
 
 ```powershell
 (Get-AuthenticodeSignature .\Agent-notify-Setup-vX.Y.Z.exe).SignerCertificate.Thumbprint
@@ -121,10 +122,11 @@ Assert-ArchiveExecutables -ZipPath .\dist\Agent-notify-vX.Y.Z.zip -ExpectedThumb
 
 ## 5. 轮换与过期
 
-- 证书换签后，务必先更新两处 `defaultSignatureThumbprint` / `DEFAULT_SIGNATURE_THUMBPRINT`（若已启用）
-  再发版，否则老客户端会拒绝新版本；构建脚本与补发门禁的指纹校验会在两者不一致时直接失败，
-  所以顺序必须是：**先改常量并与新版本一起发布，再轮换 secret 里的证书**；
-- 建议同时配置时间戳（`/tr`），证书过期后既有产物的签名仍然有效；
+- 证书换签后，务必先更新 Rust 的 `DEFAULT_SIGNATURE_THUMBPRINT` 再发版，否则老客户端会拒绝新版本；
+  同一版本中不要只轮换 Secret。构建脚本与补发门禁会从 Rust 信任锚校验安装器、五个程序和清单签名，
+  所以顺序必须是：**先改 Rust 常量并与新版本一起发布，再轮换 Secret 里的证书**；
+- 建议同时配置时间戳（`/tr`）；本轮清单没有引入可信时间戳，证书过期后新的清单验证会失败，
+  轮换计划必须留出客户端升级窗口；
 - 证书私钥泄露时立即从发布流程移除旧证书，并在下一版停止信任旧指纹；自签名证书本身不依赖公共吊销服务。
 
 ## 6. 公开发布后的 Secret 信任边界

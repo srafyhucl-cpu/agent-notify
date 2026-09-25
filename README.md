@@ -17,7 +17,7 @@ AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把�
 - 凭据由 Windows 凭据管理器保存；运行日志和界面不显示 token 等敏感字段。
 - OpenCode 使用 V2 插件监听会话完成/失败事件，经 `agentnotify-ingress.exe` 提交；插件出错不会阻塞 OpenCode。
 - Codex、Antigravity、Devin、Command Code 四个 Agent 各自通过独立接入上报完成事件：Codex 走 notify Hook、Antigravity 走 Stop Hook、Devin 走 Stop Hook 与桌面扩展、Command Code 走 V2 mod；接入失败不会阻塞各自客户端，失败原因写入各自的调试日志。
-- 应用内一键升级：Settings → 更新 里检查最新版本，点「下载并安装」后优先静默安装并自动重启；安装器不可用时回退到 ZIP，文件就绪后需手动重启。正式渠道只接受通过内置指纹校验的签名安装包。
+- 应用内一键升级：Settings → 更新 里检查最新版本，点「下载并安装」后优先静默安装并自动重启；安装器不可用时回退到 ZIP，文件就绪后需手动重启。正式渠道要求安装器通过签名校验，ZIP 回退还要求签名清单通过内置指纹校验，清单覆盖全部普通文件。
 - 通知内容为会话标题加摘要正文，正文保留 Markdown；超过渠道长度上限时明确失败，不静默截断。
 - 推送历史存 SQLite：History 页可按 Agent、渠道、账号、状态和时间定位通知，查看投递详情；失败且标记为可重试的投递可以手动重试。
 - Diagnostics 页展示存储、后台组件与旧数据迁移诊断，失败都会给出可读原因。
@@ -61,7 +61,9 @@ Get-FileHash .\Agent-notify-Setup-vX.Y.Z.exe -Algorithm SHA256
 # 当前发布指纹：EDF9E283DF2407B318E65D59BB430FD546509ACD
 ```
 
-两项都一致后再双击安装。指纹轮换时，以仓库当前 `SECURITY.md` 和 `docs/code-signing.md` 公布的值为准。
+两项都一致后再双击安装。若使用 ZIP 备用包，还要确认包内存在 `RELEASE-MANIFEST.json` 与
+`RELEASE-MANIFEST.p7s`，并让 AgentNotify 的 Stable 更新器完成清单验签；不要把外层 ZIP SHA256
+一致误解为内部每个文件都已被认证。指纹轮换时，以仓库当前 `SECURITY.md` 和 `docs/code-signing.md` 公布的值为准。
 
 ### 安装向导
 
@@ -89,9 +91,10 @@ Get-FileHash .\Agent-notify-Setup-vX.Y.Z.exe -Algorithm SHA256
 
 ## 更新与回滚
 
-在 Settings → 更新 里点「检查更新」查询[发布仓库](https://github.com/srafyhucl-cpu/agent-notify-releases/releases)的最新版本。安装器通道会下载安装包，校验 SHA256、PE 版本与 Authenticode 签名者指纹，再静默安装并自动重启。安装器缺失或启动失败时才回退 ZIP；ZIP 文件替换成功后**不会自动重启 AgentNotify**，需手动完全退出并重新打开。
+在 Settings → 更新 里点「检查更新」查询[发布仓库](https://github.com/srafyhucl-cpu/agent-notify-releases/releases)的最新版本。安装器通道会下载安装包，校验 SHA256、PE 版本与 Authenticode 签名者指纹，再静默安装并自动重启。安装器缺失或启动失败时才回退 ZIP；ZIP 会先验证 `RELEASE-MANIFEST.json` / `.p7s`、完整文件集合和逐文件哈希，再执行替换。ZIP 文件替换成功后**不会自动重启 AgentNotify**，需手动完全退出并重新打开。
 
-- 正式渠道不接受未签名、指纹不符、版本不匹配或校验失败的包；失败不会触碰已安装文件。
+- Stable 正式渠道不接受缺清单、清单签名无效、指纹不符、版本不匹配、文件集合/哈希不一致或校验失败的包；失败不会触碰已安装文件。
+- Beta 仅在 ZIP 中两个清单控制文件同时缺失时兼容旧开发包；半缺失、清单损坏或签名无效仍会拒绝。
 - 2.0.0–2.0.4 的更新器会误拒 32 位 Inno Setup 安装器存根，无法直接升级到 2.0.5 及以后版本。请先手动下载并覆盖安装一次 `Agent-notify-Setup-v2.0.5.exe` 或更高版本。
 - 手动安装时，从发布仓库下载 `Agent-notify-Setup-vX.Y.Z.exe`，先按[安装校验](#安装)核对摘要和签名者，再覆盖安装。
 - 更新失败、ZIP 回退和回滚到 v1.17.0 的详细步骤见[故障排查](docs/TROUBLESHOOTING.md#升级失败与回滚)。
@@ -188,7 +191,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\rust\gate.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\ui\gate.ps1
 ```
 
-`tools\test.ps1` 覆盖 Go 遗留、根 TypeScript、脚本、签名门禁与隔离冒烟，**不是仓库全部测试**；Rust 与 UI 必须分别运行对应门禁。`tools\lint.ps1` 校验脚本语法、workflow 纯 ASCII 和版本一致性，版本唯一来源是仓库根 `VERSION`。正式发布还需要签名材料和 Inno Setup，Release 会同时发布到源码仓并镜像到客户端更新仓。详细流程见[贡献指南](CONTRIBUTING.md)。
+`tools\test.ps1` 覆盖 Go 遗留、根 TypeScript、脚本、签名门禁与隔离冒烟，**不是仓库全部测试**；Rust 与 UI 必须分别运行对应门禁。`tools\lint.ps1` 校验脚本语法、workflow 纯 ASCII、Actions SHA 固定和版本一致性，版本唯一来源是仓库根 `VERSION`。正式发布还需要签名材料和 Inno Setup；Release 先 validate/build，再由受保护 `main` 上的可复用 workflow 创建 Draft、复核并发布源码仓与客户端更新仓。详细流程见[贡献指南](CONTRIBUTING.md)。
 
 ## 文档
 

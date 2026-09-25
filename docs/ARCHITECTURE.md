@@ -66,6 +66,8 @@ Go 版源码的保留边界与删除条件见 [CONTRIBUTING](../CONTRIBUTING.md)
 | `apps/ingress` | 入口协议、命名管道客户端、spool 写入、只读自检 | 只接受 `protocolVersion=1` 的 `agent.event`；`--doctor` / `--ping` 只读不写 |
 | `apps/hooks/{codex,antigravity,devin}` | 三个 Stop/notify Hook 的可执行文件 | 只提交事件与写诊断，绝不改变上游退出语义 |
 | `hosts/desktop-tauri` | Tauri 宿主：bridge 命令、生命周期（托盘/单实例/自启动）、生产组合根、更新 | 命令只返回脱敏 DTO；宿主初始化前命令等待而不是立刻失败 |
+| `config/release-manifest-contract.json` / `hosts/desktop-tauri/src/update/manifest*.rs` | 发布清单格式、文件集合和 Windows CMS 验签合同 | Stable 必须有清单与签名；Beta 只有两个控制文件同时缺失才兼容旧 ZIP |
+| `tools/release-manifest.ps1` / `tools/release-gate.ps1` | 构建端生成清单、发布前复核清单和五个程序 | PFX 只从环境变量读入内存；清单控制文件不复制到安装目录 |
 | `apps/desktop-ui` | React 工作台（总览 / Agents / Channels / History / Diagnostics / Settings） | 页面由 descriptor 与 JSON Schema 驱动，不写死 Agent 分支 |
 | `plugin/rust/agent-notify.ts` | OpenCode V2 插件 | 安装器写入 `BAKED_INGRESS`；失败全部吞掉 |
 | `plugin/devin-extension-v2` | Devin 桌面端回复扩展 | 按显式 `targetID` 投递，ACP 优先、聊天面板回退 |
@@ -73,6 +75,25 @@ Go 版源码的保留边界与删除条件见 [CONTRIBUTING](../CONTRIBUTING.md)
 | `tools/hooks/install-*-v2.ps1` | 五个 Agent 的接入脚本 | 只改 AgentNotify 自己的配置项；冲突时明确报错，不猜路径 |
 | `installer/agent-notify.iss` | Inno Setup 当前用户安装器 | 复用固定 AppId 与安装目录；接入失败不阻断安装 |
 | `internal/`、`cmd/` | Go 版实现（仅回滚，不参与 2.0 发布） | 不再接收新功能 |
+
+## 更新与签名清单数据流
+
+ZIP 回退不是“外层 SHA256 相同就全部可信”。`SHA256SUMS.txt` 只负责确认下载的安装器或 ZIP 与
+Release 资产一致；ZIP 内部的信任根是发布证书签名的清单：
+
+1. `release` 查询到 `Agent-notify-Setup-vX.Y.Z.exe` 时，先校验外层 SHA256、PE/版本和 Authenticode，
+   再启动安装器。安装器路径不依赖 ZIP 清单。
+2. 安装器缺失或启动失败时才下载 ZIP。解包先拒绝重复条目、路径穿越、符号链接和超过 200 MiB 的内容，
+   再检查 `Agent-notify/` 根目录、主程序和 `VERSION`。
+3. `manifest.rs` 按 `config/release-manifest-contract.json` 读取清单：Stable 要求
+   `RELEASE-MANIFEST.json` 与 `.p7s` 都存在；Beta 只有两者同时缺失才进入旧开发包兼容路径，半缺失永远拒绝。
+4. Windows CMS 验签要求单一签名者、SHA-256 摘要、当前时间落在证书有效期内，且指纹命中
+   `DEFAULT_SIGNATURE_THUMBPRINT`（或显式覆盖的信任列表）。随后严格解析 JSON，拒绝未知字段、重复/大小写
+   冲突路径、额外文件、缺失文件和任一大小/SHA-256 不一致。
+5. 清单通过后，`StagedRelease.files` 只保存已验证的相对路径；复制阶段只遍历这份列表，清单与签名控制文件
+   不会进入安装目录，任何失败都发生在替换文件前。Beta 旧包没有清单时才使用旧的文件集合兼容逻辑。
+6. Stable/Beta 的清单错误分别使用 `update_manifest_*` 稳定错误码返回界面；客户端不会把清单失败降级成
+   “继续安装未验证 ZIP”。
 
 ## Agent 适配器
 
@@ -426,12 +447,15 @@ notify、Antigravity Hook 与启动器、Devin handler 与 V2 扩展、Command C
 - 应用版本唯一来源是仓库根 `VERSION`（2.0.0 起）；`tools/sync-version.ps1` 把它同步到 Tauri 配置、
   Cargo workspace 与 Devin 扩展，`tools/check-version.ps1` 校验一致性。
 - 本地或 CI 使用 `tools/build-release.ps1` 构建桌面端、ingress、三个 Hook，生成
-  `Agent-notify-Setup-vX.Y.Z.exe`、`Agent-notify-vX.Y.Z.zip` 和同时包含两者哈希的 `SHA256SUMS.txt`。
+  `Agent-notify-Setup-vX.Y.Z.exe`、`Agent-notify-vX.Y.Z.zip`、签名发布清单和同时包含外层资产哈希的
+  `SHA256SUMS.txt`。ZIP 清单由 `tools/release-manifest.ps1` 从 staging 的全部普通文件生成。
 - 设置 `AGENT_NOTIFY_SIGNTOOL` 后，五个可执行文件与安装器都会签名，并在构建期校验签名者指纹等于
-  客户端内置的信任指纹；Release workflow 强制要求签名 secret 存在。
-- 发布与补发使用 `tools/publish-release.ps1`（编排在 `tools/release-gate.ps1`）：上传前校验安装器签名、
-  `SHA256SUMS.txt` 覆盖安装器与 ZIP、以及 ZIP 内五个程序的签名指纹，任一项不符直接失败。
-- 最终用户不需要安装 Rust/Go；安装器直接复制已构建的程序。
+  Rust 客户端内置的 `DEFAULT_SIGNATURE_THUMBPRINT`；清单也必须由这张证书用 SHA-256 detached CMS 签名。
+- 发布与补发使用 `tools/publish-release.ps1`（编排在 `tools/release-gate.ps1`）：先创建 Draft，上传后
+  重新下载并校验安装器、清单、ZIP 内五个程序和 `SHA256SUMS.txt`，通过后才发布为 Latest；已发布 Release
+  不允许 workflow 自动覆盖。
+- Release workflow 分为 validate、带 PFX 的 build 和受保护 `main` 上的 publish；发布阶段不读取 PFX，
+  也不执行 tag 中的脚本。最终用户不需要安装 Rust/Go；安装器直接复制已构建的程序。
 
 ## 自动更新
 
@@ -442,13 +466,15 @@ Settings → 更新 的「检查更新 / 下载并安装」调用 `hosts/desktop
 | `release.rs` | 查询 `srafyhucl-cpu/agent-notify-releases` 的 `/releases/latest`，解析版本与产物 | 只接受严格更高的 SemVer；草稿/预发布视为不稳定；API 不可用时回退 HTML 重定向（只支持 ZIP） |
 | `download.rs` | 下载校验文件与产物，带重试与大小上限 | 只接受与版本同名的安装器或 ZIP；不跟随旁路下载地址 |
 | `verify.rs` | 依次校验 SHA256、PE 头/位数、文件版本、Authenticode 签名者指纹 | 正式通道必须命中内置 `DEFAULT_SIGNATURE_THUMBPRINT`；篡改类状态一律拒绝 |
-| `install.rs` | 拉起安装器（2 秒观察窗口）或解包 ZIP 并原地替换 | 安装器用 `/SILENT /NORESTART /LOG=<临时目录>\updates\last-update.log /DIR=<安装目录>`；ZIP 拒绝越界路径、符号链接与超限文件，替换失败回滚 |
+| `manifest.rs` / `manifest_cms.rs` | 验证 ZIP 发布清单、CMS detached 签名、证书有效期、文件集合与逐文件哈希 | Stable 必须有清单与签名；Beta 仅两个控制文件同时缺失时兼容旧 ZIP |
+| `install.rs` | 拉起安装器（2 秒观察窗口）或解包 ZIP 并原地替换 | 安装器用 `/SILENT /NORESTART /LOG=<临时目录>\updates\last-update.log /DIR=<安装目录>`；ZIP 拒绝重复/越界路径、符号链接与超限文件，只复制已验证文件，替换失败回滚 |
 | `service.rs` | 编排查询、下载、校验、安装；缓存最近一次检查结果 | 同一时间只允许一个安装任务；版本缓存安装前再比对一次 |
 
 1. 安装器路径：校验通过后启动安装器，随后请求应用优雅退出（先让响应回到界面），安装器完成替换并按
    `[Run]` 段自动重新启动。
-2. 安装器启动失败：回退下载 ZIP，校验 SHA256 与解包后的主程序签名，再原地替换安装目录文件
-   （旧文件备份到 `updates\backup\<版本>-<随机>`），提示重启后生效。
+2. 安装器启动失败：回退下载 ZIP，先校验外层 SHA256，再验证签名清单、完整文件集合和逐文件哈希，
+   随后校验主程序并只复制清单声明的文件（旧文件备份到 `updates\backup\<版本>-<随机>`），提示重启后生效；
+   清单、Beta/Stable 策略或替换任一步失败都不会触碰已安装文件。
 3. 下载或校验失败不会触碰已安装文件；两条路径都继承用户当前的安装目录与配置路径，保留账号、设置、
    历史和引用路由。
 4. 更新只重启 AgentNotify，不启动、关闭或重启任何 Agent。
