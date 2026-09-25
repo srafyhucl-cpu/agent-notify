@@ -9,6 +9,10 @@ import type {
   DiagnosticLevelDto,
 } from "../../bridge/types";
 import { InlineError } from "../../components/InlineError";
+import {
+  StatusBadge,
+  type StatusBadgeTone,
+} from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { useDiagnosticActionMutation } from "../../data/mutations";
 
@@ -19,12 +23,24 @@ const LEVEL_LABELS: Record<DiagnosticLevelDto, string> = {
   Paused: "暂停",
 };
 
-const LEVEL_TONES: Record<DiagnosticLevelDto, string> = {
-  Normal: "diagnostic-level--normal",
-  Waiting: "diagnostic-level--waiting",
-  Error: "diagnostic-level--error",
-  Paused: "diagnostic-level--paused",
+/** 严重度 → StatusBadge 语义色（颜色 + 文字双载，不靠颜色单载语义）。 */
+const LEVEL_TONES: Record<DiagnosticLevelDto, StatusBadgeTone> = {
+  Normal: "success",
+  Waiting: "warning",
+  Error: "danger",
+  Paused: "info",
 };
+
+/** 严重度分组：错误 > 等待（含暂停）> 正常；仅渲染非空分组，组间以 24px 间距区隔。 */
+const SEVERITY_GROUPS: ReadonlyArray<{
+  key: string;
+  title: string;
+  levels: ReadonlyArray<DiagnosticLevelDto>;
+}> = [
+  { key: "error", title: "错误", levels: ["Error"] },
+  { key: "waiting", title: "等待", levels: ["Waiting", "Paused"] },
+  { key: "normal", title: "正常", levels: ["Normal"] },
+];
 
 export const COMPONENT_STATE_LABELS: Record<ComponentStateDto, string> = {
   Starting: "启动中",
@@ -77,9 +93,9 @@ function DiagnosticItem({
     <article className="diagnostic-item">
       <div className="diagnostic-item-main">
         <div className="diagnostic-item-heading">
-          <span className={`diagnostic-level ${LEVEL_TONES[item.level]}`}>
+          <StatusBadge tone={LEVEL_TONES[item.level]}>
             {LEVEL_LABELS[item.level]}
-          </span>
+          </StatusBadge>
           <code>{item.code}</code>
         </div>
         <p className="diagnostic-message">{item.message}</p>
@@ -120,14 +136,27 @@ export interface DiagnosticListProps {
 export function DiagnosticList({ bridge, items }: DiagnosticListProps) {
   if (items.length === 0) {
     return (
-      <p className="section-empty">StatusService 当前没有返回诊断项。</p>
+      <p className="section-empty">StatusService 当前没有返回诊断项；运行与存储检查未发现问题，因此没有需要处理的项。</p>
     );
   }
 
+  const groups = SEVERITY_GROUPS.map((group) => ({
+    ...group,
+    items: items.filter((item) => group.levels.includes(item.level)),
+  })).filter((group) => group.items.length > 0);
+
   return (
     <div className="diagnostic-list" aria-label="StatusService 诊断项">
-      {items.map((item) => (
-        <DiagnosticItem bridge={bridge} item={item} key={item.code} />
+      {groups.map((group) => (
+        <div className="diagnostic-group" key={group.key}>
+          <h3 className="diagnostic-group-title">
+            {group.title} ·{" "}
+            <span className="diagnostic-group-count">{group.items.length}</span>
+          </h3>
+          {group.items.map((item) => (
+            <DiagnosticItem bridge={bridge} item={item} key={item.code} />
+          ))}
+        </div>
       ))}
     </div>
   );

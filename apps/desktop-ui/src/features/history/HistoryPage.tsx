@@ -1,12 +1,15 @@
 import { History as HistoryIcon, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import type { HostBridge } from "../../bridge";
 import type { DeliveryDto, DeliveryStateDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
+import { PageHeader } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
+import { useAccountNames } from "../../data/accountNames";
 import { useRetryDeliveryMutation } from "../../data/mutations";
 import { useAgents } from "../../data/useAgents";
 import { useChannels } from "../../data/useChannels";
@@ -92,16 +95,17 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
       ),
     [agentsQuery.data],
   );
+  const { getDisplayName } = useAccountNames();
   const accounts = useMemo(
     () =>
       (channelsQuery.data?.channels ?? []).flatMap((channel) =>
         channel.accounts.map((account) => ({
           id: account.id,
           channelId: channel.id,
-          label: `${channel.displayName} / ${account.displayName}`,
+          label: `${channel.displayName} · ${getDisplayName(account)}`,
         })),
       ),
-    [channelsQuery.data],
+    [channelsQuery.data, getDisplayName],
   );
   const details = useMemo(
     () =>
@@ -136,21 +140,17 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
   };
 
   return (
-    <section className="workbench-page" aria-labelledby="page-title-history">
-      <header className="workbench-page-header">
-        <div>
-          <h1 className="workbench-page-title" id="page-title-history">
-            历史
-          </h1>
-          <p className="page-summary">
-            按 Agent、渠道、账号、状态和时间定位历史通知，再检查投递与路由结果。
-          </p>
-        </div>
-        <span className="page-count" aria-label={`共 ${total} 条通知`}>
-          <HistoryIcon aria-hidden="true" size={16} />
-          {total} 条
-        </span>
-      </header>
+    <section className="workbench-page history-page" aria-label="历史">
+      <PageHeader
+        title="历史"
+        summary="按 Agent、渠道、账号、状态和时间定位历史通知，再检查投递与路由结果。"
+        actions={
+          <span className="page-count" aria-label={`共 ${total} 条通知`}>
+            <HistoryIcon aria-hidden="true" size={16} />
+            {total} 条
+          </span>
+        }
+      />
 
       <div className="workbench-page-content history-page-content">
         <form
@@ -158,118 +158,126 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
           aria-label="历史筛选"
           onSubmit={(event) => event.preventDefault()}
         >
-          <label>
-            <span>Agent</span>
-            <select
-              aria-label="Agent"
-              value={agentId}
-              onChange={(event) => setAgentId(event.currentTarget.value)}
-            >
-              <option value="">全部 Agent</option>
-              {(agentsQuery.data ?? []).map((agent) => (
-                <option value={agent.id} key={agent.id}>
-                  {agent.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>渠道</span>
-            <select
-              aria-label="渠道"
-              value={channelId}
-              onChange={(event) => {
-                setChannelId(event.currentTarget.value);
-                setAccountId("");
-              }}
-            >
-              <option value="">全部渠道</option>
-              {(channelsQuery.data?.channels ?? []).map((channel) => (
-                <option value={channel.id} key={channel.id}>
-                  {channel.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>账号</span>
-            <select
-              aria-label="账号"
-              value={accountId}
-              onChange={(event) => setAccountId(event.currentTarget.value)}
-            >
-              <option value="">全部账号</option>
-              {accounts
-                .filter((account) => !channelId || account.channelId === channelId)
-                .map((account) => (
-                  <option value={account.id} key={account.id}>
-                    {account.label}（{account.id}）
+          {/* 主筛选：一行四列，跨 Agent / 渠道 / 账号 / 状态 */}
+          <div className="history-filter-primary">
+            <label>
+              <span>Agent</span>
+              <select
+                aria-label="Agent"
+                value={agentId}
+                onChange={(event) => setAgentId(event.currentTarget.value)}
+              >
+                <option value="">全部 Agent</option>
+                {(agentsQuery.data ?? []).map((agent) => (
+                  <option value={agent.id} key={agent.id}>
+                    {agent.displayName}
                   </option>
                 ))}
-            </select>
-          </label>
+              </select>
+            </label>
 
-          <label>
-            <span>状态</span>
-            <select
-              aria-label="状态"
-              value={deliveryState}
-              onChange={(event) => setDeliveryState(event.currentTarget.value)}
-            >
-              <option value="">全部状态</option>
-              {STATUS_OPTIONS.map((option) => (
-                <option value={option.value} key={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label>
+              <span>渠道</span>
+              <select
+                aria-label="渠道"
+                value={channelId}
+                onChange={(event) => {
+                  setChannelId(event.currentTarget.value);
+                  setAccountId("");
+                }}
+              >
+                <option value="">全部渠道</option>
+                {(channelsQuery.data?.channels ?? []).map((channel) => (
+                  <option value={channel.id} key={channel.id}>
+                    {channel.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label>
-            <span>开始时间</span>
-            <input
-              aria-label="开始时间"
-              type="datetime-local"
-              value={from}
-              onChange={(event) => setFrom(event.currentTarget.value)}
-            />
-          </label>
+            <label>
+              <span>账号</span>
+              <select
+                aria-label="账号"
+                value={accountId}
+                onChange={(event) => setAccountId(event.currentTarget.value)}
+              >
+                <option value="">全部账号</option>
+                {accounts
+                  .filter(
+                    (account) => !channelId || account.channelId === channelId,
+                  )
+                  .map((account) => (
+                    <option value={account.id} key={account.id}>
+                      {account.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
 
-          <label>
-            <span>结束时间</span>
-            <input
-              aria-label="结束时间"
-              type="datetime-local"
-              value={to}
-              onChange={(event) => setTo(event.currentTarget.value)}
-            />
-          </label>
+            <label>
+              <span>状态</span>
+              <select
+                aria-label="状态"
+                value={deliveryState}
+                onChange={(event) => setDeliveryState(event.currentTarget.value)}
+              >
+                <option value="">全部状态</option>
+                {STATUS_OPTIONS.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-          <label className="history-keyword-filter">
-            <span>关键词</span>
-            <span className="history-search-control">
-              <Search aria-hidden="true" size={15} />
+          {/* 次筛选：折到第二行，重置并入行尾 */}
+          <div className="history-filter-secondary">
+            <label>
+              <span>开始时间</span>
               <input
-                aria-label="关键词"
-                type="search"
-                placeholder="正文或标题"
-                value={query}
-                onChange={(event) => setQuery(event.currentTarget.value)}
+                aria-label="开始时间"
+                type="datetime-local"
+                value={from}
+                onChange={(event) => setFrom(event.currentTarget.value)}
               />
-            </span>
-          </label>
+            </label>
 
-          <button
-            className="button button-secondary history-reset-button"
-            type="button"
-            disabled={!hasActiveFilters(filters)}
-            onClick={resetFilters}
-          >
-            <X aria-hidden="true" size={15} />
-            重置
-          </button>
+            <label>
+              <span>结束时间</span>
+              <input
+                aria-label="结束时间"
+                type="datetime-local"
+                value={to}
+                onChange={(event) => setTo(event.currentTarget.value)}
+              />
+            </label>
+
+            <label className="history-keyword-filter">
+              <span>关键词</span>
+              <span className="history-search-control">
+                <Search aria-hidden="true" size={15} />
+                <input
+                  aria-label="关键词"
+                  type="search"
+                  placeholder="正文或标题"
+                  value={query}
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                />
+              </span>
+            </label>
+
+            <button
+              className="button button-secondary history-reset-button"
+              type="button"
+              disabled={!hasActiveFilters(filters)}
+              onClick={resetFilters}
+            >
+              <X aria-hidden="true" size={15} />
+              重置
+            </button>
+          </div>
         </form>
 
         {loadError ? (
@@ -295,7 +303,12 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
         {!historyQuery.isPending && notifications.length === 0 && !loadError ? (
           <EmptyState
             title="暂无历史通知"
-            description="当前筛选条件下没有通知记录。可以调整筛选条件后重新查看。"
+            description="当前筛选条件下没有通知记录。连接渠道并触发通知后，这里才会出现投递记录。"
+            action={
+              <Link className="button" to="/channels">
+                去连接渠道
+              </Link>
+            }
           />
         ) : null}
 

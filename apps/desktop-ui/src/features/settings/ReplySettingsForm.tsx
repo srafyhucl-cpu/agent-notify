@@ -1,4 +1,5 @@
 import type { SettingsDto } from "../../bridge/types";
+import { FieldRow } from "../../components/patterns";
 
 export interface ReplySettingsFormProps {
   value: Pick<
@@ -23,58 +24,61 @@ export function ReplySettingsForm({
 }: ReplySettingsFormProps) {
   return (
     <div className="settings-fields">
-      <label className="settings-switch-row">
-        <span>
-          <strong>引用回复</strong>
-          <small>允许通过通知回复 Agent 会话</small>
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          aria-label="引用回复"
-          checked={value.replyEnabled}
-          disabled={disabled}
-          onChange={(event) =>
-            onChange({ replyEnabled: event.currentTarget.checked })
-          }
-        />
-      </label>
+      <FieldRow
+        label="引用回复"
+        description="允许通过通知回复 Agent 会话"
+        control={
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="引用回复"
+            checked={value.replyEnabled}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({ replyEnabled: event.currentTarget.checked })
+            }
+          />
+        }
+      />
 
-      <label className="settings-switch-row">
-        <span>
-          <strong>送达确认</strong>
-          <small>回复处理完成后尝试更新送达状态</small>
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          aria-label="送达确认"
-          checked={value.deliveryReceiptEnabled}
-          disabled={disabled || !value.replyEnabled}
-          onChange={(event) =>
-            onChange({ deliveryReceiptEnabled: event.currentTarget.checked })
-          }
-        />
-      </label>
+      <FieldRow
+        label="送达确认"
+        description="回复处理完成后尝试更新送达状态"
+        control={
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="送达确认"
+            checked={value.deliveryReceiptEnabled}
+            disabled={disabled || !value.replyEnabled}
+            onChange={(event) =>
+              onChange({ deliveryReceiptEnabled: event.currentTarget.checked })
+            }
+          />
+        }
+      />
 
-      <label className="settings-field">
-        <span>路由有效期（秒）</span>
-        <input
-          aria-label="路由有效期（秒）"
-          type="number"
-          min={60}
-          max={604800}
-          step={1}
-          value={value.routeTtlSeconds}
-          disabled={disabled || !value.replyEnabled}
-          onChange={(event) =>
-            onChange({
-              routeTtlSeconds: Number.parseInt(event.currentTarget.value, 10),
-            })
-          }
-        />
-        <small>允许 60 到 604800 秒。</small>
-      </label>
+      <FieldRow
+        label="路由有效期（秒）"
+        description="允许 60 到 604800 秒。"
+        control={
+          <input
+            className="settings-control"
+            aria-label="路由有效期（秒）"
+            type="number"
+            min={60}
+            max={604800}
+            step={1}
+            value={value.routeTtlSeconds}
+            disabled={disabled || !value.replyEnabled}
+            onChange={(event) =>
+              onChange({
+                routeTtlSeconds: Number.parseInt(event.currentTarget.value, 10),
+              })
+            }
+          />
+        }
+      />
     </div>
   );
 }

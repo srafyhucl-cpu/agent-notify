@@ -1,4 +1,4 @@
-import { Pause, Play } from "lucide-react";
+import { Minus, Pause, Play, Square, X } from "lucide-react";
 import { useState } from "react";
 
 import type { HostBridge } from "../bridge";
@@ -84,8 +84,8 @@ export function RuntimeStatusBar({ bridge }: RuntimeStatusBarProps) {
   const PauseIcon = runtime?.paused ? Play : Pause;
 
   return (
-    <section className="runtime-status-bar" aria-label="运行时状态">
-      <div className="runtime-status-summary">
+    <section className="runtime-status-bar" aria-label="运行时状态" data-tauri-drag-region>
+      <div className="runtime-status-summary" data-tauri-drag-region>
         <span
           className={`runtime-status-dot runtime-status-dot--${stateTone}`}
           aria-hidden="true"
@@ -96,16 +96,69 @@ export function RuntimeStatusBar({ bridge }: RuntimeStatusBarProps) {
         ) : null}
       </div>
 
-      <div className="runtime-status-action">
-        <button
-          className="button button-secondary"
-          type="button"
-          disabled={!canToggle || isLoading || isUpdating}
-          onClick={() => void togglePaused()}
-        >
-          <PauseIcon aria-hidden="true" size={16} />
-          {isUpdating ? "正在更新" : pauseLabel}
-        </button>
+      <div className="runtime-status-right">
+        <div className="runtime-status-action">
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={!canToggle || isLoading || isUpdating}
+            onClick={() => void togglePaused()}
+          >
+            <PauseIcon aria-hidden="true" size={15} />
+            {isUpdating ? "正在更新" : pauseLabel}
+          </button>
+        </div>
+
+        <div className="window-controls" aria-label="窗口控制">
+          <button
+            type="button"
+            className="window-control-btn"
+            title="最小化"
+            aria-label="最小化窗口"
+            onClick={() => {
+              void (async () => {
+                try {
+                  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+                  await getCurrentWindow().minimize();
+                } catch {}
+              })();
+            }}
+          >
+            <Minus size={14} />
+          </button>
+          <button
+            type="button"
+            className="window-control-btn"
+            title="最大化 / 还原"
+            aria-label="最大化或还原窗口"
+            onClick={() => {
+              void (async () => {
+                try {
+                  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+                  await getCurrentWindow().toggleMaximize();
+                } catch {}
+              })();
+            }}
+          >
+            <Square size={12} />
+          </button>
+          <button
+            type="button"
+            className="window-control-btn window-control-btn--close"
+            title="关闭"
+            aria-label="关闭窗口"
+            onClick={() => {
+              void (async () => {
+                try {
+                  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+                  await getCurrentWindow().close();
+                } catch {}
+              })();
+            }}
+          >
+            <X size={15} />
+          </button>
+        </div>
       </div>
 
       {loadError ? (

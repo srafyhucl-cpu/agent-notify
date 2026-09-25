@@ -23,6 +23,7 @@ bin/
 .agents/
 .commandcode/
 .freebuff/
+.opencode/
 
 # Local release/package scratch files.
 Agent-notify-v*.zip

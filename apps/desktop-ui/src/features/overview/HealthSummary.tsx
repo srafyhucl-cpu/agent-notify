@@ -1,12 +1,13 @@
-import { Bot, Gauge, RadioTower } from "lucide-react";
+import { ArrowUpRight, Bot, Gauge, RadioTower } from "lucide-react";
 
 import type {
   ChannelAccountDto,
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
 } from "../../bridge/types";
+import { SafeLink } from "../../components/SafeLink";
 
-const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
+export const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
   Starting: "启动中",
   Running: "运行中",
   Paused: "已暂停",
@@ -16,7 +17,7 @@ const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
   Failed: "异常",
 };
 
-function channelWaitingLogin(account: ChannelAccountDto): boolean {
+export function channelWaitingLogin(account: ChannelAccountDto): boolean {
   return (
     account.enabled &&
     !account.health.available &&
@@ -25,11 +26,11 @@ function channelWaitingLogin(account: ChannelAccountDto): boolean {
   );
 }
 
-function channelInvalid(account: ChannelAccountDto): boolean {
+export function channelInvalid(account: ChannelAccountDto): boolean {
   return !account.enabled || account.health.stale;
 }
 
-function channelOnline(account: ChannelAccountDto): boolean {
+export function channelOnline(account: ChannelAccountDto): boolean {
   return account.enabled && account.health.available && !account.health.stale;
 }
 
@@ -39,6 +40,11 @@ export interface HealthSummaryProps {
   onTogglePause: () => void;
 }
 
+/**
+ * 运行概况汇总卡：渠道账号 / Agent 接入 / 运行状态 三列共用一个容器。
+ * 列顺序遵循产品原则「以渠道为主」——渠道健康居首，其数字为全页视觉锚点；
+ * 前两列支持点击一键下钻到渠道与 Agent 模块，动线自然顺畅。
+ */
 export function HealthSummary({
   snapshot,
   pausePending,
@@ -55,11 +61,61 @@ export function HealthSummary({
   const invalidChannels = channels.filter(channelInvalid).length;
 
   return (
-    <div className="health-summary">
-      <section className="overview-section" aria-labelledby="overview-runtime">
-        <header className="overview-section-header">
-          <div className="overview-section-title">
-            <Gauge aria-hidden="true" size={17} />
+    <section className="overview-summary overview-summary-grid" aria-label="运行概况">
+      <section
+        className="overview-summary-section overview-metric-card"
+        aria-labelledby="overview-channels"
+      >
+        <SafeLink
+          to="/channels"
+          className="overview-summary-section--link"
+          aria-label="查看渠道账号详情"
+        >
+          <header className="overview-summary-header">
+            <div className="overview-summary-title">
+              <RadioTower aria-hidden="true" size={16} />
+              <h2 id="overview-channels">渠道账号</h2>
+            </div>
+            <ArrowUpRight aria-hidden="true" size={16} />
+          </header>
+          <p className="overview-summary-value">
+            {onlineChannels}
+            <span className="overview-summary-suffix"> / {channels.length}</span>
+          </p>
+          <p className="overview-summary-detail">
+            等待登录 {waitingChannels} · 失效 {invalidChannels}
+          </p>
+        </SafeLink>
+      </section>
+
+      <section
+        className="overview-summary-section overview-metric-card"
+        aria-labelledby="overview-agents"
+      >
+        <SafeLink
+          to="/agents"
+          className="overview-summary-section--link"
+          aria-label="查看 Agent 接入详情"
+        >
+          <header className="overview-summary-header">
+            <div className="overview-summary-title">
+              <Bot aria-hidden="true" size={16} />
+              <h2 id="overview-agents">Agent 接入</h2>
+            </div>
+            <ArrowUpRight aria-hidden="true" size={16} />
+          </header>
+          <p className="overview-summary-value">{agents.length}</p>
+          <p className="overview-summary-detail">异常 {unhealthyAgents}</p>
+        </SafeLink>
+      </section>
+
+      <section
+        className="overview-summary-section overview-metric-card"
+        aria-labelledby="overview-runtime"
+      >
+        <header className="overview-summary-header">
+          <div className="overview-summary-title">
+            <Gauge aria-hidden="true" size={16} />
             <h2 id="overview-runtime">运行状态</h2>
           </div>
           <button
@@ -71,67 +127,13 @@ export function HealthSummary({
             {pausePending ? "正在更新" : runtime.paused ? "恢复通知" : "暂停通知"}
           </button>
         </header>
-        <dl className="metric-list">
-          <div>
-            <dt>运行状态</dt>
-            <dd>{RUNTIME_STATE_LABELS[runtime.state]}</dd>
-          </div>
-          <div>
-            <dt>通知</dt>
-            <dd>{runtime.paused ? "已暂停" : "接收中"}</dd>
-          </div>
-          <div>
-            <dt>版本</dt>
-            <dd>{runtime.appVersion}</dd>
-          </div>
-          <div>
-            <dt>平台</dt>
-            <dd>{runtime.platform}</dd>
-          </div>
-        </dl>
+        <p className="overview-summary-value">
+          {RUNTIME_STATE_LABELS[runtime.state]}
+        </p>
+        <p className="overview-summary-detail">
+          通知 {runtime.paused ? "已暂停" : "接收中"} · 平台 {runtime.platform}
+        </p>
       </section>
-
-      <section className="overview-section" aria-labelledby="overview-agents">
-        <header className="overview-section-header">
-          <div className="overview-section-title">
-            <Bot aria-hidden="true" size={17} />
-            <h2 id="overview-agents">Agent 接入</h2>
-          </div>
-        </header>
-        <dl className="metric-list">
-          <div>
-            <dt>已接入</dt>
-            <dd>{agents.length}</dd>
-          </div>
-          <div>
-            <dt>异常</dt>
-            <dd>{unhealthyAgents}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section className="overview-section" aria-labelledby="overview-channels">
-        <header className="overview-section-header">
-          <div className="overview-section-title">
-            <RadioTower aria-hidden="true" size={17} />
-            <h2 id="overview-channels">渠道账号</h2>
-          </div>
-        </header>
-        <dl className="metric-list">
-          <div>
-            <dt>在线</dt>
-            <dd>{onlineChannels}</dd>
-          </div>
-          <div>
-            <dt>等待登录</dt>
-            <dd>{waitingChannels}</dd>
-          </div>
-          <div>
-            <dt>失效</dt>
-            <dd>{invalidChannels}</dd>
-          </div>
-        </dl>
-      </section>
-    </div>
+    </section>
   );
 }

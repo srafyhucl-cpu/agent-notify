@@ -1,0 +1,478 @@
+/* Agent-notify 范式组件样式（Phase 3）。
+   只消费 tokens.css 的语义 token 与表面语义层，保证明暗双主题自动正确；
+   本文件是呼吸 / 扫描关键帧的唯一归属，命名统一 pattern-*，其它文件禁止重复定义。 */
+
+:root {
+  /* 呼吸微光档位 1：周期约 2.5s、幅度极低；暗色辉光、亮色阴影，均取 currentColor 同源色 */
+  --pattern-breath-duration: 2500ms;
+  --pattern-breath-glow-peak: 0.35;
+  --pattern-breath-shadow-peak: 0.18;
+  --pattern-breath-glow: 0 0 8px 0 currentColor;
+  --pattern-breath-shadow: 0 1px 3px 0 currentColor;
+
+  /* 扫描微光骨架：条高与真实文本 1:1（--font-caption 量级），行高与真实列表一致防 CLS */
+  --pattern-scan-duration: 1600ms;
+  --pattern-skeleton-bar-height: var(--font-caption);
+  --pattern-skeleton-row-height: 48px;
+}
+
+/* 视觉隐藏仅供屏幕阅读器与语义断言使用 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ========== 页头 PageHeader ========== */
+.pattern-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-bottom: var(--space-3);
+}
+
+.pattern-page-header--empty {
+  display: contents;
+  margin: 0;
+  padding: 0;
+}
+
+.pattern-page-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ========== 分组卡 SectionCard ========== */
+.pattern-section-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--surface-1-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--surface-1-shadow), var(--surface-top-highlight);
+  -webkit-backdrop-filter: var(--surface-1-blur);
+  backdrop-filter: var(--surface-1-blur);
+  transition:
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out);
+}
+
+.pattern-section-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.pattern-section-card-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pattern-section-card-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-heading);
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.pattern-section-card-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-5);
+  min-height: var(--space-4);
+  padding: 0 var(--space-2);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pattern-section-card-action {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pattern-section-card-description {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.pattern-section-card-body {
+  min-width: 0;
+  margin-top: var(--space-4);
+}
+
+/* ========== 一决策一行 FieldRow ========== */
+.pattern-field-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-2) 0;
+}
+
+.pattern-field-row + .pattern-field-row {
+  border-top: 1px solid var(--hairline);
+}
+
+.pattern-field-row-text {
+  flex: 0 0 auto;
+  min-width: 72px;
+  max-width: 160px;
+}
+
+.pattern-field-row-label {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 550;
+  line-height: 1.4;
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
+.pattern-field-row-description {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.pattern-field-row-control {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+  text-align: right;
+  font-size: var(--font-body);
+  color: var(--color-text);
+}
+
+.pattern-field-row-control .monospace-cell {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-caption);
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--hairline);
+}
+
+/* ========== 状态徽标 StatusBadge ========== */
+.pattern-status-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 1px 8px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
+  font-size: var(--font-caption);
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.pattern-status-badge::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  flex: 0 0 6px;
+  opacity: 0.9;
+}
+
+.pattern-status-badge[data-tone="success"] {
+  color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.pattern-status-badge[data-tone="warning"] {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.pattern-status-badge[data-tone="danger"] {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.pattern-status-badge[data-tone="info"] {
+  color: var(--color-info);
+  background: var(--color-info-soft);
+}
+
+.pattern-status-badge[data-tone="neutral"] {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+}
+
+/* 呼吸微光：伪元素承载同源色辉光/阴影，仅动画透明度，幅度极低 */
+.pattern-status-badge--breath::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 暗色（含无属性兜底）：辉光脉冲 */
+:root:not([data-theme="light"]) .pattern-status-badge--breath::after {
+  box-shadow: var(--pattern-breath-glow);
+  animation: pattern-breath-glow var(--pattern-breath-duration) var(--ease-out)
+    infinite;
+}
+
+/* 亮色：极淡阴影脉冲（亮色零辉光） */
+:root[data-theme="light"] .pattern-status-badge--breath::after {
+  box-shadow: var(--pattern-breath-shadow);
+  animation: pattern-breath-shadow var(--pattern-breath-duration) var(--ease-out)
+    infinite;
+}
+
+@keyframes pattern-breath-glow {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: var(--pattern-breath-glow-peak);
+  }
+}
+
+@keyframes pattern-breath-shadow {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: var(--pattern-breath-shadow-peak);
+  }
+}
+
+/* ========== 渠道漏斗空态 EmptyFunnel ========== */
+.pattern-empty-funnel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-6) var(--space-5);
+  background: var(--surface-1);
+  border: 1px solid var(--surface-1-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--surface-1-shadow), var(--surface-top-highlight);
+  -webkit-backdrop-filter: var(--surface-1-blur);
+  backdrop-filter: var(--surface-1-blur);
+}
+
+.pattern-empty-funnel-copy {
+  min-width: 0;
+}
+
+.pattern-empty-funnel-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-display);
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: var(--tracking-tighter, -0.025em);
+  overflow-wrap: anywhere;
+}
+
+.pattern-empty-funnel-description {
+  /* 88ch 让漏斗的单句描述在宽屏一行放下（72ch 会在句子中场强行折行）；窄屏自然折行 */
+  max-width: 88ch;
+  text-wrap: pretty;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-body);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.pattern-empty-funnel-steps {
+  display: flex;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: pattern-empty-funnel-step;
+}
+
+.pattern-empty-funnel-step {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--hairline);
+  counter-increment: pattern-empty-funnel-step;
+}
+
+.pattern-empty-funnel-step-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+
+.pattern-empty-funnel-step-title::before {
+  content: counter(pattern-empty-funnel-step);
+  flex: 0 0 auto;
+  min-width: var(--space-4);
+  color: var(--color-primary);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.pattern-empty-funnel-step-description {
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+}
+
+.pattern-empty-funnel-action {
+  margin-top: var(--space-2);
+}
+
+/* ========== 扫描微光骨架（升级既有 LoadingRows，保留旧类名兼容） ========== */
+.loading-rows {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.loading-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--pattern-skeleton-row-height);
+}
+
+.loading-row + .loading-row {
+  border-top: 1px solid var(--hairline);
+}
+
+.loading-row-bar {
+  display: block;
+  width: 100%;
+  height: var(--pattern-skeleton-bar-height);
+  background-color: var(--color-surface-muted);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-primary-soft) 50%,
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  border-radius: var(--radius-control);
+  animation: pattern-scan var(--pattern-scan-duration) linear infinite;
+}
+
+.loading-row-bar-short {
+  width: 64%;
+}
+
+@keyframes pattern-scan {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -50% 0;
+  }
+}
+
+/* ========== 窄窗（≤960px）降级 ========== */
+@media (max-width: 960px) {
+  .pattern-page-header {
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .pattern-page-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .pattern-field-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .pattern-field-row-control {
+    align-items: flex-start;
+  }
+
+  .pattern-empty-funnel-steps {
+    flex-direction: column;
+  }
+
+  .pattern-empty-funnel-step {
+    flex: 0 0 auto;
+  }
+}
+
+/* ========== prefers-reduced-motion 全降级 ========== */
+@media (prefers-reduced-motion: reduce) {
+  .pattern-status-badge--breath::after {
+    animation: none;
+  }
+
+  .loading-row-bar {
+    animation: none;
+  }
+}
