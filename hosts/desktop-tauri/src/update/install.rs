@@ -1,15 +1,20 @@
 use std::{
+    collections::HashSet,
     ffi::OsString,
     fs,
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use async_trait::async_trait;
 
-use super::error::UpdateError;
-use super::release::normalize_version;
+use super::{
+    error::UpdateError,
+    manifest::{VerifiedReleaseManifest, verify_release_manifest_at},
+    release::normalize_version,
+    verify::SignatureRequirement,
+};
 
 /// 解压后的更新内容大小上限（与 Go 版一致）。
 pub const MAX_EXTRACTED_BYTES: u64 = 200 * 1024 * 1024;
@@ -179,6 +184,8 @@ pub struct StagedRelease {
     pub root: PathBuf,
     pub executable: PathBuf,
     pub version_file: PathBuf,
+    /// 已经通过清单或旧格式布局验证的安装文件相对路径。
+    pub files: Vec<PathBuf>,
 }
 
 /// 解包并校验 ZIP 更新包：路径越界、符号链接与解包总量超限一律拒绝。
@@ -197,6 +204,7 @@ pub fn extract_archive(archive_path: &Path, destination: &Path) -> Result<(), Up
     })?;
 
     let mut extracted: u64 = 0;
+    let mut seen_paths = HashSet::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| {
             UpdateError::new(
@@ -206,6 +214,13 @@ pub fn extract_archive(archive_path: &Path, destination: &Path) -> Result<(), Up
         })?;
         let entry_name = entry.name().to_owned();
         let relative = safe_entry_path(&entry_name)?;
+        let canonical_name = relative.to_string_lossy().replace('\\', "/").to_lowercase();
+        if !seen_paths.insert(canonical_name) {
+            return Err(UpdateError::new(
+                "update_archive_path_unsafe",
+                format!("更新包包含重复路径：{entry_name}"),
+            ));
+        }
         let target = destination.join(&relative);
         if !path_inside(destination, &target) {
             return Err(unsafe_path_error(&entry_name));
@@ -296,13 +311,49 @@ pub fn validate_staged_release(
         root,
         executable,
         version_file,
+        files: Vec::new(),
     })
+}
+
+/// 在基础布局检查之后验证发布清单，并把清单声明的文件列表保存到暂存结果。
+/// Beta 只有在清单与签名同时缺失时才保留旧文件集合；正式通道始终要求签名清单。
+pub fn validate_staged_release_with_manifest(
+    staging_root: &Path,
+    expected_version: &str,
+    signature_requirement: SignatureRequirement,
+    now: SystemTime,
+    trusted_thumbprints: &[String],
+) -> Result<StagedRelease, UpdateError> {
+    let mut staged = validate_staged_release(staging_root, expected_version)?;
+    let files = match verify_release_manifest_at(
+        &staged.root,
+        expected_version,
+        signature_requirement,
+        now,
+        trusted_thumbprints,
+    )? {
+        VerifiedReleaseManifest::Legacy => collect_files(&staged.root)?,
+        VerifiedReleaseManifest::Signed { files } => files
+            .into_iter()
+            .map(|file| PathBuf::from(file.path))
+            .collect(),
+    };
+    staged.files = files;
+    Ok(staged)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppliedArchiveUpdate {
     pub replaced: Vec<PathBuf>,
     pub backup_dir: PathBuf,
+}
+
+fn is_safe_relative_file_path(path: &Path) -> bool {
+    let mut components = path.components();
+    let Some(Component::Normal(_)) = components.next() else {
+        return false;
+    };
+    components.all(|component| matches!(component, Component::Normal(_)))
 }
 
 /// 把 ZIP 内的发布路径映射到安装目录：
@@ -343,11 +394,11 @@ pub fn apply_staged_release(
             format!("安装目录不可用：{}", install_root.display()),
         ));
     }
-    let files = collect_files(&staged.root)?;
+    let files = &staged.files;
     if files.is_empty() {
         return Err(UpdateError::new(
             "update_release_layout_invalid",
-            format!("更新包没有可安装的文件：{}", staged.root.display()),
+            "更新包没有可安装的文件。",
         ));
     }
     fs::create_dir_all(backup_dir).map_err(|error| {
@@ -359,12 +410,33 @@ pub fn apply_staged_release(
 
     let mut actions: Vec<AppliedAction> = Vec::new();
     let mut replaced: Vec<PathBuf> = Vec::new();
-    for release_relative in &files {
-        let Some(relative) = install_relative_path(release_relative) else {
-            continue;
-        };
+    for release_relative in files {
+        if !is_safe_relative_file_path(release_relative) {
+            return Err(UpdateError::new(
+                "update_release_layout_invalid",
+                format!("更新包文件路径无效：{}", release_relative.display()),
+            ));
+        }
         let source = staged.root.join(release_relative);
+        if !path_inside(&staged.root, &source) || !source.is_file() {
+            return Err(UpdateError::new(
+                "update_release_layout_invalid",
+                format!("更新包缺少已验证文件：{}", release_relative.display()),
+            ));
+        }
+        let Some(relative) = install_relative_path(release_relative) else {
+            return Err(UpdateError::new(
+                "update_release_layout_invalid",
+                format!("更新包文件路径无效：{}", release_relative.display()),
+            ));
+        };
         let target = install_root.join(&relative);
+        if !path_inside(install_root, &target) {
+            return Err(UpdateError::new(
+                "update_release_layout_invalid",
+                format!("更新包文件路径越过安装目录：{}", release_relative.display()),
+            ));
+        }
         if let Err(error) = apply_file(&source, &target, backup_dir, &relative, &mut actions) {
             return Err(rollback_after_failure(
                 error,
@@ -528,8 +600,12 @@ fn collect_files_into(
                 )
             })?;
             files.push(relative.to_path_buf());
+        } else {
+            return Err(UpdateError::new(
+                "update_release_layout_invalid",
+                "更新包包含不支持的链接或特殊文件。",
+            ));
         }
-        // 符号链接等其它类型不参与替换，避免把不可控内容写进安装目录。
     }
     Ok(())
 }

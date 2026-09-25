@@ -6,6 +6,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::SystemTime,
 };
 
 use tokio::sync::Mutex;
@@ -19,14 +20,18 @@ use super::{
     error::UpdateError,
     install::{
         AppExitRequester, AppliedArchiveUpdate, InstallerLauncher, StagedRelease,
-        apply_staged_release, extract_archive, launch_installer, validate_staged_release,
+        apply_staged_release, extract_archive, launch_installer,
+        validate_staged_release_with_manifest,
     },
     release::{
         API_BASE_ENV, ArtifactKind, CHECKSUM_ASSET_NAME, DEFAULT_API_BASE_URL, DEFAULT_REPOSITORY,
         REPOSITORY_ENV, ReleaseInfo, archive_asset_name, check_latest_release,
         installer_asset_name, is_newer_version,
     },
-    verify::{PeBitness, SignatureRequirement, VerifiedUpdate, verify_download, verify_executable},
+    verify::{
+        PeBitness, SignatureRequirement, VerifiedUpdate, trusted_thumbprints, verify_download,
+        verify_executable,
+    },
 };
 
 const UPDATE_DIR_NAME: &str = "updates";
@@ -491,7 +496,14 @@ async fn prepare_archive_artifact(
             )
         })?;
         extract_archive(&archive_path, &extract_dir)?;
-        let staged = validate_staged_release(&extract_dir, &version)?;
+        let trusted = trusted_thumbprints();
+        let staged = validate_staged_release_with_manifest(
+            &extract_dir,
+            &version,
+            requirement,
+            SystemTime::now(),
+            &trusted,
+        )?;
         let verified = verify_executable(
             &staged.executable,
             requirement,

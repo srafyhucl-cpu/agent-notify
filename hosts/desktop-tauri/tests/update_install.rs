@@ -4,14 +4,15 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     sync::Mutex,
+    time::{Duration, SystemTime},
 };
 
 use agentnotify_desktop::update::{
     AppExitRequester, HttpTextResponse, InstallMode, InstallerLaunchOutcome,
-    InstallerLaunchRequest, InstallerLauncher, MAX_EXTRACTED_BYTES, UpdateChannel, UpdateConfig,
-    UpdateError, UpdateService, UpdateTransport, apply_staged_release, extract_archive,
-    installer_arguments, launch_installer, safe_entry_path, validate_staged_release,
-    within_extraction_budget,
+    InstallerLaunchRequest, InstallerLauncher, MAX_EXTRACTED_BYTES, SignatureRequirement,
+    UpdateChannel, UpdateConfig, UpdateError, UpdateService, UpdateTransport, apply_staged_release,
+    extract_archive, installer_arguments, launch_installer, safe_entry_path,
+    validate_staged_release, validate_staged_release_with_manifest, within_extraction_budget,
 };
 
 const EXPECTED_INSTALLER_ARGS: [&str; 3] = ["/SILENT", "/NORESTART", "/LOG="];
@@ -96,10 +97,7 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
     writer.finish().expect("完成测试 ZIP");
 }
 
-fn build_staged_release(
-    staging: &Path,
-    version: &str,
-) -> agentnotify_desktop::update::StagedRelease {
+fn write_staged_release_files(staging: &Path, version: &str) -> PathBuf {
     let root = staging.join("Agent-notify");
     fs::create_dir_all(root.join("bin")).expect("创建测试发布目录");
     fs::write(root.join("VERSION"), version).expect("写入版本文件");
@@ -108,7 +106,22 @@ fn build_staged_release(
         b"new-binary",
     )
     .expect("写入主程序");
-    validate_staged_release(staging, version).expect("测试发布目录必须合法")
+    root
+}
+
+fn build_staged_release(
+    staging: &Path,
+    version: &str,
+) -> agentnotify_desktop::update::StagedRelease {
+    write_staged_release_files(staging, version);
+    validate_staged_release_with_manifest(
+        staging,
+        version,
+        SignatureRequirement::Optional,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000),
+        &[],
+    )
+    .expect("测试发布目录必须合法")
 }
 
 #[test]
@@ -299,6 +312,25 @@ fn extract_archive_writes_the_release_layout_into_the_destination() {
 }
 
 #[test]
+fn extract_archive_rejects_duplicate_entries() {
+    let dir = test_dir("agentnotify-install-duplicate-");
+    let archive = dir.path().join("duplicate.zip");
+    write_zip(
+        &archive,
+        &[
+            ("Agent-notify/VERSION", b"2.1.0"),
+            ("Agent-notify/./VERSION", b"2.1.1"),
+        ],
+    );
+    let destination = dir.path().join("extracted");
+
+    let error = extract_archive(&archive, &destination).unwrap_err();
+
+    assert_eq!(error.code(), "update_archive_path_unsafe");
+    assert!(error.message().contains("重复路径"));
+}
+
+#[test]
 fn extract_archive_rejects_zip_slip_without_writing_outside_the_destination() {
     let dir = test_dir("agentnotify-install-slip-");
     let archive = dir.path().join("evil.zip");
@@ -413,6 +445,27 @@ fn staged_release_validation_requires_layout_and_matching_version() {
 }
 
 #[test]
+fn stable_manifest_validation_rejects_a_legacy_layout_before_install() {
+    let dir = test_dir("agentnotify-install-manifest-required-");
+    let staging = dir.path().join("staging");
+    let root = staging.join("Agent-notify");
+    fs::create_dir_all(root.join("bin")).expect("创建测试发布目录");
+    fs::write(root.join("VERSION"), "2.1.0").expect("写入版本文件");
+    fs::write(root.join("bin").join("agentnotify-desktop.exe"), b"MZ").expect("写入主程序");
+
+    let error = validate_staged_release_with_manifest(
+        &staging,
+        "2.1.0",
+        SignatureRequirement::Required,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000),
+        &[],
+    )
+    .expect_err("Stable 必须在替换文件前拒绝无清单 ZIP");
+
+    assert_eq!(error.code(), "update_manifest_missing");
+}
+
+#[test]
 fn install_relative_path_moves_bin_files_to_the_install_root() {
     assert_eq!(
         agentnotify_desktop::update::install_relative_path(Path::new(
@@ -444,13 +497,17 @@ fn apply_staged_release_replaces_files_and_keeps_a_backup() {
     fs::write(install_root.join("keep.txt"), b"keep").expect("写入无关文件");
 
     let staging = dir.path().join("staging");
-    let staged = build_staged_release(&staging, "2.1.0");
-    fs::create_dir_all(staged.root.join("plugin")).expect("创建插件目录");
-    fs::write(
-        staged.root.join("plugin").join("agent-notify.ts"),
-        b"plugin",
+    let root = write_staged_release_files(&staging, "2.1.0");
+    fs::create_dir_all(root.join("plugin")).expect("创建插件目录");
+    fs::write(root.join("plugin").join("agent-notify.ts"), b"plugin").expect("写入插件文件");
+    let staged = validate_staged_release_with_manifest(
+        &staging,
+        "2.1.0",
+        SignatureRequirement::Optional,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000),
+        &[],
     )
-    .expect("写入插件文件");
+    .expect("测试发布目录必须合法");
 
     let backup_dir = dir.path().join("backup");
     let applied = apply_staged_release(&staged, &install_root, &backup_dir).expect("替换必须成功");
@@ -482,6 +539,27 @@ fn apply_staged_release_replaces_files_and_keeps_a_backup() {
 }
 
 #[test]
+fn apply_staged_release_only_copies_the_verified_file_list() {
+    let dir = test_dir("agentnotify-install-verified-files-");
+    let install_root = dir.path().join("install");
+    fs::create_dir_all(&install_root).expect("创建安装目录");
+
+    let staging = dir.path().join("staging");
+    let staged = build_staged_release(&staging, "2.1.0");
+    fs::write(staged.root.join("unlisted.dll"), b"must not install").expect("写入未声明文件");
+    fs::write(staged.root.join("RELEASE-MANIFEST.json"), b"not copied")
+        .expect("写入未声明清单控制文件");
+    fs::write(staged.root.join("RELEASE-MANIFEST.p7s"), b"not copied")
+        .expect("写入未声明签名控制文件");
+
+    let backup_dir = dir.path().join("backup");
+    apply_staged_release(&staged, &install_root, &backup_dir).expect("已验证文件必须可以替换");
+
+    assert!(!install_root.join("unlisted.dll").exists());
+    assert!(!install_root.join("RELEASE-MANIFEST.json").exists());
+}
+
+#[test]
 fn apply_staged_release_rolls_back_when_a_file_cannot_be_replaced() {
     let dir = test_dir("agentnotify-install-rollback-");
     let install_root = dir.path().join("install");
@@ -491,8 +569,16 @@ fn apply_staged_release_rolls_back_when_a_file_cannot_be_replaced() {
     fs::create_dir_all(install_root.join("conflict.txt")).expect("创建冲突目录");
 
     let staging = dir.path().join("staging");
-    let staged = build_staged_release(&staging, "2.1.0");
-    fs::write(staged.root.join("conflict.txt"), b"new-file").expect("写入冲突文件");
+    let root = write_staged_release_files(&staging, "2.1.0");
+    fs::write(root.join("conflict.txt"), b"new-file").expect("写入冲突文件");
+    let staged = validate_staged_release_with_manifest(
+        &staging,
+        "2.1.0",
+        SignatureRequirement::Optional,
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000),
+        &[],
+    )
+    .expect("测试发布目录必须合法");
 
     let backup_dir = dir.path().join("backup");
     let error = apply_staged_release(&staged, &install_root, &backup_dir).expect_err("必须失败");
@@ -791,6 +877,48 @@ async fn install_latest_falls_back_to_the_zip_when_the_installer_fails() {
     assert_eq!(
         fs::read(backup_dirs[0].join("agentnotify-desktop.exe")).expect("备份程序"),
         b"old-binary"
+    );
+}
+
+#[tokio::test]
+async fn stable_archive_update_rejects_a_legacy_zip_before_touching_install_files() {
+    let dir = test_dir("agentnotify-service-stable-manifest-");
+    let executable = release_executable_bytes();
+    let archive = release_zip_bytes(&executable);
+    let mut scripted = ScriptedTransport::new(&executable, archive);
+    scripted.release_json = serde_json::json!({
+        "tag_name": format!("v{RELEASE_VERSION}"),
+        "body": "只有 ZIP 的测试发布",
+        "draft": false,
+        "prerelease": false,
+        "assets": [
+            {"name": format!("Agent-notify-v{RELEASE_VERSION}.zip"), "url": "https://test.invalid/archive.zip"},
+            {"name": "SHA256SUMS.txt", "url": "https://test.invalid/SHA256SUMS.txt"},
+        ],
+    })
+    .to_string();
+    let transport = std::sync::Arc::new(scripted);
+    let service = update_service(dir.path(), transport);
+    let install_root = dir.path().join("install");
+    fs::create_dir_all(&install_root).expect("创建安装目录");
+    fs::write(install_root.join("agentnotify-desktop.exe"), b"old-binary").expect("写入旧程序");
+
+    let error = service
+        .install_latest(
+            CURRENT_VERSION,
+            UpdateChannel::Stable,
+            &install_root,
+            &FakeLauncher::default(),
+            &FakeExitRequester::default(),
+        )
+        .await
+        .expect_err("Stable 不得安装没有发布清单的 ZIP");
+
+    assert_eq!(error.code(), "update_manifest_missing");
+    assert_eq!(
+        fs::read(install_root.join("agentnotify-desktop.exe")).expect("旧程序"),
+        b"old-binary",
+        "清单失败时不得替换安装目录"
     );
 }
 

@@ -18,7 +18,7 @@ pub use install::{
     InstallerLaunchRequest, InstallerLauncher, MAX_EXTRACTED_BYTES, StagedRelease,
     SystemInstallerLauncher, apply_staged_release, extract_archive, install_relative_path,
     installer_arguments, launch_installer, safe_entry_path, validate_staged_release,
-    within_extraction_budget,
+    validate_staged_release_with_manifest, within_extraction_budget,
 };
 pub use manifest::{ManifestFile, VerifiedReleaseManifest, verify_release_manifest_at};
 pub use release::{
