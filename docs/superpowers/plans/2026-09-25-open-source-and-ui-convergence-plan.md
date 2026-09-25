@@ -95,3 +95,19 @@
   不做猜测式兜底」的约定冲突。
 - 建议修法（未实施）：改为显式从中毒锁恢复（`into_inner()`）并补"中毒后仍能读到组件"的用例；若根因是
   启动竞态，则需让运行时启动在返回前完成组件注册。
+
+### 2026-09-25 续｜安全告警与依赖清理（阶段 1 收尾）
+
+- **锁中毒已修**（PR #15，已合并）：`set_state` / `report_failure` / `components` 三处改为显式从中毒锁恢复，
+  并补用例 `poisoned_lock_still_reports_and_updates_components`；`production_contract` 的断言失败时会打印
+  运行时状态与全部诊断项 code，便于下次复现直接定位。**偶发失败本身仍未复现**，本项不算已根治。
+- **Dependabot cargo 修复已验证生效**：错误从 `target tuple in channel name` 变为
+  `security_update_not_possible`，说明通道名问题已解决，剩下的是真实依赖约束。
+- **安全告警 3 → 1**：
+  - `time` 0.3.45 → 0.3.47、`serde_with` 3.17.0 → 3.21.0（PR #16，锁文件升级，本机全量 Rust 门禁通过）；
+  - `glib` 无法在仓库内修复（被 `tauri → gtk 0.18` 钉死，且 Windows 目标下不编译），已按
+    「vulnerable code is not used」带原因关闭，评论中写明依据与「未来支持 Linux/macOS 时重新评估」。
+- **依赖 PR 清理完成**：CodeQL action 统一升到 v4.38.2（#14），@types/node / jsdom / @tanstack/react-query
+  三个补丁升级逐个合并（#6/#7/#8），三个重复的 CodeQL PR 关闭（#9/#10/#11）。合并后开放 PR 归零。
+- 提醒：分支保护是 **strict** 模式，任何合并都会让其余 PR 过期，必须"更新分支 → 重跑门禁 → 合并"逐个推进；
+  一次合并 ≈ 一轮完整 CI（Rust 任务约 12–20 分钟）。
