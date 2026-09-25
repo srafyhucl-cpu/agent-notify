@@ -111,3 +111,23 @@
   三个补丁升级逐个合并（#6/#7/#8），三个重复的 CodeQL PR 关闭（#9/#10/#11）。合并后开放 PR 归零。
 - 提醒：分支保护是 **strict** 模式，任何合并都会让其余 PR 过期，必须"更新分支 → 重跑门禁 → 合并"逐个推进；
   一次合并 ≈ 一轮完整 CI（Rust 任务约 12–20 分钟）。
+
+### 2026-09-25 续｜构建缓存与依赖更新成本
+
+- **磁盘现状（实测）**：`D:\Temp\agentnotify-rust-target` 86 GB（`deps` 38 + `incremental` 29 +
+  不带目标三元组的 `debug\` 布局 16 + `release` 0.9），另有遗留工作区自带的 target 约 10.5 GB；
+  D 盘一度只剩 **7.8 GB** 可用。已按明确路径清理（见下）。
+- **约定（防复发）**：
+  1. 门禁/导出类构建默认 `CARGO_INCREMENTAL=0`（`tools\rust\gate.ps1`、`tools\rust\export-bindings.ps1`）；
+     需要增量编译时显式 `CARGO_INCREMENTAL=1`；
+  2. 用 `tools\cache-report.ps1` 随时查看占用：`-PruneIncremental` 只删 incremental，
+     `-RemoveRustTarget` 等同 cargo clean；
+  3. 同一时间只保留一个"构建工作区"，用完即退役（`git worktree remove`）——cargo 缓存不跨源码路径复用，
+     多工作区会让同一工程各存一份产物；
+  4. `.ps1` 若含中文注释必须带 UTF-8 BOM（PS 5.1 会把无 BOM 文件按 ANSI 读，已因此踩坑两次）。
+- **已知残留（未修）**：`cargo tauri dev` 不带 `--target` 会生成第二套 `debug\` 布局（实测 16 GB）。
+  **不建议**用 `.cargo/config.toml` 强制默认目标：CI 的 CodeQL rust 任务在 ubuntu 上跑 autobuild，
+  强推 Windows 目标会直接失败。用 cache-report 定期清理即可。
+- **CI 成本（实测）**：`Rust and UI workspace` 任务 6.4–8.3 分钟（缓存生效后），其余任务 2.5–2.9 分钟；
+  此前的 12–20 分钟是"无缓存冷启动"价。Dependabot 已按生态分组（minor/patch 合成一个 PR），
+  减少 strict 保护下的合并轮次。
