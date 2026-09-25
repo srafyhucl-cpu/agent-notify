@@ -67,3 +67,31 @@
 
 - 三个遗留 worktree 与本地孪生分支（`integration/published-base` 含真实值，最优先退役）。
 - 备份目录 `D:\Temp\agent-notify-backup-20260925` 在阶段 3 完成并验证后清理。
+
+## 7. 进展记录
+
+### 2026-09-25｜阶段 1 完成（公开仓侧）
+
+- `main` CI 首次全绿。此前红的三个原因全部确证并修复（PR #12，已合并）：
+  1. 账户级 Actions 拦截——表现为任务 3 秒失败、不分配 runner（用户侧计费处理后在重跑中恢复）；
+  2. `tools/rust/export-bindings.ps1` 写死本机 `D:\Tools\cargo` 约定 → runner 上找不到 cargo；
+  3. 发布清单夹具 `RELEASE-MANIFEST.p7s` 签的是 CRLF 字节、仓库存的是 LF → 4 个用例在 CI 上必然失败。
+- Dependabot cargo 更新失败根因（日志原文 `dependency_file_not_resolvable`：`error: target tuple in
+  channel name 'stable-x86_64-pc-windows-msvc'`）→ 已改为 `channel = "stable"`。复验还需一次 Dependabot
+  运行（自动重试，或 Dependency graph → Dependabot → `Cargo.toml` 行的 `⋯` → Check for updates）。
+- 仓库设置核对结果：分支保护（strict、4 项必需检查、禁 force push、enforce admins）、`v*` tag ruleset、
+  secret scanning + push protection、Dependabot 告警与安全更新、私密漏洞报告、合并后自动删分支——均已开启。
+- 社区概况补齐：新增 `CODE_OF_CONDUCT.md`（举报邮箱 srafyhucl@gmail.com，PR #13）。
+- 依赖 PR：三个 CodeQL action PR 合为一个统一升级到 v4.38.2（避免工作流 v3/v4 混用）；npm 补丁升级逐个合并。
+- strict 保护的副作用：每次合并都会让其余 PR 过期，必须"更新分支 → 重跑门禁 → 合并"逐个推进。
+
+### 待办｜已知不稳定测试（未修，需单独排期）
+
+- 现象：`hosts/desktop-tauri/tests/production_contract.rs:375` 的 `assert!(!diagnostics.components.is_empty())`
+  在 CI 上偶发失败（约 1/7 次）；本机连跑 15 次全过，未复现。失败运行：`actions/runs/36130870555`。
+- 已确证存在的可疑代码（是否为该 flake 的根因未确证）：`crates/agentnotify-runtime/src/supervisor.rs` 中
+  `set_state()` 用 `if let Ok(...) = self.inner.write()`、`components()` 用 `unwrap_or_default()`，两者都
+  **静默吞掉锁中毒**。影响不止测试：界面「诊断 → 后台组件」会静默显示为空且不报错，与「失败要明确暴露、
+  不做猜测式兜底」的约定冲突。
+- 建议修法（未实施）：改为显式从中毒锁恢复（`into_inner()`）并补"中毒后仍能读到组件"的用例；若根因是
+  启动竞态，则需让运行时启动在返回前完成组件注册。
