@@ -2,9 +2,9 @@
   /* 二维码必须白底才可扫，与主题无关，单独命名 token */
   --channels-qr-surface: #ffffff;
   /* 二维码展示尺寸、登录加载旋转周期与模态宽度（无现成语义 token） */
-  --channels-qr-size: 180px;
+  --channels-qr-size: 200px;
   --channels-spin-duration: 900ms;
-  --channels-dialog-width: 560px;
+  --channels-dialog-width: 380px;
   /* 模态遮罩：明暗两主题共用的压暗层 */
   --channels-scrim: rgb(15 20 30 / 55%);
 }
@@ -20,24 +20,414 @@
   padding-top: 0;
 }
 
-/* Master–Detail：左渠道卡带、右账号详情；窄窗降为单列 */
-.channels-layout {
+/* 紧凑左右响应式两栏布局：左侧账号管理，右侧测试发送控制台 */
+.channels-container {
   display: grid;
-  gap: var(--space-5);
+  grid-template-columns: minmax(0, 1.22fr) minmax(320px, 0.98fr);
+  gap: var(--space-4);
+  align-items: start;
+  width: 100%;
   min-width: 0;
 }
 
-.channels-layout--split {
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.9fr);
+@media (max-width: 960px) {
+  .channels-container {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.channels-main {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+}
+
+.channels-aside {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+}
+
+.channel-th-action {
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+}
+
+.channel-account-action-cell {
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+  padding: 0 var(--space-1) !important;
+}
+
+.channel-account-action-cell .button-icon-subtle {
+  width: 24px;
+  height: 24px;
+  margin: 0 auto;
+}
+
+.channel-account-action-cell .button-icon-danger {
+  color: var(--color-text-muted);
+  opacity: 0.6;
+}
+
+.channel-account-action-cell .button-icon-danger:hover {
+  color: var(--color-danger) !important;
+  background: var(--color-danger-soft) !important;
+  border-color: color-mix(in srgb, var(--color-danger) 30%, transparent) !important;
+  opacity: 1;
+}
+
+.channel-account-inline-detail {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  background: color-mix(in srgb, var(--color-surface-muted) 65%, transparent);
+  border-top: 1px solid var(--hairline);
+  animation: agent-card-body-in var(--duration-fast) var(--ease-spring);
+}
+
+.channel-account-flat-detail {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.channel-detail-flat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.channel-detail-flat-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.channel-detail-flat-name {
+  margin: 0;
+  font-size: var(--font-size-2);
+  font-weight: 650;
+  color: var(--color-text);
+}
+
+.channel-detail-flat-sub {
+  font-size: var(--font-caption);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-subtle);
+}
+
+.channel-detail-flat-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.button-sm {
+  min-height: 28px !important;
+  height: 28px !important;
+  padding: 0 var(--space-2) !important;
+  font-size: var(--font-caption) !important;
+  gap: 4px !important;
+}
+
+.button-danger-text {
+  color: var(--color-danger) !important;
+  border-color: color-mix(in srgb, var(--color-danger) 25%, transparent) !important;
+  background: transparent !important;
+  transition: all var(--duration-fast) var(--ease-spring);
+}
+
+.button-danger-text:hover {
+  background: var(--color-danger-soft) !important;
+  border-color: var(--color-danger) !important;
+}
+
+.channel-detail-flat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
   align-items: start;
 }
 
-.channels-main,
-.channels-detail {
+@media (max-width: 768px) {
+  .channel-detail-flat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.channel-detail-flat-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.channel-detail-flat-pane--full {
+  grid-column: 1 / -1;
+}
+
+.channel-detail-pane-title {
+  margin: 0 0 var(--space-1);
+  padding-bottom: 4px;
+  font-size: var(--font-caption);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.channel-metrics-grid {
   display: grid;
-  gap: var(--space-5);
-  align-content: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.channel-metric-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+}
+
+.channel-metric-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.channel-metric-value {
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-detail-health-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 10px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  margin-top: 2px;
+}
+
+.channel-health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.channel-health-dot--success {
+  background: #10b981;
+  box-shadow: 0 0 6px color-mix(in srgb, #10b981 60%, transparent);
+}
+
+.channel-health-dot--warning {
+  background: #f59e0b;
+  box-shadow: 0 0 6px color-mix(in srgb, #f59e0b 60%, transparent);
+}
+
+.channel-health-dot--danger {
+  background: #ef4444;
+  box-shadow: 0 0 6px color-mix(in srgb, #ef4444 60%, transparent);
+}
+
+.channel-detail-health-desc {
+  font-size: var(--font-caption);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.capability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.capability-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: var(--font-caption);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+}
+
+.capability-name {
+  font-weight: 500;
+}
+
+.capability-val {
+  font-weight: 650;
+  color: var(--color-text);
+}
+
+.account-title-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
   min-width: 0;
+}
+
+.account-title-group .channel-account-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.rename-trigger-btn {
+  flex: 0 0 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all var(--duration-fast) var(--ease-spring);
+}
+
+.rename-trigger-btn:hover {
+  opacity: 1;
+  color: var(--color-primary);
+  background: var(--color-surface-muted);
+  border-color: var(--border-subtle);
+}
+
+.account-inline-rename {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.rename-input {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 100px;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-caption);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+
+.rename-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+.button-icon-subtle {
+  flex: 0 0 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-spring);
+}
+
+.button-icon-subtle:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  border-color: var(--border-subtle);
+}
+
+.button-icon-confirm {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+}
+
+.button-icon-confirm:hover {
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.channel-accordion-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  font-size: var(--font-caption);
+  font-weight: 550;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-spring);
+}
+
+.channel-accordion-toggle:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: var(--color-surface-muted);
+}
+
+.channel-chevron {
+  transition: transform var(--duration-fast) var(--ease-spring);
+}
+
+.channel-chevron--open {
+  transform: rotate(180deg);
+}
+
+.channel-account-inline-detail {
+  margin: 0;
+  padding: var(--space-4);
+  border: none;
+  background: var(--color-surface-muted);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+  animation: agent-card-body-in var(--duration-fast) var(--ease-spring);
+}
+
+.channel-account-detail-row td {
+  padding: 0 !important;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--color-surface-muted);
+  cursor: default;
 }
 
 .channel-account-list {
@@ -49,75 +439,76 @@
   width: 100%;
   min-width: 0;
   table-layout: fixed;
-  border-collapse: separate;
-  border-spacing: 0 var(--space-2);
+  border-collapse: collapse;
   font-size: var(--font-body);
 }
 
 .channel-account-list thead th {
-  padding: 0 var(--space-3) var(--space-1);
+  padding: 8px 12px 10px;
   color: var(--color-text-muted);
   background: transparent;
-  border: 0;
-  font-size: var(--font-caption);
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--font-small);
   font-weight: 650;
   text-align: left;
+  letter-spacing: 0.03em;
   white-space: nowrap;
+  user-select: none;
 }
 
-/* 行卡：行内单元格拼成带圆角的表面条 */
+.channel-th-expand {
+  width: 44px;
+}
+
+/* 连续高质感数据行：整行可点手风琴，消除工字光标 */
+.channel-account-row {
+  cursor: pointer;
+  user-select: none;
+}
+
 .channel-account-list tbody th,
 .channel-account-list tbody td {
   min-width: 0;
-  padding: var(--space-3);
+  padding: 12px;
   text-align: left;
   vertical-align: middle;
-  background: var(--surface-2);
-  border-top: 1px solid var(--surface-2-border);
-  border-bottom: 1px solid var(--surface-2-border);
+  background: transparent;
+  border-bottom: 1px solid var(--hairline);
   overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--duration-fast) ease;
 }
 
-.channel-account-list tbody th:first-child,
-.channel-account-list tbody td:first-child {
-  border-left: 1px solid var(--surface-2-border);
-  border-top-left-radius: var(--radius-panel);
-  border-bottom-left-radius: var(--radius-panel);
-}
-
-.channel-account-list tbody th:last-child,
-.channel-account-list tbody td:last-child {
-  border-right: 1px solid var(--surface-2-border);
-  border-top-right-radius: var(--radius-panel);
-  border-bottom-right-radius: var(--radius-panel);
-}
-
-/* 列宽：账号 / 状态 / 启用 / 详情 */
-.channel-account-list thead th:nth-child(1) {
-  width: 46%;
-}
-
-.channel-account-list thead th:nth-child(2) {
-  width: 30%;
-}
-
-.channel-account-list thead th:nth-child(3) {
-  width: 12%;
-}
-
-.channel-account-list thead th:nth-child(4) {
-  width: 12%;
-}
-
+/* 选中行：柔和主色微光底 + 左侧 3px 品牌药丸竖条高光 */
 .channel-account-row--selected th,
 .channel-account-row--selected td {
   background: var(--color-primary-soft);
-  border-color: var(--surface-3-border);
+  border-bottom-color: transparent;
 }
 
-.channel-account-list tbody tr:not(.channel-account-row--selected):hover th,
-.channel-account-list tbody tr:not(.channel-account-row--selected):hover td {
+.channel-account-row--selected th:first-child {
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.channel-account-list tbody tr:not(.channel-account-row--selected):not(.channel-account-detail-row):hover th,
+.channel-account-list tbody tr:not(.channel-account-row--selected):not(.channel-account-detail-row):hover td {
   background: var(--color-surface-muted);
+}
+
+.channel-account-expand-cell {
+  width: 44px;
+  text-align: right;
+  padding-right: 16px !important;
+}
+
+.channel-account-expand-cell .channel-chevron {
+  color: var(--color-text-muted);
+  transition: transform var(--duration-fast) var(--ease-spring), color var(--duration-fast) ease;
+}
+
+.channel-account-row:hover .channel-account-expand-cell .channel-chevron {
+  color: var(--color-primary);
 }
 
 .channel-account-name {
@@ -130,7 +521,7 @@
   background: transparent;
   border: 0;
   font-size: var(--font-body);
-  font-weight: 650;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
 }
@@ -140,9 +531,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--font-body);
+  font-weight: 600;
+  color: var(--color-text);
+  transition: color var(--duration-fast) ease;
 }
 
-.channel-account-name:hover .channel-account-name-text {
+.channel-account-row:hover .channel-account-name-text {
   color: var(--color-primary);
 }
 
@@ -159,47 +556,6 @@
 
 .channel-account-detail {
   min-width: 0;
-}
-
-.channel-detail-segments {
-  display: grid;
-  gap: var(--space-5);
-  min-width: 0;
-}
-
-.channel-detail-segment {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.channel-detail-segment + .channel-detail-segment {
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--hairline);
-}
-
-.channel-detail-segment-title {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-caption);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.channel-detail-health {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.channel-detail-health-message {
-  min-width: 0;
-  color: var(--color-text);
-  font-size: var(--font-body);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
 }
 
 .button-danger-text {
@@ -236,7 +592,8 @@
 .channel-config-form select:disabled,
 .channel-config-form textarea:disabled {
   color: var(--color-text-muted);
-  background: var(--color-surface-muted);
+  /* 用 background-color：background 简写会把 select 箭头图标的 no-repeat 重置成 repeat */
+  background-color: var(--color-surface-muted);
 }
 
 .test-notification-card {
@@ -245,14 +602,14 @@
 
 .test-notification-form {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
 }
 
 .test-notification-fields {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
-  gap: var(--space-3);
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
 }
 
 .test-notification-fields label {
@@ -264,6 +621,7 @@
 .test-notification-fields label > span {
   font-size: var(--font-caption);
   font-weight: 600;
+  color: var(--color-text-muted);
 }
 
 .test-notification-fields input,
@@ -271,12 +629,26 @@
 .test-notification-fields textarea {
   width: 100%;
   min-width: 0;
-  min-height: var(--control-height);
-  padding: var(--space-1) var(--space-2);
+  padding: 8px 12px;
   color: var(--color-text);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  /* 用 background-color：background 简写会把 select 箭头图标的 no-repeat 重置成 repeat */
+  background-color: var(--color-surface-muted);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
+  font-size: var(--font-body);
+  font-family: inherit;
+  transition: all var(--duration-fast) var(--ease-spring);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.test-notification-fields input:focus,
+.test-notification-fields select:focus,
+.test-notification-fields textarea:focus {
+  /* 同 disabled 态：必须用 background-color，否则 select 的箭头图标会被平铺 */
+  background-color: var(--color-surface);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft), inset 0 1px 1px rgba(0, 0, 0, 0.01);
+  outline: none;
 }
 
 .test-body-field {
@@ -284,7 +656,8 @@
 }
 
 .test-notification-fields textarea {
-  min-height: calc(var(--space-6) * 2);
+  min-height: 84px;
+  line-height: 1.5;
   resize: vertical;
 }
 
@@ -294,6 +667,45 @@
   justify-content: space-between;
   gap: var(--space-3);
   min-width: 0;
+  padding-top: var(--space-2);
+}
+
+.test-notification-footer .button[type="submit"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 18px;
+  background: linear-gradient(180deg, var(--color-primary-hover) 0%, var(--color-primary) 100%);
+  color: #ffffff;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 85%, black);
+  border-radius: var(--radius-control);
+  font-size: var(--font-body);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px -1px color-mix(in srgb, var(--color-primary) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: all var(--duration-fast) var(--ease-spring);
+}
+
+.test-notification-footer .button[type="submit"]:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px 0 color-mix(in srgb, var(--color-primary) 45%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.test-notification-footer .button[type="submit"]:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.test-notification-footer .button[type="submit"]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  border-color: var(--border-subtle);
+  transform: none;
 }
 
 .field-hint,
@@ -412,12 +824,52 @@
   color: var(--color-success);
 }
 
-.qr-panel {
-  display: grid;
-  grid-template-columns: var(--channels-qr-size) minmax(0, 1fr);
+/* 登录成功后的账号命名：原先全部用内联样式，现按 token 与 4/8px 网格落类。 */
+.channel-account-naming-box {
+  width: 100%;
+  margin-top: var(--space-3);
+  text-align: left;
+}
+
+.channel-account-naming-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--font-caption);
+  font-weight: 600;
+}
+
+.channel-account-naming-hint {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.channel-account-naming-input {
+  width: 100%;
+  margin-bottom: var(--space-3);
+}
+
+.channel-account-naming-submit {
+  width: 100%;
+}
+
+.qr-panel,
+.qr-panel-compact {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-4);
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  text-align: center;
   min-width: 0;
+}
+
+.qr-compact-prompt {
+  margin: 0;
+  font-size: var(--font-caption);
+  color: var(--color-text-muted);
+  font-weight: 550;
 }
 
 .channel-login-qr {

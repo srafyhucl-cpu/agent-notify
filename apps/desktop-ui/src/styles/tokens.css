@@ -18,8 +18,8 @@
   --space-5: 24px;
   --space-6: 32px;
 
-  --radius-control: 6px;
-  --radius-panel: 8px;
+  --radius-control: 7px;
+  --radius-panel: 10px;
   --radius-pill: 999px;
 
   --font-size-1: 12px;
@@ -28,18 +28,30 @@
   --font-size-4: 16px;
   --font-size-5: 20px;
 
-  /* 语义字阶别名（五原则「字阶少而差大」= 28/18/14/12 四档）：
-     组件只消费别名；旧 --font-size-* 原样保留，向后兼容。 */
-  --font-display: 28px;
-  --font-heading: 18px;
-  --font-body: 14px;
+  /* 统一规范桌面字阶（20 / 15 / 13 / 12 / 11）：紧致协调，杜绝字阶跳跃 */
+  --font-display: 20px;
+  --font-heading: 15px;
+  --font-body: 13px;
   --font-caption: 12px;
+  --font-small: 11px;
+
+  --tracking-tight: -0.015em;
+  --tracking-tighter: -0.025em;
 
   --font-family-ui:
     "Segoe UI Variable",
     "Segoe UI",
     system-ui,
+    -apple-system,
     sans-serif;
+  --font-family-mono:
+    "Cascadia Code",
+    "Fira Code",
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
 
   --nav-width: 208px;
   --nav-width-compact: 64px;
@@ -48,8 +60,9 @@
 
   /* 动效：时长/缓动统一走 token，禁止裸时长 */
   --duration-fast: 120ms;
-  --duration-base: 150ms;
-  --ease-out: ease-out;
+  --duration-base: 180ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* 层叠位阶（全局唯一）：Modal > Popover/Tooltip > Sticky > Content */
   --z-content: 1;
@@ -57,12 +70,14 @@
   --z-popover: 50;
   --z-modal: 100;
 
-  /* 亮色阴影刻度：供 light 主题的表面语义层引用 */
-  --elevation-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  /* 亮色阴影刻度：精细弥散环境投影，供 light 主题的表面语义层引用 */
+  --elevation-1: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.03);
   --elevation-2:
-    0 1px 2px rgba(16, 24, 40, 0.06),
-    0 4px 12px rgba(16, 24, 40, 0.05);
-  --elevation-3: 0 8px 24px rgba(16, 24, 40, 0.12);
+    0 2px 4px -1px rgba(16, 24, 40, 0.06),
+    0 6px 16px -4px rgba(16, 24, 40, 0.04);
+  --elevation-3:
+    0 8px 24px -4px rgba(16, 24, 40, 0.08),
+    0 20px 48px -8px rgba(16, 24, 40, 0.08);
 }
 
 /* 暗色（默认兜底）：现暗色基线，按气质 B 收敛发光预算 */
@@ -115,48 +130,48 @@
   --surface-1-shadow: none;
   --surface-2-shadow: var(--glow-sm);
   --surface-3-shadow: var(--glow-md);
+  --surface-top-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
 
   --hairline: rgba(255, 255, 255, 0.08);
 }
 
 /* 亮色（专门设计，非暗色反色）：白面 + 冷灰细边 + 阴影抬升，零玻璃零辉光 */
+/* 亮色：采用现代 Slate & Titanium 高级中性色阶与微透发丝线，杜绝沉闷死白与生硬死灰 */
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --color-canvas: #f5f7fa;
+  --color-canvas: #f8fafc;
   --color-surface: #ffffff;
-  --color-surface-muted: #eef1f6;
-  --color-border: #dfe4ec;
-  --color-text: #1a2230;
+  --color-surface-muted: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
   --color-text-muted: #5b6675;
-  --color-primary: #0e7490;
-  --color-primary-hover: #0b5c73;
-  --color-info: #0b6fa4;
-  --color-warning: #9a5b06;
-  --color-danger: #b42318;
-  --color-success: #117a35;
+  --color-primary: #0369a1;
+  --color-primary-hover: #075985;
+  --color-info: #0369a1;
+  --color-warning: #92400e;
+  --color-danger: #b91c1c;
+  --color-success: #166534;
 
-  /* 柔和底：加深饱和（约 12% 深色调叠加），保证语义色文字在其上仍 ≥4.5:1 */
-  --color-primary-soft: rgba(14, 116, 144, 0.12);
-  --color-info-soft: rgba(11, 111, 164, 0.12);
-  --color-warning-soft: rgba(154, 91, 6, 0.12);
-  --color-danger-soft: rgba(180, 35, 24, 0.12);
-  --color-success-soft: rgba(17, 122, 53, 0.12);
+  /* 柔和底：极细腻微透明底，配合精巧微状态胶囊 */
+  --color-primary-soft: rgba(3, 105, 161, 0.08);
+  --color-info-soft: rgba(3, 105, 161, 0.08);
+  --color-warning-soft: rgba(146, 64, 14, 0.08);
+  --color-danger-soft: rgba(185, 28, 28, 0.08);
+  --color-success-soft: rgba(22, 101, 52, 0.08);
 
-  /* 亮色关闭毛玻璃：浅底玻璃易脏，改用「白面 + 细边 + 阴影」分层 */
-  --glass-bg-1: rgba(255, 255, 255, 0.92);
-  --glass-bg-2: rgba(255, 255, 255, 0.96);
+  --glass-bg-1: rgba(255, 255, 255, 0.85);
+  --glass-bg-2: rgba(255, 255, 255, 0.95);
   --glass-bg-3: #ffffff;
-  --glass-blur-sm: none;
-  --glass-blur-md: none;
-  --glass-saturate: saturate(1);
+  --glass-blur-sm: blur(12px);
+  --glass-blur-md: blur(20px);
+  --glass-saturate: saturate(1.2);
 
-  --border-subtle: #dfe4ec;
-  --border-hover: #cfd6e0;
-  --border-glow: rgba(14, 116, 144, 0.35);
-  /* 亮色零辉光：hover/浮层用阴影表达 */
-  --glow-sm: var(--elevation-1);
-  --glow-md: var(--elevation-2);
+  --border-subtle: rgba(15, 23, 42, 0.08);
+  --border-hover: rgba(15, 23, 42, 0.15);
+  --border-glow: rgba(2, 132, 199, 0.3);
+  --glow-sm: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.03);
+  --glow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
 
   --surface-1: #ffffff;
   --surface-2: #ffffff;
@@ -164,12 +179,13 @@
   --surface-1-blur: none;
   --surface-2-blur: none;
   --surface-3-blur: none;
-  --surface-1-border: #dfe4ec;
-  --surface-2-border: #dfe4ec;
-  --surface-3-border: #cfd6e0;
-  --surface-1-shadow: var(--elevation-1);
-  --surface-2-shadow: var(--elevation-2);
-  --surface-3-shadow: var(--elevation-3);
+  --surface-1-border: rgba(15, 23, 42, 0.07);
+  --surface-2-border: rgba(15, 23, 42, 0.07);
+  --surface-3-border: rgba(15, 23, 42, 0.12);
+  --surface-1-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.02);
+  --surface-2-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -2px rgba(15, 23, 42, 0.03);
+  --surface-3-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.08), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
+  --surface-top-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
 
-  --hairline: #e6eaf1;
+  --hairline: rgba(15, 23, 42, 0.06);
 }
