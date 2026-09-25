@@ -372,7 +372,20 @@ async fn host_commands_contract_execution() {
         .get_diagnostics(EmptyPayload {})
         .await
         .expect("获取诊断必须成功");
-    assert!(!diagnostics.components.is_empty());
+    // 失败时把运行时状态与诊断项一起打出来：组件列表为空要么是组件尚未注册完，
+    // 要么是快照被静默丢弃，两者的现场必须可区分。
+    assert!(
+        !diagnostics.components.is_empty(),
+        "诊断必须返回后台组件：state={:?} paused={} components=0 items=[{}]",
+        diagnostics.runtime.state,
+        diagnostics.runtime.paused,
+        diagnostics
+            .items
+            .iter()
+            .map(|item| item.code.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     assert!(!diagnostics.items.is_empty());
 
     // 8. get_update_status：假传输固定返回与当前版本相同的 Release，状态必须是 UpToDate。
