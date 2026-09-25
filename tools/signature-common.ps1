@@ -4,29 +4,43 @@
   校验发布产物的 Authenticode 签名者指纹与客户端内置的信任指纹一致。
 
 .DESCRIPTION
-  客户端把 internal/update/signature.go 的 defaultSignatureThumbprint 当作唯一信任锚：
-  产物未签名、签名状态异常或指纹不一致时，1.11+ 客户端都会拒绝更新。发布前用本模块校验，
+  客户端把 hosts/desktop-tauri/src/update/verify.rs 的 DEFAULT_SIGNATURE_THUMBPRINT 当作唯一信任锚：
+  产物未签名、签名状态异常或指纹不一致时，客户端都会拒绝更新。发布前用本模块校验，
   可在构建阶段就挡住两类会把用户卡死的风险：
     1) 签名 secret 丢失/改名导致“静默发出未签名包”；
     2) 轮换证书只改了 secret、忘了同步内置指纹，导致新包对老客户端“签名者不匹配”。
 #>
 
-# Get-ExpectedSignatureThumbprint 从源码读取客户端内置的信任指纹，保证与客户端同一来源。
+# Get-ExpectedSignatureThumbprint 从 2.0 Rust 客户端读取信任指纹；旧 Go 工具链仅作兼容回退。
 function Get-ExpectedSignatureThumbprint {
   param([Parameter(Mandatory = $true)][string]$RepoRoot)
 
-  $sourcePath = Join-Path $RepoRoot 'internal\update\signature.go'
-  if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-    throw "找不到内置指纹来源文件：$sourcePath"
+  $rustPath = Join-Path $RepoRoot 'hosts\desktop-tauri\src\update\verify.rs'
+  if (Test-Path -LiteralPath $rustPath -PathType Leaf) {
+    $source = [IO.File]::ReadAllText($rustPath)
+    $match = [regex]::Match($source, 'DEFAULT_SIGNATURE_THUMBPRINT\s*:\s*&str\s*=\s*"([^"]+)"')
+    if (-not $match.Success) {
+      throw "无法从 $rustPath 读取 DEFAULT_SIGNATURE_THUMBPRINT"
+    }
+    $thumbprint = $match.Groups[1].Value.Trim()
+    if ([string]::IsNullOrWhiteSpace($thumbprint)) {
+      throw "DEFAULT_SIGNATURE_THUMBPRINT 为空，无法校验签名：$rustPath"
+    }
+    return $thumbprint.Replace(':', '').Replace(' ', '').ToUpperInvariant()
   }
-  $source = [IO.File]::ReadAllText($sourcePath)
+
+  $legacyPath = Join-Path $RepoRoot 'internal\update\signature.go'
+  if (-not (Test-Path -LiteralPath $legacyPath -PathType Leaf)) {
+    throw "找不到内置指纹来源文件：$rustPath 或 $legacyPath"
+  }
+  $source = [IO.File]::ReadAllText($legacyPath)
   $match = [regex]::Match($source, 'defaultSignatureThumbprint\s*=\s*"([^"]+)"')
   if (-not $match.Success) {
-    throw "无法从 $sourcePath 读取 defaultSignatureThumbprint"
+    throw "无法从 $legacyPath 读取 defaultSignatureThumbprint"
   }
   $thumbprint = $match.Groups[1].Value.Trim()
   if ([string]::IsNullOrWhiteSpace($thumbprint)) {
-    throw "defaultSignatureThumbprint 为空，无法校验签名：$sourcePath"
+    throw "defaultSignatureThumbprint 为空，无法校验签名：$legacyPath"
   }
   return $thumbprint.Replace(':', '').Replace(' ', '').ToUpperInvariant()
 }
@@ -50,7 +64,7 @@ function Get-VerifiedSignatureThumbprint {
   }
   $actual = $signature.SignerCertificate.Thumbprint.Replace(':', '').Replace(' ', '').ToUpperInvariant()
   if ($actual -ne $expected) {
-    throw "签名者指纹与客户端内置信任指纹不一致：实际 $actual，期望 $expected（$Path）。请先更新 internal/update/signature.go 的 defaultSignatureThumbprint 并与本版本一起发布，再轮换证书，否则 1.11+ 客户端会拒绝更新。"
+    throw "签名者指纹与客户端内置信任指纹不一致：实际 $actual，期望 $expected（$Path）。请先更新 hosts/desktop-tauri/src/update/verify.rs 的 DEFAULT_SIGNATURE_THUMBPRINT 并与本版本一起发布，再轮换证书，否则客户端会拒绝更新。"
   }
   return $actual
 }

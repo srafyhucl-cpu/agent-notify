@@ -4,8 +4,8 @@
   Publish an already-built Agent-notify archive to the public binary-only repository.
 
 .DESCRIPTION
-  上传前强制门禁：安装器签名、SHA256SUMS.txt 覆盖情况与哈希一致性、ZIP 内主程序与三个 Hook
-  的签名者指纹（编排见 tools\release-gate.ps1，校验实现沿用 tools\signature-common.ps1）。
+  上传前强制门禁：安装器签名、SHA256SUMS.txt 覆盖情况与哈希一致性、ZIP 签名清单、
+  ZIP 内主程序与三个 Hook 的签名者指纹（编排见 tools\release-gate.ps1）。
   任一项不符直接失败，避免补发出客户端会拒绝的包。
 
 .EXAMPLE
@@ -46,7 +46,7 @@ if (-not (Test-Path -LiteralPath $sumsPath -PathType Leaf)) {
   throw "Checksum file does not exist: $sumsPath"
 }
 
-# 手动补发同样必须签名，且签名者指纹等于客户端内置信任指纹，否则 1.11+ 客户端会拒绝安装。
+# 手动补发同样必须签名，且签名者指纹等于客户端内置信任指纹，否则客户端会拒绝安装。
 # 自动镜像步骤（release.yml）也走本脚本，因此这一步同时是发布前的纵深防御。
 $expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
 $installerThumbprint = Get-VerifiedSignatureThumbprint -Path $setupPath -ExpectedThumbprint $expectedThumbprint
@@ -61,7 +61,8 @@ Write-Output "[publish] SHA256SUMS.txt 覆盖 ZIP（$zipSha）"
 
 # ZIP 内的主程序与阶段 D 的三个 Hook 都要校验：缺文件、未签名或指纹不符都不允许补发。
 # 只有主程序过门、Hook 漏检时，用户会在新版本里收到"Hook 无法启动"的静默失效。
-foreach ($verified in @(Assert-ArchiveExecutables -ZipPath $zipPath -ExpectedThumbprint $expectedThumbprint)) {
+# Assert-ArchiveExecutables 会先验证签名清单覆盖 ZIP 全部普通文件，再检查各个程序的 Authenticode。
+foreach ($verified in @(Assert-ArchiveExecutables -ZipPath $zipPath -ExpectedThumbprint $expectedThumbprint -ExpectedManifestThumbprint $expectedThumbprint -RepoRoot $RepoRoot -ExpectedVersion $Version)) {
   Write-Output "[publish] ZIP 内 $($verified.Name) 签名校验通过（$($verified.Thumbprint)）"
 }
 

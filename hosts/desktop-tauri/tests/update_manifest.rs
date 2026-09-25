@@ -15,9 +15,9 @@ const HOOK: &[u8] = include_bytes!("fixtures/release-manifest/tools/hooks/instal
 const MANIFEST: &[u8] = include_bytes!("fixtures/release-manifest/RELEASE-MANIFEST.json");
 const SIGNATURE: &[u8] = include_bytes!("fixtures/release-manifest/RELEASE-MANIFEST.p7s");
 const SHA384_SIGNATURE: &[u8] =
-    include_bytes!("fixtures/release-manifest/RELEASE-MANIFEST.sha384.p7s");
+    include_bytes!("fixtures/release-manifest-negative/RELEASE-MANIFEST.sha384.p7s");
 const MULTI_SIGNATURE: &[u8] =
-    include_bytes!("fixtures/release-manifest/RELEASE-MANIFEST.multi.p7s");
+    include_bytes!("fixtures/release-manifest-negative/RELEASE-MANIFEST.multi.p7s");
 
 fn test_dir(prefix: &str) -> tempfile::TempDir {
     tempfile::Builder::new()

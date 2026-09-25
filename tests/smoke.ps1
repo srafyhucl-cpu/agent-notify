@@ -38,7 +38,7 @@ function Resolve-GoCommand {
 }
 
 # 0. PowerShell 语法解析
-foreach ($file in @('install.ps1', 'uninstall.ps1', 'tools\build-release.ps1', 'tools\test.ps1', 'tools\lint.ps1', 'tests\smoke.ps1')) {
+foreach ($file in @('install.ps1', 'uninstall.ps1', 'tools\build-release.ps1', 'tools\release-manifest.ps1', 'tools\test.ps1', 'tools\lint.ps1', 'tests\smoke.ps1')) {
   $tokens = $null
   $errors = $null
   [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot $file), [ref]$tokens, [ref]$errors)

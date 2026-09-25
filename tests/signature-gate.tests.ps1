@@ -68,7 +68,8 @@ function Get-SignedFixture {
   return $null
 }
 
-$tempBase = [IO.Path]::GetTempPath()
+$tempBase = Join-Path ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')) 'Temp'
+New-Item -ItemType Directory -Force -Path $tempBase | Out-Null
 
 # 1) 内置指纹必须是可用的 40 位十六进制值。
 $expected = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
@@ -82,21 +83,39 @@ if ($expected -notmatch '^[0-9A-F]{40}$') {
 $tamperRoot = Join-Path $tempBase ('agent-notify-siggate-' + [guid]::NewGuid().ToString('N'))
 $tamperedValue = '1111111111111111111111111111111111111111'
 try {
-  $tamperDir = Join-Path $tamperRoot 'internal\update'
+  $tamperDir = Join-Path $tamperRoot 'hosts\desktop-tauri\src\update'
   New-Item -ItemType Directory -Force -Path $tamperDir | Out-Null
-  $fakeSource = "package update`n`nconst defaultSignatureThumbprint = `"$tamperedValue`"`n"
-  [IO.File]::WriteAllText((Join-Path $tamperDir 'signature.go'), $fakeSource, (New-Object Text.UTF8Encoding($false)))
+  $fakeSource = "pub const DEFAULT_SIGNATURE_THUMBPRINT: &str = `"$tamperedValue`";`n"
+  [IO.File]::WriteAllText((Join-Path $tamperDir 'verify.rs'), $fakeSource, (New-Object Text.UTF8Encoding($false)))
 
   $tampered = Get-ExpectedSignatureThumbprint -RepoRoot $tamperRoot
   if ($tampered -ne $tamperedValue) {
-    Add-Failure "篡改后的 signature.go 未被读取：得到 $tampered"
+    Add-Failure "篡改后的 verify.rs 未被读取：得到 $tampered"
   } elseif ($tampered -eq $expected) {
     Add-Failure '篡改前后指纹相同，说明指纹可能被硬编码'
   } else {
-    Write-Output "[signature-gate] ok: 指纹随源码变化（$tampered）"
+    Write-Output "[signature-gate] ok: 指纹随 Rust 源码变化（$tampered）"
   }
 
-  # 3) 已签名样本：正确指纹放行，非内置指纹拒绝（模拟证书轮换未同步内置指纹）。
+  # 3) 旧 Go 常量在没有 Rust 源文件的兼容仓库中仍可读取。
+  $legacyTamperRoot = Join-Path $tempBase ('agent-notify-siggate-legacy-' + [guid]::NewGuid().ToString('N'))
+  try {
+    $legacyDir = Join-Path $legacyTamperRoot 'internal\update'
+    New-Item -ItemType Directory -Force -Path $legacyDir | Out-Null
+    $legacyValue = '2222222222222222222222222222222222222222'
+    $legacySource = "const defaultSignatureThumbprint = `"$legacyValue`"`n"
+    [IO.File]::WriteAllText((Join-Path $legacyDir 'signature.go'), $legacySource, (New-Object Text.UTF8Encoding($false)))
+    $legacyThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $legacyTamperRoot
+    if ($legacyThumbprint -ne $legacyValue) {
+      Add-Failure "旧 Go 指纹未被读取：得到 $legacyThumbprint"
+    } else {
+      Write-Output "[signature-gate] ok: 旧 Go 指纹兼容读取（$legacyThumbprint）"
+    }
+  } finally {
+    if (Test-Path -LiteralPath $legacyTamperRoot) { Remove-Item -LiteralPath $legacyTamperRoot -Recurse -Force }
+  }
+
+  # 4) 已签名样本：正确指纹放行，非内置指纹拒绝（模拟证书轮换未同步）。
   $fixture = Get-SignedFixture
   if (-not $fixture) {
     Write-Warning '[signature-gate] 未找到已签名的系统样本，跳过签名放行/拒绝断言'
@@ -109,7 +128,7 @@ try {
   if (Test-Path -LiteralPath $tamperRoot) { Remove-Item -LiteralPath $tamperRoot -Recurse -Force }
 }
 
-# 4) 未签名样本必须被拒绝。
+# 5) 未签名样本必须被拒绝。
 $unsigned = Join-Path $tempBase ('agent-notify-unsigned-' + [guid]::NewGuid().ToString('N') + '.exe')
 try {
   [IO.File]::WriteAllBytes($unsigned, [byte[]](0x4D, 0x5A))
@@ -118,7 +137,7 @@ try {
   if (Test-Path -LiteralPath $unsigned) { Remove-Item -LiteralPath $unsigned -Force }
 }
 
-# 5) 补发/镜像路径的产物门禁（tools/release-gate.ps1）：
+# 6) 补发/镜像路径的产物门禁（tools/release-gate.ps1）：
 #    ZIP 内三个 Hook 缺一个、或 Hook 未签名/指纹不符，都必须在上传前失败。
 . (Join-Path $RepoRoot 'tools\release-gate.ps1')
 $publishScript = [IO.File]::ReadAllText((Join-Path $RepoRoot 'tools\publish-release.ps1'))
@@ -134,61 +153,112 @@ function New-GateArchive {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [string[]]$SignedLeaves = @(),
-    [string[]]$UnsignedLeaves = @()
+    [string[]]$UnsignedLeaves = @(),
+    [string[]]$ExtraFiles = @(),
+    [switch]$OmitManifest,
+    [switch]$OmitSignature,
+    [switch]$TamperManifest,
+    [switch]$TamperPayload
   )
-  # PowerShell 的类型字面量只在已加载的程序集里查找：两个程序集都要显式加载。
-  Add-Type -AssemblyName System.IO.Compression.FileSystem
-  Add-Type -AssemblyName System.IO.Compression
-  $fixture = Get-SignedFixture
-  $archive = [IO.Compression.ZipFile]::Open($Path, [IO.Compression.ZipArchiveMode]::Create)
+  # 先生成包含全部条目的 staging，再用临时内存 PFX 签署清单，最后从 staging 打包。
+  # 这样归档门禁测试本身也覆盖“清单声明文件集合”和 Authenticode 两层校验。
+  $stagingRoot = Join-Path $gateRoot ('archive-staging-' + [guid]::NewGuid().ToString('N'))
+  $payloadRoot = Join-Path $stagingRoot 'Agent-notify'
   try {
+    New-Item -ItemType Directory -Force -Path (Join-Path $payloadRoot 'bin') | Out-Null
+    $fixture = Get-SignedFixture
     foreach ($leaf in $SignedLeaves) {
-      [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-        $archive, $fixture, "Agent-notify/bin/$leaf", [IO.Compression.CompressionLevel]::Optimal)
+      Copy-Item -LiteralPath $fixture -Destination (Join-Path $payloadRoot "bin\$leaf") -Force
     }
     foreach ($leaf in $UnsignedLeaves) {
-      $entry = $archive.CreateEntry("Agent-notify/bin/$leaf", [IO.Compression.CompressionLevel]::Optimal)
-      $stream = $entry.Open()
-      try { $stream.Write([byte[]](0x4D, 0x5A), 0, 2) } finally { $stream.Dispose() }
+      [IO.File]::WriteAllBytes((Join-Path $payloadRoot "bin\$leaf"), [byte[]](0x4D, 0x5A))
+    }
+    New-ReleaseManifest -RepoRoot $RepoRoot -Root $payloadRoot -Version $gateManifestVersion | Out-Null
+    Protect-ReleaseManifest -RepoRoot $RepoRoot -Root $payloadRoot -Version $gateManifestVersion -ExpectedThumbprint $gateManifestThumbprint | Out-Null
+    if ($OmitManifest) { Remove-Item -LiteralPath (Join-Path $payloadRoot 'RELEASE-MANIFEST.json') -Force }
+    if ($OmitSignature) { Remove-Item -LiteralPath (Join-Path $payloadRoot 'RELEASE-MANIFEST.p7s') -Force }
+    if ($TamperManifest) {
+      $manifestPath = Join-Path $payloadRoot 'RELEASE-MANIFEST.json'
+      $manifestBytes = [IO.File]::ReadAllBytes($manifestPath) + [byte[]](0x20)
+      [IO.File]::WriteAllBytes($manifestPath, $manifestBytes)
+    }
+    if ($TamperPayload) {
+      $payloadFile = Get-ChildItem -LiteralPath (Join-Path $payloadRoot 'bin') -File | Select-Object -First 1
+      [IO.File]::WriteAllBytes($payloadFile.FullName, ([IO.File]::ReadAllBytes($payloadFile.FullName) + [byte[]](0x20)))
+    }
+    foreach ($relative in $ExtraFiles) {
+      $extraPath = Join-Path $payloadRoot ($relative.Replace('/', '\'))
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $extraPath) | Out-Null
+      [IO.File]::WriteAllText($extraPath, 'extra', (New-Object Text.UTF8Encoding($false)))
+    }
+
+    # PowerShell 的类型字面量只在已加载的程序集里查找：两个程序集都要显式加载。
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    Add-Type -AssemblyName System.IO.Compression
+    $archive = [IO.Compression.ZipFile]::Open($Path, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+      foreach ($file in @(Get-ChildItem -LiteralPath $payloadRoot -Recurse -File)) {
+        $entryName = 'Agent-notify/' + (Get-ReleaseManifestRelativePath -Root $payloadRoot -Path $file.FullName)
+        [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+          $archive, $file.FullName, $entryName, [IO.Compression.CompressionLevel]::Optimal)
+      }
+    } finally {
+      $archive.Dispose()
     }
   } finally {
-    $archive.Dispose()
+    if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot -Recurse -Force }
   }
 }
 
 $gateRoot = Join-Path $tempBase ('agent-notify-release-gate-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $gateRoot | Out-Null
-$gateFixture = Get-SignedFixture
-if (-not $gateFixture) {
-  Write-Warning '[signature-gate] 未找到已签名的系统样本，跳过补发门禁的归档断言'
-} else {
+$gateManifestVersion = ([IO.File]::ReadAllText((Join-Path $RepoRoot 'VERSION'))).Trim()
+$gateManifestThumbprint = $null
+$manifestCertificate = $null
+$manifestPassword = $null
+$manifestPfx = $null
+$previousPfxBase64 = $env:AGENT_NOTIFY_SIGN_PFX_BASE64
+$previousPfxPassword = $env:AGENT_NOTIFY_SIGN_PFX_PASSWORD
+try {
+  $gateFixture = Get-SignedFixture
+  if (-not $gateFixture) {
+    Write-Warning '[signature-gate] 未找到已签名的系统样本，跳过补发门禁的归档断言'
+  } else {
+    $manifestCertificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=AgentNotify Release Manifest Test' -CertStoreLocation 'Cert:\CurrentUser\My' -NotBefore (Get-Date).AddYears(-1) -NotAfter (Get-Date).AddYears(2)
+    $manifestPassword = New-Object System.Security.SecureString
+    foreach ($character in 'agentnotify-test-password'.ToCharArray()) { $manifestPassword.AppendChar($character) }
+    $manifestPassword.MakeReadOnly()
+    $manifestPfx = $manifestCertificate.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $manifestPassword)
+    $env:AGENT_NOTIFY_SIGN_PFX_BASE64 = [Convert]::ToBase64String($manifestPfx)
+    $env:AGENT_NOTIFY_SIGN_PFX_PASSWORD = 'agentnotify-test-password'
+    $gateManifestThumbprint = $manifestCertificate.Thumbprint
   $fixtureThumbprint = (Get-AuthenticodeSignature -LiteralPath $gateFixture).SignerCertificate.Thumbprint
   $allLeaves = @(
     'agentnotify-desktop.exe', 'agentnotify-ingress.exe',
     'agentnotify-codex-hook.exe', 'agentnotify-antigravity-hook.exe', 'agentnotify-devin-hook.exe'
   )
 
-  # 5a) 只有主程序、三个 Hook 全缺：必须点名缺的 Hook 并失败。
+  # 6a) 只有主程序、三个 Hook 全缺：必须点名缺的 Hook 并失败。
   $missingHooksZip = Join-Path $gateRoot 'missing-hooks.zip'
   New-GateArchive -Path $missingHooksZip -SignedLeaves @('agentnotify-desktop.exe', 'agentnotify-ingress.exe', 'agentnotify-antigravity-hook.exe')
   Assert-FailsWith 'ZIP 内缺少 Codex Hook' 'agentnotify-codex-hook.exe' {
-    Assert-ArchiveExecutables -ZipPath $missingHooksZip -ExpectedThumbprint $fixtureThumbprint
+    Assert-ArchiveExecutables -ZipPath $missingHooksZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint $gateManifestThumbprint -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion
   }
 
-  # 5b) Hook 存在但未签名：必须点名该 Hook 并失败（证明 Hook 真的进了签名校验循环）。
+  # 6b) Hook 存在但未签名：必须点名该 Hook 并失败（证明 Hook 真的进了签名校验循环）。
   $unsignedHookZip = Join-Path $gateRoot 'unsigned-hook.zip'
   New-GateArchive -Path $unsignedHookZip `
     -SignedLeaves @('agentnotify-desktop.exe', 'agentnotify-ingress.exe', 'agentnotify-codex-hook.exe', 'agentnotify-antigravity-hook.exe') `
     -UnsignedLeaves @('agentnotify-devin-hook.exe')
   Assert-FailsWith 'ZIP 内 Devin Hook 未签名' 'agentnotify-devin-hook.exe' {
-    Assert-ArchiveExecutables -ZipPath $unsignedHookZip -ExpectedThumbprint $fixtureThumbprint
+    Assert-ArchiveExecutables -ZipPath $unsignedHookZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint $gateManifestThumbprint -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion
   }
 
-  # 5c) 全部齐备且指纹匹配：放行，并且逐个返回校验结果。
+  # 6c) 全部齐备且指纹匹配：放行，并且逐个返回校验结果。
   $okZip = Join-Path $gateRoot 'all-present.zip'
   New-GateArchive -Path $okZip -SignedLeaves $allLeaves
   try {
-    $verified = @(Assert-ArchiveExecutables -ZipPath $okZip -ExpectedThumbprint $fixtureThumbprint)
+    $verified = @(Assert-ArchiveExecutables -ZipPath $okZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint $gateManifestThumbprint -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion)
     $verifiedNames = @($verified | ForEach-Object { $_.Name })
     if ($verified.Count -ne $allLeaves.Count) {
       Add-Failure "归档门禁返回的产物数量不对：$($verified.Count)（期望 $($allLeaves.Count)）"
@@ -201,7 +271,39 @@ if (-not $gateFixture) {
     Add-Failure "产物齐备的 ZIP 被拒绝：$($_.Exception.Message)"
   }
 
-  # 5d) SHA256SUMS.txt：必须覆盖产物、哈希一致。
+  # 6d) 清单本身的缺失、篡改、额外文件和签名者错误也必须 fail-closed。
+  $missingManifestZip = Join-Path $gateRoot 'missing-manifest.zip'
+  New-GateArchive -Path $missingManifestZip -SignedLeaves $allLeaves -OmitManifest
+  Assert-FailsWith 'ZIP 缺少清单' 'RELEASE-MANIFEST.json' {
+    Assert-ArchiveExecutables -ZipPath $missingManifestZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint $gateManifestThumbprint -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion
+  }
+  $missingSignatureZip = Join-Path $gateRoot 'missing-signature.zip'
+  New-GateArchive -Path $missingSignatureZip -SignedLeaves $allLeaves -OmitSignature
+  Assert-FailsWith 'ZIP 缺少清单签名' 'RELEASE-MANIFEST.p7s' {
+    Assert-ArchiveExecutables -ZipPath $missingSignatureZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint $gateManifestThumbprint -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion
+  }
+  $tamperedManifestZip = Join-Path $gateRoot 'tampered-manifest.zip'
+  New-GateArchive -Path $tamperedManifestZip -SignedLeaves $allLeaves -TamperManifest
+  Assert-FailsWith '清单篡改' 'CMS 签名校验失败' {
+    Assert-ArchiveExecutables -ZipPath $tamperedManifestZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint $gateManifestThumbprint -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion
+  }
+  $tamperedPayloadZip = Join-Path $gateRoot 'tampered-payload.zip'
+  New-GateArchive -Path $tamperedPayloadZip -SignedLeaves $allLeaves -TamperPayload
+  Assert-FailsWith '清单声明文件被篡改' '发布包文件与清单不一致' {
+    Assert-ArchiveExecutables -ZipPath $tamperedPayloadZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint $gateManifestThumbprint -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion
+  }
+  $extraFileZip = Join-Path $gateRoot 'extra-file.zip'
+  New-GateArchive -Path $extraFileZip -SignedLeaves $allLeaves -ExtraFiles @('extra.dll')
+  Assert-FailsWith '清单未声明额外文件' '文件集合与 ZIP 实际文件集合不一致' {
+    Assert-ArchiveExecutables -ZipPath $extraFileZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint $gateManifestThumbprint -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion
+  }
+  $wrongManifestSignerZip = Join-Path $gateRoot 'wrong-manifest-signer.zip'
+  New-GateArchive -Path $wrongManifestSignerZip -SignedLeaves $allLeaves
+  Assert-FailsWith '清单签名者错误' '签名者指纹不匹配' {
+    Assert-ArchiveExecutables -ZipPath $wrongManifestSignerZip -ExpectedThumbprint $fixtureThumbprint -ExpectedManifestThumbprint ('0' * 40) -RepoRoot $RepoRoot -ExpectedVersion $gateManifestVersion
+  }
+
+  # 6e) SHA256SUMS.txt：必须覆盖产物、哈希一致。
   $sumsArtifact = Join-Path $gateRoot 'artifact.bin'
   [IO.File]::WriteAllBytes($sumsArtifact, [byte[]](1, 2, 3, 4, 5))
   $artifactHash = (Get-FileHash -LiteralPath $sumsArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -218,6 +320,23 @@ if (-not $gateFixture) {
   [IO.File]::WriteAllLines($sumsPath, @("$artifactHash  artifact.bin"), [Text.Encoding]::ASCII)
   Assert-Passes 'SHA256SUMS.txt 覆盖且哈希一致' {
     Assert-SumsCoversArtifact -SumsPath $sumsPath -ArtifactPath $sumsArtifact
+  }
+  }
+} finally {
+  if ($null -eq $previousPfxBase64) {
+    Remove-Item Env:AGENT_NOTIFY_SIGN_PFX_BASE64 -ErrorAction SilentlyContinue
+  } else {
+    $env:AGENT_NOTIFY_SIGN_PFX_BASE64 = $previousPfxBase64
+  }
+  if ($null -eq $previousPfxPassword) {
+    Remove-Item Env:AGENT_NOTIFY_SIGN_PFX_PASSWORD -ErrorAction SilentlyContinue
+  } else {
+    $env:AGENT_NOTIFY_SIGN_PFX_PASSWORD = $previousPfxPassword
+  }
+  if ($manifestPfx) { [Array]::Clear($manifestPfx, 0, $manifestPfx.Length) }
+  if ($manifestPassword) { $manifestPassword.Dispose() }
+  if ($manifestCertificate) {
+    Remove-Item -LiteralPath ("Cert:\CurrentUser\My\" + $manifestCertificate.Thumbprint) -Force -ErrorAction SilentlyContinue
   }
 }
 if (Test-Path -LiteralPath $gateRoot) { Remove-Item -LiteralPath $gateRoot -Recurse -Force }

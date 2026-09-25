@@ -9,6 +9,7 @@
   三个 Hook（agentnotify-codex-hook.exe / agentnotify-antigravity-hook.exe /
   agentnotify-devin-hook.exe）、OpenCode V2 插件模板与四个 Agent 接入助手，
   以及 Devin V2 回复扩展与 Command Code V2 mod 的源文件；
+  正式 ZIP 额外包含由发布证书签名的 RELEASE-MANIFEST.json/.p7s，清单覆盖全部普通文件；
   不再包含旧 Go 版 agent-notify.exe 与旧 Win32 UI。
   构建缓存与临时目录固定在项目所在盘的 Temp 下，不使用 C 盘。
 
@@ -24,6 +25,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'signature-common.ps1')
+. (Join-Path $PSScriptRoot 'release-manifest.ps1')
+. (Join-Path $PSScriptRoot 'release-gate.ps1')
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 
 $versionPath = Join-Path $RepoRoot 'VERSION'
@@ -179,7 +182,7 @@ try {
     }
   }
 
-  # 4) ZIP：便携与开发用途，内容与正式安装器一致，不含旧 Go 产物与用户状态。
+  # 4) 先把正式 ZIP 的全部内容放入独立 staging，再从 staging 生成清单和最终 ZIP。
   $pluginSource = Join-Path $RepoRoot 'plugin\rust\agent-notify.ts'
   $pluginSourceText = [IO.File]::ReadAllText($pluginSource)
   if (-not [regex]::IsMatch($pluginSourceText, '(?m)^const BAKED_INGRESS = ""\s*$')) {
@@ -197,76 +200,84 @@ try {
     'install-devin-v2.ps1',
     'install-commandcode-v2.ps1'
   )
+  $payloadRoot = Join-Path $buildRoot 'payload\Agent-notify'
+  New-Item -ItemType Directory -Force -Path $payloadRoot | Out-Null
+
+  function Add-StagedReleaseFile {
+    param(
+      [Parameter(Mandatory = $true)][string]$Source,
+      [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { throw "Release source is missing: $Source" }
+    $destination = Join-Path $payloadRoot ($RelativePath.Replace('/', '\'))
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+    Copy-Item -LiteralPath $Source -Destination $destination -Force
+  }
+
+  Add-StagedReleaseFile -Source $stagedDesktop -RelativePath 'bin/agentnotify-desktop.exe'
+  Add-StagedReleaseFile -Source $stagedIngress -RelativePath 'bin/agentnotify-ingress.exe'
+  foreach ($hook in $hookBuilds) {
+    Add-StagedReleaseFile -Source (Join-Path $buildRoot $hook.ExeName) -RelativePath "bin/$($hook.ExeName)"
+  }
+  Add-StagedReleaseFile -Source $pluginSource -RelativePath 'plugin/agent-notify.ts'
+  foreach ($name in $devinExtensionFiles) {
+    Add-StagedReleaseFile -Source (Join-Path $RepoRoot "plugin\devin-extension-v2\$name") -RelativePath "plugin/devin-extension-v2/$name"
+  }
+  Add-StagedReleaseFile -Source $commandCodeSource -RelativePath 'plugin/commandcode-v2/agent-notify.ts'
+  foreach ($name in $hookInstallerScripts) {
+    Add-StagedReleaseFile -Source (Join-Path $RepoRoot "tools\hooks\$name") -RelativePath "tools/hooks/$name"
+  }
+  [IO.File]::WriteAllText((Join-Path $payloadRoot 'VERSION'), $Version, (New-Object Text.UTF8Encoding($false)))
+  foreach ($name in @('README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'LICENSE', '.env.example')) {
+    Add-StagedReleaseFile -Source (Join-Path $RepoRoot $name) -RelativePath $name
+  }
+  foreach ($name in @('ARCHITECTURE.md', 'TROUBLESHOOTING.md')) {
+    Add-StagedReleaseFile -Source (Join-Path $RepoRoot "docs\$name") -RelativePath "docs/$name"
+  }
+
+  $hasManifestSigningMaterial = -not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGN_PFX_BASE64)
+  if ($hasManifestSigningMaterial -and [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {
+    throw '存在发布签名 PFX 时必须设置 AGENT_NOTIFY_SIGNTOOL；本地开发包请显式使用 -SkipInstaller。'
+  }
+  if (-not $SkipInstaller -and [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {
+    throw '正式发布必须设置 AGENT_NOTIFY_SIGNTOOL；本地开发包请显式使用 -SkipInstaller。'
+  }
+  $expectedThumbprint = $null
+  $hasSignedManifest = $false
+  if ($hasManifestSigningMaterial) {
+    $expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $RepoRoot
+    New-ReleaseManifest -RepoRoot $RepoRoot -Root $payloadRoot -Version $Version | Out-Null
+    Protect-ReleaseManifest -RepoRoot $RepoRoot -Root $payloadRoot -Version $Version -ExpectedThumbprint $expectedThumbprint | Out-Null
+    $hasSignedManifest = $true
+  } elseif (-not $SkipInstaller) {
+    throw '正式发布缺少 AGENT_NOTIFY_SIGN_PFX_BASE64，无法生成受信任的 ZIP 清单。'
+  } else {
+    Write-Warning '[release] -SkipInstaller 开发包未签名，不会通过正式发布门禁。'
+  }
 
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
   $zipPath = Join-Path $OutDir "Agent-notify-v$Version.zip"
   if (Test-Path -LiteralPath $zipPath) { [IO.File]::Delete($zipPath) }
-
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   Add-Type -AssemblyName System.IO.Compression
   $archive = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Create)
-
-  function Add-ReleaseFile {
-    param(
-      [IO.Compression.ZipArchive]$Zip,
-      [string]$Source,
-      [string]$EntryName
-    )
-    if (-not (Test-Path -LiteralPath $Source)) {
-      throw "Release source is missing: $Source"
-    }
-    [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
-      $Zip,
-      $Source,
-      $EntryName,
-      [IO.Compression.CompressionLevel]::Optimal
-    )
-  }
-
   try {
-    Add-ReleaseFile $archive $stagedDesktop 'Agent-notify/bin/agentnotify-desktop.exe'
-    Add-ReleaseFile $archive $stagedIngress 'Agent-notify/bin/agentnotify-ingress.exe'
-    foreach ($hook in $hookBuilds) {
-      Add-ReleaseFile $archive (Join-Path $buildRoot $hook.ExeName) "Agent-notify/bin/$($hook.ExeName)"
-    }
-    Add-ReleaseFile $archive $pluginSource 'Agent-notify/plugin/agent-notify.ts'
-    foreach ($name in $devinExtensionFiles) {
-      Add-ReleaseFile $archive (Join-Path $RepoRoot "plugin\devin-extension-v2\$name") "Agent-notify/plugin/devin-extension-v2/$name"
-    }
-    Add-ReleaseFile $archive $commandCodeSource 'Agent-notify/plugin/commandcode-v2/agent-notify.ts'
-    foreach ($name in $hookInstallerScripts) {
-      Add-ReleaseFile $archive (Join-Path $RepoRoot "tools\hooks\$name") "Agent-notify/tools/hooks/$name"
-    }
-    # VERSION 由解析后的版本生成，包内元数据不可能与刚构建的程序不一致。
-    $versionEntry = $archive.CreateEntry('Agent-notify/VERSION', [IO.Compression.CompressionLevel]::Optimal)
-    $versionWriter = New-Object IO.StreamWriter($versionEntry.Open(), (New-Object Text.UTF8Encoding($false)))
-    try {
-      $versionWriter.Write($Version)
-    } finally {
-      $versionWriter.Dispose()
-    }
-    foreach ($name in @('README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', 'LICENSE', '.env.example')) {
-      Add-ReleaseFile $archive (Join-Path $RepoRoot $name) "Agent-notify/$name"
-    }
-    foreach ($name in @('ARCHITECTURE.md', 'TROUBLESHOOTING.md')) {
-      Add-ReleaseFile $archive (Join-Path $RepoRoot "docs\$name") "Agent-notify/docs/$name"
+    foreach ($file in @(Get-ChildItem -LiteralPath $payloadRoot -Recurse -File)) {
+      $entryName = 'Agent-notify/' + (Get-ReleaseManifestRelativePath -Root $payloadRoot -Path $file.FullName)
+      [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $archive,
+        $file.FullName,
+        $entryName,
+        [IO.Compression.CompressionLevel]::Optimal
+      )
     }
   } finally {
     $archive.Dispose()
   }
 
   $forbiddenReleaseFiles = @(
-    'clawbot.json',
-    'config.json',
-    'opencode.off',
-    'codex.off',
-    'antigravity.off',
-    'devin.off',
-    'commandcode.off',
-    'push.log',
-    'opencode-sent.json',
-    'agent-notify-install.json',
-    'agent-notify.exe'
+    'clawbot.json', 'config.json', 'opencode.off', 'codex.off', 'antigravity.off', 'devin.off',
+    'commandcode.off', 'push.log', 'opencode-sent.json', 'agent-notify-install.json', 'agent-notify.exe'
   )
   $verificationArchive = [IO.Compression.ZipFile]::OpenRead($zipPath)
   try {
@@ -278,10 +289,8 @@ try {
         throw "Release archive contains forbidden entry: $($entry.FullName)"
       }
     }
-    # 阶段 D 的四个适配器产物必须真的进包：漏一个，安装器按任务接入时就会失败。
     $requiredReleaseEntries = @(
-      'Agent-notify/bin/agentnotify-desktop.exe',
-      'Agent-notify/bin/agentnotify-ingress.exe'
+      'Agent-notify/bin/agentnotify-desktop.exe', 'Agent-notify/bin/agentnotify-ingress.exe'
     )
     foreach ($hook in $hookBuilds) { $requiredReleaseEntries += "Agent-notify/bin/$($hook.ExeName)" }
     $requiredReleaseEntries += 'Agent-notify/plugin/agent-notify.ts'
@@ -289,13 +298,23 @@ try {
     $requiredReleaseEntries += 'Agent-notify/plugin/commandcode-v2/agent-notify.ts'
     foreach ($name in $hookInstallerScripts) { $requiredReleaseEntries += "Agent-notify/tools/hooks/$name" }
     $requiredReleaseEntries += 'Agent-notify/VERSION'
+    if ($hasSignedManifest) {
+      $contract = Get-ReleaseManifestContract -RepoRoot $RepoRoot
+      $requiredReleaseEntries += "Agent-notify/$($contract.manifestFileName)"
+      $requiredReleaseEntries += "Agent-notify/$($contract.signatureFileName)"
+    }
     foreach ($required in $requiredReleaseEntries) {
-      if (-not $entryNames.Contains($required)) {
-        throw "Release archive is missing required entry: $required"
-      }
+      if (-not $entryNames.Contains($required)) { throw "Release archive is missing required entry: $required" }
     }
   } finally {
     $verificationArchive.Dispose()
+  }
+  if ($hasSignedManifest) {
+    Assert-ArchiveReleaseManifest -RepoRoot $RepoRoot -ZipPath $zipPath -Version $Version -ExpectedThumbprint $expectedThumbprint | Out-Null
+    $verifiedExecutables = @(Assert-ArchiveExecutables -ZipPath $zipPath -ExpectedThumbprint $expectedThumbprint -ExpectedManifestThumbprint $expectedThumbprint -RepoRoot $RepoRoot -ExpectedVersion $Version)
+    foreach ($verified in $verifiedExecutables) {
+      Write-Output "[release] ZIP 内签名校验通过：$($verified.Name)（$($verified.Thumbprint)）"
+    }
   }
 
   if (-not $SkipInstaller) {

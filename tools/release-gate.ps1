@@ -1,17 +1,20 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  发布/补发前的产物门禁：校验 ZIP 内的必需程序与 SHA256SUMS.txt 的覆盖情况。
+  发布/补发前的产物门禁：校验签名发布清单、ZIP 内的必需程序与 SHA256SUMS.txt 覆盖情况。
 
 .DESCRIPTION
   tools/publish-release.ps1（手动补发与 release workflow 的镜像步骤）必须保证发布的每个可执行
-  文件都带客户端内置信任指纹对应的签名：客户端会校验安装包与 ZIP 内程序的 Authenticode 签名者
-  指纹，也会用 SHA256SUMS.txt 校验下载的产物，任一不符都会让用户卡在升级失败。
+  文件都带客户端内置信任指纹对应的签名，并且 ZIP 的全部普通文件都由同一信任锚签名的清单覆盖。
+  清单校验实现位于 tools/release-manifest.ps1，本模块只负责编排，避免发布脚本各自实现一套规则。
 
-  本模块只做编排，签名校验沿用 tools/signature-common.ps1 的 Get-VerifiedSignatureThumbprint，
-  不另写一套校验实现。
+  本模块沿用 tools/signature-common.ps1 的 Get-VerifiedSignatureThumbprint，
+  不另写一套 Authenticode 校验实现。
 #>
 
+. (Join-Path $PSScriptRoot 'release-manifest.ps1')
+
+$script:ReleaseGateRepoRoot = Split-Path $PSScriptRoot -Parent
 $script:ReleaseArchiveEntryPrefix = 'Agent-notify/bin/'
 # ZIP 内 AgentNotify 自己的可执行文件：主程序 + 阶段 D 的三个 Hook。缺一个都不允许发布。
 $script:ReleaseArchiveExecutables = @(
@@ -68,6 +71,9 @@ function Assert-ArchiveExecutables {
   param(
     [Parameter(Mandatory = $true)][string]$ZipPath,
     [Parameter(Mandatory = $true)][string]$ExpectedThumbprint,
+    [string]$RepoRoot,
+    [string]$ExpectedVersion,
+    [string]$ExpectedManifestThumbprint,
     [string[]]$ExecutableNames = $script:ReleaseArchiveExecutables,
     [string]$EntryPrefix = $script:ReleaseArchiveEntryPrefix
   )
@@ -75,8 +81,26 @@ function Assert-ArchiveExecutables {
   if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
     throw "发布包不存在：$ZipPath"
   }
+  if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = $script:ReleaseGateRepoRoot
+  }
+  if ([string]::IsNullOrWhiteSpace($ExpectedVersion)) {
+    $versionPath = Join-Path $RepoRoot 'VERSION'
+    if (-not (Test-Path -LiteralPath $versionPath -PathType Leaf)) {
+      throw "无法确定发布版本：缺少 $versionPath"
+    }
+    $ExpectedVersion = ([IO.File]::ReadAllText($versionPath)).Trim()
+  }
+  if ([string]::IsNullOrWhiteSpace($ExpectedManifestThumbprint)) {
+    $ExpectedManifestThumbprint = $ExpectedThumbprint
+  }
+  # 先认证清单和完整文件集合，再逐个检查 Authenticode；正式包不能通过删掉控制文件绕过门禁。
+  Assert-ArchiveReleaseManifest -RepoRoot $RepoRoot -ZipPath $ZipPath -Version $ExpectedVersion -ExpectedThumbprint $ExpectedManifestThumbprint | Out-Null
   Add-Type -AssemblyName System.IO.Compression.FileSystem
-  $extractRoot = Join-Path ([IO.Path]::GetTempPath()) ('agent-notify-release-gate-' + [guid]::NewGuid().ToString('N'))
+  $driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
+  $tempBase = Join-Path $driveRoot 'Temp'
+  New-Item -ItemType Directory -Force -Path $tempBase | Out-Null
+  $extractRoot = Join-Path $tempBase ('agent-notify-release-gate-' + [guid]::NewGuid().ToString('N'))
   try {
     $archive = [IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {
@@ -84,7 +108,7 @@ function Assert-ArchiveExecutables {
       $missing = @()
       foreach ($leaf in $ExecutableNames) {
         $entryName = "$EntryPrefix$leaf"
-        $entry = $archive.Entries | Where-Object { $_.FullName -eq $entryName } | Select-Object -First 1
+        $entry = $archive.Entries | Where-Object { $_.FullName -ceq $entryName } | Select-Object -First 1
         if (-not $entry) {
           $missing += $entryName
           continue
