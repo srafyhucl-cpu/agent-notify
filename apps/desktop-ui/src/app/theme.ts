@@ -52,7 +52,31 @@ export function applyTheme(preference: ThemePreference): ResolvedTheme {
   if (typeof document !== "undefined") {
     document.documentElement.dataset.theme = resolved;
   }
+  if (
+    typeof window !== "undefined" &&
+    ("__TAURI_INTERNALS__" in window || "__TAURI__" in window)
+  ) {
+    try {
+      import("@tauri-apps/api/app")
+        .then(({ setTheme }) => {
+          void setTheme(resolved).catch(() => {});
+        })
+        .catch(() => {});
+      import("@tauri-apps/api/webviewWindow")
+        .then(({ getCurrentWebviewWindow }) => {
+          void getCurrentWebviewWindow().setTheme(resolved).catch(() => {});
+        })
+        .catch(() => {});
+    } catch {}
+  }
   return resolved;
+}
+
+// 模块加载时立即应用已记忆主题，尽早对齐原生标题栏明暗，避免首屏闪烁
+if (typeof window !== "undefined") {
+  try {
+    applyTheme(readPreference());
+  } catch {}
 }
 
 /** system 偏好下监听系统明暗变化；返回取消订阅函数。 */

@@ -17,6 +17,7 @@ const SHOW_LABEL: &str = "显示 AgentNotify";
 const PAUSE_LABEL: &str = "暂停通知";
 const RESUME_LABEL: &str = "恢复通知";
 const QUIT_LABEL: &str = "退出";
+const TRAY_ICON_RGBA: &[u8] = include_bytes!("../../icons/tray_icon_rgba_32.bin");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrayMenuAction {
@@ -127,20 +128,24 @@ pub fn install(app: &AppHandle<Wry>) -> Result<(), LifecycleError> {
 
     app.manage(TrayMenuState::new(pause_item));
 
-    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
+    let builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .tooltip("AgentNotify")
         .show_menu_on_left_click(false)
         .on_menu_event(handle_menu_event)
         .on_tray_icon_event(|tray, event| {
-            if matches!(
+            let activate = matches!(
                 event,
                 TrayIconEvent::Click {
                     button: MouseButton::Left,
                     button_state: MouseButtonState::Up,
                     ..
+                } | TrayIconEvent::DoubleClick {
+                    button: MouseButton::Left,
+                    ..
                 }
-            ) {
+            );
+            if activate {
                 if let Err(error) = show_main_window(tray.app_handle()) {
                     tracing::error!(
                         code = error.code(),
@@ -151,12 +156,12 @@ pub fn install(app: &AppHandle<Wry>) -> Result<(), LifecycleError> {
             }
         });
 
-    if let Some(icon) = app.default_window_icon().cloned() {
-        builder = builder.icon(icon);
-    }
-    builder.build(app).map_err(|error| {
+    let icon = tauri::image::Image::new(TRAY_ICON_RGBA, 32, 32);
+    let builder = builder.icon(icon);
+    let tray_icon = builder.build(app).map_err(|error| {
         LifecycleError::new("tray_create_failed", format!("创建系统托盘失败：{error}"))
     })?;
+    app.manage(tray_icon);
     Ok(())
 }
 
