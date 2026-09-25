@@ -10,7 +10,6 @@ import { PageHeader } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { useUpdateAgentConfigMutation } from "../../data/mutations";
 import { useAgents } from "../../data/useAgents";
-import { AgentDetail } from "./AgentDetail";
 import { AgentList } from "./AgentList";
 
 export interface AgentsPageProps {
@@ -91,16 +90,20 @@ export function AgentsPage({ bridge }: AgentsPageProps) {
           />
         ) : null}
 
-        {agents.length > 0 && selectedAgent ? (
-          <div className="agents-workspace">
+        {agents.length > 0 ? (
+          <div className="agents-container">
             <AgentList
               agents={agents}
-              selectedAgentId={selectedAgent.id}
+              selectedAgentId={
+                selectedAgentId === ""
+                  ? null
+                  : (selectedAgentId ?? agents[0]?.id ?? null)
+              }
               pendingAgentId={pendingAgentId}
-              onSelect={setSelectedAgentId}
+              bridge={bridge}
+              onSelect={(id) => setSelectedAgentId(id)}
               onToggle={(agent, enabled) => void toggleAgent(agent, enabled)}
             />
-            <AgentDetail agent={selectedAgent} bridge={bridge} />
           </div>
         ) : null}
       </div>

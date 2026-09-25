@@ -376,6 +376,19 @@ export function DiagnosticsPage({ bridge }: DiagnosticsPageProps) {
 
         {diagnostics ? (
           <>
+            <div
+              className="diagnostics-purpose-card"
+              role="region"
+              aria-label="诊断页面功能定位"
+            >
+              <div className="diagnostics-purpose-content">
+                <strong>系统健康诊断与排障中心（功能定位说明）</strong>
+                <p>
+                  本页面用于监测后台运行时、SQLite 存储、消息网关与历史迁移的运行健康状态。当遇到通知未送达、通道断连或数据迁移失败时，可在此定位故障根因并执行修复或导出诊断日志。
+                </p>
+              </div>
+            </div>
+
             <SectionCard
               title="旧数据迁移"
               description="迁移状态来自运行时快照；失败时仅提供查看报告和重新检测。"

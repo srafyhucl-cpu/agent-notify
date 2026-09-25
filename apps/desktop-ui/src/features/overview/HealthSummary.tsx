@@ -1,10 +1,11 @@
-import { Bot, Gauge, RadioTower } from "lucide-react";
+import { ArrowUpRight, Bot, Gauge, RadioTower } from "lucide-react";
 
 import type {
   ChannelAccountDto,
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
 } from "../../bridge/types";
+import { SafeLink } from "../../components/SafeLink";
 
 export const RUNTIME_STATE_LABELS: Record<RuntimeSummaryDto["state"], string> = {
   Starting: "启动中",
@@ -42,7 +43,7 @@ export interface HealthSummaryProps {
 /**
  * 运行概况汇总卡：渠道账号 / Agent 接入 / 运行状态 三列共用一个容器。
  * 列顺序遵循产品原则「以渠道为主」——渠道健康居首，其数字为全页视觉锚点；
- * 每项数值只在此处呈现一次，不再有第二块重复的明细带。
+ * 前两列支持点击一键下钻到渠道与 Agent 模块，动线自然顺畅。
  */
 export function HealthSummary({
   snapshot,
@@ -60,47 +61,61 @@ export function HealthSummary({
   const invalidChannels = channels.filter(channelInvalid).length;
 
   return (
-    <section className="overview-summary" aria-label="运行概况">
+    <section className="overview-summary overview-summary-grid" aria-label="运行概况">
       <section
-        className="overview-summary-section"
+        className="overview-summary-section overview-metric-card"
         aria-labelledby="overview-channels"
       >
-        <header className="overview-summary-header">
-          <div className="overview-summary-title">
-            <RadioTower aria-hidden="true" size={15} />
-            <h2 id="overview-channels">渠道账号</h2>
-          </div>
-        </header>
-        <p className="overview-summary-value">
-          {onlineChannels}
-          <span className="overview-summary-suffix"> / {channels.length}</span>
-        </p>
-        <p className="overview-summary-detail">
-          等待登录 {waitingChannels} · 失效 {invalidChannels}
-        </p>
+        <SafeLink
+          to="/channels"
+          className="overview-summary-section--link"
+          aria-label="查看渠道账号详情"
+        >
+          <header className="overview-summary-header">
+            <div className="overview-summary-title">
+              <RadioTower aria-hidden="true" size={16} />
+              <h2 id="overview-channels">渠道账号</h2>
+            </div>
+            <ArrowUpRight aria-hidden="true" size={16} />
+          </header>
+          <p className="overview-summary-value">
+            {onlineChannels}
+            <span className="overview-summary-suffix"> / {channels.length}</span>
+          </p>
+          <p className="overview-summary-detail">
+            等待登录 {waitingChannels} · 失效 {invalidChannels}
+          </p>
+        </SafeLink>
       </section>
 
       <section
-        className="overview-summary-section"
+        className="overview-summary-section overview-metric-card"
         aria-labelledby="overview-agents"
       >
-        <header className="overview-summary-header">
-          <div className="overview-summary-title">
-            <Bot aria-hidden="true" size={15} />
-            <h2 id="overview-agents">Agent 接入</h2>
-          </div>
-        </header>
-        <p className="overview-summary-value">{agents.length}</p>
-        <p className="overview-summary-detail">异常 {unhealthyAgents}</p>
+        <SafeLink
+          to="/agents"
+          className="overview-summary-section--link"
+          aria-label="查看 Agent 接入详情"
+        >
+          <header className="overview-summary-header">
+            <div className="overview-summary-title">
+              <Bot aria-hidden="true" size={16} />
+              <h2 id="overview-agents">Agent 接入</h2>
+            </div>
+            <ArrowUpRight aria-hidden="true" size={16} />
+          </header>
+          <p className="overview-summary-value">{agents.length}</p>
+          <p className="overview-summary-detail">异常 {unhealthyAgents}</p>
+        </SafeLink>
       </section>
 
       <section
-        className="overview-summary-section"
+        className="overview-summary-section overview-metric-card"
         aria-labelledby="overview-runtime"
       >
         <header className="overview-summary-header">
           <div className="overview-summary-title">
-            <Gauge aria-hidden="true" size={15} />
+            <Gauge aria-hidden="true" size={16} />
             <h2 id="overview-runtime">运行状态</h2>
           </div>
           <button

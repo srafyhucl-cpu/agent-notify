@@ -54,17 +54,6 @@ const UNAVAILABLE_DATA_ACTIONS: UnavailableAction[] = [
   },
 ];
 
-/** 设置分组目录：与实际渲染的分组一一对应，仅用于锚点跳转与当前位置高亮。 */
-const SETTINGS_SECTIONS = [
-  { id: "settings-notifications", label: "通知" },
-  { id: "settings-replies", label: "回复" },
-  { id: "settings-channels", label: "渠道" },
-  { id: "settings-application", label: "应用" },
-  { id: "settings-data", label: "数据" },
-] as const;
-
-/** 滚动侦测（当前分组高亮）的视口裁剪：顶部避开页头、底部留出后续分组。 */
-const SETTINGS_SCROLL_SPY_ROOT_MARGIN = "-96px 0px -55% 0px";
 
 function cloneSettings(settings: SettingsDto): SettingsDto {
   return {
@@ -142,9 +131,6 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [agentActionError, setAgentActionError] = useState<unknown>(null);
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<string>(
-    SETTINGS_SECTIONS[0].id,
-  );
 
   useEffect(() => {
     if (settingsQuery.data) {
@@ -152,38 +138,6 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
       setValidationError(null);
     }
   }, [settingsQuery.data]);
-
-  const settingsReady = draft !== null;
-
-  // 目录当前位置高亮：仅视图层滚动侦测，不参与任何业务状态。
-  useEffect(() => {
-    if (!settingsReady || typeof IntersectionObserver === "undefined") {
-      return;
-    }
-    const targets = SETTINGS_SECTIONS.map((section) =>
-      document.getElementById(section.id),
-    ).filter((element): element is HTMLElement => element !== null);
-    if (targets.length === 0) {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort(
-            (first, second) =>
-              first.boundingClientRect.top - second.boundingClientRect.top,
-          );
-        const first = visible[0];
-        if (first) {
-          setActiveSection(first.target.id);
-        }
-      },
-      { rootMargin: SETTINGS_SCROLL_SPY_ROOT_MARGIN, threshold: 0 },
-    );
-    targets.forEach((target) => observer.observe(target));
-    return () => observer.disconnect();
-  }, [settingsReady]);
 
   const channels = channelsQuery.data?.channels ?? [];
   const agents = agentsQuery.data ?? [];
@@ -324,27 +278,7 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
         ) : null}
 
         {draft ? (
-          <div className="settings-layout">
-            <nav className="settings-index" aria-label="设置分组">
-              <p className="settings-index-title">分组</p>
-              <ul className="settings-index-list">
-                {SETTINGS_SECTIONS.map((section) => (
-                  <li key={section.id}>
-                    <a
-                      className="settings-index-link"
-                      href={`#${section.id}`}
-                      aria-current={
-                        activeSection === section.id ? "true" : undefined
-                      }
-                      onClick={() => setActiveSection(section.id)}
-                    >
-                      {section.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-
+          <div className="settings-container">
             <form
               className="settings-form"
               aria-label="AgentNotify 设置"

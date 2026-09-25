@@ -9,6 +9,7 @@ import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
 import { PageHeader } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
+import { useAccountNames } from "../../data/accountNames";
 import { useRetryDeliveryMutation } from "../../data/mutations";
 import { useAgents } from "../../data/useAgents";
 import { useChannels } from "../../data/useChannels";
@@ -94,16 +95,17 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
       ),
     [agentsQuery.data],
   );
+  const { getDisplayName } = useAccountNames();
   const accounts = useMemo(
     () =>
       (channelsQuery.data?.channels ?? []).flatMap((channel) =>
         channel.accounts.map((account) => ({
           id: account.id,
           channelId: channel.id,
-          label: `${channel.displayName} / ${account.displayName}`,
+          label: `${channel.displayName} · ${getDisplayName(account)}`,
         })),
       ),
-    [channelsQuery.data],
+    [channelsQuery.data, getDisplayName],
   );
   const details = useMemo(
     () =>
@@ -207,7 +209,7 @@ export function HistoryPage({ bridge }: HistoryPageProps) {
                   )
                   .map((account) => (
                     <option value={account.id} key={account.id}>
-                      {account.label}（{account.id}）
+                      {account.label}
                     </option>
                   ))}
               </select>

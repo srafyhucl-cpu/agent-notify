@@ -14,15 +14,10 @@ export interface PageHeaderProps {
  * 页头范式：全站页面标题的唯一语法。
  * 标题固定 h1（每页仅一个），摘要降噪，主操作靠右；只消费语义 token，两主题自动成立。
  */
-export function PageHeader({ title, summary, actions }: PageHeaderProps) {
+export function PageHeader({ title, actions }: PageHeaderProps) {
   return (
-    <header className="pattern-page-header">
-      <div className="pattern-page-header-copy">
-        <h1 className="pattern-page-header-title">{title}</h1>
-        {summary ? (
-          <p className="pattern-page-header-summary">{summary}</p>
-        ) : null}
-      </div>
+    <header className={`pattern-page-header ${!actions ? "pattern-page-header--empty" : ""}`}>
+      <h1 className="sr-only">{title}</h1>
       {actions ? (
         <div className="pattern-page-header-actions">{actions}</div>
       ) : null}

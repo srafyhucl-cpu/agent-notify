@@ -6,6 +6,7 @@ import type { RuntimeSnapshotDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
+import { SafeLink } from "../../components/SafeLink";
 import { PageHeader, SectionCard } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { useSetRuntimePausedMutation } from "../../data/mutations";
@@ -17,6 +18,8 @@ interface ActionItem {
   key: string;
   title: string;
   message: string;
+  actionPath?: string;
+  actionLabel?: string;
 }
 
 function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
@@ -30,6 +33,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
         message:
           agent.health.detail?.message ??
           "请检查 Agent 安装与版本后重新检查。",
+        actionPath: "/agents",
+        actionLabel: "前往 Agent",
       });
     }
   }
@@ -44,6 +49,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
           (account.enabled
             ? "请到渠道页面检查登录状态或重新登录。"
             : "该账号已停用，如需接收或发送消息请重新启用。"),
+        actionPath: "/channels",
+        actionLabel: "前往渠道",
       });
     }
   }
@@ -60,6 +67,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
         message:
           delivery.error?.message ??
           "请先检查原渠道是否已收到消息，再前往历史页面查看详情。",
+        actionPath: "/history",
+        actionLabel: "查看历史",
       });
     }
   }
@@ -69,6 +78,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
       key: "storage-latest-error",
       title: "最近一次数据操作失败",
       message: `${snapshot.overview.storage.recentError.message} 请先备份数据，再到诊断页面检查。`,
+      actionPath: "/diagnostics",
+      actionLabel: "前往诊断",
     });
   }
 
@@ -80,6 +91,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
         message: diagnostic.action
           ? `${diagnostic.message} 下一步：${diagnostic.action.label}。`
           : diagnostic.message,
+        actionPath: "/diagnostics",
+        actionLabel: diagnostic.action?.label ?? "前往诊断",
       });
     }
   }
@@ -178,8 +191,18 @@ export function OverviewPage({ bridge }: OverviewPageProps) {
                 <ul className="action-list">
                   {items.map((item) => (
                     <li key={item.key}>
-                      <strong>{item.title}</strong>
-                      <span>{item.message}</span>
+                      <div className="action-list-content">
+                        <strong>{item.title}</strong>
+                        <span>{item.message}</span>
+                      </div>
+                      {item.actionPath ? (
+                        <SafeLink
+                          className="button button-secondary action-list-action"
+                          to={item.actionPath}
+                        >
+                          {item.actionLabel ?? "去处理"}
+                        </SafeLink>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

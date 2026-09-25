@@ -1,12 +1,12 @@
-import { Link } from "react-router-dom";
-
 import type { DeliveryDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
+import { SafeLink } from "../../components/SafeLink";
 import {
   SectionCard,
   StatusBadge,
   type StatusBadgeTone,
 } from "../../components/patterns";
+import { useAccountNames } from "../../data/accountNames";
 
 const MAX_RECENT_DELIVERIES = 20;
 const MINUTE_MS = 60_000;
@@ -112,20 +112,31 @@ export interface RecentDeliveriesProps {
 }
 
 export function RecentDeliveries({ deliveries }: RecentDeliveriesProps) {
+  const { formatAccount } = useAccountNames();
   const recent = deliveries.slice(0, MAX_RECENT_DELIVERIES);
   const now = Date.now();
   const groups = groupDeliveries(recent, now);
 
   return (
-    <SectionCard title="最近投递" count={recent.length}>
+    <SectionCard
+      title="最近投递"
+      count={recent.length}
+      action={
+        recent.length > 0 ? (
+          <SafeLink className="button button-secondary no-underline" to="/history">
+            查看全部
+          </SafeLink>
+        ) : undefined
+      }
+    >
       {recent.length === 0 ? (
         <EmptyState
           title="最近没有投递记录"
           description="连接渠道并触发通知后，这里才会出现投递记录。"
           action={
-            <Link className="button" to="/channels">
+            <SafeLink className="button" to="/channels">
               去连接渠道
-            </Link>
+            </SafeLink>
           }
         />
       ) : (
@@ -139,21 +150,34 @@ export function RecentDeliveries({ deliveries }: RecentDeliveriesProps) {
               <h3 className="delivery-group-label">{group.label}</h3>
               <ul className="delivery-rows">
                 {group.deliveries.map((delivery) => (
-                  <li className="delivery-row" key={delivery.id}>
-                    <div className="delivery-row-main">
-                      <span className="delivery-row-title monospace-cell">
-                        {delivery.notificationId}
+                  <li key={delivery.id}>
+                    <SafeLink
+                      className="delivery-row delivery-row--interactive"
+                      to="/history"
+                      aria-label={`查看投递 ${delivery.notificationId} 历史详情`}
+                    >
+                      <div className="delivery-row-main">
+                        <span className="delivery-row-account">
+                          {formatAccount(delivery.accountId)}
+                        </span>
+                        <div className="delivery-row-sub">
+                          <span className="delivery-row-title monospace-cell">
+                            {delivery.notificationId}
+                          </span>
+                          {delivery.error?.message ? (
+                            <span className="delivery-row-error">
+                              · {delivery.error.message}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <span className="delivery-row-time">
+                        {formatRelativeTime(delivery.updatedAt, now)}
                       </span>
-                      <span className="delivery-row-summary">
-                        {delivery.error?.message ?? `账号 ${delivery.accountId}`}
-                      </span>
-                    </div>
-                    <span className="delivery-row-time">
-                      {formatRelativeTime(delivery.updatedAt, now)}
-                    </span>
-                    <StatusBadge tone={DELIVERY_STATE_TONES[delivery.state]}>
-                      {DELIVERY_STATE_LABELS[delivery.state]}
-                    </StatusBadge>
+                      <StatusBadge tone={DELIVERY_STATE_TONES[delivery.state]}>
+                        {DELIVERY_STATE_LABELS[delivery.state]}
+                      </StatusBadge>
+                    </SafeLink>
                   </li>
                 ))}
               </ul>

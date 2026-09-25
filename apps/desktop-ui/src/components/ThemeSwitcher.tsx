@@ -25,7 +25,11 @@ const THEME_OPTIONS: readonly ThemeOption[] = [
  * 选它而非 aria-pressed 按钮组，是因为单选语义更贴合「三选一」，且方向键导航是
  * radiogroup 的标准预期，axe 与屏幕阅读器支持最稳。
  */
-export function ThemeSwitcher() {
+export interface ThemeSwitcherProps {
+  collapsed?: boolean;
+}
+
+export function ThemeSwitcher({ collapsed = false }: ThemeSwitcherProps = {}) {
   const { preference, setPreference } = useTheme();
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selectedIndex = Math.max(
@@ -69,7 +73,7 @@ export function ThemeSwitcher() {
 
   return (
     <div
-      className="theme-switcher"
+      className={`theme-switcher ${collapsed ? "theme-switcher--collapsed" : ""}`}
       role="radiogroup"
       aria-label="主题"
       onKeyDown={handleKeyDown}

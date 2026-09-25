@@ -1,16 +1,13 @@
-import { LogOut } from "lucide-react";
-
 import type {
   ChannelAccountDto,
   ChannelCapabilitiesDto,
   ChannelDto,
 } from "../../bridge/types";
 import {
-  FieldRow,
-  SectionCard,
   StatusBadge,
   type StatusBadgeTone,
 } from "../../components/patterns";
+import { getAccountDisplayName } from "../../data/accountNames";
 import { ChannelConfigForm } from "./ChannelConfigForm";
 
 const CAPABILITY_LABELS: Record<keyof ChannelCapabilitiesDto, string> = {
@@ -50,7 +47,6 @@ function capabilityValue(
   return value ? "可用" : "关闭";
 }
 
-/** 详情健康徽标用词与列表行区分，避免同一文案在同一屏出现两次。 */
 function detailHealth(account: ChannelAccountDto): {
   label: string;
   tone: StatusBadgeTone;
@@ -64,92 +60,79 @@ function detailHealth(account: ChannelAccountDto): {
   if (!account.health.available) {
     return { label: "登录异常", tone: "danger" };
   }
-  return { label: "正常", tone: "success" };
+  return { label: "服务正常", tone: "success" };
 }
 
 export interface ChannelAccountDetailProps {
   channel: ChannelDto;
   account: ChannelAccountDto;
-  pending: boolean;
-  onToggle: (account: ChannelAccountDto, enabled: boolean) => void;
-  onLogout: (account: ChannelAccountDto) => void;
+  pending?: boolean;
+  onLogout?: (account: ChannelAccountDto) => void;
+  onToggle?: (account: ChannelAccountDto, enabled: boolean) => void;
 }
 
 export function ChannelAccountDetail({
   channel,
   account,
-  pending,
-  onToggle,
-  onLogout,
 }: ChannelAccountDetailProps) {
   const health = detailHealth(account);
+  const displayName = getAccountDisplayName(account);
 
   return (
-    <SectionCard
-      className="channel-account-detail"
-      title={`${account.displayName} 详情`}
-      description={`${channel.displayName} · ${channel.id}`}
-      action={
-        <>
-          <button
-            className="button button-secondary"
-            type="button"
-            disabled={pending}
-            onClick={() => onToggle(account, !account.enabled)}
-          >
-            {account.enabled ? "停用此账号" : "启用此账号"}
-          </button>
-          <button
-            className="button button-secondary button-danger-text"
-            type="button"
-            aria-label={`退出账号 ${account.displayName}`}
-            disabled={pending}
-            onClick={() => onLogout(account)}
-          >
-            <LogOut aria-hidden="true" size={15} />
-            退出账号
-          </button>
-        </>
-      }
+    <div
+      className="channel-account-flat-detail"
+      aria-label={`${displayName} 详情`}
     >
-      <div className="channel-detail-segments">
-        <section className="channel-detail-segment">
-          <h3 className="channel-detail-segment-title">身份</h3>
-          <FieldRow
-            label="账号 ID"
-            control={<span className="monospace-cell">{account.id}</span>}
-          />
-          <FieldRow
-            label="启用状态"
-            control={<span>{account.enabled ? "已启用" : "已停用"}</span>}
-          />
-          <FieldRow
-            label="最近入站"
-            control={<span>{formatTime(account.lastInboundAt)}</span>}
-          />
-          <FieldRow
-            label="最近投递"
-            control={<span>{formatTime(account.lastDeliveryAt)}</span>}
-          />
-        </section>
+      <div className="channel-detail-flat-header">
+        <div className="channel-detail-flat-title">
+          <h3 className="channel-detail-flat-name">
+            {displayName} 详情
+          </h3>
+          <span className="channel-detail-flat-sub">
+            {channel.displayName} · {channel.id}
+          </span>
+        </div>
+      </div>
 
-        <section className="channel-detail-segment">
-          <h3 className="channel-detail-segment-title">健康与错误</h3>
-          <div className="channel-detail-health">
-            <StatusBadge tone={health.tone}>{health.label}</StatusBadge>
-            <span className="channel-detail-health-message">
-              {account.health.detail?.message ?? "无异常"}
+      <div className="channel-detail-flat-grid">
+        <div className="channel-detail-flat-pane">
+          <h4 className="channel-detail-pane-title">连接指标</h4>
+          <div className="channel-metrics-grid">
+            <div className="channel-metric-cell">
+              <span className="channel-metric-label">账号 ID</span>
+              <span className="channel-metric-value monospace-cell">{account.id}</span>
+            </div>
+            <div className="channel-metric-cell">
+              <span className="channel-metric-label">通道协议</span>
+              <span className="channel-metric-value">{channel.displayName}</span>
+            </div>
+            <div className="channel-metric-cell">
+              <span className="channel-metric-label">最近接收</span>
+              <span className="channel-metric-value">{formatTime(account.lastInboundAt)}</span>
+            </div>
+            <div className="channel-metric-cell">
+              <span className="channel-metric-label">最近投递</span>
+              <span className="channel-metric-value">{formatTime(account.lastDeliveryAt)}</span>
+            </div>
+          </div>
+
+          <div className="channel-detail-health-banner">
+            <span className={`channel-health-dot channel-health-dot--${health.tone}`} aria-hidden="true" />
+            <span className="channel-detail-health-desc">
+              {account.health.detail?.message ?? "链路就绪，实时通信正常"}
             </span>
           </div>
-        </section>
+        </div>
 
-        <section className="channel-detail-segment">
-          <h3 className="channel-detail-segment-title">账号配置</h3>
-          <ChannelConfigForm channel={channel} account={account} />
-        </section>
+        <div className="channel-detail-flat-pane">
+          <h4 className="channel-detail-pane-title">账号配置</h4>
+          <div className="channel-detail-pane-body">
+            <ChannelConfigForm channel={channel} account={account} />
+          </div>
+        </div>
 
-        <section className="channel-detail-segment">
-          <h3 className="channel-detail-segment-title">渠道能力</h3>
+        <div className="channel-detail-flat-pane channel-detail-flat-pane--full">
+          <h4 className="channel-detail-pane-title">渠道特性与能力</h4>
           <div className="capability-list" aria-label="渠道能力">
             {(Object.entries(channel.capabilities) as Array<
               [
@@ -161,13 +144,13 @@ export function ChannelAccountDetail({
                 className="capability-item capability-item--enabled"
                 key={name}
               >
-                {CAPABILITY_LABELS[name]}
-                <strong>{capabilityValue(name, value)}</strong>
+                <span className="capability-name">{CAPABILITY_LABELS[name]}</span>
+                <span className="capability-val">{capabilityValue(name, value)}</span>
               </span>
             ))}
           </div>
-        </section>
+        </div>
       </div>
-    </SectionCard>
+    </div>
   );
 }

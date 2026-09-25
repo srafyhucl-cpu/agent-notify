@@ -10,6 +10,7 @@ import {
   StatusBadge,
   type StatusBadgeTone,
 } from "../../components/patterns";
+import { formatAccountName } from "../../data/accountNames";
 
 const HISTORY_ROW_HEIGHT = 54;
 const HISTORY_OVERSCAN = 8;
@@ -149,8 +150,8 @@ export function HistoryTable({
               const detail = details[notification.id];
               const delivery = detail?.deliveries[0] ?? null;
               const channelAccount = delivery
-                ? `${delivery.channelId} / ${delivery.accountId}`
-                : "查看详情";
+                ? `${delivery.channelId} · ${formatAccountName(delivery.accountId)}`
+                : "—";
               const selected = notification.id === selectedId;
               // 错误摘要与状态徽标同源：仅真错误（Unknown/Failed）用 danger，
               // 占位与等待类文案用弱化色，避免语义色误用。

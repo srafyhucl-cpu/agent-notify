@@ -30,14 +30,20 @@ export function AgentDetail({ agent, bridge }: AgentDetailProps) {
 
   return (
     <section className="agent-detail" aria-labelledby={`agent-detail-${agent.id}`}>
-      <header className="agent-detail-header">
-        <div className="agent-detail-heading">
-          <h2 className="agent-detail-title" id={`agent-detail-${agent.id}`}>
-            {agent.displayName} 详情
-          </h2>
-          <p className="agent-detail-description">{agent.description}</p>
-        </div>
-      </header>
+      {agent.description ? (
+        <header className="agent-detail-header">
+          <div className="agent-detail-heading">
+            <h2 className="sr-only" id={`agent-detail-${agent.id}`}>
+              {agent.displayName} 详情
+            </h2>
+            <p className="agent-detail-description">{agent.description}</p>
+          </div>
+        </header>
+      ) : (
+        <h2 className="sr-only" id={`agent-detail-${agent.id}`}>
+          {agent.displayName} 详情
+        </h2>
+      )}
 
       <div className="agent-detail-segments">
         <SectionCard
