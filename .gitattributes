@@ -1,5 +1,9 @@
 * text=auto
 *.ps1 text eol=crlf
+# Keep the signed manifest fixture bytes stable on Windows checkouts.
+hosts/desktop-tauri/tests/fixtures/release-manifest/RELEASE-MANIFEST.json text eol=lf
+hosts/desktop-tauri/tests/fixtures/release-manifest/VERSION text eol=lf
+hosts/desktop-tauri/tests/fixtures/release-manifest/tools/hooks/install-opencode-v2.ps1 text eol=lf
 *.psm1 text eol=crlf
 *.psd1 text eol=crlf
 *.go text eol=lf
