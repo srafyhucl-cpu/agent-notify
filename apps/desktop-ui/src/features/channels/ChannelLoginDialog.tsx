@@ -15,6 +15,7 @@ import {
 import type { ChannelDto } from "../../bridge/types";
 import { InlineError } from "../../components/InlineError";
 import { toUserError } from "../../data/errors";
+import { setAccountCustomName } from "../../data/accountNames";
 import type { ActiveChannelLogin } from "./useChannelLogin";
 
 const LOGIN_STATE_LABELS = {
@@ -45,6 +46,7 @@ export interface ChannelLoginDialogProps {
   onRefresh: () => void;
   onSubmitCode: (code: string) => void;
   onClose: () => void;
+  onAccountCreated?: (accountId: string) => void;
 }
 
 export function ChannelLoginDialog({
@@ -58,8 +60,10 @@ export function ChannelLoginDialog({
   onRefresh,
   onSubmitCode,
   onClose,
+  onAccountCreated,
 }: ChannelLoginDialogProps) {
   const [code, setCode] = useState("");
+  const [accountAlias, setAccountAlias] = useState("");
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
 
@@ -71,7 +75,9 @@ export function ChannelLoginDialog({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        if (state !== "Paired" || accountAlias.trim() !== "") {
+          onClose();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -106,7 +112,9 @@ export function ChannelLoginDialog({
 
   const handleOverlayMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
-      onClose();
+      if (state !== "Paired" || accountAlias.trim() !== "") {
+        onClose();
+      }
     }
   };
 
@@ -137,15 +145,17 @@ export function ChannelLoginDialog({
             <h2 id="channel-login-title">登录 {channel.displayName}</h2>
             <p className="dialog-subtitle">{stateLabel}</p>
           </div>
-          <button
-            ref={closeButtonRef}
-            className="icon-button"
-            type="button"
-            aria-label="关闭登录窗口"
-            onClick={onClose}
-          >
-            <X aria-hidden="true" size={18} />
-          </button>
+          {state !== "Paired" ? (
+            <button
+              ref={closeButtonRef}
+              className="icon-button"
+              type="button"
+              aria-label="关闭登录窗口"
+              onClick={onClose}
+            >
+              <X aria-hidden="true" size={18} />
+            </button>
+          ) : null}
         </header>
 
         <div className="channel-login-body">
@@ -179,16 +189,15 @@ export function ChannelLoginDialog({
           ) : null}
 
           {canShowQr ? (
-            <div className="qr-panel">
+            <div className="qr-panel-compact">
               <img
                 className="channel-login-qr"
                 src={qrPayload ?? ""}
                 alt="渠道登录二维码"
               />
-              <div>
-                <strong>{state === "WaitingScan" ? "请扫码确认登录" : "请扫码登录"}</strong>
-                <p>{session?.message ?? "二维码仅保存在内存中，关闭窗口不会取消登录任务。"}</p>
-              </div>
+              <p className="qr-compact-prompt">
+                {state === "WaitingScan" ? "请在手机端确认登录" : "请使用手机微信扫码登录"}
+              </p>
             </div>
           ) : null}
 
@@ -249,9 +258,46 @@ export function ChannelLoginDialog({
           {state === "Paired" ? (
             <div className="login-state-panel login-state-panel--success" role="status">
               <strong>登录成功</strong>
-              <p>{session?.message ?? "账号已经可以接收与发送消息。"}</p>
-              <button className="button" type="button" onClick={onClose}>
-                完成
+              <p>{session?.message ?? "账号已经配对完成。"}</p>
+              <div className="channel-account-naming-box">
+                <label className="channel-account-naming-label" htmlFor="channel-login-custom-name">
+                  微信名称 <span className="channel-account-naming-hint">（列表与历史里显示这个名称）</span>
+                </label>
+                <input
+                  id="channel-login-custom-name"
+                  className="channel-account-naming-input"
+                  type="text"
+                  placeholder="请输入易记的微信名称（如：工作微信）"
+                  value={accountAlias}
+                  onChange={(e) => setAccountAlias(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const targetId = session?.accountId || active?.session.accountId;
+                      const finalName = accountAlias.trim() || "微信账号";
+                      if (targetId) {
+                        setAccountCustomName(targetId, finalName);
+                        onAccountCreated?.(targetId);
+                      }
+                      onClose();
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
+              <button
+                className="button channel-account-naming-submit"
+                type="button"
+                onClick={() => {
+                  const targetId = session?.accountId || active?.session.accountId;
+                  const finalName = accountAlias.trim() || "微信账号";
+                  if (targetId) {
+                    setAccountCustomName(targetId, finalName);
+                    onAccountCreated?.(targetId);
+                  }
+                  onClose();
+                }}
+              >
+                完成并启用
               </button>
             </div>
           ) : null}

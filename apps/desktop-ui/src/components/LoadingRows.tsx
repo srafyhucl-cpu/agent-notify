@@ -1,3 +1,6 @@
+// 骨架样式落在 styles/patterns.css（扫描微光骨架，保留旧类名兼容）。
+import "../styles/patterns.css";
+
 const DEFAULT_ROW_COUNT = 5;
 
 export interface LoadingRowsProps {

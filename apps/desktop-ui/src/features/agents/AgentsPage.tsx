@@ -6,10 +6,10 @@ import type { AgentDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
+import { PageHeader } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { useUpdateAgentConfigMutation } from "../../data/mutations";
 import { useAgents } from "../../data/useAgents";
-import { AgentDetail } from "./AgentDetail";
 import { AgentList } from "./AgentList";
 
 export interface AgentsPageProps {
@@ -46,21 +46,17 @@ export function AgentsPage({ bridge }: AgentsPageProps) {
   };
 
   return (
-    <section className="workbench-page" aria-labelledby="page-title-agents">
-      <header className="workbench-page-header">
-        <div>
-          <h1 className="workbench-page-title" id="page-title-agents">
-            Agent 管理
-          </h1>
-          <p className="page-summary">
-            按 descriptor 展示已接入 Agent 的能力、状态与配置。
-          </p>
-        </div>
-        <span className="page-count" aria-label={`共 ${agents.length} 个 Agent`}>
-          <Bot aria-hidden="true" size={16} />
-          {agents.length} 个
-        </span>
-      </header>
+    <section className="workbench-page agents-page" aria-label="Agent 管理">
+      <PageHeader
+        title="Agent 管理"
+        summary="按 descriptor 展示已接入 Agent 的能力、状态与配置。"
+        actions={
+          <span className="page-count" aria-label={`共 ${agents.length} 个 Agent`}>
+            <Bot aria-hidden="true" size={16} />
+            {agents.length} 个
+          </span>
+        }
+      />
 
       <div className="workbench-page-content agents-page-content">
         {loadError ? (
@@ -94,16 +90,20 @@ export function AgentsPage({ bridge }: AgentsPageProps) {
           />
         ) : null}
 
-        {agents.length > 0 && selectedAgent ? (
-          <div className="agents-workspace">
+        {agents.length > 0 ? (
+          <div className="agents-container">
             <AgentList
               agents={agents}
-              selectedAgentId={selectedAgent.id}
+              selectedAgentId={
+                selectedAgentId === ""
+                  ? null
+                  : (selectedAgentId ?? agents[0]?.id ?? null)
+              }
               pendingAgentId={pendingAgentId}
-              onSelect={setSelectedAgentId}
+              bridge={bridge}
+              onSelect={(id) => setSelectedAgentId(id)}
               onToggle={(agent, enabled) => void toggleAgent(agent, enabled)}
             />
-            <AgentDetail agent={selectedAgent} bridge={bridge} />
           </div>
         ) : null}
       </div>

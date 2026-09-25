@@ -6,6 +6,8 @@ import type { RuntimeSnapshotDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
+import { SafeLink } from "../../components/SafeLink";
+import { PageHeader, SectionCard } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { useSetRuntimePausedMutation } from "../../data/mutations";
 import { useSnapshot } from "../../data/useSnapshot";
@@ -16,6 +18,8 @@ interface ActionItem {
   key: string;
   title: string;
   message: string;
+  actionPath?: string;
+  actionLabel?: string;
 }
 
 function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
@@ -29,6 +33,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
         message:
           agent.health.detail?.message ??
           "请检查 Agent 安装与版本后重新检查。",
+        actionPath: "/agents",
+        actionLabel: "前往 Agent",
       });
     }
   }
@@ -43,6 +49,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
           (account.enabled
             ? "请到渠道页面检查登录状态或重新登录。"
             : "该账号已停用，如需接收或发送消息请重新启用。"),
+        actionPath: "/channels",
+        actionLabel: "前往渠道",
       });
     }
   }
@@ -59,6 +67,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
         message:
           delivery.error?.message ??
           "请先检查原渠道是否已收到消息，再前往历史页面查看详情。",
+        actionPath: "/history",
+        actionLabel: "查看历史",
       });
     }
   }
@@ -68,6 +78,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
       key: "storage-latest-error",
       title: "最近一次数据操作失败",
       message: `${snapshot.overview.storage.recentError.message} 请先备份数据，再到诊断页面检查。`,
+      actionPath: "/diagnostics",
+      actionLabel: "前往诊断",
     });
   }
 
@@ -79,6 +91,8 @@ function actionItems(snapshot: RuntimeSnapshotDto): ActionItem[] {
         message: diagnostic.action
           ? `${diagnostic.message} 下一步：${diagnostic.action.label}。`
           : diagnostic.message,
+        actionPath: "/diagnostics",
+        actionLabel: diagnostic.action?.label ?? "前往诊断",
       });
     }
   }
@@ -114,26 +128,22 @@ export function OverviewPage({ bridge }: OverviewPageProps) {
   };
 
   return (
-    <section className="workbench-page" aria-labelledby="page-title-overview">
-      <header className="workbench-page-header">
-        <div>
-          <h1 className="workbench-page-title" id="page-title-overview">
-            总览
-          </h1>
-          <p className="page-summary">
-            查看运行状态、接入健康、最近投递和待处理故障。
-          </p>
-        </div>
-        <button
-          className="button button-secondary"
-          type="button"
-          disabled={snapshotQuery.isFetching}
-          onClick={() => void snapshotQuery.refetch()}
-        >
-          <RefreshCw aria-hidden="true" size={16} />
-          {snapshotQuery.isFetching ? "正在检查" : "重新检查"}
-        </button>
-      </header>
+    <section className="workbench-page overview-page" aria-label="总览">
+      <PageHeader
+        title="总览"
+        summary="查看运行状态、接入健康、最近投递和待处理故障。"
+        actions={
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={snapshotQuery.isFetching}
+            onClick={() => void snapshotQuery.refetch()}
+          >
+            <RefreshCw aria-hidden="true" size={16} />
+            {snapshotQuery.isFetching ? "正在检查" : "重新检查"}
+          </button>
+        }
+      />
 
       <div className="workbench-page-content overview-page-content">
         {loadError ? (
@@ -171,30 +181,33 @@ export function OverviewPage({ bridge }: OverviewPageProps) {
               pausePending={pauseMutation.isPending}
               onTogglePause={() => void togglePause()}
             />
+
             <RecentDeliveries deliveries={snapshot.overview.recentDeliveries} />
-            <section
-              className="overview-section"
-              aria-labelledby="overview-actions"
-            >
-              <header className="overview-section-header">
-                <div className="overview-section-title">
-                  <h2 id="overview-actions">需要处理</h2>
-                  <span className="section-count">{items.length} 项</span>
-                </div>
-              </header>
+
+            <SectionCard title="需要处理" count={items.length}>
               {items.length === 0 ? (
                 <p className="section-empty">当前没有需要处理的故障。</p>
               ) : (
                 <ul className="action-list">
                   {items.map((item) => (
                     <li key={item.key}>
-                      <strong>{item.title}</strong>
-                      <span>{item.message}</span>
+                      <div className="action-list-content">
+                        <strong>{item.title}</strong>
+                        <span>{item.message}</span>
+                      </div>
+                      {item.actionPath ? (
+                        <SafeLink
+                          className="button button-secondary action-list-action"
+                          to={item.actionPath}
+                        >
+                          {item.actionLabel ?? "去处理"}
+                        </SafeLink>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
               )}
-            </section>
+            </SectionCard>
           </>
         ) : null}
       </div>

@@ -29,7 +29,16 @@ test.describe("导航流程", () => {
   test("键盘 Tab 按导航顺序移动并用 Enter 打开页面", async ({ page }) => {
     await openHarness(page, defaultScenario());
 
-    const expectedOrder = ["AgentNotify 总览", ...SECTIONS];
+    // 视觉顺序 = 键盘顺序：品牌链接 → 渠道优先的六个导航项（渠道 → Agent 管理 → 总览 → 历史 → 诊断 → 设置）
+    const expectedOrder = [
+      "AgentNotify 总览",
+      "渠道",
+      "Agent 管理",
+      "总览",
+      "历史",
+      "诊断",
+      "设置",
+    ];
     for (const name of expectedOrder) {
       await page.keyboard.press("Tab");
       await expect(page.locator(":focus")).toHaveAccessibleName(name);

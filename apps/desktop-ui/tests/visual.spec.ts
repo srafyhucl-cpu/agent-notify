@@ -59,12 +59,16 @@ test.describe("视觉与布局", () => {
       page.getByRole("switch", { name: `${longChineseText} 通知` }),
     );
 
-    await expectNotClipped(
+    // 阶段三起「… 详情」标题改为 sr-only（可见标题由上方卡片承担，避免重复）。sr-only 按设计
+    // 就是 width:1px + overflow:hidden，不能再拿它做「无裁切」测量：改为断言该可访问名仍存在，
+    // 且 Agent 管理页整体不产生水平溢出。
+    await expect(
       page.getByRole("heading", {
         level: 2,
         name: `${longChineseText} 详情`,
       }),
-    );
+    ).toBeAttached();
+    await expectNoHorizontalOverflow(page);
     await expectNotClipped(
       page.getByText("服务可用", { exact: true }).first(),
     );

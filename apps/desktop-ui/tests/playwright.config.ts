@@ -40,6 +40,10 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
         deviceScaleFactor: 1,
+        // 显式钉住浅色主题：本阶段尚未迁移的页面 CSS（task7/task9/channels）仍是浅色语义，
+        // 若强制 dark 会让 axe 在 渠道/Agent/诊断 报 color-contrast（详见 UI_DECISIONS.d/phase1-2-theme.md）。
+        // 待页面迁移完成后，Phase 6 再加 dark 项目组成双主题矩阵。
+        colorScheme: "light",
       },
     },
     {
@@ -50,6 +54,19 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 640, height: 400 },
         deviceScaleFactor: 2,
+        colorScheme: "light",
+      },
+    },
+    {
+      // 暗色矩阵：与 desktop 项目同视口/设备，仅切 colorScheme，专跑 @a11y 与 @visual。
+      // light 由 desktop 项目承担（colorScheme 显式钉住），dark 与它组成双主题矩阵。
+      name: "dark",
+      grep: /@(a11y|visual)/,
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 800 },
+        deviceScaleFactor: 1,
+        colorScheme: "dark",
       },
     },
   ],

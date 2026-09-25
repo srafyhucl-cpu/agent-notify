@@ -10,6 +10,7 @@ import type {
   UpdateStatusDto,
 } from "../../bridge/types";
 import { InlineError } from "../../components/InlineError";
+import { FieldRow } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 
 const UPDATE_CHANNEL_LABELS: Record<UpdateChannelDto, string> = {
@@ -122,59 +123,63 @@ export function UpdateSettings({
 
   return (
     <div className="settings-fields">
-      <label className="settings-switch-row">
-        <span>
-          <strong>随系统启动</strong>
-          <small>登录 Windows 后自动启动 AgentNotify</small>
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          aria-label="随系统启动"
-          checked={value.autoStart}
-          disabled={disabled}
-          onChange={(event) =>
-            onChange({ autoStart: event.currentTarget.checked })
-          }
-        />
-      </label>
+      <FieldRow
+        label="随系统启动"
+        description="登录 Windows 后自动启动 AgentNotify"
+        control={
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="随系统启动"
+            checked={value.autoStart}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({ autoStart: event.currentTarget.checked })
+            }
+          />
+        }
+      />
 
-      <label className="settings-switch-row">
-        <span>
-          <strong>启动时隐藏</strong>
-          <small>启动后仅在系统托盘显示</small>
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          aria-label="启动时隐藏"
-          checked={value.startHidden}
-          disabled={disabled}
-          onChange={(event) =>
-            onChange({ startHidden: event.currentTarget.checked })
-          }
-        />
-      </label>
+      <FieldRow
+        label="启动时隐藏"
+        description="启动后仅在系统托盘显示"
+        control={
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="启动时隐藏"
+            checked={value.startHidden}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({ startHidden: event.currentTarget.checked })
+            }
+          />
+        }
+      />
 
-      <label className="settings-field">
-        <span>更新通道</span>
-        <select
-          aria-label="更新通道"
-          value={value.updateChannel}
-          disabled={disabled}
-          onChange={(event) =>
-            onChange({
-              updateChannel: event.currentTarget.value as UpdateChannelDto,
-            })
-          }
-        >
-          {Object.entries(UPDATE_CHANNEL_LABELS).map(([channel, label]) => (
-            <option value={channel} key={channel}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <FieldRow
+        label="更新通道"
+        description="稳定版用于日常使用，测试版用于提前验证。"
+        control={
+          <select
+            className="settings-control"
+            aria-label="更新通道"
+            value={value.updateChannel}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({
+                updateChannel: event.currentTarget.value as UpdateChannelDto,
+              })
+            }
+          >
+            {Object.entries(UPDATE_CHANNEL_LABELS).map(([channel, label]) => (
+              <option value={channel} key={channel}>
+                {label}
+              </option>
+            ))}
+          </select>
+        }
+      />
 
       <div className="settings-unavailable-row">
         <span>
