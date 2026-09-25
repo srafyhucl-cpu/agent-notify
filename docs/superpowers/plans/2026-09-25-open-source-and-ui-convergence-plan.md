@@ -63,10 +63,27 @@
 4. 阶段 2 未完成前不汇合：避免同一批改动搬两次。
 5. 只暂存本次相关文件，不 `git add -A`。
 
-## 6. 收尾清理（需用户确认后执行，逐项明确路径）
+## 6. 收尾清理（2026-09-25 已执行，用户逐项确认）
 
-- 三个遗留 worktree 与本地孪生分支（`integration/published-base` 含真实值，最优先退役）。
-- 备份目录 `D:\Temp\agent-notify-backup-20260925` 在阶段 3 完成并验证后清理。
+已完成：
+
+- 退役 3 个遗留 worktree：`D:\Temp\agent-notify-hardening`、`D:\Temp\agent-notify-published-base`
+  （含未脱敏真实值）、`C:\Users\srafy\.codex\worktrees\cdf5\Agent-notify`；对应分支
+  `chore/open-source-hardening`、`integration/published-base` 一并删除。
+- 删除 8 个 `codex/*` 历史分支。核对依据：独有文件 0 个；每个提交主题在 `origin/main` 都有等价提交
+  （改写后 SHA 不同）；bundle 备份中已有这些引用。
+- 删除 Rust 构建缓存 `D:\Temp\agentnotify-rust-target`（91.58 GB）；D 盘可用 2.31 GB → **97.94 GB**。
+- 删除本地已合并的 5 个 PR 分支（PR #12–#16 对应分支）。
+
+保留：
+
+- `D:\Temp\agent-notify-backup-20260925`（bundle + 未提交改动补丁，7.6 MB）：阶段 3 完成并验证后清理。
+- `D:\Temp\agent-notify-ci-fix` 工作区（本次 CI/脚本修复用，含 `chore/cache-and-deps-hygiene` 分支）：
+  阶段 3 开始前退役。
+- Go 缓存（0.53 GB，冻结的 Go 回滚门禁需要）与 Playwright 浏览器（0.69 GB，UI 测试需要）。
+
+注意：缓存已清空，**下一次本地门禁是冷编译**（约 15–25 分钟），之后恢复；门禁已默认关增量编译，
+不会再长回 86 GB。
 
 ## 7. 进展记录
 
