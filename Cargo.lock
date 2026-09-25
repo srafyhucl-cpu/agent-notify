@@ -143,7 +143,7 @@ dependencies = [
  "agentnotify-channel-sdk",
  "agentnotify-domain",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "qrcode",
  "reqwest",
  "serde",
