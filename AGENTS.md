@@ -22,11 +22,12 @@
 
 ## 提交与发版
 - 提交信息用 Conventional Commits + 中文描述，例如 `feat(reply): ...`、`docs: ...`、`fix(ui): ...`。
-- 版本号唯一来源是仓库根 `VERSION`（2.0.0 起；此前为 `internal/app/version.go`，Go 版 UI 已不再作为发布入口）。发版前先跑 `tools\sync-version.ps1` 把版本同步到 `hosts/desktop-tauri/tauri.conf.json`、`Cargo.toml` 的 `[workspace.package]` 与 Devin 扩展，再更新 README 徽章与 `CHANGELOG.md`，按 SemVer 递增，打 tag 后推送，Release workflow 会自动发布产物。
-- Release workflow 只把产物发到源码仓库；客户端更新源是二进制仓库 `srafyhucl-cpu/agent-notify-releases`。workflow 末尾会用 secret `RELEASE_REPO_TOKEN` 自动把安装器、ZIP 与 `SHA256SUMS.txt` 镜像过去并置为 Latest；该 secret 缺失时镜像步骤直接失败提醒（否则用户点"升级"会误报"当前已是最新版本"）。手动补发用 `tools\publish-release.ps1 -Version x.y.z -DistDir <产物目录>`。
-- 发布必须签名：Release workflow 强制要求 secret `AGENT_NOTIFY_SIGN_PFX_BASE64` 存在，构建脚本再用 `tools\signature-common.ps1` 校验产物签名者指纹等于 `internal/update/signature.go` 的 `defaultSignatureThumbprint`；未签名或指纹不符直接失败（避免发出客户端拒绝的包）。手动补发入口 `tools\publish-release.ps1` 上传前同样校验安装器与 ZIP 内主程序。轮换证书前必须先更新内置指纹并随新版本发布。门禁自身由 `tests\signature-gate.tests.ps1` 回归（`tools\test.ps1` 会执行）。
-- `.github/workflows/*.yml` 必须保持纯 ASCII：Actions 会把 `run` 脚本写成无 BOM 临时文件，PS 5.1 按 ANSI 读取，中文会破坏引号导致步骤语法错误（`tools\lint.ps1` 已加校验）。
-- 版本一致性由 `tools\check-version.ps1` 校验（`VERSION`、Tauri 配置、`Cargo.toml` 的 workspace 版本、README 徽章、Devin 扩展、CHANGELOG 段落、安装包名规则）；`tools\lint.ps1` 与 Release workflow 都会调用它。Release workflow 的发布步骤已幂等，重跑或用新提交重指 tag 都不会因 Release 已存在而失败。
+- 版本号唯一来源是仓库根 `VERSION`（2.0.0 起；此前为 `internal/app/version.go`，Go 版 UI 已不再作为发布入口）。发版前先跑 `tools\sync-version.ps1` 把版本同步到 `hosts/desktop-tauri/tauri.conf.json`、`Cargo.toml` 的 `[workspace.package]` 与 Devin 扩展，再更新 README 徽章与 `CHANGELOG.md`，按 SemVer 递增，打 tag 后推送；Release workflow 只在验证和构建成功后调用受保护 `main` 上的可复用发布 workflow。
+- 客户端更新源是二进制仓库 `srafyhucl-cpu/agent-notify-releases`，源码 Release 由同一可复用 workflow 创建；发布阶段只接收已构建资产，不读取 PFX，也不执行 tag 中的脚本。`RELEASE_REPO_TOKEN` 缺失时发布直接失败；已发布 Release 不允许 workflow 自动覆盖，补发必须显式运行 `tools\publish-release.ps1 -Version x.y.z -DistDir <产物目录>` 并保留审计输出。
+- 2.0 Rust 客户端的签名信任锚只有 `hosts/desktop-tauri/src/update/verify.rs` 的 `DEFAULT_SIGNATURE_THUMBPRINT`；旧 `internal/update/signature.go` 只作为兼容读取路径。正式 ZIP 必须包含由同一发布证书签名的 `RELEASE-MANIFEST.json` 与 `RELEASE-MANIFEST.p7s`，清单覆盖 ZIP 内全部普通文件；缺清单、签名无效、文件集合或哈希不一致时，Stable 更新器在替换文件前拒绝，Beta 仅在两个控制文件同时缺失时兼容旧开发包。
+- 发布必须签名：构建 job 强制要求 `AGENT_NOTIFY_SIGN_PFX_BASE64` 和密码 secret，`tools\build-release.ps1`、`tools\signature-common.ps1` 与 `tools\publish-release.ps1` 会校验安装器、五个 ZIP 内程序和签名清单的指纹；未签名或指纹不符直接失败。轮换证书前必须先更新 Rust 内置指纹并随新版本发布。门禁自身由 `tests\signature-gate.tests.ps1` 回归（`tools\test.ps1` 会执行）。
+- `.github/workflows/*.yml` 必须保持纯 ASCII：Actions 会把 `run` 脚本写成无 BOM 临时文件，PS 5.1 按 ANSI 读取，中文会破坏引号导致步骤语法错误（`tools\lint.ps1` 已加校验）。官方 Actions 固定完整 commit SHA，checkout 关闭凭据持久化；Release 的 validate/build/publish 权限和 Secret 边界不能混合。
+- 版本一致性由 `tools\check-version.ps1` 校验（`VERSION`、Tauri 配置、`Cargo.toml` 的 workspace 版本、README 徽章、Devin 扩展、CHANGELOG 段落、安装包名规则）；`tools\lint.ps1`、CI 与 Release validate 都会调用它。
 - 正式包由 Rust 桌面端构建：构建机需要 `D:\Tools\cargo` + `D:\Tools\rustup`（约定见 `tools\rust\gate.ps1`），本地发布门禁还需要 Inno Setup 6 与签名工具（`AGENT_NOTIFY_ISCC`、`AGENT_NOTIFY_SIGNTOOL`）。
 - CI 静态检查包含 `govulncheck`；项目最低 Go 版本以 `go.mod` 的 `go` 行为准（当前 1.26.8）。
 - 提交前确认工作区里没有别人未完成的改动（同一仓库可能有并行 agent 在工作），只提交本次相关文件。

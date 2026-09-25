@@ -42,6 +42,17 @@ if (Test-Path -LiteralPath $workflowDir) {
     if ($nonAsciiLine) {
       $failures += "$($file.Name):$($nonAsciiLine.LineNumber) workflow 含非 ASCII 字符，PS 5.1 解析 run 脚本会乱码，请改用 ASCII"
     }
+
+    $usesLines = Select-String -Path $file.FullName -Pattern '^\s*(?:-\s*)?uses:\s*(\S+)'
+    foreach ($usesLine in $usesLines) {
+      $reference = $usesLine.Matches[0].Groups[1].Value.Trim('"')
+      if ($reference.StartsWith('./') -or $reference -eq 'srafyhucl-cpu/agent-notify/.github/workflows/publish-release.yml@main') {
+        continue
+      }
+      if ($reference -notmatch '@[0-9a-f]{40}$') {
+        $failures += "$($file.Name):$($usesLine.LineNumber) uses 必须固定到 40 位 commit SHA：$reference"
+      }
+    }
   }
 }
 

@@ -6,6 +6,7 @@
 .DESCRIPTION
   上传前强制门禁：安装器签名、SHA256SUMS.txt 覆盖情况与哈希一致性、ZIP 签名清单、
   ZIP 内主程序与三个 Hook 的签名者指纹（编排见 tools\release-gate.ps1）。
+  Release 先保持 Draft，上传后重新下载资产验收；已发布 Release 拒绝自动覆盖。
   任一项不符直接失败，避免补发出客户端会拒绝的包。
 
 .EXAMPLE
@@ -96,6 +97,19 @@ try {
   & $gh.Source release view $tag --repo $Repository *> $null
   $releaseExists = $LASTEXITCODE -eq 0
   $ErrorActionPreference = $previousErrorAction
+  if ($releaseExists) {
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    $draftValue = & $gh.Source api "repos/$Repository/releases/tags/$tag" --jq .draft 2>$null
+    $draftQueryExit = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorAction
+    if ($draftQueryExit -ne 0 -or $null -eq $draftValue) {
+      throw "无法读取已有 Release 的草稿状态：$Repository $tag"
+    }
+    if (([string]$draftValue).Trim().ToLowerInvariant() -ne 'true') {
+      throw "已存在已发布的 Release，workflow 不允许自动覆盖：$Repository $tag；请使用显式补发流程。"
+    }
+  }
   # 先创建为草稿（草稿对客户端不可见），把全部资产传完后再发布为 Latest。
   # 曾出现的真实问题：gh release create 逐个上传资产，Release 在 Setup 传完前就已可见且被置为 Latest，
   # 客户端若在窗口期内查询，会只看到 ZIP 而选错升级路径（压缩包分支要求旧版布局，必然失败）。
@@ -105,6 +119,27 @@ try {
   }
   & $gh.Source release upload $tag $setupPath $zipPath $sumsPath --repo $Repository --clobber
   if ($LASTEXITCODE -ne 0) { throw "gh release upload failed: exit=$LASTEXITCODE" }
+
+  # Draft 阶段重新下载资产做一次完整验收；验收失败时 Release 仍保持 Draft。
+  $verifyDir = Join-Path $DistDir ('.release-verify-' + [guid]::NewGuid().ToString('N'))
+  try {
+    New-Item -ItemType Directory -Force -Path $verifyDir | Out-Null
+    & $gh.Source release download $tag --repo $Repository --pattern "Agent-notify-Setup-$tag.exe" --pattern "Agent-notify-$tag.zip" --pattern 'SHA256SUMS.txt' --dir $verifyDir
+    if ($LASTEXITCODE -ne 0) { throw "gh release download verification failed: exit=$LASTEXITCODE" }
+    $downloadedSetup = Join-Path $verifyDir "Agent-notify-Setup-$tag.exe"
+    $downloadedZip = Join-Path $verifyDir "Agent-notify-$tag.zip"
+    $downloadedSums = Join-Path $verifyDir 'SHA256SUMS.txt'
+    foreach ($path in @($downloadedSetup, $downloadedZip, $downloadedSums)) {
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "下载后的 Release 资产缺失：$path" }
+    }
+    Get-VerifiedSignatureThumbprint -Path $downloadedSetup -ExpectedThumbprint $expectedThumbprint | Out-Null
+    Assert-SumsCoversArtifact -SumsPath $downloadedSums -ArtifactPath $downloadedSetup | Out-Null
+    Assert-SumsCoversArtifact -SumsPath $downloadedSums -ArtifactPath $downloadedZip | Out-Null
+    Assert-ArchiveExecutables -ZipPath $downloadedZip -ExpectedThumbprint $expectedThumbprint -ExpectedManifestThumbprint $expectedThumbprint -RepoRoot $RepoRoot -ExpectedVersion $Version | Out-Null
+  } finally {
+    if (Test-Path -LiteralPath $verifyDir) { Remove-Item -LiteralPath $verifyDir -Recurse -Force }
+  }
+
   & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --draft=false --latest
   if ($LASTEXITCODE -ne 0) { throw "gh release edit (publish) failed: exit=$LASTEXITCODE" }
   Write-Output "[publish] published release with all assets: $Repository $tag"

@@ -1,0 +1,175 @@
+name: Publish release assets
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Validated vX.Y.Z release tag.
+        required: true
+        type: string
+      source_repository:
+        description: Source repository in owner/name form.
+        required: true
+        type: string
+      artifact_name:
+        description: Artifact uploaded by the validated build job.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-input:
+    name: Validate publish inputs
+    runs-on: windows-latest
+    steps:
+      - name: Validate immutable release inputs
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "invalid release tag: $env:RELEASE_TAG" }
+          if ($env:SOURCE_REPOSITORY -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw "invalid source repository: $env:SOURCE_REPOSITORY" }
+          if ($env:ARTIFACT_NAME -notmatch '^[A-Za-z0-9_.-]+$') { throw "invalid artifact name: $env:ARTIFACT_NAME" }
+
+  publish:
+    name: Publish verified assets
+    needs: validate-input
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout protected main publishing script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Download build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: release-input
+      - name: Create drafts, verify, and publish
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          SOURCE_TOKEN: ${{ github.token }}
+          RELEASE_REPO_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = [string]$env:RELEASE_TAG
+          $sourceRepository = [string]$env:SOURCE_REPOSITORY
+          $artifactName = [string]$env:ARTIFACT_NAME
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "invalid release tag: $tag" }
+          if ($sourceRepository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw "invalid source repository: $sourceRepository" }
+          if ($artifactName -notmatch '^[A-Za-z0-9_.-]+$') { throw "invalid artifact name: $artifactName" }
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_REPO_TOKEN)) { throw 'RELEASE_REPO_TOKEN is not configured' }
+          $version = $tag.Substring(1)
+          $repoRoot = (Get-Location).Path
+          $inputRoot = Join-Path $repoRoot 'release-input'
+          $dist = Join-Path $repoRoot 'dist'
+          $notesPath = Join-Path $repoRoot 'release-notes.md'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item -Path (Join-Path $inputRoot 'dist\*') -Destination $dist -Recurse -Force
+          Copy-Item -LiteralPath (Join-Path $inputRoot 'release-notes.md') -Destination $notesPath -Force
+          $setupPath = Join-Path $dist "Agent-notify-Setup-$tag.exe"
+          $zipPath = Join-Path $dist "Agent-notify-$tag.zip"
+          $sumsPath = Join-Path $dist 'SHA256SUMS.txt'
+          foreach ($path in @($setupPath, $zipPath, $sumsPath, $notesPath)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "release input is missing: $path" }
+          }
+
+          . (Join-Path $repoRoot 'tools\signature-common.ps1')
+          . (Join-Path $repoRoot 'tools\release-gate.ps1')
+          $expectedThumbprint = Get-ExpectedSignatureThumbprint -RepoRoot $repoRoot
+          Get-VerifiedSignatureThumbprint -Path $setupPath -ExpectedThumbprint $expectedThumbprint | Out-Null
+          Assert-SumsCoversArtifact -SumsPath $sumsPath -ArtifactPath $setupPath | Out-Null
+          Assert-SumsCoversArtifact -SumsPath $sumsPath -ArtifactPath $zipPath | Out-Null
+          Assert-ArchiveExecutables -ZipPath $zipPath -ExpectedThumbprint $expectedThumbprint -ExpectedManifestThumbprint $expectedThumbprint -RepoRoot $repoRoot -ExpectedVersion $version | Out-Null
+
+          $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
+          if (-not $gh) { throw 'gh.exe was not found' }
+          $sourceToken = [string]$env:SOURCE_TOKEN
+          $mirrorToken = [string]$env:RELEASE_REPO_TOKEN
+          if ([string]::IsNullOrWhiteSpace($sourceToken)) { throw 'source GitHub token is not available' }
+          $mirrorRepository = 'srafyhucl-cpu/agent-notify-releases'
+          $expectedAssets = @("Agent-notify-Setup-$tag.exe", "Agent-notify-$tag.zip", 'SHA256SUMS.txt')
+
+          function Invoke-Gh {
+            param([string[]]$Arguments)
+            & $gh.Source @Arguments
+            if ($LASTEXITCODE -ne 0) { throw "gh failed: $($Arguments -join ' ')" }
+          }
+
+          function Assert-DownloadedAssets {
+            param(
+              [Parameter(Mandatory = $true)][string]$Directory,
+              [Parameter(Mandatory = $true)][string]$Repository
+            )
+            $downloadedSetup = Join-Path $Directory "Agent-notify-Setup-$tag.exe"
+            $downloadedZip = Join-Path $Directory "Agent-notify-$tag.zip"
+            $downloadedSums = Join-Path $Directory 'SHA256SUMS.txt'
+            foreach ($path in @($downloadedSetup, $downloadedZip, $downloadedSums)) {
+              if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "downloaded asset is missing: $path" }
+            }
+            Get-VerifiedSignatureThumbprint -Path $downloadedSetup -ExpectedThumbprint $expectedThumbprint | Out-Null
+            Assert-SumsCoversArtifact -SumsPath $downloadedSums -ArtifactPath $downloadedSetup | Out-Null
+            Assert-SumsCoversArtifact -SumsPath $downloadedSums -ArtifactPath $downloadedZip | Out-Null
+            Assert-ArchiveExecutables -ZipPath $downloadedZip -ExpectedThumbprint $expectedThumbprint -ExpectedManifestThumbprint $expectedThumbprint -RepoRoot $repoRoot -ExpectedVersion $version | Out-Null
+          }
+
+          $env:GH_TOKEN = $sourceToken
+          $previousErrorAction = $ErrorActionPreference
+          $ErrorActionPreference = 'SilentlyContinue'
+          & $gh.Source release view $tag --repo $sourceRepository *> $null
+          $sourceExists = $LASTEXITCODE -eq 0
+          $ErrorActionPreference = $previousErrorAction
+          if ($sourceExists) {
+            $previousErrorAction = $ErrorActionPreference
+            $ErrorActionPreference = 'SilentlyContinue'
+            $sourceDraft = & $gh.Source api "repos/$sourceRepository/releases/tags/$tag" --jq .draft 2>$null
+            $sourceDraftExit = $LASTEXITCODE
+            $ErrorActionPreference = $previousErrorAction
+            if ($sourceDraftExit -ne 0 -or ([string]$sourceDraft).Trim().ToLowerInvariant() -ne 'true') {
+              throw "source release is already published; automatic overwrite is forbidden: $sourceRepository $tag"
+            }
+          } else {
+            Invoke-Gh @('release', 'create', $tag, '--repo', $sourceRepository, '--title', "Agent-notify $tag", '--notes-file', $notesPath, '--draft')
+          }
+          Invoke-Gh @('release', 'upload', $tag, $setupPath, $zipPath, $sumsPath, '--repo', $sourceRepository, '--clobber')
+
+          $sourceVerify = Join-Path $repoRoot 'verify-source'
+          New-Item -ItemType Directory -Force -Path $sourceVerify | Out-Null
+          Invoke-Gh @('release', 'download', $tag, '--repo', $sourceRepository, '--pattern', "Agent-notify-Setup-$tag.exe", '--pattern', "Agent-notify-$tag.zip", '--pattern', 'SHA256SUMS.txt', '--dir', $sourceVerify)
+          Assert-DownloadedAssets -Directory $sourceVerify -Repository $sourceRepository
+
+          $env:GH_TOKEN = $mirrorToken
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot 'tools\publish-release.ps1') -Version $version -Repository $mirrorRepository -DistDir $dist
+          if ($LASTEXITCODE -ne 0) { throw "mirror publishing failed: exit=$LASTEXITCODE" }
+          $mirrorRelease = & $gh.Source api "repos/$mirrorRepository/releases/tags/$tag" | ConvertFrom-Json
+          if ($mirrorRelease.draft) { throw "mirror release is still a draft: $mirrorRepository $tag" }
+          $mirrorAssetList = @((& $gh.Source api "repos/$mirrorRepository/releases/$($mirrorRelease.id)/assets" | Out-String) | ConvertFrom-Json)
+          $mirrorNames = @($mirrorAssetList | ForEach-Object { $_.name })
+          foreach ($name in $expectedAssets) {
+            if ($mirrorNames -notcontains $name) { throw "mirror release is missing asset: $name" }
+          }
+          $mirrorVerify = Join-Path $repoRoot 'verify-mirror'
+          New-Item -ItemType Directory -Force -Path $mirrorVerify | Out-Null
+          Invoke-Gh @('release', 'download', $tag, '--repo', $mirrorRepository, '--pattern', "Agent-notify-Setup-$tag.exe", '--pattern', "Agent-notify-$tag.zip", '--pattern', 'SHA256SUMS.txt', '--dir', $mirrorVerify)
+          Assert-DownloadedAssets -Directory $mirrorVerify -Repository $mirrorRepository
+
+          $env:GH_TOKEN = $sourceToken
+          $sourceDraft = & $gh.Source api "repos/$sourceRepository/releases/tags/$tag" --jq .draft
+          if ($LASTEXITCODE -ne 0 -or ([string]$sourceDraft).Trim().ToLowerInvariant() -ne 'true') { throw 'source release draft disappeared before publish' }
+          Invoke-Gh @('release', 'edit', $tag, '--repo', $sourceRepository, '--title', "Agent-notify $tag", '--notes-file', $notesPath, '--draft=false', '--latest')
+          $published = & $gh.Source api "repos/$sourceRepository/releases/tags/$tag" --jq .draft
+          if ($LASTEXITCODE -ne 0 -or ([string]$published).Trim().ToLowerInvariant() -ne 'false') { throw 'source release was not published' }
+          Write-Output "Published source and mirror release $tag"

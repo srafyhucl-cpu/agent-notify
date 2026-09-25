@@ -97,9 +97,10 @@ Push-Location $root
 try {
     & $cargo fmt --all --check
     if ($LASTEXITCODE -ne 0) { throw 'cargo fmt failed' }
-    & $cargo clippy --workspace --all-targets --all-features --target $target -- -D warnings
+    # rustfmt has no dependency resolver; clippy and test must use the lockfile.
+    & $cargo clippy --workspace --all-targets --all-features --target $target --locked -- -D warnings
     if ($LASTEXITCODE -ne 0) { throw 'cargo clippy failed' }
-    & $cargo test --workspace --all-features --target $target
+    & $cargo test --workspace --all-features --target $target --locked
     if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
 
     # hosts/desktop-tauri tests choose their temp root via agentnotify-testkit::test_temp_root()

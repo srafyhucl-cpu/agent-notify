@@ -145,6 +145,12 @@ if (-not $publishScript.Contains('release-gate.ps1')) {
   Add-Failure 'tools/publish-release.ps1 没有引用 tools/release-gate.ps1，补发路径会绕过 Hook 校验'
 } elseif (-not $publishScript.Contains('Assert-ArchiveExecutables')) {
   Add-Failure 'tools/publish-release.ps1 没有调用 Assert-ArchiveExecutables，ZIP 内 Hook 不会被校验'
+} elseif (-not $publishScript.Contains('ExpectedManifestThumbprint')) {
+  Add-Failure 'tools/publish-release.ps1 没有把签名清单绑定到发布信任锚'
+} elseif (-not $publishScript.Contains('已存在已发布的 Release')) {
+  Add-Failure 'tools/publish-release.ps1 没有拒绝覆盖已发布 Release'
+} elseif (-not $publishScript.Contains('gh release download')) {
+  Add-Failure 'tools/publish-release.ps1 没有在 Draft 阶段重新下载并验证资产'
 } else {
   Write-Output '[signature-gate] ok: 补发脚本引用归档门禁'
 }
