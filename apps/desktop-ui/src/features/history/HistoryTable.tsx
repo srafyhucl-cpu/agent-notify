@@ -6,6 +6,11 @@ import type {
   NotificationDetailDto,
   NotificationSummaryDto,
 } from "../../bridge/types";
+import {
+  StatusBadge,
+  type StatusBadgeTone,
+} from "../../components/patterns";
+import { formatAccountName } from "../../data/accountNames";
 
 const HISTORY_ROW_HEIGHT = 54;
 const HISTORY_OVERSCAN = 8;
@@ -54,14 +59,17 @@ export function historyErrorSummary(states: DeliveryStateDto[]): string {
   return "无可见错误";
 }
 
-function deliveryStateTone(states: DeliveryStateDto[]): string {
+function deliveryStateTone(states: DeliveryStateDto[]): StatusBadgeTone {
   if (states.includes("Unknown") || states.includes("Failed")) {
-    return "history-state--danger";
+    return "danger";
   }
   if (states.includes("Pending") || states.includes("Skipped")) {
-    return "history-state--warning";
+    return "warning";
   }
-  return "history-state--success";
+  if (states.length === 0) {
+    return "neutral";
+  }
+  return "success";
 }
 
 export interface HistoryTableProps {
@@ -142,9 +150,12 @@ export function HistoryTable({
               const detail = details[notification.id];
               const delivery = detail?.deliveries[0] ?? null;
               const channelAccount = delivery
-                ? `${delivery.channelId} / ${delivery.accountId}`
-                : "查看详情";
+                ? `${delivery.channelId} · ${formatAccountName(delivery.accountId)}`
+                : "—";
               const selected = notification.id === selectedId;
+              // 错误摘要与状态徽标同源：仅真错误（Unknown/Failed）用 danger，
+              // 占位与等待类文案用弱化色，避免语义色误用。
+              const stateTone = deliveryStateTone(notification.deliveryStates);
 
               return (
                 <div
@@ -185,15 +196,17 @@ export function HistoryTable({
                   <span role="cell" title={channelAccount}>
                     {channelAccount}
                   </span>
+                  <span className="history-state-cell" role="cell">
+                    <StatusBadge tone={stateTone}>
+                      {historyStateLabel(notification.deliveryStates)}
+                    </StatusBadge>
+                  </span>
                   <span
-                    className={`history-state ${deliveryStateTone(
-                      notification.deliveryStates,
-                    )}`}
+                    className={`history-error-cell${
+                      stateTone === "danger" ? "" : " history-error-cell--muted"
+                    }`}
                     role="cell"
                   >
-                    {historyStateLabel(notification.deliveryStates)}
-                  </span>
-                  <span className="history-error-cell" role="cell">
                     {historyErrorSummary(notification.deliveryStates)}
                   </span>
                 </div>

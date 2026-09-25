@@ -55,6 +55,11 @@ pub fn build_app_with_lifecycle(lifecycle: LifecycleController) -> tauri::Builde
             let lifecycle_clone = lifecycle.clone();
             let bridge_state_clone = bridge_state.clone();
 
+            let is_autostart = std::env::args().any(|arg| arg == "--autostart");
+            if !is_autostart {
+                let _ = lifecycle::window::show_main_window(app.handle());
+            }
+
             tauri::async_runtime::spawn(async move {
                 match production::bootstrap_production(app_handle.clone(), paths, secret_store)
                     .await
@@ -83,10 +88,12 @@ pub fn build_app_with_lifecycle(lifecycle: LifecycleController) -> tauri::Builde
                                 &app_handle,
                                 lifecycle_clone.is_paused(),
                             );
-                            let _ = lifecycle::window::show_main_window_when_ready(
+                            if let Err(error) = lifecycle::window::show_main_window_when_ready(
                                 &app_handle,
                                 &lifecycle_clone,
-                            );
+                            ) {
+                                tracing::error!(%error, "启动时显示主窗口失败");
+                            }
                         }
 
                         bridge_state_clone.replace(service).await;
@@ -96,6 +103,10 @@ pub fn build_app_with_lifecycle(lifecycle: LifecycleController) -> tauri::Builde
                         tracing::error!(%error, "生产运行时异步初始化失败");
                         // 让等待中的命令立即拿到具体原因，而不是空等到超时
                         bridge_state_clone.fail(&error.to_string()).await;
+                        let is_autostart = std::env::args().any(|arg| arg == "--autostart");
+                        if !is_autostart {
+                            let _ = lifecycle::window::show_main_window(&app_handle);
+                        }
                     }
                 }
             });
