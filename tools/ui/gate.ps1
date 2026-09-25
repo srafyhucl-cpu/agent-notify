@@ -21,6 +21,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Vitest failed' }
     npm run build
     if ($LASTEXITCODE -ne 0) { throw 'Vite build failed' }
+    # 本地约定把浏览器装在 D:\Tools\playwright-browsers；CI 与全新机器上没有这份缓存，
+    # 缺失时按需安装一次（PLAYWRIGHT_BROWSERS_PATH 已在上方解析为当前机器的目标目录）。
+    $chromiumReady = @(Get-ChildItem -LiteralPath $env:PLAYWRIGHT_BROWSERS_PATH -Directory -Filter 'chromium-*' -ErrorAction SilentlyContinue).Count -gt 0
+    if (-not $chromiumReady) {
+        npx playwright install chromium
+        if ($LASTEXITCODE -ne 0) { throw 'Playwright browser install failed' }
+    }
     npm run test:e2e
     if ($LASTEXITCODE -ne 0) { throw 'Playwright UI checks failed' }
 }
