@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$RequireMsvc,
     # Parallel rustc jobs (CARGO_BUILD_JOBS). 0 = auto: capped on low-memory machines.
     [int]$Jobs = 0
@@ -21,6 +21,11 @@ if (Test-Path -LiteralPath (Join-Path $localCargo 'bin\cargo.exe') -PathType Lea
 }
 if ($env:CARGO_TARGET_DIR) { New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR | Out-Null }
 if ($env:TEMP) { New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null }
+
+# 增量编译只对"改一行、反复重编"的交互开发有意义，对门禁这种一次性全量验证几乎没有收益，
+# 却会在 CARGO_TARGET_DIR 下堆积大量中间产物（实测 incremental 目录曾达 29 GB）。
+# 需要时用 CARGO_INCREMENTAL=1 覆盖。缓存占用与清理见 tools\cache-report.ps1。
+if ([string]::IsNullOrWhiteSpace($env:CARGO_INCREMENTAL)) { $env:CARGO_INCREMENTAL = '0' }
 
 $cargoCommand = Get-Command cargo.exe -ErrorAction SilentlyContinue
 if (-not $cargoCommand) {
