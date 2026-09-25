@@ -271,10 +271,11 @@ describe("OverviewPage", () => {
 
     await screen.findByRole("heading", { name: "运行状态" });
     const headings = await screen.findAllByRole("heading");
+    // 顺序守卫：按设计稿「以渠道为主」的新批准顺序（渠道账号 → Agent 接入 → 运行状态 → 最近投递 → 需要处理）
     const orderedLabels = [
-      "运行状态",
-      "Agent 接入",
       "渠道账号",
+      "Agent 接入",
+      "运行状态",
       "最近投递",
       "需要处理",
     ];

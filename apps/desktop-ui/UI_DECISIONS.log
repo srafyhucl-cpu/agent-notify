@@ -1,0 +1,1332 @@
+# Agent-notify 前端 UI/UX 重构 · 决策日志（第二轮 · 新思考重交付）
+
+- 第一轮交付已由 `39e7b61 revert(ui): 暂缓暗色 Cyberpunk 视觉重构，留待 UI 迭代重新交付` 主动暂缓；本文件是**第二轮（重新交付）**的完整决策记录。
+- 设计权威：`ui-visual-composition` / `information-architecture-navigation` / `office-web-ui-system` 三份 skill 方法论（原 `agent-notify-ui-ux` 的保守约束经用户明确授权作废）。
+- 规格文档：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（设计稿）；`docs/superpowers/plans/2026-09-24-ui-ux-redesign-plan.md`（实施计划）。
+- 收官报告：`UI_UX_REFACTOR_REPORT.md`。
+
+---
+
+## A. 主编排裁决
+
+| # | 决策点 | 裁决 | 理由 |
+| --- | --- | --- | --- |
+| A1 | 设计权威切换 | 采用三份外部 skill 方法论；旧项目 skill 保守约束（不改信息架构/操作路径、小范围生效）作废 | 用户明确授权"已有的那个 skills 可以推翻，以新的思考为主"；核心结论：灰度先行颜色后置、一屏一锚点、间距即分组、每页按工作类型选范式 |
+| A2 | 产品重心落位 | **渠道为主**：导航顺序渠道→Agent→总览→历史→诊断→设置；空态漏斗指向渠道；总览 KPI 首位=渠道健康；实施顺序渠道先行 | 用户原话"如果不连接渠道别的什么事情都没有意义，你必须理解这一点"——落实为 IA、空态、KPI、实施顺序四个层面 |
+| A3 | 流程 | brainstorming 全流程（设计稿 → 用户审阅 → 实施计划 → 六阶段执行）；可视化面板用于设计对话（会话目录放 D:\Temp，不污染仓库） | 用户要求"以新的思考为主"且明确批准；设计稿/计划均入库留档 |
+| A4 | 执行模型 | 子代理统一 `opencode-go/deepseek-v4.1-flash`；文件段所有权 + 仅精确编辑禁整文件覆写；每阶段主编排独立复验后才提交 | 沿用第一轮已验证的纪律；本轮新增"提交前指纹校验"（选择器越界扫描、改动行数守卫） |
+| A5 | 暗色矩阵过渡期偏差 | Playwright `colorScheme` 阶段 1+2 起钉 `light`（未迁移页 CSS 仍浅色语义，强制 dark 会使 a11y 数学上不可达）；6a 页面迁移完成后补 `dark` 项目 | 偏差已在计划书与阶段日志留档；最终矩阵 = 6 页 × 2 主题 |
+| A6 | 已知偏差① | 总览「例外面板前置」未执行：`AgentsPage.test.tsx` 顺序断言钉死「最近投递 在 需要处理之前」；补偿 = 「待处理」进 KPI 带（>0 时 warning） | 测试断言零改动红线优先；补偿后首屏即可见异常信号，语义不弱于原方案 |
+| A7 | 已知偏差② | 渠道详情卡超长标题在 ~305px 栏内逐字换行（极端长文本场景，测试契约通过） | 判定非缺陷（不溢出/不重叠），记录留待「卡头长标题策略」专项 |
+| A8 | 视觉验收 | 主编排目检 5 张（暗色总览/渠道/设置/历史 + 亮色设置）+ 6b 逐页目检 12 张 + 3 连跑稳定 | 目检发现并修复 1 处语义色误用（历史「无可见错误」红字→弱化灰） |
+| A9 | 基线刷新陷阱处置 | `maxDiffPixelRatio: 0.01` 会掩盖小面积修复导致基线跳过重写 → 强制 `--update-snapshots=all` 重写 12 张，并用像素直方图核验颜色 | 避免"看起来通过"的失真基线进库 |
+| A10 | 提交策略 | 分阶段独立提交（11 个 feat/chore/fix + 文档），**不 push、不打 tag、不发版** | AGENTS.md「只提交本次相关文件」；发版涉及签名/版本/镜像流程，未获授权 |
+| A11 | 收官门禁 | `typecheck` / `vitest 65` / `build` / `a11y 14（light 7+dark 7）` / `visual 12` / `e2e 39` / `go test ./...` / `go vet` / `gofmt` / `tools\lint.ps1` 全绿 | 主编排最终独立复跑，不采信子代理转述 |
+
+---
+
+## B. 红线声明（整轮）
+
+- `src/bridge/**`、业务逻辑、数据结构、数据请求、TanStack Query 缓存 Key、表单提交逻辑、**路由路径**、业务状态机：**零改动**（每阶段 git 指纹取证）。
+- **可访问名与 role 零改动**（无障碍 + 测试双契约）：h1、按钮、开关、对话框、role=table/region/alert/status 等逐条保持。
+- 测试断言零改动（唯一例外：阶段 1+2 的 Tab 顺序按新导航顺序同步，意图不变）；`@tanstack/react-virtual` 参数零改动。
+- `tests/**` 仅允许：`playwright.config.ts`（dark 项目）、`navigation.spec.ts`（顺序同步）、基线 PNG。
+
+---
+
+## C. 附：十个阶段子代理的原始决策日志（完整细节）
+
+
+### ===== 附录：phase1-2-theme.md =====
+
+# Phase 1+2 决策日志｜双主题 token 体系 + 主题切换 + 渠道优先导航
+
+- 日期：2026-09-24
+- 范围：`styles/tokens.css`、`app/theme.ts`(新)、`components/ThemeSwitcher.tsx`(新)、`components/AppNav.tsx`、`app/navigation.ts`、`app/App.tsx`、`styles/layout.css`、`tests/playwright.config.ts`、`tests/navigation.spec.ts`
+- 红线：`src/bridge/**`、`src/data/**`、`src/test/**`、业务逻辑、数据结构、请求、TanStack Query Key、表单提交、路由路径、状态机 —— 零改动。
+
+## 0. 开工前发现（重要，影响后续阶段）
+
+任务书假设「`tokens.css` 现为暗色 Cyberpunk 单主题基线」，但仓库实际 HEAD（`c1b26c2`）之前有一次 `39e7b61 revert(ui): 暂缓暗色 Cyberpunk 视觉重构`，把 tokens / layout / task7 / task9 / channels 全部回退成**浅色绿主题**：
+
+- 当前 `tokens.css` 只有 37 行（浅色、绿色主色 `#176b5b`），**没有** `--glass-*` / `--glow-*` / `--border-*` / `--z-*` / `--duration-*` / `--color-*-soft`。
+- 页面 CSS（task7/task9/channels）大量硬编码浅色底（`#e7f0ed` 选中行、`#fbefed`/`#e7f3ea`/`#fff3db` 语义底、`#fff8e8` 警告底），并把语义色文字压在浅底上。
+
+因此本阶段按设计稿意图**重建**双主题：暗色参照被 reverted 的 Cyberpunk 基线取值并按气质 B 收敛发光；亮色专门设计。token 名取「现有 + Cyberpunk」并集，全部保留、不删不重命名（向后兼容）。
+
+## 1. 亮色色板选型理由（专门设计，非反色）
+
+| 角色 | 值 | 理由 |
+| --- | --- | --- |
+| canvas | `#f5f7fa` | 冷调浅灰画布，比纯白略压，衬托白面卡片 |
+| surface | `#ffffff` | 内容面纯白，靠细边 + 阴影分层 |
+| surface-muted | `#eef1f6` | 次级面（表头、只读块），冷灰不带绿，避免旧绿主题残留 |
+| border | `#dfe4ec` | 冷灰细边（非语义装饰线，不参与 3:1） |
+| text | `#1a2230` | 冷墨蓝黑，正文 14.9:1 |
+| text-muted | `#5b6675` | 次级蓝灰，最低 5.15:1，稳过 4.5 |
+| primary | `#0e7490` | 深青。亮青 `#2ee0f0` 在白底仅 ~1.7:1 不合格，深青 5.36:1 |
+| primary-hover | `#0b5c73` | 更深一档，hover 压暗（非发光，符合亮色零辉光） |
+| info | `#0b6fa4` | 深蓝，替代暗色亮蓝 |
+| warning | `#9a5b06` | 深琥珀/棕，替代暗色亮黄，保证黄底文字可读 |
+| danger | `#b42318` | 深红，替代暗色浅红 |
+| success | `#117a35` | 深绿；`#15803d` 在柔和底/灰底仅 4.27/4.43 不达标，故再压深一档 |
+| `--color-*-soft` | 语义色 12% 叠加白 | 柔和底加深饱和，保证同色文字在其上 ≥4.5:1 |
+| glow-sm/md | 指向 `--elevation-1/2` | 亮色零辉光：hover/浮层用阴影表达 |
+| glass / blur | 白面、`none` | 浅底玻璃易脏，关闭 `backdrop-filter` |
+
+## 2. 两套主题对比度实测数值表（WCAG 2.1，sRGB 相对亮度）
+
+正文 ≥4.5:1，非文本 ≥3:1。柔和底按「语义色 × alpha 叠加在 surface 上」的合成值计算。
+
+### 亮色（合成底）：全部达标
+
+| 前景 \ 背景 | canvas #f5f7fa | surface #fff | surface-muted #eef1f6 | 自身 soft |
+| --- | --- | --- | --- | --- |
+| text #1a2230 | 14.88 | 15.96 | 14.10 | — |
+| text-muted #5b6675 | 5.43 | 5.83 | 5.15 | — |
+| primary #0e7490 | — | 5.36 | 4.73 | 4.53 |
+| info #0b6fa4 | — | 5.49 | 4.85 | 4.65 |
+| warning #9a5b06 | — | 5.42 | 4.79 | 4.59 |
+| danger #b42318 | — | 6.57 | 5.81 | 5.40 |
+| success #117a35 | — | 5.44 | 4.81 | 4.60 |
+
+### 暗色（与 Cyberpunk 基线一致）：全部达标
+
+| 前景 \ 背景 | canvas #0a0c12 | surface #12141d | surface-muted #1a2030 | 自身 soft |
+| --- | --- | --- | --- | --- |
+| text #e9edf6 | 16.67 | 15.66 | 13.85 | — |
+| text-muted #949eb4 | 7.27 | 6.83 | 6.04 | — |
+| primary #2ee0f0 | — | 11.40 | 9.76 | 8.07 |
+| info #5cc8ff | — | 9.76 | 8.63 | 7.10 |
+| warning #f0b64a | — | 10.05 | 8.89 | 7.31 |
+| danger #ff8b87 | — | 8.13 | 7.19 | 6.21 |
+| success #4ade80 | — | 10.54 | 9.32 | 7.65 |
+
+非文本：focus-visible 环/主按钮用 `--color-primary`，亮色 5.36:1、暗色 11.4:1（≥3）。装饰性细边（`--color-border` / `--hairline` / `--surface-*-border`）不承载信息，刻意低于 3:1，不纳入该指标。
+
+## 3. 表面语义层（组件零分支换肤的关键）
+
+结构：`:root` 放主题无关令牌 + 亮色阴影刻度；`:root, :root[data-theme="dark"]` 为暗色（`color-scheme: dark`），`:root[data-theme="light"]` 为亮色；无属性时因 `:root` 命中而兜底暗色。
+
+| token | dark | light |
+| --- | --- | --- |
+| `--surface-1` | `--glass-bg-1` rgba(18,20,29,.7) | `#ffffff` |
+| `--surface-2` | `--glass-bg-2` rgba(24,28,41,.85) | `#ffffff` |
+| `--surface-3` | `--glass-bg-3` rgba(30,36,54,.95) | `#ffffff` |
+| `--surface-1/2-blur` | `blur(8px)` | `none` |
+| `--surface-3-blur` | `blur(16px)` | `none` |
+| `--surface-1/2-border` | `--border-subtle` rgba(255,255,255,.08) | `#dfe4ec` |
+| `--surface-3-border` | `--border-glow` rgba(0,240,255,.35) | `#cfd6e0` |
+| `--surface-1-shadow` | `none` | `--elevation-1` |
+| `--surface-2-shadow` | `--glow-sm` | `--elevation-2` |
+| `--surface-3-shadow` | `--glow-md` | `--elevation-3` |
+| `--hairline` | rgba(255,255,255,.08) | `#e6eaf1` |
+| `--elevation-1` | `0 1px 2px rgba(16,24,40,.06)` | 同（`:root` 定义，亮色引用） |
+| `--elevation-2` | `0 1px 2px + 0 4px 12px rgba(16,24,40,.05)` | 同 |
+| `--elevation-3` | `0 8px 24px rgba(16,24,40,.12)` | 同 |
+
+本阶段消费面：`.app-nav`（`--surface-1` / `-blur` / `-border`）与 `.theme-switcher`（`--surface-2` / `-border`、选中态 `--color-primary-soft` + `--surface-3-border`）。后续 Phase 3+ 的卡片/浮层直接复用，不必再写分支。
+
+## 4. ThemeSwitcher 语义方案与理由
+
+- 采用 **`role="radiogroup"`（aria-label「主题」）+ 三个 `role="radio"`（aria-checked）**，而非 `aria-pressed` 按钮组：三选一本质是单选，方向键导航是 radiogroup 的标准预期，axe 与屏幕阅读器支持最稳。
+- 键盘：**roving tabindex**（仅选中项 `tabindex=0`），`←/→`、`↑/↓` 循环切换，`Home/End` 到首尾，切到即 `.focus()`。Tab 只在进组时落一次，不会把三个选项都拖进 Tab 序列。
+- 状态不靠颜色单载：选中 = `aria-checked` + 柔和底 + 边框 + 字重加粗 + 图标。
+- 可见短标签「明 / 暗 / 系统」，可访问名用完整语义「明 / 暗 / 跟随系统」，避免 208px 窄栏换行/溢出；≤960px 收成纵向图标形态。
+- 端到端实测（临时 spec，跑完已删）：默认偏好 system 且系统为浅色 → `data-theme="light"`；点「暗」→ `data-theme="dark"` 且 `localStorage['agentnotify.theme']='dark'`；焦点在「暗」按 `→` → 选中「跟随系统」并回落 light；roving tabindex 正确。
+
+## 5. 主题机制（`app/theme.ts`）
+
+- 类型 `ThemePreference = "dark" | "light" | "system"`；`localStorage` key `agentnotify.theme`；非法值/不可用回退 `system`。
+- `resolveTheme` 结果只有 `dark|light`；system 跟随 `matchMedia("(prefers-color-scheme: dark)")`，无 `matchMedia`（jsdom）时兜底 dark（与 CSS 兜底一致）。
+- `applyTheme` 写 `document.documentElement.dataset.theme`；`subscribeSystemTheme` 监听系统变化并重应用；`useTheme()` 供 React 消费（偏好 / 解析主题 / 切换并记忆）。
+- **与计划书的偏差（按本任务说明执行）**：计划书写 `main.tsx` 首帧应用，实际改为在 `app/App.tsx` **模块作用域**调用一次 `applyTheme(readPreference())`。原因：真实入口与 Playwright harness 都经过 `App`，一处覆盖两处，且避免改动 `main.tsx`。已记入本日志。
+
+## 6. 导航顺序（渠道优先）
+
+- `navigation.ts` 数组顺序改为 **渠道 → Agent 管理 → 总览 → 历史 → 诊断 → 设置**；`path` / `label` / `icon` 零改动，路由路径不变。
+- `tests/navigation.spec.ts` 的 Tab 顺序断言同步为上述顺序（显式数组，不再用 `...SECTIONS`）；`helpers.ts` 的 `SECTIONS` 保持不变（其余断言与意图不变）。
+- `AppShell.test.tsx` / `routes.test.tsx` 均按 `navigationItems` 遍历或按路由断言，无顺序依赖，未改。
+
+## 7. `colorScheme` 的影响面与最终决策（重要）
+
+任务书要求给 `desktop` / `zoom-200` 两个项目加 `colorScheme: "dark"`，以「保证既有基线语义 = 暗色主题」。**实测按此执行时 a11y 门禁红**，且失败点全部落在本阶段无所有权、且尚未迁移的页面 CSS 上：
+
+```
+渠道    ：color-contrast — .status-label / .icon-text-button / .schema-field--unsupported > .schema-field-label / .schema-field-unsupported
+Agent 管理：color-contrast — .agent-row--selected 内 .muted-value / .status-label--success / .agent-event-cell / .icon-text-button
+诊断    ：color-contrast — .diagnostic-level--normal / .diagnostic-level--error
+```
+
+根因：这些元素用暗色语义色文字（如 `--color-success #4ade80`、`--color-text-muted #949eb4`）压在**硬编码浅底**（`#e7f0ed` / `#e7f3ea` / `#fbefed` / `#fff8e8`）上，`task7.css` / `task9.css` / `channels.css` 本阶段不可改。数学上不可能用同一套暗色 token 同时满足「暗画布」与「浅底」双背景的 4.5:1。
+
+决策：**两个项目的 `colorScheme` 显式设为 `"light"`**（而非任务书的 `"dark"`），使 a11y 全绿、页面在已迁移前保持可读。`:root` 无属性时仍按规格兜底暗色（首帧防闪变），默认偏好仍是 `system`。
+
+影响面与后续：
+- 本阶段视觉/交互基线的实际模拟主题 = 浅色（与当前仓库基线一致，视觉基线本阶段本就预期红）。
+- **Phase 6 需在页面 CSS 迁移完成后新增 `dark` 项目**（`colorScheme: "dark"`）组成 6 页 × 2 主题矩阵；在此之前强制 dark 会让 a11y 红。
+- 若 orchestrator 坚持本阶段就要 dark 矩阵，需先授权修改 `task7.css` / `task9.css` / `channels.css` 的硬编码浅底。
+
+## 8. 改动文件清单
+
+- 改：`styles/tokens.css`（双主题 + 表面语义层 + 保全并集 token 名）、`components/AppNav.tsx`（底部挂 ThemeSwitcher）、`app/navigation.ts`（顺序）、`app/App.tsx`（模块作用域一行）、`styles/layout.css`（仅 `.app-nav*` 两处 + 新增 `.theme-switcher*` 段 + ≤960px 收窄）、`tests/playwright.config.ts`、`tests/navigation.spec.ts`。
+- 新：`app/theme.ts`、`components/ThemeSwitcher.tsx`、本文件。
+- 未碰：`src/bridge/**`、`src/data/**`、`src/test/**`、路由路径、表单提交、`task7.css` / `task9.css` / `channels.css`、`.opencode/`。
+
+
+
+### ===== 附录：phase3-patterns.md =====
+
+# Phase 3 决策日志｜范式骨架与公共组件
+
+- 日期：2026-09-24
+- 范围：`components/patterns/**`(新)、`components/LoadingRows.tsx`(升级)、`styles/patterns.css`(新)、`styles/tokens.css`(仅加法)、`styles/layout.css`(仅删除已迁走的骨架段)
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§1 五原则 / §2 气质 B + 呼吸档位 1 / §3 双主题 / §4-5 页面范式）、`docs/superpowers/plans/2026-09-24-ui-ux-redesign-plan.md`（Phase 3）
+- 红线：`src/bridge/**`、`src/data/**`、`src/features/**`、业务逻辑、数据结构、数据请求、TanStack Query 缓存 Key、表单提交、路由路径、状态机 —— 零改动。组件为新建、暂未被页面消费（Phase 4 起消费），符合预期。
+
+## 0. 交付物总览
+
+| 文件 | 说明 |
+| --- | --- |
+| `components/patterns/PageHeader.tsx` | 页头范式 |
+| `components/patterns/KpiCard.tsx` | KPI 锚点卡 |
+| `components/patterns/SectionCard.tsx` | 分组卡（标题行唯一语法） |
+| `components/patterns/FieldRow.tsx` | 一决策一行 |
+| `components/patterns/StatusBadge.tsx` | 状态徽标（呼吸微光档位 1） |
+| `components/patterns/EmptyFunnel.tsx` | 渠道漏斗空态 |
+| `components/patterns/index.ts` | barrel：统一导出 + 引入 `patterns.css` |
+| `styles/patterns.css` | 组件类样式 + 关键帧唯一归属 + 窄窗/reduced-motion 降级 |
+| `styles/tokens.css` | 新增语义字阶别名（纯加法） |
+| `components/LoadingRows.tsx` | 加一行 `patterns.css` 引入（骨架样式来源迁移） |
+| `styles/layout.css` | 删除旧 `.loading-*` 段（迁至 patterns.css） |
+
+## 1. 字阶别名最终取值（`tokens.css`，纯加法，旧 `--font-size-*` 原样保留）
+
+```css
+--font-display: 28px;   /* 展示值：页面标题、KPI 数字、空态锚点 */
+--font-heading: 18px;   /* 区标题：分组卡标题 */
+--font-body: 14px;      /* 正文：摘要、行标签、步骤标题 */
+--font-caption: 12px;   /* 标签/说明：KPI 标签、计数、行说明、徽标 */
+```
+
+- 取设计稿 §1.4 原值 **28 / 18 / 14 / 12，未做 0.5~1px 微调**：四档差值已足够悬殊（28↔18↔14↔12），贴合"字阶少而差大"；`--font-display` 28px 与旧 `--font-size-5` 20px 拉开明显层级，作为一屏一锚点。
+- 不删/不改旧 token，向后兼容；Phase 4/5 页面迁移时逐步改用别名。
+
+## 2. 各组件 props / 类名 / 结构决策
+
+### PageHeader（`.pattern-page-header`）
+- props：`title`(string, 必填)、`summary?`(string)、`actions?`(ReactNode)。
+- 结构：`<header>` → `.pattern-page-header-copy`(h1 + p) + `.pattern-page-header-actions`。
+- 决策：标题固定 **h1**（每页仅一个），字阶 `--font-display`；摘要 `--font-body` + `--color-text-muted`；**不画底部通栏细线**（遵循 §1.5「去通栏细线」），仅用 `margin-bottom: --space-5` 留白分区；主操作靠右。
+
+### KpiCard（`.pattern-kpi-card`）
+- props：`value`(ReactNode, 必填)、`label`(string, 必填)、`tone?`(default/success/warning/danger, 默认 default)、`suffix?`(ReactNode)。
+- 结构：`.pattern-kpi-card-value`(number + suffix) + `.pattern-kpi-card-label`(dot + label)。
+- 决策：`tone` **只影响状态点与数字旁缀，不整卡变色**（同源色经 `--pattern-kpi-tone` 派生）；`tone="default"` 不渲染状态点；状态点 `aria-hidden`（语义由 label 文字承载）；数字 `tabular-nums` 防抖动；卡面统一 `--surface-1` 层。
+
+### SectionCard（`.pattern-section-card`）
+- props：`title`(string, 必填)、`count?`(number)、`action?`(ReactNode)、`description?`(string)、`children`(ReactNode)、`className?`(string，仅外层布局)。
+- 结构：`<section aria-labelledby>` → header(标题 h2 + count + action) + description + body。
+- 决策：**卡片标题行唯一语法**——标题在左、计数紧随标题、操作固定右上，各页不得自创；`count` 用 `typeof === "number"` 判定，0 也显示；`<section>` 经 `useId` + `aria-labelledby` 关联 h2，成为有名字的 region（a11y 加分，不新增可见文案）；表面 `--surface-1` / `-border` / `-shadow`，内边距 `--space-4`。
+
+### FieldRow（`.pattern-field-row`）
+- props：`label`(string, 必填)、`description?`(string)、`control`(ReactNode, 必填)、`controlId?`(string)。
+- 结构：左 `.pattern-field-row-text`(label/span + description)，右 `.pattern-field-row-control`。
+- 决策：**行间用 `--hairline` 分隔**（`+` 相邻选择器，避免首行多余线），行内 `padding: --space-2 0`（组内 8px 节奏）；控件列右对齐成列；提供 `controlId` 时左侧渲染 `<label htmlFor>` 保证可访问名关联，否则用 `<span>` 并由调用方给控件 `aria-label`；**不发明交互**，控件与状态由调用方提供。
+
+### StatusBadge（`.pattern-status-badge`）
+- props：`tone`(success/warning/danger/info/neutral, 必填)、`children`(ReactNode, 必填)、`breath?`(boolean)、`className?`。
+- 结构：单个 `<span data-tone>`；呼吸由 `::after` 伪元素承载。
+- 决策：柔和底 `--color-*-soft` + 语义色文字 + `--radius-pill`；`neutral` 无对应 soft token，用 `--color-surface-muted` + `--color-text-muted`（语义仍由文字承载）；`breath` 默认 `warning/danger` 开、其余关，`breath={false}` 显式关、`breath={true}` 可强制开；**不设 role**（避免与既有 `role="status"` 测试契约冲突，语义靠文字）。
+
+### EmptyFunnel（`.pattern-empty-funnel`）
+- props：`title`(string)、`description`(string)、`steps?`(readonly EmptyFunnelStep[])、`action?`(ReactNode)。
+- 结构：`<section aria-labelledby>` → copy(h2 + p) + `<ol>`(步骤) + action。
+- 决策：锚点大标题用 `--font-display`；步骤用 `<ol>` + CSS counter 编号（语义列表，编号不写入文案位，符合 §2「禁止把动效/编号词写进文案位」精神）；`steps` 横向等分（`flex:1 1 0`，无 px 魔法数），≤960px 转纵向；**文案与主 CTA 全部由调用方传入**，组件只负责容器与层级。
+
+## 3. 呼吸微光档位 1 最终参数（StatusBadge）
+
+| 项 | 值 | 实现 |
+| --- | --- | --- |
+| 周期 | `--pattern-breath-duration: 2500ms` | 命名 token，`animation-duration` 引用 |
+| 缓动 | `var(--ease-out)` | 复用既有动效 token |
+| 幅度 | 暗色峰值 `0.35`、亮色峰值 `0.18`（仅动画伪元素透明度） | 关键帧 `pattern-breath-glow` / `pattern-breath-shadow` |
+| 暗色表达 | **辉光脉冲**：`--pattern-breath-glow: 0 0 8px 0 currentColor` | `:root:not([data-theme="light"])` 分支 |
+| 亮色表达 | **极淡阴影脉冲**（亮色零辉光）：`--pattern-breath-shadow: 0 1px 3px 0 currentColor` | `:root[data-theme="light"]` 分支 |
+| 同源色 | `currentColor`（伪元素继承徽标语义色） | 不新增任何硬编码色 |
+| 默认范围 | 仅 `warning` / `danger` | TSX 内 `DEFAULT_BREATH_TONES` |
+| reduced-motion | `animation: none`（伪元素 opacity 保持 0 → 不显示） | 文件末降级段 |
+
+- 实现方式：动画**只动伪元素 `opacity`**，辉光/阴影样式按主题静态定义。好处：幅度可控、暗亮差异清晰、`currentColor` 同源、关键帧只需两条且集中在 `patterns.css`（全局唯一）。
+- 关键帧命名：`pattern-breath-glow` / `pattern-breath-shadow`，其它文件禁止重复定义。
+
+## 4. 扫描微光骨架最终参数（升级 LoadingRows）
+
+- **保留 `role="status"` 与 `aria-label` 原样**（`AppShell.test.tsx` 断言 `getByRole("status", { name })` 且 `children` 数量 = rows）；DOM 结构（`.loading-rows` / `.loading-row` / `.loading-row-bar` / `-short`）**零改动**，只迁移+升级样式，**旧类名保留兼容**。
+- 条高：`--pattern-skeleton-bar-height: var(--font-caption)`（12px，与真实标签/说明文字 1:1 量级）。
+- 行高：`--pattern-skeleton-row-height: 48px`，与旧骨架一致、且与真实列表行高量级一致 → **加载完成不跳变，防 CLS**。
+- 列轨道：`minmax(0,2fr) minmax(0,3fr) minmax(0,1fr)`（用分数单位替换旧的 `minmax(96px,.7fr) minmax(120px,1.3fr) 72px`，消除 px 魔法数）。
+- 动效：`@keyframes pattern-scan`，周期 `--pattern-scan-duration: 1600ms`，`linear` 无限循环；`background-size: 220% 100%`，`background-position` 由 `150% → -50%`（高光自左入、向右出）。
+- 微光色：渐变高光用 `var(--color-primary-soft)`（主题感知，暗色呈青辉、亮色呈极淡青），基底 `var(--color-surface-muted)`，**零硬编码色**。
+- 分隔：行间 `--hairline`（替换旧 `--color-border` 通栏线）。
+- reduced-motion：`animation: none`（高光停在屏外，退化为静态灰条）。
+
+## 5. 与既有组件的关系
+
+- `EmptyState.tsx`：**保持不动**。`EmptyFunnel` 是"渠道漏斗"专用空态（锚点大标题 + 三步 + 主 CTA），与通用 `EmptyState` 并存；Phase 4/5 迁移时按"是否需要漏斗引导"择一使用。
+- `LoadingRows.tsx`：升级（非新建）。`plan` 中写的 `SkeletonRows` **未新建**，按本任务书更具体的指令升级既有 `LoadingRows`，避免出现两套骨架。
+
+## 6. CSS 接线（关键工程决策）
+
+- **barrel 引入样式**：`components/patterns/index.ts` 顶部 `import "../../styles/patterns.css";`。Phase 4/5 页面一旦 `import { ... } from "../components/patterns"`，样式即随模块图进入；真实入口与 Playwright harness 都覆盖，**未改 `src/main.tsx` 与 `tests/harness/main.tsx`**。
+- **LoadingRows 额外直连样式**：`LoadingRows` 不在 patterns/ 下、且已被现有页面消费，故在其模块顶部直接 `import "../styles/patterns.css";`，保证既有页面（经 router）与 Vitest 都能取到骨架样式。Vite 对重复 CSS import 去重，无副作用。
+- **样式源唯一**：从 `layout.css` 删除旧 `.loading-*` 段（仅删这一段，未格式化其它内容），避免同选择器双定义、级联顺序不确定。这是"骨架样式落在 patterns.css"的必要迁移，属本阶段相关改动。
+
+## 7. 自主决策清单（依据设计稿裁决）
+
+1. 字阶别名取设计稿原值 28/18/14/12，不微调（§1.4）。
+2. PageHeader 不加底部通栏细线，改用留白分区（§1.5「去通栏细线」）。
+3. SectionCard / EmptyFunnel 用 `<section aria-labelledby>` + `useId`，标题 h2 关联，成为有名字 region（a11y 提升，不新增可见文案）。
+4. KpiCard 用 `--pattern-kpi-tone` 同源色变量，避免"整卡变色"（设计稿 §5.3 明确 tone 只影响点与旁缀）。
+5. StatusBadge 不设 `role`，语义由文字 + 颜色冗余承载（避免与既有 `role="status"` 测试契约冲突）。
+6. 呼吸动画实现为"静态辉光/阴影 + 只动画 opacity"，暗亮分支按主题选择 shadow 形态（§2 档位 1）。
+7. 骨架列轨道改用分数单位、行高/条高 token 化，去掉 px 魔法数（工程底线）。
+8. `plan` 的 `SkeletonRows` 由升级 `LoadingRows` 替代（任务书优先）。
+
+## 8. 门禁结果
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run`：`Test Files 10 passed`、`Tests 65 passed`。
+- `npm --prefix apps/desktop-ui run build`：`✓ 1992 modules transformed`、`✓ built`。
+- `PLAYWRIGHT_BROWSERS_PATH=... npm --prefix apps/desktop-ui run test:a11y`：`7 passed`（渠道 / Agent 管理 / 总览 / 历史 / 诊断 / 设置 + 登录对话框 Escape）。
+- visual 基线仍红为预期（Phase 6 统一刷新），本阶段未跑/未改基线。
+
+## 9. 未碰清单
+
+- 未改：`src/bridge/**`、`src/data/**`、`src/features/**`、`src/main.tsx`、`tests/**`、路由路径、表单提交、业务状态机、`.opencode/`、`styles/task7.css` / `task9.css` / `channels.css`、`EmptyState.tsx`。
+- `tokens.css` 仅新增 4 个语义字阶别名，既有 token 数值/命名全部原样。
+
+
+
+### ===== 附录：phase4-channels.md =====
+
+# Phase 4 决策日志｜渠道页迁移（第一优先业务页）
+
+- 日期：2026-09-24
+- 范围：`src/features/channels/ChannelsPage.tsx`、`ChannelAccountList.tsx`、`ChannelAccountDetail.tsx`、`styles/channels.css`（`ChannelConfigForm.tsx` / `ChannelLoginDialog.tsx` 仅视觉由 CSS 承接，TSX 未改）
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§0 渠道为主 / §1 五原则 / §4-5.1 渠道页范式 / §6 交互状态）、`docs/superpowers/plans/2026-09-24-ui-ux-redesign-plan.md`（Phase 4）
+- 红线：`src/bridge/**`、`src/data/**`、`useChannelLogin.ts`、表单提交逻辑、TanStack Query 缓存 Key、路由路径、业务状态机、`tests/**`、`task7.css`、`task9.css`、`layout.css`、`tokens.css`、`patterns.css` —— 零改动。
+
+## 1. 结构映射（旧区块 → 新范式组件）
+
+| 旧结构 | 新结构（范式组件） | 说明 |
+| --- | --- | --- |
+| `workbench-page-header`（h1 + page-summary + page-count 徽标） | `PageHeader`（h1「渠道」+ 因果式摘要） | 计数徽标移除；`page-count` 无测试契约 |
+| 页头下方平铺的「渠道 band」（h2 + 描述 + 添加按钮 + 表格） | 每渠道一张 `SectionCard`（title=渠道名、count=账号数、action=「添加渠道账号」、description=能力摘要） | 卡带语义 |
+| 账号表格 7 列（账号/状态/绑定标识/最近入站/最近投递/启用/详情） | 4 列行卡（账号/状态/启用/详情） | 见 §4；时间与账号 ID 下沉详情 |
+| `span.status-label--*` | `StatusBadge`（tone 映射健康度） | 文案不变 |
+| 全宽 `section.channel-account-detail`（header + dl + 操作 + 能力 + 配置） | 右列 `SectionCard`「{账号名} 详情」（action=停用/启用 + 退出账号），体内四段：身份 / 健康与错误 / 账号配置 / 渠道能力 | 段间 24px |
+| `dl.descriptor-list` 键值 | `FieldRow` | 一决策一行 |
+| 平铺在页面底部的 `form.test-notification-form` | 右列 `SectionCard`「测试发送」包裹同一 `form`（保留 `aria-label="测试发送"`） | 未选中账号时右列只剩它 |
+| 无账号时的 `EmptyState`「暂无渠道」 | 有渠道但无账号 → `EmptyFunnel`；宿主零 descriptor → 仍 `EmptyState`「暂无渠道」 | 见 §3 |
+| 页面纵向单列 | `channels-layout`（左卡带 / 右详情），≤1080px 降为单列 | Master–Detail |
+
+## 2. 契约保持清单（逐条核对的 role / 可访问名 + 测试出处）
+
+| 契约 | 出处（测试） |
+| --- | --- |
+| h1「渠道」 | `tests/helpers.ts:gotoSection`（每页 h1）|
+| 渠道名 h2（如「未来渠道」） | `dynamic-adapters.spec.ts:25` |
+| 账号名 button（如「主账号」`exact`） | `dynamic-adapters.spec.ts:28`；`ChannelsPage.test.tsx:197` |
+| 账号名 button `aria-pressed` | `ChannelsPage.test.tsx:204` |
+| **表格行 `tr` 语义**（`getByText(name).closest("tr")`） | `ChannelsPage.test.tsx:156` |
+| 状态文案「服务正常 / 状态已过期 / 登录异常 / 已停用」 | `ChannelsPage.test.tsx:121/165/171/177` |
+| 健康错误摘要原文 | `ChannelsPage.test.tsx:167/173` |
+| `role="switch"` `aria-label="{账号} 启用"` | `ChannelsPage.test.tsx:123` |
+| button「添加渠道账号」（每渠道恰一个；空态/多渠道计数） | `ChannelsPage.test.tsx:228/258/277/361`；`accessibility.spec.ts:45`；`dynamic-adapters.spec.ts:45` |
+| h2「{账号} 详情」 | `ChannelsPage.test.tsx:211` |
+| form `aria-label="测试发送"` + 标签「测试发送账号 / 标题 / 正文」+ button「发送测试通知」 | `ChannelsPage.test.tsx:292-296`；`dynamic-adapters.spec.ts:81` |
+| button `aria-label="退出账号 {账号}"` | `ChannelsPage.test.tsx:324` |
+| `role="alertdialog"` 文案「路由和游标会失效，历史保留」+ button「确认退出」 | `ChannelsPage.test.tsx:327/330` |
+| SchemaForm 文案「当前版本无法编辑此字段」；无「保存配置」 | `ChannelsPage.test.tsx:347/348` |
+| 对话框可访问名「登录 {渠道}」+ button「关闭登录窗口」+ Escape 关闭与焦点恢复 | `accessibility.spec.ts:48-53`；`dynamic-adapters.spec.ts:47-49` |
+| 登录流程文案「配对码 / 提交配对码 / 登录成功 / 等待首条入站消息 / 验证码已提交…」 | `ChannelsPage.test.tsx:262-280`；`dynamic-adapters.spec.ts:59-73` |
+| 失败态「无法读取渠道账号」+「渠道列表暂时不可用」+ button「重新检查」 | `states.spec.ts:102-106` |
+| 长文本：账号名 button `expectNotClipped` + 无水平溢出 | `visual.spec.ts:73-76` |
+
+## 3. 空态 CTA 命名方案与理由
+
+- 空态漏斗（有渠道、零账号）标题「先连接渠道」+ 三步（选择渠道 → 扫码登录 → 验证投递）+ 主 CTA **「连接第一个渠道」**（`onClick` 打开首个渠道登录）。
+- **为什么不复用「添加渠道账号」**：Playwright strict 模式下，`accessibility.spec.ts:45`、`dynamic-adapters.spec.ts:45` 以及 Vitest 的 `findByRole("button", { name: "添加渠道账号" })`（`ChannelsPage.test.tsx:228/258`）都要求**全页恰有一个**该名按钮可点。渠道卡带每张卡各有一个「添加渠道账号」（`ChannelsPage.test.tsx:361` 断言 2 渠道 = 2 个且索引 `[0]→channel-a`、`[1]→channel-b`），漏斗若同名必成第 3 个 → strict 红。故漏斗另起文案，语义更聚焦「第一步」。
+- 宿主零 descriptor（无法连接）保持 `EmptyState`「暂无渠道」原行为，不误导用户去点无法完成的 CTA。
+
+## 4. 页头主操作缺席（自主裁决）与表格→行卡
+
+- **页头不放「添加渠道账号」**：设计稿 §5.1 想要页头主操作，但同上 strict 约束——页头同名按钮 + 每渠道一个必冲突（空态场景会出现 2 个）。测试为准，主操作下沉到**每张渠道卡右上**（语义上也更准确：添加账号必属于某个渠道）。漏斗 CTA 承接首次引导。
+- **保留 `<table>` 语义、只改样式为行卡**：`ChannelsPage.test.tsx:156` 用 `getByText(name).closest("tr")` 定位账号行，**依赖 `tr`**；`role`/表格语义一旦去掉该断言必红。故不改为 div 行卡，而是 `table-layout: fixed` + 单元格拼出带圆角的 `--surface-2` 行卡（首/末单元格负责圆角与左右描边），列数由 7 收到 4（账号 / 状态 / 启用 / 详情），时间与账号 ID 下沉详情「身份」段。
+- 账号名列宽 46%、状态 30%、启用 12%、详情 12%（`nth-child`，纯百分比）；状态列内错误摘要单行省略号（不在 `expectNotClipped` 断言范围内），账号名用内层 `span.channel-account-name-text` 做省略号——外层 `button` 因内层 `overflow:hidden` 承接溢出，`button.scrollWidth == clientWidth`，满足 `expectNotClipped`（已实跑 `长文本不被裁切` 通过）。
+
+## 5. 清掉的硬编码值对照表（`channels.css`）
+
+| 旧值 | 位置 | 新值 |
+| --- | --- | --- |
+| `#e7f0ed` | `.channel-account-row--selected` 背景 | `var(--color-primary-soft)` |
+| `#fbefed` | `.login-state-panel--error` 背景 | `var(--color-danger-soft)` |
+| `#edf7f0` | `.login-state-panel--success` 背景 | `var(--color-success-soft)` |
+| `#ffffff` | `.button-danger` 文字 | `var(--color-surface)` |
+| `#922d27` | `.button-danger:hover` 背景/边框 | `color-mix(in srgb, var(--color-danger) 88%, var(--color-canvas))` |
+| `white`（混色） | `.button-danger-text` 边框 | `color-mix(in srgb, var(--color-danger) 45%, transparent)` |
+| `rgb(22 29 25 / 42%)` | `.dialog-overlay` 遮罩 | `var(--channels-scrim)`（命名 token） |
+| `rgb(25 32 28 / 22%)` | 模态阴影 | `var(--surface-3-shadow)` |
+| `var(--color-surface)+var(--color-border)` | 模态面 | `var(--surface-3)` + `var(--surface-3-border)` + `var(--surface-3-blur)` |
+| `z-index:100` | `.dialog-overlay` | `var(--z-modal)` |
+| `calc(100vh - 32px)` | 模态 max-height | `calc(100vh - var(--space-6))` |
+| `820px` | 账号表 min-width | 删除（改 `table-layout:fixed` + 百分比列宽） |
+| `180px` | 二维码尺寸（2 处） | `var(--channels-qr-size)` |
+| `#ffffff` | 二维码底 | `var(--channels-qr-surface)`（命名 token，扫码必须白底） |
+| `92px` | `.channel-descriptor-list` 列宽 | 规则删除（改用 `FieldRow`） |
+| `minmax(220px,…)` | 测试发送字段列 | `minmax(0, …)` |
+| `76px` | textarea min-height | `calc(var(--space-6) * 2)` |
+| `900ms` | `.spin-icon` 动画 | `var(--channels-spin-duration)` |
+| `560px` | 模态宽度 | `var(--channels-dialog-width)` |
+| `--font-size-1/2/3/4` | 多处字号 | `--font-caption` / `--font-body` / `--font-heading` |
+| `.channel-band*` / `.channel-descriptor-list` / `.channel-detail-actions` / `.channel-config-section` / `.test-notification-heading` 整段 | 随结构移除的死代码 | 已删除，避免双定义 |
+
+未纳入本阶段的共享硬编码（不在文件所有权内，Phase 6 处理）：`layout.css .inline-error{background:#fbefed}`、`task9.css` 若干浅底、`task7.css .switch-track{background:#aeb5af}` 与 `.schema-field--unsupported{background:#fff8e8}`。渠道页在亮色下由这些类承担的部分（InlineError、开关轨道、SchemaForm 不支持字段）沿用既有语义，暗色下由 Phase 6 统一收口。
+
+## 6. 间距 / 字阶落地说明
+
+- 间距只用 `--space-1..6`：组内 8px（`--space-2`，如 FieldRow 行距、段内字段间距）、组间 24px（`--space-5`，如卡带卡间距、左右分栏间距、详情四段间距）、页头留白 24px（`PageHeader` 自带 margin-bottom）。`.channels-page .channels-page-content{padding-top:0}` 抵消 `layout.css` 的重复顶距，避免 48px 双留白。
+- 字阶只用别名：页头 `--font-display`（28，PageHeader 内置）、区标题 `--font-heading`（18，SectionCard 内置）、正文/账号名/健康信息 `--font-body`（14）、标签/说明/徽标/段标题 `--font-caption`（12）。
+- elevation：内容卡 `--surface-1`（SectionCard/EmptyFunnel 内置），行卡 `--surface-2`，模态 `--surface-3`；分割线用 `--hairline`。
+- 交互态沿用全局 `reset.css` 的 `:focus-visible` 描边；行卡 hover 用 `--color-surface-muted`，选中行用 `--color-primary-soft` + `--surface-3-border`。
+- 窄窗：≤1080px 左右分栏降单列；≤900px 测试发送字段降单列；≤640px 表单底部与对话框头改纵向。
+
+## 7. 自主决策清单
+
+1. 页头不放「添加渠道账号」（§4，测试 strict 约束）。
+2. 漏斗主 CTA 命名「连接第一个渠道」（§3）。
+3. 保留 `<table>` 语义、样式改行卡，列数 7→4（§4）。
+4. 账号名省略号用内层 `span` 承接溢出，保证外层 button 不被判裁切（§4）。
+5. 详情健康徽标用「正常 / 需重新登录 / 登录异常 / 已停用」，与列表行文案区分，避免 `getByText("服务正常")` 命中文案重复（`ChannelsPage.test.tsx:121`）。
+6. 详情「身份」不重复展示账号名（避免 `getByText("账号 account-a")` 双命中），渠道名以 `渠道名 · 渠道ID` 串联展示。
+7. 测试发送保留独立 `form`（`aria-label` 契约），外层套 `SectionCard` 标题「测试发送」；region 与 form 角色不同，a11y 不冲突（已实跑 axe）。
+8. 二维码白底、模态遮罩、二维码尺寸、旋转周期、模态宽度、旋转时长定义为本文件命名 token（无现成语义 token，集中不游离）。
+9. 停用/启用账号按钮与「退出账号」一并放入详情卡右上操作区。
+
+## 8. 门禁结果
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run`：`Test Files 10 passed`、`Tests 65 passed`（渠道 9 项全绿）。
+- `npm --prefix apps/desktop-ui run build`：`✓ 1999 modules transformed`、`✓ built`。
+- `PLAYWRIGHT_BROWSERS_PATH=... npm --prefix apps/desktop-ui run test:a11y`：`7 passed`（六页 + 登录对话框 Escape）。
+- 额外实跑：`states / dynamic-adapters / navigation` = `10 passed`；`@visual 长文本不被裁切且关键区域不重叠` = `1 passed`。
+- visual 基线红为预期（`channels.png` diff ratio 0.06，Phase 6 统一刷新），未改基线。
+
+## 9. 未碰清单
+
+- 未改：`src/bridge/**`、`src/data/**`、`useChannelLogin.ts`、`ChannelConfigForm.tsx`、`ChannelLoginDialog.tsx`、`app/**`、其它 `features/**`、`tests/**`、`styles/tokens.css` / `patterns.css` / `layout.css` / `task7.css` / `task9.css`、`.opencode/`。
+- 业务逻辑、数据结构、数据请求、Query Key、表单提交、路由路径、状态机：零改动。
+- 可访问名与 role：零改动（见 §2 全部保持）。
+
+
+
+### ===== 附录：phase5a-agents.md =====
+
+# Phase 5a 决策日志｜Agent 管理页迁移
+
+- 日期：2026-09-24
+- 范围：`src/features/agents/AgentsPage.tsx`、`AgentList.tsx`、`AgentDetail.tsx`、`styles/task7.css`（仅 Agent 段）；`AgentConfigForm.tsx` 未改（表单逻辑与视觉控件原样保留）
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§1 五原则 / §4 范式分配 / §5.4 Agent：行卡列表 + 三段详情）、阶段 4 渠道页（`ChannelsPage.tsx` / `ChannelAccountDetail.tsx` / `channels.css`）作为同款结构语言与视觉密度样例
+- 红线：`src/bridge/**`、`src/data/**`、其它 `features/**`、`app/**`、`components/patterns/**`、`styles/patterns.css`、`tokens.css`、`layout.css`、`task9.css`、`tests/**` —— 零改动；`task7.css` 只动 Agent 段。
+
+## 1. 结构映射（旧区块 → 新范式）
+
+| 旧结构 | 新结构（范式组件） | 说明 |
+| --- | --- | --- |
+| `workbench-page-header`（h1 + page-summary + `page-count` 徽标） | `PageHeader`（h1「Agent 管理」+ 摘要 + `actions` = 原 `page-count`） | 计数徽标移入 actions，`aria-label="共 N 个 Agent"` 原样保留 |
+| `workbench-page-content agents-page-content`（gap 16px） | 同结构 + `.agents-page .agents-page-content`（`padding-top:0`、`gap:24px`） | 抵消 `layout.css` 与 `PageHeader` 的双重顶距 |
+| `agents-workspace`（`1.45fr / minmax(320px,0.85fr)`，gap 16） | `1.6fr / 0.9fr`，gap 24，对齐渠道页 | Master–Detail |
+| `agent-list` 6 列表格（名称/通知/回复/接入状态/最近事件/配置） | 4 列**行卡**（名称 + 回复元信息 / 通知 / 接入状态 + 最近事件 / 配置），保留 `<table>` 语义 | 见 §3、§4 |
+| `span.status-label--success/danger` | `StatusBadge`（tone success/danger），文案仍「接入正常 / 接入异常」 | 颜色 + 文字双载 |
+| `.agent-row--selected` 背景 `#e7f0ed` | `var(--color-primary-soft)` + `var(--surface-3-border)` | 见 §5 |
+| 详情 `section-heading`（h2 + `status-label` 服务可用） | `agent-detail-header`（h2 + description）+ 身份卡 `action` 放 `StatusBadge`「服务可用」 | 见 §6 决策 3 |
+| `dl.descriptor-list`（Agent ID / 启用状态 / 最近事件） | `FieldRow` × 3（一决策一行） | 身份段 |
+| 平铺 `capability-list`（5 枚胶囊） | `SectionCard`「能力」包裹同一 `capability-list`（`aria-label="Agent 能力"` 保留） | 文案「通知可用 / 续聊可用 / …」零改动 |
+| `agent-config-section`（h3「配置」+ form） | `SectionCard`「配置」包裹同一 `AgentConfigForm` | 表单提交逻辑零改动 |
+| 空态 `EmptyState`「暂无 Agent」 | **保持原 `EmptyState`**（文案 / role 不变） | 契约见 §2 |
+| 页面纵向单列 | `agents-workspace` 左列表 / 右详情，≤1180px 降单列 | 同渠道页 |
+
+## 2. 契约保持清单（逐条 role / 可访问名 + 测试出处）
+
+| 契约 | 出处 |
+| --- | --- |
+| h1「Agent 管理」 | `tests/helpers.ts:gotoSection`（每页 h1 名 = 导航标签） |
+| Agent 名按钮（文本 = displayName，`aria-pressed`） | `AgentsPage.test.tsx:123/149/195/302/336`；`dynamic-adapters.spec.ts:17/20`（`exact`） |
+| 长文本 Agent 名按钮 `getByRole("button",{name:longChineseText})` 不被裁切 | `visual.spec.ts:52-56` |
+| `role="switch"` `aria-label="{名称} 通知"`（能力 notify 时存在、非 notify 时不存在） | `AgentsPage.test.tsx:125/151/237-239`；`visual.spec.ts:57-60`（与名称按钮不重叠） |
+| 「回复」（精确文本，唯一） | `AgentsPage.test.tsx:127` |
+| 「接入正常」 | `AgentsPage.test.tsx:128` |
+| 「不支持」（notify=false 时，唯一） | `AgentsPage.test.tsx:153` |
+| h2「{名称} 详情」（`agent-detail-{id}`）不被裁切 | `visual.spec.ts:62-67` |
+| 「服务可用」（精确文本）不被裁切 | `visual.spec.ts:68-70` |
+| 空态 h2「暂无 Agent」+ `/安装或启用 Agent 适配器后/` | `states.spec.ts:113-121` |
+| form `aria-label="{名称} 配置"` + button「保存配置」+ SchemaForm 文案「已配置 / 当前版本无法编辑此字段」+ `getByLabelText("API Key")` | `AgentsPage.test.tsx:196-203/337-338` |
+| `role="alert"` 更新失败提示 | `AgentsPage.test.tsx:242` |
+| axe：Agent 管理无 serious/critical | `accessibility.spec.ts:11` |
+| `page-count` `aria-label="共 N 个 Agent"` | 无测试，原样保留 |
+| 配置按钮 `aria-label="{名称} 配置"` | 无测试，原样保留（避免删除可访问名） |
+
+## 3. 表格 → 行卡决策依据
+
+- **保留 `<table>` 语义**：测试虽未依赖 `tr`（不同于渠道页 `closest("tr")`），但 `AgentsPage.test.tsx:127` 的 `getByText("回复")` 依赖列表里存在精确「回复」文本。若整表改为 div 行卡，需重新安放该文案，风险更高；沿用渠道页先例（保留 `<tr>`，`table-layout: fixed` + 单元格拼圆角表面条）最稳。
+- **列数 6 → 4**：名称 / 通知 / 接入状态 / 配置；「回复」能力下沉到名称下的**元信息行**（`回复` 独立文本节点，满足精确匹配且不重复）；「最近事件」摘要下沉到接入状态列内（单行省略号），对齐渠道页「状态 + 错误摘要」的列内组织。
+- **元信息行值沿用 `支持 / —`**（不用「不支持」）：避免与通知列 notify=false 的「不支持」形成重复文本，破坏 `getByText("不支持")` 唯一性。
+- 列宽 42% / 16% / 28% / 14%（百分比 + `table-layout: fixed`），删除旧的 `min-width: 680px` 与 `overflow-x: auto`，消除横向滚动。
+
+## 4. 详情三段落地
+
+- 结构：`agent-detail-header`（h2「{名称} 详情」+ description）→ `agent-detail-segments`（gap 24）内三张 `SectionCard`：**身份 / 能力 / 配置**。
+- 身份段：3 条 `FieldRow`（Agent ID 等宽字体 / 启用状态 / 最近事件）。
+- 能力段：`capability-list`（`aria-label="Agent 能力"`）+ 5 枚 `capability-item`，文案「通知可用 / 续聊可用 / 会话标题可用 / Hook 安装关闭 / 回复窗口关闭」零改动。
+- 配置段：`AgentConfigForm` 原样（`SchemaForm` 控件与「保存配置」按钮不变）。
+- 与渠道页差异：渠道页用「单卡 + 四段（h3）」，本页按交付规格「每段一张 `SectionCard`」用三张卡；h2「{名称} 详情」由卡片上方的 header 承接，两个契约同时满足（见 §6 决策 2）。
+
+## 5. 清掉的硬编码清单（`task7.css` Agent 段）
+
+| 旧值 | 位置 | 新值 |
+| --- | --- | --- |
+| `#e7f0ed` | `.agent-row--selected` 背景 | `var(--color-primary-soft)`（选中描边 `var(--surface-3-border)`） |
+| `min-width: 680px` | `.agent-list table` | 删除（改 `table-layout: fixed` + 百分比列宽） |
+| `overflow-x: auto` | `.agent-list` | 删除 |
+| `88px` | `.descriptor-list > div` 列宽 | 规则删除（改用 `FieldRow`） |
+| `var(--color-border)` 通栏细线 | `.agent-list` / `.agent-detail` 上下列边框 | 行卡用 `--surface-2-border` 圆角描边；详情段用 `--hairline`（SectionCard 内部） |
+| `--font-size-1/2/3` | Agent 段多处字号 | `--font-caption` / `--font-body` |
+| `margin-top: var(--space-3)` | `.agent-config-form` | 删除（`SectionCard` body 已提供 16px 顶距） |
+| `.descriptor-list` / `.descriptor-list > div` / `dt` / `dd`、`.agent-config-section`、`.agent-list,.agent-detail` 边框块、`.agent-config-section h3` 选择器 | 随结构移除的死代码 | 已删除，避免双定义 |
+
+未纳入本阶段的共享硬编码（不在所有权内）：`.switch-track{background:#aeb5af}`、`.schema-field--unsupported{background:#fff8e8}`、`layout.css .inline-error{background:#fbefed}`、`task9.css` 若干浅底 —— Phase 6 统一收口；本阶段 `.icon-text-button` / `.switch-control` / `.switch-track` / `.schema-*` / `.capability-list` 规则**零改动**。
+
+## 6. 自主决策清单
+
+1. **保留 `<table>` 语义、样式改行卡**，列数 6→4（§3）。
+2. **详情用 header + 三张 `SectionCard`**：交付规格明确「每段一张 `SectionCard`」，而 h2「{名称} 详情」是视觉/无障碍契约；两者冲突时以 header 承接 h2、三张卡承接三段（能力/配置/身份），同时满足。渠道页的单卡多段语言在卡面/elevation/间距上沿用（SectionCard 自带）。
+3. **健康徽标从 header 移入「身份」卡 `action`**：初版放在 header（直接落在画布）时 axe 报 `color-contrast .agent-detail-health`——浅色下 `success-soft` 合成于 canvas `#f5f7fa` 时对比度约 4.3:1，低于 4.5。移入卡面（`--surface-1` = `#ffffff`）后恢复 ≥4.5:1，a11y 全绿（实测见 §8）。这也更符合「徽标落在表面层」的语义。
+4. **「回复」元信息值用 `支持 / —`**，避免「不支持」重复（§3）。
+5. **section 命名保留**：旧 `<section aria-labelledby="page-title-agents">` → 新 `<section aria-label="Agent 管理">`（`PageHeader` 不暴露 h1 id），保持「命名 region」无障碍语义不变。
+6. 列表「接入状态」徽标 tone：`available ? success : danger`，文案保持「接入正常 / 接入异常」。
+
+## 7. 间距 / 字阶落地说明
+
+- 间距只用 `--space-1..6`：组内 8px（`--space-2`，行卡 `border-spacing` 行距、能力胶囊间距）、组间 24px（`--space-5`，workspace 左右分栏、详情三段、内容区纵向），页头留白 24px（`PageHeader` 自带）；`.agents-page .agents-page-content{padding-top:0}` 抵消 `layout.css` 的重复顶距。
+- 字阶只用别名：页头 `--font-display`（28，PageHeader 内置）、详情 h2 与 SectionCard 区标题 `--font-heading`（18）、正文 / Agent 名 `--font-body`（14）、表头 / 元信息 / 最近事件 / 能力胶囊 / 描述 `--font-caption`（12）。
+- elevation：行卡 `--surface-2`（hover `--color-surface-muted`，选中 `--color-primary-soft` + `--surface-3-border`），详情三段卡与能力/配置卡 `--surface-1`（SectionCard 内置），分割线 `--hairline`。
+- 长文本：Agent 名与最近事件走「外层 `overflow:hidden` + 内层 `text-overflow:ellipsis`」，详情 description / h2 走 `overflow-wrap:anywhere`，满足「不裁切 / 不重叠 / 无水平溢出」。
+- 窄窗：≤1180px 左右分栏降单列；≤640px 详情 header 转纵向。
+
+## 8. 门禁结果
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run`：`Test Files 10 passed`、`Tests 65 passed`（Agent 7 项全绿）。
+- `npm --prefix apps/desktop-ui run build`：`✓ 1999 modules transformed`、`✓ built in 1.68s`。
+- `PLAYWRIGHT_BROWSERS_PATH=... npm --prefix apps/desktop-ui run test:a11y`：`7 passed`（六页 + 登录对话框 Escape）。
+- 额外实跑：`states / dynamic-adapters / navigation` = `10 passed`；`@visual 长文本不被裁切且关键区域不重叠` + `@zoom 200% 缩放等价视口下无水平溢出` = `2 passed`。
+- visual 基线红为预期（`agents.png` diff ratio 0.04），未改基线。
+
+## 9. 未碰清单（零改动声明）
+
+- 未改：`src/bridge/**`、`src/data/**`、`AgentConfigForm.tsx`、其它 `features/**`、`app/**`、`components/patterns/**`、`styles/patterns.css` / `tokens.css` / `layout.css` / `task9.css`、`tests/**`、`.opencode/`。
+- 业务逻辑、数据结构、数据请求、Query Key、表单提交、路由路径、状态机：零改动。
+- 可访问名与 role：零改动（§2 全部保持；`page-count` 与配置按钮可访问名亦保留）。
+- `task7.css` 仅动 Agent 段；`.icon-text-button` / `.switch-control` / `.switch-track` / `.schema-*` / `.capability-list` / `.overview-*` / `.health-summary` / `.metric-list` / `.action-list` / `.data-table` / `.section-heading` / `.page-count` 等共享段零改动。
+
+
+
+### ===== 附录：phase5b-overview.md =====
+
+# Phase 5b 决策日志｜总览页迁移
+
+- 日期：2026-09-24
+- 范围：`src/features/overview/OverviewPage.tsx`、`HealthSummary.tsx`、`RecentDeliveries.tsx`、`styles/task7.css`（仅总览段）
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§0 渠道为主 / §1 五原则 / §5.3 总览：KPI 锚点带 → 例外面板 → 投递流）、阶段 4 渠道页与阶段 5a Agent 页作为同款结构语言与密度样例
+- 红线：`src/bridge/**`、`src/data/**`、其它 `features/**`、`app/**`（含 RuntimeStatusBar 联动）、`components/patterns/**`、`patterns.css`、`tokens.css`、`layout.css`、`task9.css`、`tests/**` —— 零改动；`task7.css` 只动总览段。
+
+## 1. 结构映射（旧区块 → 新范式）
+
+| 旧结构 | 新结构（范式组件） | 说明 |
+| --- | --- | --- |
+| `workbench-page-header`（h1 + `page-summary` + 主按钮） | `PageHeader`（h1「总览」+ 摘要 + `actions` = 原「重新检查」按钮） | 文案与按钮可访问名原样保留 |
+| 无 | **KPI 锚点带** `overview-kpi-band`：4 张等宽 `KpiCard`（渠道账号健康居首 → Agent 接入 → 运行状态 → 待处理） | 新增；`grid` + `auto-fit minmax(200px,1fr)`，窄窗自动折行 |
+| `div.health-summary` 三列（`.overview-section` × 3） | `div.overview-health` 三列（`.overview-health-section` × 3，h2 + `metric-list`） | 明细层；h2 文案与暂停操作位置不变 |
+| `section.overview-section`（h2「需要处理」+ `section-count` + `action-list`） | `SectionCard`「需要处理」（`count` = 项数，body 内同一 `action-list`） | 标题/计数/列表内容不变 |
+| `section.overview-section`（h2「最近投递」+ `data-table` 5 列表格） | `SectionCard`「最近投递」（`count` = 条数，body 内 `.delivery-stream` 时间分组行） | 表格 → 分组行；见 §5 |
+| `span.delivery-state--*` | `StatusBadge`（tone success/warning/danger） | 颜色 + 文字双载；文案「等待发送 / 已发送 / 发送失败 / 结果未知 / 已跳过」不变 |
+| `workbench-page-title` + `page-summary` | `pattern-page-header-title` + `pattern-page-header-summary` | 由 `PageHeader` 承接 |
+| 外层 `section aria-labelledby="page-title-overview"` | 外层 `section aria-label="总览"` | `PageHeader` 不暴露 h1 id，改用 `aria-label`；可访问名「总览」不变 |
+
+## 2. KPI 指标来源（逐条对应现有数据字段，不发明新度量）
+
+| KPI 卡 | 数值锚点 | 数据来源 | 语义色（tone） |
+| --- | --- | --- | --- |
+| 渠道账号健康（首位） | 在线数；旁缀 `/ 总数`；标签内含「等待登录 N · 失效 M」 | `snapshot.overview.channels`，经 `channelOnline` / `channelWaitingLogin` / `channelInvalid`（`HealthSummary.tsx` 既有纯函数，本阶段仅导出复用） | 无渠道=default；失效>0=danger；等待>0=warning；否则 success |
+| Agent 接入 | 已接入数；旁缀「· N 异常」（异常>0 时） | `snapshot.overview.agents.length`、`!health.available` 计数 | 异常>0=danger；有 Agent=success；否则 default |
+| 运行状态 | `RUNTIME_STATE_LABELS[snapshot.runtime.state]` | `snapshot.runtime.state` | Running=success；Failed/Stopped=danger；其余=warning |
+| 待处理 | `items.length`（`actionItems(snapshot)` 项数） | `snapshot.overview.*` + `snapshot.diagnostics`（既有 `actionItems` 逻辑，零改动） | >0=warning；=0=success |
+
+- `KpiCard` 只消费 `--surface-1*` 与 `--color-*`；28px 数字（`--font-display`）是全页唯一视觉锚点；tone 只作用于状态点与旁缀，不整卡变色。
+- 健康明细三段的 `dd` 用 `--font-body`（14px）而非 28px，确保 28px 仍是唯一锚点层级。
+
+## 3. 契约保持清单（逐条 role / 可访问名 + 测试出处）
+
+| 契约 | 出处 |
+| --- | --- |
+| h1「总览」（`PageHeader`，每页唯一） | `tests/helpers.ts:gotoSection` / `openHarness`；`AppShell.test.tsx:92`（每个稳定路由 h1 名 = 导航标签）；`visual.spec.ts:181` 等 |
+| h2「运行状态」，且其 `closest("section")` 内含暂停/恢复按钮 | `AppShell.test.tsx:207-268`（`overviewRuntimeRegion()` = `heading("运行状态").closest("section")`） |
+| h2 顺序：运行状态 → Agent 接入 → 渠道账号 → 最近投递 → 需要处理 | `AgentsPage.test.tsx:249-288`（`findAllByRole("heading")` 位置单调递增） |
+| 按钮「暂停通知」/「恢复通知」（同一可访问名，Overview 与状态栏各一处，测试用 `within` 区分） | `AppShell.test.tsx:133/141/148/228-236/256-264` |
+| FieldRow 文案「运行状态 / 通知 / 版本 / 平台 / 已接入 / 异常 / 在线 / 等待登录 / 失效」 | `AgentsPage.test.tsx` 顺序断言间接依赖 h2；明细文案无独立断言，原样保留 |
+| 「最近投递」20 条上限：`notification-1` 可见、`notification-21` 不存在 | `AgentsPage.test.tsx:286-287`（`MAX_RECENT_DELIVERIES = 20` 不变） |
+| 空态文案「最近没有投递记录。」「当前没有需要处理的故障。」 | 无独立断言，原样保留 |
+| `role="alert"` 错误提示（`InlineError`，标题「无法读取总览」+ 动作「重新检查」） | `AppShell.test.tsx:151-169`（状态栏路径）；本页同款保留 |
+| `role="status"` 加载态（`LoadingRows aria-label="正在加载总览"`） | `AppShell.test.tsx:191-193` 通用形态 |
+| axe：总览无 serious/critical | `accessibility.spec.ts:11`（`@a11y 总览` 通过） |
+| 长文本不裁切 / 无水平溢出（200% 缩放） | `visual.spec.ts:42-101`（`@visual 长文本…`、`@zoom 200%…` 通过） |
+| 外层 region 可访问名「总览」 | 无独立断言，用 `aria-label="总览"` 保持 |
+
+## 4. 暂停/恢复联动保持说明（零改动）
+
+- 暂停逻辑仍在 `OverviewPage.togglePause`（调用 `useSetRuntimePausedMutation`）→ 传给 `HealthSummary` 的 `onTogglePause`，按钮仍在 h2「运行状态」所在 `<section>` 内。
+- 与顶部 `RuntimeStatusBar` 的联动由 `data/` 的 snapshot 事件驱动，**本阶段未触碰**；`AppShell.test.tsx` 两条双向联动断言（状态栏→总览、总览→状态栏）均通过。
+- 仅重排视觉：按钮从旧 `overview-section-header` 的右槽移到 `overview-health-header` 的右槽，可访问名、`disabled` 条件（`pausePending`）、文案分支不变。
+
+## 5. 投递流重排（表格 → 时间分组行）
+
+- 按 `DeliveryDto.updatedAt` 推导分组：**今天 / 昨天 / 更早**（本地日界；无效时间或早于昨天归「更早」）。组标签为 h3，非空组才渲染。
+- 行内结构：标题（`notificationId`，等宽 + 单行省略）/ 摘要（有错误显示错误信息，否则「账号 {accountId}」，单行省略）/ 相对时间（刚刚 / N 分钟前 / N 小时前 / N 天前，超 30 天退回绝对时间）/ `StatusBadge`。
+- 仍只展示 `MAX_RECENT_DELIVERIES = 20` 条，满足 `notification-21` 不存在断言。
+- 状态映射：Sent=success；Failed/Unknown=danger；Pending/Skipped=warning；文案不变。
+
+## 6. 清掉的硬编码 / 游离间距清单（`task7.css` 总览段）
+
+| 旧值 | 位置 | 新值 |
+| --- | --- | --- |
+| `min-width: 72px` | `.metric-list > div` | `min-width: 0`（去掉魔法数字） |
+| `grid-template-columns: minmax(160px, 0.45fr) …` | `.action-list li` | 单列 `grid`（`gap: var(--space-1)`），去掉 160px |
+| `var(--font-size-1/2/3/4)` | 总览段字号 | 别名 `--font-caption` / `--font-body` / `--font-heading`（`--font-display` 由 `KpiCard` 提供） |
+| `var(--color-border)` 通栏上/下/右细线 | `.health-summary` / `.overview-section` | 健康明细去卡片边线；列表分割线改 `var(--hairline)` |
+| 无（本段无 hex） | — | 总览段零 hex：grep 确认 `#e3efeb` / `#f7f8fa` 已不存在于 `task7.css`；`#aeb5af`（`.switch-track`）、`#fff8e8`（`.schema-field--unsupported`）属 Agent 段，未动 |
+
+## 7. 共享段的处置说明（`task7.css`）
+
+**仅从共享选择器列表中移除「仅总览使用」的选择器（不改共享规则本身）：**
+
+| 共享规则（原） | 处置 | 理由 |
+| --- | --- | --- |
+| `.overview-page-content, .agents-page-content { … }` | 移除 `.overview-page-content,`，保留 `.agents-page-content` | `.overview-page-content` 仅总览使用；总览改在总览段自建 `grid gap: --space-5` |
+| `.overview-section-header, .section-heading { … }` | 移除 `.overview-section-header,`，保留 `.section-heading` | `.overview-section-header` 仅总览使用，已被 `.overview-health-header` 取代 |
+| `.overview-section h2, .section-heading h2 { … }` | 移除 `.overview-section h2,`，保留 `.section-heading h2` | `.overview-section h2` 仅总览使用；`.section-heading h2` 仍被诊断/历史使用 |
+
+**保留不动的共享规则（未改一行）：** `.section-heading`、`.section-heading > div`、`.section-heading > .button`、`.section-heading h2`、`.section-count`、`.section-description`、`.section-empty`、`.table-scroll`、`.data-table*`、`.monospace-cell`、`.error-cell`、`.page-count` / `.status-label` / `.delivery-state*`。
+- `.monospace-cell` 仍被 `ChannelAccountDetail` / `AgentDetail` 复用；投递流行标题复用它。
+- `.delivery-state*` / `.data-table*` / `.table-scroll` / `.error-cell` 在总览改造后已不再被任何页面引用，但它们在共享选择器列表中与 `page-count` / `status-label` 同组；为不改动共享规则、并避免与并行阶段冲突，**保留为死代码并在本日志标注**，留待 Phase 6 统一收口。
+- `.section-empty` 仍被总览（两处空态）与诊断/渠道/历史/设置复用。
+
+## 8. 自主决策清单
+
+1. **KPI 锚点带采用「无标题卡」+ 保留健康明细三段**：`AgentsPage.test.tsx:249` 的 OverviewPage 顺序断言把 h2 顺序钉死为「运行状态 → Agent 接入 → 渠道账号 → 最近投递 → 需要处理」。若让 KPI 卡自带 h2，则「渠道健康居首」与「运行状态居首」不可兼得。因此 KPI 带用无标题的 `KpiCard`（设计顺序：渠道健康居首），h2 由下方健康明细三段承接，两者互不干扰。
+2. **`channelOnline/WaitingLogin/Invalid` 从 `HealthSummary.tsx` 导出复用**：KPI 带与明细段需要同一套健康判定，导出既有纯函数避免重复逻辑；未新建文件（遵守文件所有权清单）。
+3. **例外面板未前置（与设计 §5.3 的已知偏差）**：`AgentsPage.test.tsx` 断言「最近投递」必须在「需要处理」之前。该测试位于 `src/features/agents/`（红线：其它 features 零改动）且属 `tests` 契约，本阶段不能改。为保门禁全绿，保留 DOM 顺序「投递流 → 需要处理」；作为补偿，把「待处理」提到 KPI 锚点带（tone 在 >0 时为 warning），在首屏就给出「有没有要处理的」信号。**此偏差需在 Phase 6 与测试归属方确认后再决定是否调序。**
+4. **KPI 带用 `auto-fit minmax(200px,1fr)`**：无需媒体查询即自动折行（1280 视口 4 列、640 视口 2 列），避免魔法断点。
+5. **健康明细三段不再用卡片表面**：仅 KPI 带与两张 `SectionCard` 使用表面层，符合「少边框、多表面差 / 一屏一锚点」；明细段 h2 用 `--font-heading` 但数值降为 `--font-body`，不抢 28px 锚点。
+6. **投递流分组用本地日界**：以 `new Date().getTime()` 为「今天」基准，`startOfDay` 用本地时区；无效时间归「更早」，避免渲染失败。
+7. **相对时间阈值命名常量**：`MINUTE_MS / HOUR_MS / DAY_MS / MONTH_DAYS`，无裸魔法数字。
+8. **外层 section 用 `aria-label="总览"`**：`PageHeader` 不暴露 h1 id，沿用阶段 5a 的 `aria-label` 做法，保持「命名 region」语义与可访问名不变。
+9. **健康明细三段仍渲染 h2 图标**：`Gauge` / `Bot` / `RadioTower` 图标原样保留（`aria-hidden`）。
+
+## 9. 门禁结果
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run`：`Test Files 10 passed`、`Tests 65 passed`（含 `OverviewPage` 顺序断言）。
+- `npm --prefix apps/desktop-ui run build`：`✓ 1999 modules transformed`、`✓ built in 1.80s`。
+- `PLAYWRIGHT_BROWSERS_PATH=… npm --prefix apps/desktop-ui run test:a11y`：`7 passed`（六页 + 登录对话框 Escape）。
+- 额外实跑（`npx playwright test --config tests/playwright.config.ts --grep-invert "视觉基线"`）：`19 passed`（navigation / states / dynamic-adapters / a11y / `@visual 长文本…` / `@zoom 200%…`）。
+- 视觉基线红为预期（`overview.png` diff ratio 0.02），未更新基线。
+
+## 10. 未碰清单（零改动声明）
+
+- 未改：`src/bridge/**`、`src/data/**`、`app/**`（含 `RuntimeStatusBar` 联动）、`components/patterns/**`、`styles/patterns.css` / `tokens.css` / `layout.css` / `task9.css`、`tests/**`、其它 `features/**`（含 `AgentsPage.test.tsx`）、`.opencode/`。
+- 业务逻辑、数据结构、数据请求、Query Key、表单提交、路由路径、状态机：零改动（`actionItems`、`togglePause`、`useSnapshot`、`useSetRuntimePausedMutation` 均原样）。
+- 可访问名与 role：零改动（§3 全部保持；h1/h2/按钮/FieldRow 文案/`role="alert"`/`role="status"` 不变）。
+- `task7.css` 仅动总览段；Agent 段与其余共享规则零改动。
+
+
+
+### ===== 附录：phase5c-history.md =====
+
+# Phase 5c 决策日志｜历史页迁移（检索报表 · 筛选带收拢 + 固定轨道表 + 详情三段）
+
+- 日期：2026-09-24
+- 范围：`src/features/history/HistoryPage.tsx`、`HistoryTable.tsx`、`HistoryDetail.tsx`、`styles/task9.css`（仅历史段：`.history-*` / `.existence-*`）
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§1 五原则 / §4 范式分配 / §5.4 历史：筛选带收拢、固定列轨道、虚拟列表防白闪、双栏底对齐）
+- 样例：阶段 4 渠道页（`ChannelsPage.tsx` / `channels.css`）与阶段 5a Agent 页（`AgentsPage.tsx` / `phase5a-agents.md`）作为同款结构语言与视觉密度参照
+- 红线：`src/bridge/**`、`src/data/**`、其它 `features/**`、`app/**`、`components/patterns/**`、`styles/patterns.css` / `tokens.css` / `layout.css` / `task7.css`、`tests/**`、`.opencode/**` —— 零改动；`task9.css` 只动历史段。
+
+## 1. 结构映射（旧区块 → 新范式）
+
+| 旧结构 | 新结构（范式组件） | 说明 |
+| --- | --- | --- |
+| `workbench-page-header`（h1 + `page-summary` + `page-count` 徽标） | `PageHeader`（h1「历史」+ 摘要 + `actions` = 原 `page-count`） | 计数徽标移入 actions，`aria-label="共 N 条通知"` 原样保留 |
+| 页面 section `aria-labelledby="page-title-history"` | `<section className="workbench-page history-page" aria-label="历史">` | 命名 region 语义保留（`PageHeader` 不暴露 h1 id） |
+| 单一 `.history-filters` 8 列网格（主/次筛选混排、重置独占一格） | `.history-filter-primary`（Agent/渠道/账号/状态）+ `.history-filter-secondary`（开始/结束/关键词 + 重置行尾） | 见 §2 |
+| `div.history-workspace`（`1.65fr / minmax(320px,.85fr)`，gap 16） | `minmax(0, 2fr) / minmax(300px, .85fr)`，gap 24，`align-items: start` | 见 §5 |
+| 表格行内 `span.history-state history-state--*` | `span.history-state-cell[role=cell]` > `StatusBadge`（success/warning/danger/neutral） | 颜色 + 文字双载；`role="cell"` 保留 |
+| 详情 `span.history-state history-state--neutral` / `--*` | `StatusBadge tone="neutral"` / `deliveryStateTone()` 返回 tone | 语义色统一 |
+| 详情平铺（h2 头 + `dl` + 正文 div + 投递 div） | 详情头（`.section-heading`）+ 三张 `SectionCard`：存在性 / 正文 / 投递记录 | 见 §4 |
+| `div.history-deliveries > h3「投递记录」` | `SectionCard title="投递记录" count={deliveries.length}` | h3 → 卡片 h2；文案「投递记录」保留 |
+| 空态 `EmptyState`「暂无历史通知」 | **原样保留**（文案 / role 不变） | 见 §6 决策 4 |
+| 页面纵向单列 | `history-workspace` 左表 / 右详情，≤1120px 降单列 | 同渠道页 |
+
+## 2. 筛选带重排方案
+
+- 主筛选（一行）：Agent / 渠道 / 账号 / 状态，放入 `.history-filter-primary`（`flex-wrap`，`> label { flex: 1 1 170px }`）——宽屏一行四列，窄屏自然折行。
+- 次筛选（第二行）：开始时间 / 结束时间 / 关键词，放入 `.history-filter-secondary`；**「重置」并入行尾**（`margin-left: auto`），不再独占一行。
+- 所有 `label` 仍走既有共享规则 `.history-filters label { display:grid; gap:4px }` 与 `.history-filters input/select`，控件视觉零变化。
+- 表单 `aria-label="历史筛选"`、`onSubmit preventDefault`、各字段 `aria-label`（Agent/渠道/账号/状态/开始时间/结束时间/关键词）、重置按钮文案「重置」与 `disabled={!hasActiveFilters(filters)}` 全部原样保留。
+- 渠道切换清空账号的联动、`filters` 的 `useMemo`、`dateTimeToIso`/`valueOrNull` 等逻辑零改动。
+
+## 3. 虚拟列表 CSS 防白闪 / 防抖动清单（**JS 零改动**）
+
+> `HistoryTable.tsx` 中 `useVirtualizer` 的 `count` / `getScrollElement` / `estimateSize`（54）/ `overscan`（8）/ `initialRect` / `getItemKey` 与 `HISTORY_ROW_HEIGHT` / `HISTORY_OVERSCAN` / `TEST_VIEWPORT_RECT` / `INITIAL_FALLBACK_ROW_COUNT` **一行未改**；仅替换了状态单元格的展示组件与列轨道 CSS。
+
+| 目标 | 旧值 | 新值 |
+| --- | --- | --- |
+| 容器明确高度 | `height: min(58vh, 560px)`（内联魔法） | `height: var(--history-viewport-height)`（`min(58vh, 560px)`，命名 token） |
+| 行底透明防白闪 | `.history-virtual-space .history-row { background: var(--color-surface) }`（与视口同色但显式覆盖，选中行需 `!important`） | 删除行背景 → 行底透明，统一由视口 `background: var(--color-surface)` 承载 |
+| 选中态 | `background: #e7f0ed !important`（硬编码 + `!important`） | `background: var(--color-primary-soft)`（去 `!important`） |
+| 防抖动 | 无 | `scrollbar-gutter: stable` |
+| 滚动条透明轨道 | 无 | `scrollbar-width: thin`；`scrollbar-color: var(--color-border) transparent`；`::-webkit-scrollbar-track { background: transparent }`，宽度走 `--history-scrollbar-size` |
+
+## 4. 详情三段落地
+
+- 结构：`section.history-detail[aria-label="通知详情"]`（`display:grid; gap:24px; align-content:start; align-self:stretch; overflow:auto`）→ 头部 `.section-heading`（h2 = 通知标题 + 时间 + `StatusBadge`）→ `SectionCard`「存在性」/「正文」/「投递记录」。
+- 存在性段：保留 `dl.history-existence-list` 与 `dt`「通知 / 投递 / 路由」、`dd`「存在（N 条）/ 不存在」、`.existence-value--yes/no`（语义 token），仅外层套 `SectionCard`，并去掉列表自带底距（卡片已提供间距）。
+- 正文段：保留「展开正文 / 收起正文」按钮与 `pre.history-body`，套 `SectionCard title="正文"`；去掉旧的分隔线/外边距。
+- 投递段：`SectionCard title="投递记录"`，投递卡片内状态改 `StatusBadge`；错误条 `.history-delivery-error` 与 `InlineError` **同源**（`--color-danger-soft` 底 + `--color-danger` 左侧描边 + 语义色文字）。
+- **底部对齐**：`history-workspace` 保持 `align-items: start`（顶对齐），详情面板 `align-self: stretch` 撑满同一行高（左列 = 表头 38px + 虚拟视口 + 加载更多），面板内部 `overflow:auto`；≤1120px 单列时 `align-self:auto; overflow:visible` 恢复自然高度。这样避免「右侧详情远短于左侧列表」的大片参差。
+
+## 5. 表格固定列轨道与重叠修复（自主决策）
+
+- 旧列轨道：`132px / 110px / minmax(190px,1.15fr) / minmax(170px,1fr) / 132px / minmax(180px,1.15fr)`，最小内容宽约 970px，**大于左列实际宽度**（约 660px），在宽屏下会越入右列、被旧详情面板的不透明底遮住（旧基线即如此）。
+- 新列轨道：`132px / minmax(0,1.1fr) / minmax(0,1.6fr) / minmax(0,1.2fr) / 112px / minmax(0,1.4fr)`，时间/状态定宽、其余按比例分配，行 `min-width: 0`，**始终落在左列内**；超长文本按设计走「`overflow:hidden` + `text-overflow:ellipsis`」省略号截断。
+- 同步删除 ≤1120px 的 `.history-row { min-width: 920px }` 与 `.history-table { overflow-x:auto }`（单列下不再需要，也不产生内层横向滚动）。
+- 保留 `.history-row > * { word-break: keep-all }`（中文不断字）与 ≤1120px 表头吸顶 `position: sticky`。
+
+## 6. 契约保持清单（role / 可访问名 → 测试出处）
+
+| 契约 | 出处 |
+| --- | --- |
+| h1「历史」 | `tests/helpers.ts:gotoSection`（每页 h1 名 = 导航标签） |
+| 筛选 `aria-label`：Agent / 渠道 / 账号 / 状态 / 开始时间 / 结束时间 / 关键词 | `HistoryPage.test.tsx:146/167-177` |
+| 「全部 Agent / 全部渠道 / 全部账号 / 全部状态」option 与提交 payload 逐字段 | `HistoryPage.test.tsx:180-190` |
+| 行内标题按钮可访问名 = `notification.title`、`aria-pressed` | `HistoryPage.test.tsx:236/293/336`；`states.spec.ts:48/65` |
+| 长文本标题按钮 `getByRole("button",{name:longChineseText})` 不被裁切 | `visual.spec.ts:78-82` |
+| `role="table"` `aria-label="历史通知列表"`、虚拟化（<200 行 / 不渲染第 10000 行） | `HistoryPage.test.tsx:194-206` |
+| `role="region"` `aria-label="通知详情"` | `HistoryPage.test.tsx:244/295/338`；`states.spec.ts:50` |
+| 存在性文案「通知 / 投递 / 路由」「存在（1 条）」「不存在」 | `HistoryPage.test.tsx:238-242` |
+| 状态中文「投递结果未确认」「请先检查原渠道是否已收到消息」 | `HistoryPage.test.tsx:148-153/299-306`；`states.spec.ts:52-58` |
+| 「展开正文」/「收起正文」按钮与正文 `pre` 显隐 | `HistoryPage.test.tsx:248-251` |
+| 重试按钮「重试」仅在 Failed 且 retryable 出现；Unknown/不可重试不出现；`retry_delivery` payload | `HistoryPage.test.tsx:253-261/305/345`；`states.spec.ts:57/68-71` |
+| 失败错误文案「渠道拒绝了这条消息，请检查账号权限」「账号权限不足，需要人工处理」 | `HistoryPage.test.tsx:246/342`；`states.spec.ts:66` |
+| 长文本场景无水平溢出 | `visual.spec.ts:82`；`@zoom` 200% 六页 |
+| axe：历史无 serious/critical | `accessibility.spec.ts:11` |
+| `page-count` `aria-label="共 N 条通知"` | 无测试，原样保留 |
+
+## 7. 清理的硬编码清单（`task9.css` 历史段）
+
+| 旧值 | 位置 | 新值 |
+| --- | --- | --- |
+| `#e7f0ed !important` | `.history-row--selected` | `var(--color-primary-soft)`（去 `!important`） |
+| `#fbefed` | `.history-delivery-error` | `var(--color-danger-soft)` |
+| `min(58vh,560px)` 内联魔法 | `.history-virtual-viewport` | `var(--history-viewport-height)` |
+| `38px` | `.history-row--header` min-height | `var(--history-header-height)` |
+| `gap: 2px` | `.history-delivery-header > div` | `var(--space-1)` |
+| `--font-size-1/2/3/4` | 历史段多处 | `--font-caption` / `--font-body` / `--font-heading`（`history-detail--empty`、`session-text`、`body`、`delivery`、`retry` 等） |
+| `border-bottom` 通栏线 | `.history-body-section` / `.history-deliveries h3` / 详情面板上下列边框 | 删除（改 `SectionCard` 表面差；投递分隔线改 `--hairline`） |
+| `.history-state` / `.history-state--*`、`.history-deliveries h3` | 随结构移除的死规则 | 删除，避免双定义 |
+
+未纳入本阶段（不在所有权内 / 非硬编码色值）：`.history-title-button { gap:1px }`、`.history-search-control input { min-height:30px }`、`.history-body { max-height:240px }` 为历史段既有微观尺寸常量，本阶段未动。
+
+## 8. 共享段处置说明（`task9.css`）
+
+- `.page-actions`（第 1-7 行）：诊断/设置/历史共用，**零改动**。
+- `.history-page-content, .diagnostics-page-content, .settings-page-content`（第 17-22 行）：共享规则**零改动**；历史页另加专属覆盖 `.history-page .history-page-content { padding-top:0; gap:24px }`（更高特异性，只作用于历史页）。
+- `.history-filters label, .settings-field` 与 `.history-filters input/select, .settings-field input/select`（第 75-101 行）：设置段与本段共用，**零改动**；历史标签/输入继续复用。
+- `.history-existence-list, .diagnostics-summary-list`（第 293 行起）：诊断段共用，**零改动**；历史页仅在 `.history-existence-card` 内追加 `margin-bottom:0` 覆盖。
+- 设置段（`.settings-*`）、诊断段（`.diagnostic-*` / `.migration-*`）：**零改动**（diff 均落在历史段与历史专属覆盖块内）。
+
+## 9. 自主决策清单
+
+1. **筛选带用 flex 折行**而非再引入多档媒体查询：主/次两容器各自 `flex-wrap`，重置 `margin-left:auto` 贴行尾；删除旧的 1320px 筛选网格媒体块（仅含历史规则），640px 筛选单列规则同样删除（flex 已覆盖）。
+2. **详情面板 `align-self: stretch` 实现底对齐**：设计稿要求「与左侧列表底部对齐」，`align-items:start` 保证顶对齐，stretch 保证底对齐；≤1120px 单列时恢复自然高度。
+3. **修复表格越入详情面板的重叠**（§5）：旧基线靠详情面板不透明底遮挡，本阶段详情面板改为卡片化透明列后暴露；通过收缩列轨道最小宽度彻底消除，满足「不重叠 / 无水平溢出」。
+4. **空态文案保持不变**：设计稿 §0.5 期望历史空态指向「连接渠道」，但 §5.4 交付规格未列空态，且该 CTA 需要新增渠道导航（超出本阶段范围）；`EmptyState`「暂无历史通知」文案与结构原样保留，留待后续统一处理。
+5. **错误摘要列颜色保持现状**：`.history-error-cell` 恒为 `--color-danger`（含「无可见错误」）属既有语义表达，非本阶段交付项，未改（避免扩大范围）。
+6. **状态 tone 映射**：表行 `Unknown/Failed→danger`、`Pending/Skipped→warning`、空投递→`neutral`、其余→`success`；详情投递卡同源。
+7. **命名 token**：新增 `--history-viewport-height` / `--history-header-height` / `--history-scrollbar-size`（无现成语义 token，遵循 channels.css 先例）。
+
+## 10. 门禁结果
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run`：`Test Files 10 passed`、`Tests 65 passed`（历史 6 项全绿，含虚拟化 10,000 行与筛选 payload）。
+- `npm --prefix apps/desktop-ui run build`：`✓ 1999 modules transformed`、`✓ built in 1.94s`。
+- `PLAYWRIGHT_BROWSERS_PATH=... npm --prefix apps/desktop-ui run test:a11y`：`7 passed`（六页 + 登录对话框 Escape；历史一条 `ok`）。
+- 额外实跑：`states.spec.ts` = `5 passed`（Unknown 不重试 / Failed 显式重试 / 诊断动作 / 渠道失败重试 / 无 Agent 空态）；`@visual 长文本不被裁切且关键区域不重叠` + `@zoom 200% 缩放等价视口下无水平溢出` = `2 passed`。
+- 视觉基线红为预期（`history.png` diff ratio `0.02`），**未更新基线**；已目检 `history-actual.png`：筛选带主/次两行 + 重置行尾、表头六列完整落在左列、详情面板与列表底部对齐、无重叠。
+
+## 11. 未碰清单（零改动声明）
+
+- 未改：`src/bridge/**`、`src/data/**`、其它 `features/**`、`app/**`、`components/patterns/**`、`styles/patterns.css` / `tokens.css` / `layout.css` / `task7.css`、`tests/**`、`.opencode/**`。
+- 业务逻辑、数据结构、数据请求、TanStack Query Key、表单提交、路由路径、状态机：零改动。
+- `@tanstack/react-virtual` 的 `useVirtualizer` 参数：零改动。
+- 可访问名与 role：零改动（§6 全部保持）。
+- `task9.css` 仅改历史段与历史专属覆盖；设置段 / 诊断段 / 共享规则本身零改动（§8）。
+
+
+
+### ===== 附录：phase5d-diagnostics.md =====
+
+# Phase 5d 决策日志｜诊断页迁移（例外分诊 · 按严重度分组 + 动作行右对齐 + 迁移卡独立成组）
+
+- 日期：2026-09-24
+- 范围：`src/features/diagnostics/DiagnosticsPage.tsx`、`DiagnosticList.tsx`、`styles/task9.css`（仅诊断/迁移段：`.diagnostic-*` / `.migration-*` / `.diagnostics-page-content` 专属覆盖）
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§1 五原则 / §4 范式「例外分诊」/ §5.4 诊断：按严重度分组、动作行右对齐、迁移卡独立成组）
+- 样例：阶段 4 渠道页、阶段 5c 历史页（`phase5c-history.md`）作为同款结构语言与共享段处置参照
+- 红线：`src/bridge/**`、`src/data/**`、其它 `features/**`、`app/**`、`components/patterns/**`、`styles/patterns.css` / `tokens.css` / `layout.css` / `task7.css`、`tests/**`、`.opencode/**` —— 零改动；`task9.css` 只动诊断/迁移段。
+
+## 1. 结构映射（旧区块 → 新范式）
+
+| 旧结构 | 新结构（范式组件） | 说明 |
+| --- | --- | --- |
+| `workbench-page-header`（h1 + `page-summary` + `page-actions`） | `PageHeader`（h1「诊断」+ 摘要 + `actions` = 原两个按钮） | 刷新 / 复制安全诊断信息文案、disabled、onClick 原样保留 |
+| 页面 section `aria-labelledby="page-title-diagnostics"` | `<section className="workbench-page diagnostics-page" aria-label="诊断">` | 命名 region 语义保留（PageHeader 不暴露 h1 id） |
+| `section.diagnostics-section[aria-labelledby="diagnostics-migration-title"]` + `section-heading` + h2「旧数据迁移」 | `SectionCard title="旧数据迁移"` | 卡片 h2 = 原 h2；卡片 `aria-labelledby` 使 region 名仍为「旧数据迁移」 |
+| `section.diagnostics-summary` + h2「状态摘要」+ `dl.diagnostics-summary-list` | `SectionCard className="diagnostics-summary-card" title="状态摘要"` + 原 `dl` | 摘要列表 `dl` 结构、dt/dd 文案逐字保留 |
+| `section.diagnostics-section[aria-labelledby="diagnostics-items-title"]` + h2「诊断项」+ `DiagnosticList` | `SectionCard title="诊断项"` + `DiagnosticList`（内部按严重度分组） | 见 §2 |
+| `section.diagnostics-section[aria-labelledby="diagnostics-components-title"]` + h2「组件状态」 | `SectionCard title="组件状态"` | 组件卡 `diagnostic-component` 结构、状态文案保留 |
+| `span.diagnostic-level.diagnostic-level--*` 色块 | `StatusBadge tone={LEVEL_TONES[level]}` | 语义色 + 文字双载；warning/danger 走默认呼吸微光 |
+| `div.migration-status.migration-status--*`（左侧语义色描边） | `div.migration-status`（中性表面）+ `StatusBadge`（迁移状态） | tone 由徽标承担，删除 `--success/--warning/--danger` 描边类 |
+| `strong`（迁移状态文案）+ `p.migration-source-state` | `migration-status-heading`（`StatusBadge` + `migration-source-state`）+ `p`（描述） | 文案逐字保留，仅重排 |
+
+## 2. 严重度分组方案
+
+- 分组常量 `SEVERITY_GROUPS`（`DiagnosticList.tsx`），按严重度降序，**仅渲染非空分组**：
+  - `错误` ← `Error`
+  - `等待` ← `Waiting`、`Paused`
+  - `正常` ← `Normal`
+- 落在单个 `SectionCard title="诊断项"` 内，各组以 `h3.diagnostic-group-title`（组内分隔标题，带计数徽标 `diagnostic-group-count`）区隔；组间 24px（`--space-5`）。
+- **`Paused`（暂停）归入「等待」档**：设计稿只给三档（错误 / 等待 / 正常），而现有 `DiagnosticLevelDto` 有 4 个值；暂停既非错误也非正常，归入需关注但未失败的「等待」档，项目内每一项仍显示自己的「暂停」徽标（语义不丢）。见 §6 决策 1。
+- `LEVEL_TONES`：`Normal→success`、`Waiting→warning`、`Error→danger`、`Paused→info`；`LEVEL_LABELS`（正常/等待/异常/暂停）逐字未改。
+- 组标题文案用设计稿的「错误 / 等待 / 正常」，与条目徽标文案（异常/等待/正常/暂停）并存：组标题承载档位、徽标承载单条语义。
+
+## 3. 契约保持清单（role / 可访问名 → 测试出处）
+
+| 契约 | 出处 |
+| --- | --- |
+| h1「诊断」 | `tests/helpers.ts:gotoSection`（每页 h1 名 = 导航标签）；`routes.test.tsx:14` |
+| `role="region"` name「旧数据迁移」 | `MigrationDiagnostics.test.tsx:33/76/110`（`SectionCard` 的 `aria-labelledby` 提供） |
+| 迁移状态文案「未发现旧数据」「部分完成，跳过 2 条损坏记录」「失败，当前处于只读诊断模式」 | `MigrationDiagnostics.test.tsx:34/78/112` |
+| 按钮「查看迁移报告」`disabled={report===null}`、「重新检测」 | `MigrationDiagnostics.test.tsx:36-40/81/124` |
+| `role="list"` name「迁移损坏警告」+ `invalid_json` / `push.log` | `MigrationDiagnostics.test.tsx:84-88` |
+| 失败详情文案「clawbot.json 中的账号凭据格式无效」、备份建议整句 | `MigrationDiagnostics.test.tsx:115-120` |
+| `retry_legacy_migration` 调用 | `MigrationDiagnostics.test.tsx:128` |
+| 诊断项 message「数据库完整性检查发现问题」/「渠道登录状态异常」、代码、时间 | `SettingsPage.test.tsx:462`；`states.spec.ts:78` |
+| 等级徽标文案「异常」「正常」 | `SettingsPage.test.tsx:464/466` |
+| 动作按钮文案（`action.label`，如「重新读取运行状态」「重新检查」）与 descriptor 命令调用 | `states.spec.ts:81-85`；`SettingsPage.test.tsx:469-472` |
+| 「当前没有可执行的修复动作」 | `SettingsPage.test.tsx:467` |
+| 组件状态空态「StatusService 未返回组件状态。」、组件名/状态文案 | 无测试，原样保留 |
+| axe：诊断无 serious/critical | `accessibility.spec.ts:11` |
+| 长文本无水平溢出 / @zoom 200% | `visual.spec.ts:90-101` |
+
+> 说明：等级徽标文案「异常」「正常」由 `StatusBadge` 承载，仍是唯一文本节点，`getByText("异常")` / `getByText("正常")` 各命中一处；组标题「正常 · N」的直连文本为「正常 ·」，不等于「正常」，不与徽标冲突（见 §6 决策 2）。
+
+## 4. 共享段处置说明（`task9.css`）
+
+- `.page-actions`（第 1-7 行）：诊断/设置/历史共用，**零改动**（诊断页头改由 `pattern-page-header-actions` 承载，不再输出 `.page-actions`，但规则本身不动）。
+- `.history-page-content, .diagnostics-page-content, .settings-page-content`（第 17-22 行）：共享规则**零改动**；诊断页另加专属覆盖 `.diagnostics-page .diagnostics-page-content { padding-top:0; gap:24px }`（更高特异性，只作用于诊断页）。
+- `.history-existence-list, .diagnostics-summary-list`（第 293 行起）：与历史页共用，**共享规则零改动**；诊断页仅追加 `.diagnostics-summary-card .diagnostics-summary-list { margin-bottom:0 }` 覆盖块（`SectionCard` 已提供间距）。
+- `.history-filters label, .settings-field` 等：与诊断无关，**零改动**。
+- 历史段（`.history-*` / `.existence-*`，5c）、设置段（`.settings-*`，5e）：**零改动**。
+- 640px 媒体查询中的共享选择器 `.history-existence-list, .diagnostics-summary-list`：**零改动**；诊断专属行（`.diagnostic-*` / `.migration-*`）就地保留。
+
+## 5. 清理的硬编码清单（`task9.css` 诊断/迁移段）
+
+| 旧值 | 位置 | 新值 |
+| --- | --- | --- |
+| `#e7f3ea` / `#fff3db` / `#fbefed` / `#e7f1f7` | `.diagnostic-level--normal/waiting/error/paused` | 随 `.diagnostic-level*` 死规则整体删除，改由 `StatusBadge`（`--color-*-soft` 语义底）承载 |
+| `padding: 2px` | `.diagnostic-level` | 随规则删除 |
+| `gap: 2px` | `.migration-issue-list > div` / `.migration-report-list > div` | `var(--space-1)` |
+| `min-width: 150px` | `.diagnostic-action` | `var(--diagnostic-action-column)`（新增命名 token，值 168px） |
+| `max-width: 180px` | `.diagnostic-action-unavailable` | `var(--diagnostic-action-column)` |
+| `--font-size-1/2/3` | 诊断/迁移段多处（message / time / unavailable / component p / migration p / dt / dd / report-empty / warning span / issue h3） | `--font-caption` / `--font-body` / `--font-heading`（四档别名） |
+| `border-left: 3px solid` 语义描边 + `--success/--warning/--danger` | `.migration-status` 及其 tone 类 | 删除（tone 改由 `StatusBadge` 承担），状态块改中性表面 |
+| `.diagnostic-level` / `.diagnostic-level--*` | 随结构移除的死规则 | 删除，避免双定义 |
+
+未纳入本阶段（结构性尺寸，沿用 history/channels 先例）：`.migration-warning-list li` 的 `minmax(100px, 0.35fr)` 轨道最小宽、`.diagnostic-components` 两列轨道；`--diagnostic-action-column: 168px` 为新增命名 token。
+
+## 6. 自主决策清单
+
+1. **`Paused` 归入「等待」档**：设计稿只给三档，`DiagnosticLevelDto` 有四值；暂停语义介于等待与正常之间，归入「等待」，条目徽标仍显示「暂停」。若后续要独立「暂停」档，只需调整 `SEVERITY_GROUPS` 常量。
+2. **组标题用「错误 / 等待 / 正常 · N」而非纯档位名**：`getByText("正常")`（`SettingsPage.test.tsx:466`）要求「正常」在页面上唯一命中；组标题直连文本含「 ·」后不再等于「正常」，与徽标文本不冲突，契约零改动。
+3. **迁移状态块改中性表面 + `StatusBadge`**：删除按 tone 着色的左侧描边（那是旧硬编码语义色的替代），改由徽标承担状态色，符合「颜色 + 文字双载」。
+4. **`SectionCard` 统一四组**：迁移 / 状态摘要 / 诊断项 / 组件状态全部卡片化，沿用渠道/历史页表面语言；严重度分组作为「诊断项」卡内组内分隔标题（设计稿允许「SectionCard 或组内分隔标题」二选一）。
+5. **动作行右对齐成列**：`.diagnostic-action { justify-content: flex-end; min-width: var(--diagnostic-action-column) }`——末列右缘恒贴卡片内容右缘，按钮天然右对齐成列；≤640px 单列时改为左对齐、取消最小宽。
+6. **刷新动作保留在页头**：沿用旧「刷新 / 正在刷新」按钮（非「重新检查」，避免与诊断项动作文案冲突），复制按钮一并保留。
+7. **`copyState` 反馈沿用 `.settings-feedback`**：为最小化改动，未新造诊断反馈类（该类定义在设置段，未改）；仅 JSX 复用，不触碰设置段 CSS。
+
+## 7. 门禁结果
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run`：`Test Files 10 passed`、`Tests 65 passed`（含 `MigrationDiagnostics` 3 项、`SettingsPage > DiagnosticsPage` 1 项）。
+- `npm --prefix apps/desktop-ui run build`：`✓ 1999 modules transformed`、`✓ built in 1.43s`。
+- `PLAYWRIGHT_BROWSERS_PATH=... npm --prefix apps/desktop-ui run test:a11y`：`7 passed`（六页 + 登录对话框 Escape；诊断一条 `ok`）。
+- 额外实跑：`states.spec.ts`「诊断修复动作调用 descriptor 声明的命令」= `1 passed`；`visual.spec.ts`「长文本不被裁切且关键区域不重叠」+「@zoom 200% 缩放等价视口下无水平溢出」= `2 passed`。
+- 视觉基线红为预期（`diagnostics.png` diff ratio `0.04`），**未更新基线**；已目检 `diagnostics-actual.png`：页头 + 四张卡片、迁移徽标/来源行、状态摘要三列、诊断项「错误 · 1」组与右对齐动作按钮均正确。
+
+## 8. 未碰清单（零改动声明）
+
+- 未改：`src/bridge/**`、`src/data/**`、其它 `features/**`、`app/**`、`components/patterns/**`、`styles/patterns.css` / `tokens.css` / `layout.css` / `task7.css`、`tests/**`、`.opencode/**`。
+- 业务逻辑、数据结构、数据请求、TanStack Query Key、表单提交、路由路径、状态机：零改动。
+- 可访问名与 role：零改动（§3 全部保持）。
+- `task9.css` 仅改诊断/迁移段与诊断专属覆盖；历史段 / 设置段 / 共享规则本身零改动（§4）。
+
+
+
+### ===== 附录：phase5e-settings.md =====
+
+# Phase 5e 决策日志｜设置页迁移（配置中枢 · 左目录 + 一决策一行）
+
+- 日期：2026-09-24
+- 范围：`src/features/settings/SettingsPage.tsx`、`ReplySettingsForm.tsx`、`QuietHoursForm.tsx`、`UpdateSettings.tsx`、`styles/task9.css`（仅设置段）
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§1 五原则 / §5.2 设置页 / §6 交互状态）
+- 红线：`src/bridge/**`、`src/data/**`、其它 `features/**`、`app/**`、`components/patterns/**`、`styles/patterns.css` / `tokens.css` / `layout.css` / `task7.css`、`tests/**`、`.opencode/**` —— 零改动。
+
+## 1. 结构映射（旧区块 → 新范式组件）
+
+| 旧结构 | 新结构 | 说明 |
+| --- | --- | --- |
+| `workbench-page-header`（h1 + `page-summary` + 顶部保存按钮） | `PageHeader`（h1「设置」+ 摘要 + 右侧「保存设置（顶部）」） | 摘要文案不变；按钮 `aria-label` 原样保留 |
+| `form.settings-form` 内 5 个 `section.settings-group`（左标题列 + 右字段列，`border-bottom` 分隔） | `.settings-layout` 网格：左 `.settings-index` 目录 + 右 `form.settings-form` | 参差的多列分组改为卡片表面差 |
+| 每个 `section.settings-group > header(h2 + p)` | 每分组一张 `SectionCard`（h2 = 组名 + `description` = 一句话说明） | h2 文案与层级不变 |
+| `label.settings-switch-row`（strong/small + 复选框，`space-between` 拉满整行） | `FieldRow`（label + description 在左，控件列右对齐） | 一决策一行 |
+| `label.settings-field`（span + input + small） | `FieldRow`（description 承接原 small） | 数值/下拉统一控件列宽 |
+| `QuietHoursForm` 的 `div.settings-subsection.settings-quiet-hours`（开关 + `settings-inline-fields` 两列时间） | `QuietHoursForm` 返回两个 `FieldRow` 片段：勿扰时段开关 / 勿扰时间（等宽两列时间控件） | 逻辑零改动，仅拆行 |
+| `div.settings-subsection`（Agent 默认开关标题 + Agent 列表） | `div.settings-subsection`（子区块标题）+ `FieldRow` 列表 | 保留子区块语义 |
+| 渠道 unavailable 行 + 只读配置子区块 | `FieldRow`（默认通知账号）+ `.settings-unavailable-row` + `.settings-readonly-config` | 文案不变 |
+| UpdateSettings 的开关/下拉/unavailable 行/反馈 | `FieldRow` 三行 + `.settings-unavailable-row`（检查与安装更新）+ 反馈条 | 全部状态表达保留 |
+| `div.settings-save-row`（普通底部行） | `.settings-save-row`（`position: sticky; bottom: 0` 表面条） | 保存状态常驻可见 |
+| 页面纵向单列 | `.settings-layout`（左目录 sticky / 右面板单列），≤1080px 降单列 | Settings 范式 |
+
+## 2. 契约保持清单（role / 可访问名 → 测试出处）
+
+| 契约 | 出处 |
+| --- | --- |
+| h1「设置」 | `tests/helpers.ts:190`（`gotoSection` 每页 h1） |
+| h2「通知 / 回复 / 渠道 / 应用 / 数据」 | `SettingsPage.test.tsx:193-199` |
+| `role="switch"`「全局暂停」 | `SettingsPage.test.tsx:200/231/259/288/321/354/378/418/439` |
+| `getByLabelText`「通知冷却（秒）」 | `SettingsPage.test.tsx:381/440`；`visual.spec.ts:85` |
+| `getByLabelText`「默认通知账号」 | `SettingsPage.test.tsx:384`；`visual.spec.ts:85` |
+| option `/主账号.*account-alpha/` | `SettingsPage.test.tsx:202` |
+| button「打开数据目录 / 导出脱敏诊断包 / 备份数据库」disabled | `SettingsPage.test.tsx:204-206` |
+| 文案「当前版本不可用」≥3 | `SettingsPage.test.tsx:207` |
+| button「检查更新」→「正在检查」 | `SettingsPage.test.tsx:209/232/265/289/322/355` |
+| button「下载并安装」→「正在下载并安装」 | `SettingsPage.test.tsx:237/245/294/302/303/334/363` |
+| 文案「测试包未签名，仅供内部验证；正式版不会安装未签名更新。」 | `SettingsPage.test.tsx:212` |
+| 文案「先检查更新，确认存在可安装版本后才能下载。」 | `SettingsPage.test.tsx:262` |
+| 文案「上次检查更新失败，请先重新检查。」 | `SettingsPage.test.tsx:270` |
+| 文案「正在安装新版本，完成后应用会自动重启，请保持应用运行。」 | `SettingsPage.test.tsx:296/329` |
+| 文案「上次安装未成功，请重新检查更新后再试。」 | `SettingsPage.test.tsx:333/365` |
+| `role="alert"`「下载更新包失败…」 | `SettingsPage.test.tsx:359` |
+| button「保存设置」（表单底部提交；唯一精确名） | `SettingsPage.test.tsx:385/422/443` |
+| button「保存设置（顶部）」（`aria-label`，非精确「保存设置」，不冲突） | 原实现保留 |
+| `role="status"`「设置已保存」 | `SettingsPage.test.tsx:399` |
+| `role="alert"`「设置保存失败，请检查数据库状态」 | `SettingsPage.test.tsx:424` |
+| `role="alert"`「通知冷却必须是 0 到 3600 之间的整数」 | `SettingsPage.test.tsx:445` |
+| form `aria-label="AgentNotify 设置"` | 原实现保留 |
+| 安装禁用原因 `id="settings-update-install-reason"`（`aria-describedby`） | 原实现保留 |
+| `role="switch"`「启用勿扰时段 / 引用回复 / 送达确认 / 随系统启动 / 启动时隐藏 / {Agent} 默认通知」 | 原实现保留（`aria-label` 未改） |
+| 标签「路由有效期（秒） / 勿扰开始 / 勿扰结束 / 更新通道」 | 原实现保留（`aria-label` 未改） |
+| 设置页 axe 无严重问题 | `accessibility.spec.ts:11`（设置一条） |
+| 长文本三标签不裁切 | `visual.spec.ts:84-86` |
+
+> 说明：`SettingsPage.test.tsx` 的 `name: "保存设置"` 为精确匹配；顶部按钮 `aria-label="保存设置（顶部）"` 与之不冲突，故全页「保存设置」精确名唯一。
+
+## 3. 左目录跳转实现方案与理由
+
+- **方案**：原生 `<a href="#settings-<组>">` 锚点，指向每个分组卡外的 `<div id="settings-<组>" class="settings-anchor">`（`scroll-margin-top: var(--space-5)`）。
+- **理由**：原生链接天然可聚焦、可键盘触发、可被读屏宣告为链接、无需 JS/状态机，`prefers-reduced-motion` 下浏览器自行处理；较 `button + scrollIntoView` 更少代码、无行为分叉。红线要求「二选一」，故选锚点。
+- **所有分组同时渲染且可见**：目录只做跳转，**不做「点组切换、隐藏其它组」**——`SettingsPage.test.tsx:193-199` 的 h2 断言与 axe 都要求全部组始终在 DOM 且可见。
+- **当前位置高亮**：仅视图层新增 `IntersectionObserver`（`rootMargin: -96px 0 -55% 0`）滚动侦测，高亮落在 `aria-current="true"`；`typeof IntersectionObserver === "undefined"`（jsdom）时直接跳过，不新增业务状态机。点击锚点时同步置高亮。
+
+## 4. 一决策一行的控件列宽策略
+
+- 所有行统一用 `FieldRow`：标签+说明在左（`max-width: 60ch`），控件在右列 `align-items: flex-end`——这正是范式组件内置的「控件列右对齐，勾选框不再飘到最右边缘」。
+- 数值/下拉：`.settings-control { width: var(--settings-control-width) }`（220px）统一宽度，右缘对齐成一列。
+- 开关：`.settings-fields input[type="checkbox"]` 18px + `accent-color`，随控件列右对齐，不再各自拉到行尾。
+- 勿扰开始/结束：`.settings-inline-fields` 等宽两列（`repeat(2, minmax(0,1fr))`），整体宽度同为 `--settings-control-width`，消除参差。
+- ≤640px：控件与两列时间降为满宽，行纵向堆叠。
+
+## 5. 清理的硬编码清单（task9.css 设置段）
+
+| 旧值 | 位置 | 新值 |
+| --- | --- | --- |
+| `#e7f3ea` | `.settings-feedback--success` 背景 | `var(--color-success-soft)` |
+| `#fbefed` | `.settings-feedback--error` 背景 | `var(--color-danger-soft)` |
+| `--font-size-1/2/4` | 设置段多处字号 | `--font-caption` / `--font-body` / `--font-heading`（SectionCard 内置） |
+| `gap: var(--space-3)` 叠在 `.settings-fields` | 行列表双倍行距 | 去掉 gap，交由 `FieldRow` 的 8px 行距 + `--hairline` 分隔 |
+| `padding-left: var(--space-4)` | `.settings-inline-fields` | 去掉（改由控件列定位） |
+| `minmax(180px, 0.36fr)` 左标题列 / `border-bottom` 通栏线 | `.settings-group` | 整段删除（改用 `SectionCard` 表面差） |
+| `.settings-switch-row` / `.settings-field` / `.settings-quiet-hours` / `.settings-group` | 随结构移除的死类（设置段） | 删除；`task9.css` 顶部与 `.history-filters` 同组的 `.settings-field` 规则**未动**（避免碰 history 段） |
+
+新增命名 token（布局尺寸，集中不游离）：`--settings-control-width: 220px`、`--settings-index-width: 148px`。
+
+> 附带影响（有意）：`.settings-feedback` 为设置与 `DiagnosticsPage` 共用类（`DiagnosticsPage.tsx:353-354`），语义柔和底替换后诊断页复制反馈同样去硬编码，两主题自动成立。
+
+## 6. 间距 / 字阶 / 主题落地
+
+- 间距只用 `--space-1..6`：卡间距 24px（`--space-5`）、卡内子区块上距/上距 8/12px、行距由 FieldRow 的 8px 节奏承担。
+- 字阶只用别名：h1 `--font-display`（PageHeader 内置）、h2 `--font-heading`（SectionCard 内置）、正文/控件 `--font-body`、说明/标签 `--font-caption`。
+- 表面：分组卡 `--surface-1`（SectionCard 内置）、保存条 `--surface-2`、只读配置 `--color-surface-muted`、分割线 `--hairline`；设置段内零裸 hex/rgba。
+
+## 7. 自主决策清单
+
+1. **保留 5 个实际分组**（通知 / 回复 / 渠道 / 应用 / 数据），未按设计稿 §5.2 的六组拆分：h2 断言精确钉住这五个名字，且实际分组如此；目录与之一一对应。
+2. **目录用锚点链接**（见 §3），不做组切换隐藏。
+3. **保存区**：顶部保存按钮与底部提交按钮均保留原 `aria-label`/文案与禁用逻辑；底部行做成吸底「常驻保存区」，只消费既有 `canSave`/`savedMessage`/pending 状态。
+4. **高亮态文字用 `--color-text`**（而非 `--color-primary`）：亮色下「深青文字 + primary-soft 底」对比度 4.25 < 4.5 会被 axe 判红；改为正文色 + 左侧主色描边 + 加粗 + 柔和底，颜色不单载，两主题均过。
+5. 新增 `--settings-control-width` / `--settings-index-width` 命名 token（无现成语义 token，遵循 channels.css 先例）。
+6. `settings-feedback` 共用类的重排（见 §5 附带影响）。
+
+## 8. 门禁结果
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run`：`Test Files 10 passed`、`Tests 65 passed`（设置 9 项全绿）。
+- `npm --prefix apps/desktop-ui run build`：`✓ 1999 modules transformed`、`✓ built in 2.07s`。
+- `PLAYWRIGHT_BROWSERS_PATH=... npm --prefix apps/desktop-ui run test:a11y`：设置页 `ok`；**Agent 管理一条失败**（`color-contrast: .agent-detail-health`），系并行 agent 正在修改的 `task7.css` + `agents/*`（`git diff --stat` 显示其 287 处改动）所致，**不在本阶段文件所有权内，未触碰**。其余 6 条通过。
+- 额外实跑：`@visual 长文本不被裁切且关键区域不重叠` = `1 passed`；`@zoom 200%` = `1 passed`。
+- 设置视觉基线 diff ratio `0.04`（预期，Phase 6 统一刷新），未改基线。已出 `settings-actual.png` 目检单列滚动 + sticky 目录 + 吸底保存条正常。
+
+## 9. 未碰清单
+
+- 未改：`src/bridge/**`、`src/data/**`、其它 `features/**`、`app/**`、`components/patterns/**`、`styles/tokens.css` / `patterns.css` / `layout.css` / `task7.css`、`tests/**`、`.opencode/**`。
+- `task9.css` 仅改设置段（diff hunk 全部 ≥ 第 668 行，未触及 `.history-*` / `.diagnostic-*` / `.migration-*` / `.page-actions` / `.existence-*` / `.history-filters`）。
+- 业务逻辑、数据结构、数据请求、TanStack Query Key、表单提交、路由路径、状态机、`SettingsDto` 形状：零改动。
+- 可访问名与 role：零改动（见 §2 全部保持）。
+
+
+
+### ===== 附录：phase6a-cleanup-dark.md =====
+
+# Phase 6a 决策日志｜收尾清理 + 暗色视觉/无障碍矩阵接入
+
+- 日期：2026-09-24
+- 范围：`styles/task7.css`、`styles/task9.css`、`styles/layout.css`（死代码清扫 + 暗色对比度修复）、`features/history/HistoryPage.tsx`、`features/overview/RecentDeliveries.tsx`、`features/diagnostics/DiagnosticsPage.tsx`、`features/diagnostics/DiagnosticList.tsx`（空态文案/CTA）、`tests/playwright.config.ts`（新增 dark 项目）
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§0 渠道为主 / §0.2 空态漏斗 / §3 明暗双主题一等公民 / §6 状态）、`docs/superpowers/plans/2026-09-24-ui-ux-redesign-plan.md`（Phase 6 双主题回归）
+- 红线：`src/bridge/**`、`src/data/**`、业务逻辑/请求/Query Key/表单提交/路由路径/状态机 —— 零改动；可访问名与 role —— 零改动；`tests/**` 仅新增 `playwright.config.ts` 的 dark 项目，其它测试文件与断言零改动；`.opencode/**` 不碰。
+
+## 1. 死代码清扫（类名 → 引用数 → 动作）
+
+扫描口径：`src/**`（`.tsx/.ts`）+ `tests/**`（`.ts`）+ `src/styles/*.css` 全量精确匹配（正则加词边界，避免 `runtime-status-label` / `history-error-cell` 之类子串误判）。
+
+| 类名 | 定义 | 引用数 | 动作 |
+| --- | --- | --- | --- |
+| `.page-summary` | task7.css | 0（已被 `pattern-page-header-summary` 取代） | **删除** |
+| `.status-label`、`.status-label--success`、`.status-label--danger` | task7.css | 0 | **删除**（含从 `.page-count, .status-label, .delivery-state` 共享组中拆出） |
+| `.delivery-state`、`--sent/--failed/--unknown/--pending/--skipped` | task7.css | 0 | **删除** |
+| `.page-count` | task7.css | 2（`AgentsPage.tsx:55`、`HistoryPage.tsx:145`） | 保留（原共享组收敛为单条 `.page-count` 规则，声明合并、值不变） |
+| `.section-count` | task7.css | 0 | **删除**（从 `.section-count, .section-description` 组中移除） |
+| `.section-description` | task7.css | 1（`HistoryDetail.tsx:113`） | 保留 |
+| `.section-heading`（含 `> div` / `> .button` / `h2`） | task7.css | 1（`HistoryDetail.tsx:110`） | 保留 |
+| `.table-scroll` | task7.css | 0 | **删除** |
+| `.data-table`（含 `th/td`、`th`） | task7.css | 0 | **删除** |
+| `.monospace-cell` | task7.css | 3（AgentDetail / ChannelAccountDetail / RecentDeliveries） | 保留 |
+| `.error-cell` | task7.css | 0（`history-error-cell` 是 task9 的独立类，未受影响） | **删除** |
+| `.metric-list`（含 `> div` / `dt` / `dd`） | task7.css | 3（`HealthSummary.tsx`） | 保留 |
+| `.action-list`（含 `li` / `strong` / `span`） | task7.css | 1（`OverviewPage.tsx:256`） | 保留 |
+| `.section-empty` | task7.css | 7（六页 + 历史详情） | 保留 |
+| `.page-actions` | task9.css | 0 | **删除** |
+| `.existence-value--yes` / `--no` | task9.css | 1（`HistoryDetail.tsx:45`） | 保留 |
+| `.history-existence-list` / `.diagnostics-summary-list`（共享块） | task9.css | 各 1（HistoryDetail / DiagnosticsPage） | 保留：两侧专属覆盖只改 `margin-bottom`，未整体取代共享基样式 |
+| `.empty-state*` | layout.css | 5（`EmptyState.tsx`） | 保留 |
+| `.inline-error*` | layout.css | 6（`InlineError.tsx`） | 保留（背景硬编码另修，见 §4） |
+| `.loading-*` | layout.css | 0（骨架定义已在 Phase 3 迁至 `patterns.css`，layout.css 仅留注释） | 无定义可删 |
+
+- 删除只针对明确选择器块；`.page-count` 因与已死选择器共享规则，按最小改动合并为单条规则（声明与取值不变），未做无关格式化。
+- **额外发现（未处理，仅记录）**：`styles/global.css` 全仓库无任何 `import`，是一份整体死文件（且含 `#20242a/#f3f4f6/#24313a` 等硬编码色）。它不在本阶段候选清单内，为避免擅自扩大范围，未删除、未改动。
+
+## 2. 空态引导一致性（设计稿 §0.2）
+
+| 位置 | 前 | 后 | CTA |
+| --- | --- | --- | --- |
+| 历史页空态（`HistoryPage.tsx`） | 标题「暂无历史通知」+「当前筛选条件下没有通知记录。可以调整筛选条件后重新查看。」 | 标题不变；描述改为「当前筛选条件下没有通知记录。连接渠道并触发通知后，这里才会出现投递记录。」 | `EmptyState` 的 `action` 槽：`<Link className="button" to="/channels">去连接渠道</Link>` |
+| 总览-最近投递空态（`RecentDeliveries.tsx`） | `<p className="section-empty">最近没有投递记录。</p>` | 改用 `EmptyState`：标题「最近没有投递记录」+ 描述「连接渠道并触发通知后，这里才会出现投递记录。」 | 同上 `<Link to="/channels">去连接渠道</Link>` |
+| 诊断-迁移未检测（`DiagnosticsPage.tsx`） | 「已检查常见旧版安装位置，未发现可迁移的数据。」 | 「已检查常见旧版安装位置，未发现可迁移的数据，无需处理。」 | 无（诊断空态不加链接） |
+| 诊断-诊断项空（`DiagnosticList.tsx`） | 「StatusService 当前没有返回诊断项。」 | 「StatusService 当前没有返回诊断项；运行与存储检查未发现问题，因此没有需要处理的项。」 | 无 |
+| 诊断-组件状态空（`DiagnosticsPage.tsx`） | 「StatusService 未返回组件状态。」 | 「StatusService 未返回组件状态；当前没有可上报的组件，无需处理。」 | 无 |
+| 诊断-动作不可用（`DiagnosticList.tsx`） | 「当前没有可执行的修复动作」 | **保持原样**（被 `SettingsPage.test.tsx:467` 精确断言，测试零改动红线） | 无 |
+
+- 未新增按钮/表单；未改 `EmptyState` / `EmptyFunnel` 组件本身，只传 props。
+- CTA 用 react-router `<Link>`（非 `<button>`），复用既有 `.button` 类，落到 `EmptyState` 已支持的 `action` 槽；`/channels` 路由路径未变。
+
+## 3. 暗色矩阵接入（`tests/playwright.config.ts`）
+
+新增 `dark` 项目（`desktop` / `zoom-200` 保持 `colorScheme: "light"` 不动）：
+
+```ts
+{
+  name: "dark",
+  grep: /@(a11y|visual)/,
+  use: {
+    ...devices["Desktop Chrome"],
+    viewport: { width: 1280, height: 800 },
+    deviceScaleFactor: 1,
+    colorScheme: "dark",
+  },
+}
+```
+
+- 与 `desktop` 项目同视口（1280×800）/ 同 `deviceScaleFactor`（1）/ 同 devices；仅切换 `colorScheme`，专跑 `@a11y` 与 `@visual`。
+- 矩阵：light 由 `desktop` 项目承担，dark 由本项目承担 → a11y = 7（light）+ 7（dark）= 14。
+
+## 4. 暗色 a11y 结果与修复（对比度核算）
+
+### 4.1 首次 dark 结果（修复前）
+
+`14 tests` 中 **13 passed / 1 failed**：`[dark] @a11y 渠道` 报 `color-contrast`（serious，2 处）：
+
+```
+- .schema-field--unsupported > .schema-field-label
+- .schema-field-unsupported
+```
+
+根因：`task7.css` 的 `.schema-field--unsupported { background: #fff8e8 }` 是硬编码浅底，暗色下 `--color-warning: #f0b64a` 落在近白底上对比度仅 **1.73:1**。
+
+### 4.2 修复
+
+| 文件 | 旧值 | 新值 |
+| --- | --- | --- |
+| `task7.css` `.schema-field--unsupported` | `background: #fff8e8`（硬编码） | `background: var(--color-warning-soft)`（语义柔和底，两主题自动换肤） |
+| `layout.css` `.inline-error` | `background: #fbefed`（硬编码，潜在暗色缺陷） | `background: var(--color-danger-soft)`（语义柔和底） |
+
+`.inline-error` 的暗色缺陷未被本次 axe 命中（默认场景不渲染错误态），属**主动修复**：旧值在暗色下文字 `--color-text #e9edf6` 落在近白 `#fbefed` 上对比度仅 **1.04:1**，与设计稿「组件只消费 `var(--*)`，零硬编码」及「两套主题都要过 axe 对比度」冲突，故一并语义化。
+
+### 4.3 对比度核算（WCAG 相对亮度；背景按表面语义层合成）
+
+| 场景 | 前景 | 背景（合成后） | 修复前 | 修复后 |
+| --- | --- | --- | --- | --- |
+| 不支持字段 暗色 | `--color-warning #f0b64a` | `warning-soft` over surface-1 over canvas ≈ `rgb(52,44,34)` | **1.73:1（红）** | **7.52:1** |
+| 不支持字段 亮色 | `--color-warning #9a5b06` | `warning-soft` over `#fff` ≈ `rgb(243,235,225)` | 5.12:1 | **4.59:1**（仍 ≥4.5，非退化到不达标） |
+| InlineError 正文 暗色 | `--color-text #e9edf6` | `danger-soft` over surface-1 over canvas ≈ `rgb(54,37,43)` | **1.04:1（红）** | **12.30:1** |
+| InlineError 说明 暗色 | `--color-text-muted #949eb4` | 同上 | — | 5.36:1 |
+| InlineError 正文 亮色 | `--color-text #1a2230` | `danger-soft` over `#fff` ≈ `rgb(246,229,227)` | 13.1:1 | 13.10:1 |
+| InlineError 说明 亮色 | `--color-text-muted #5b6675` | 同上 | — | 4.78:1 |
+
+- **未改动 `tokens.css`**：无需调整暗色令牌值。
+- 亮色「不支持字段」由 5.12 降到 4.59（仍 ≥4.5:1 正文阈值），换来的收益是暗色从 1.73（不达标）升到 7.52；取舍为“两主题都达标”的硬约束。
+- 已知可接受项（记录、不修）：`channels.css` 的 `--channels-qr-surface: #ffffff` 是二维码白底，业务上必须恒白，属设计稿允许的例外。
+
+### 4.4 修复后 dark 结果
+
+`14 passed`（light 7 + dark 7，含登录对话框 Escape 一条），无 serious/critical。
+
+## 5. visual 两组计数与 diff（未刷新任何基线）
+
+`npm run test:visual`（`--grep @visual`）：
+
+- **light（desktop 项目）6 张红**（页面重设计，预期）——diff 像素 / 比例：
+  - `overview` 21739 px（ratio 0.03）
+  - `agents` 32018 px（ratio 0.04）
+  - `channels` 52349 px（ratio 0.06）
+  - `history` 14088 px（ratio 0.02）
+  - `diagnostics` 32485 px（ratio 0.04）
+  - `settings` 32534 px（ratio 0.04）
+- **dark 6 张缺基线**（预期）：`overview/agents/channels/history/diagnostics/settings` 各缺 `*-dark-win32.png`。
+- 其余 2 条 `@visual` 非截图断言（长文本不裁切/不重叠，light + dark）= `2 passed`。
+- 计数说明：任务书预期 dark「12 张缺基线」，实测为 **6 张**。原因是 `visual.spec.ts` 每主题仅 6 条 `toHaveScreenshot`（六页视觉基线），另 2 条 `@visual` 不产基线；`zoom-200` 项目不匹配 dark 的 `grep`。已如实报告实测值。
+- **未刷新基线**：Playwright 默认 `updateSnapshots: 'missing'` 会在缺基线时自动写出 PNG；本次跑完后已删除自动生成的 6 个未跟踪 `*-dark-win32.png`，`tests/visual.spec.ts-snapshots/` 仅保留原有 6 个 light 基线，工作区无基线变更。
+
+## 6. 自主决策清单
+
+1. **`.page-count` 共享规则合并**：原 `.page-count, .status-label, .delivery-state` 中两个选择器已死，按最小改动把声明合并进单条 `.page-count` 规则（值不变），避免留下重复选择器。
+2. **`global.css` 不删**：确认为全仓库无 import 的死文件，但不在本阶段候选清单，记录不动（不擅自扩大范围）。
+3. **总览-最近投递空态改用 `EmptyState`**：为把 CTA 放进组件既有的 `action` 槽（任务指定落点），将原 `<p>` 替换为 `EmptyState`；不新增按钮、不改组件本身。
+4. **诊断空态不加链接**：按任务要求只补因果句；「当前没有可执行的修复动作」被 Vitest 精确断言，保持原样。
+5. **主动修 `.inline-error` 硬编码底**：暗色对比度 1.04:1 是明确缺陷，且属本阶段拥有的 `styles/*.css`；语义化后两主题均达标（§4.3）。
+6. **亮色「不支持字段」对比度 4.59:1**：接受该值（≥4.5:1），优先保证暗色达标；如后续要更大余量，可单独给 `.schema-field-label` 用 `--color-text`。
+
+## 7. 门禁结果（最终态，全绿）
+
+- `npm --prefix apps/desktop-ui run typecheck`：通过（无输出）。
+- `npm --prefix apps/desktop-ui run test -- --run`：`Test Files 10 passed`、`Tests 65 passed`。
+- `npm --prefix apps/desktop-ui run build`：`✓ 1999 modules transformed`、`✓ built`。
+- `PLAYWRIGHT_BROWSERS_PATH=D:\Tools\playwright-browsers npm --prefix apps/desktop-ui run test:a11y`：**`14 passed`**（light 7 + dark 7）。
+- `test:visual`：12 failed（light 6 红 + dark 6 缺基线，均为预期）/ 2 passed；**未刷新基线**（§5）。
+
+## 8. 未碰清单（零改动声明）
+
+- 未改：`src/bridge/**`、`src/data/**`、`app/**`、`components/**`（含 `EmptyState`/`EmptyFunnel`/`patterns/**`）、`styles/patterns.css`、`styles/tokens.css`、`styles/channels.css`、`styles/reset.css`、`styles/global.css`。
+- 业务逻辑、数据结构、数据请求、TanStack Query Key、表单提交、路由路径、业务状态机：零改动。
+- 可访问名与 role：零改动（空态仅新增链接文案「去连接渠道」，原有名称/role 全部保持）。
+- `tests/**`：仅 `tests/playwright.config.ts` 新增 dark 项目；其它测试文件与断言零改动。
+- 视觉基线：零刷新（自动生成的 dark 基线已删除）。
+
+
+
+### ===== 附录：phase6b-baselines.md =====
+
+# Phase 6b 决策日志｜视觉基线矩阵刷新 + 稳定性验证 + 全量门禁收官
+
+- 日期：2026-09-24
+- 范围：`features/history/HistoryTable.tsx`、`styles/task9.css`（错误摘要语义色修复）、`tests/visual.spec.ts-snapshots/*.png`（12 张基线刷新）
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（§3 明暗双主题一等公民 / §6 状态语义色）、`docs/superpowers/plans/2026-09-24-ui-ux-redesign-plan.md`（Phase 6 双主题回归）
+- 红线：`src/bridge/**`、`src/data/**`、业务逻辑/请求/Query Key/表单提交/路由路径/状态机 —— 零改动；可访问名与 role —— 零改动；`tests/**` 断言 —— 零改动（仅基线 PNG 写入）；`.opencode/**` 不碰。
+
+## 1. 历史页「错误摘要」语义色修复
+
+- **问题**：`HistoryTable.tsx` 的错误摘要列容器恒用 `.history-error-cell { color: var(--color-danger) }`，导致空态/等待态文案（「无可见错误」「等待投递结果」）也用红色，语义色误用。正文字段本身（`historyErrorSummary`）逻辑与文案正确，缺陷纯在视图层。
+- **修法（className 级，零逻辑改动）**：组件内原有 `deliveryStateTone(states)` 已把「真错误」判为 `danger`（`Unknown`/`Failed`），把等待/跳过判为 `warning`、无投递判为 `neutral`、成功判为 `success`。将每行的 tone 提为局部常量 `stateTone`，同一值**同时**驱动 `StatusBadge`（行为不变）与错误摘要容器的修饰类：
+  - `stateTone === "danger"` → `className="history-error-cell"`（danger 红，仅真错误）
+  - 其余 → 追加 `history-error-cell--muted`（新增类，`color: var(--color-text-muted)`）
+- **如何区分有无错误**：复用既有 `deliveryStateTone` 判定，未新增/未改动任何判定函数、阈值或文案；`Unknown`/`Failed` 走 danger，`Pending`/`Skipped`/`length===0`/`Sent` 走 muted。
+- **结果**：六页默认场景中「无可见错误」在亮色 `#5b6675`、暗色 `#949eb4` 渲染（像素采样确认），徽标仍为成功绿；`Failed` 行仍为 danger（Vitest 断言不变）。
+
+## 2. 12 张基线逐页目检结论
+
+口径：亮色基线取自 `test-results/*-actual.png`（刷新前现状），暗色取自首次自动写出的基线；逐张看图检查暗色画布、有无浅色亮块/脏边、裁切/重叠、卡片与表单层次、图标文字对齐。
+
+| 页面 | light（desktop） | dark | 结论 |
+| --- | --- | --- | --- |
+| 总览 overview | 无水平溢出；KPI 锚点带 4 张卡（0/0、0、运行中、待处理）层次清晰；「最近投递 / 需要处理」空态卡与主 CTA「去连接渠道」正常 | 画布深色、卡片 `surface-1` 描边清晰、无浅色亮块；绿点状态与蓝色 CTA 对比正常 | 通过 |
+| Agent 管理 agents | 左行卡列表（开关/徽标/配置）+ 右详情三段（身份/能力/配置）对齐；长文本标题按外层 `overflow-wrap:anywhere` 换行 | 深色下开关/徽标/能力 chip 颜色正常，无浮白 | 通过 |
+| 渠道 channels | 左渠道卡 + 右账号详情卡；行卡 4 列对齐、健康摘要单行省略；「停用此账号 / 退出账号」动作组无重叠 | 深色行卡与右栏对比正常，按钮描边可见 | 通过（详见 §3 备注） |
+| 历史 history | 筛选 4 列 + 时间 2 列 + 关键词行整齐；列表行无脏边；**「无可见错误」为弱化灰** | 深色表格行/筛选框正常；**「无可见错误」弱化灰（修复生效）** | 通过 |
+| 诊断 diagnostics | 迁移卡 + 状态摘要 3×2 FAQ 网格 + 诊断项分组（「错误 · 1」+ 异常徽标 + 动作行）正常 | 深色摘要格深浅分明、徽标/按钮清晰 | 通过 |
+| 设置 settings | 分组导航 + 表单多段（开关/时间/冷却/Agent 默认开关）对齐；底部固定操作条正常 | 深色表单输入底/描边正常，开关与勾选框可见 | 通过 |
+
+## 3. 目检发现（未修项，非本阶段引入的真缺陷）
+
+- **渠道页窄窗长文本标题**：`channels-actual.png` diff 中右侧详情卡 `pattern-section-card-title` 内的超长渠道名在 ~305px 宽栏内逐字换行（窄长塔）。定位：`pattern-section-card-title { line-height: 1.3; overflow-wrap: anywhere }` + 标题列 `min-width:0`，即换行是**刻意行为**；`pattern-section-card-header` 无固定高度，动作区未溢出、`visual.spec.ts` 的 `expectNoHorizontalOverflow` 通过。`phase4-channels.md` §2/§4 已明确该超长为「节点头样限制」，且 `expectNotClipped` 只断言账号名 button。**故按最小改动原则不修**（长文本场景非真实数据；若改标题列宽/省略会触及可访问名可见性与共享 `patterns.css`，超出本阶段范围）。链路级修法留待后续「卡头长标题策略」专门处理。
+- 其余 diff 面积主要由 Phase 5 六页迁移（各自决策日志已记录）与 Phase 6a 暗色收敛造成，属预期，逐条核对无新增缺陷。
+
+## 4. 基线刷新与稳定性
+
+- **踩到的坑（重要）**：`expect.toHaveScreenshot.maxDiffPixelRatio = 0.01`。任务 1 在暗色下只改约 130 个像素（「无可见错误」4 字），远低于 1% 阈值 → 视觉用例「通过」，Playwright 因此**不重写已有基线**，`--update-snapshots`（默认 `changed`）同样跳过。首次刷新只更新了 6 张 desktop 基线，暗色基线仍是旧红色版本。
+- **定位方式**：`--update-snapshots=all` 的输出中只有 `history-dark-win32.png` 被 re-generated，其余暗色基线无写入日志；`--project=dark --grep 历史` 单跑通过排除 flaky；随后用 System.Drawing 对该 PNG 错误摘要区域（805,372 起 105×24）做颜色直方图，确认旧基线主色为 `#ff8b87`（danger），实际渲染为 `#949eb4`（muted）。
+- **最终刷新**：改用 `test:visual -- --update-snapshots=all` 强制重写全部 12 张（light 6 + dark 6）。刷新后再次像素采样 `history-dark-win32.png` 错误摘要区为 `#949eb4`，确认修复已固化进基线。
+- **3 连跑稳定性**（不带 update，`animations:'disabled'` + `maxDiffPixelRatio 0.01`）：`RUN 1 -> 14 passed`、`RUN 2 -> 14 passed`、`RUN 3 -> 14 passed`，无 flaky 需要定位。
+
+## 5. 全量门禁结果
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm --prefix apps/desktop-ui run typecheck` | 通过（无输出） |
+| `npm --prefix apps/desktop-ui run test -- --run` | `Test Files 10 passed`、`Tests 65 passed` |
+| `npm --prefix apps/desktop-ui run build` | `✓ 1999 modules transformed`、`✓ built in 1.58s` |
+| `npm --prefix apps/desktop-ui run test:e2e` | **`39 passed (1.1m)`**（non-visual 全绿 + 12 张视觉基线全绿，含 dark 项目 @a11y 7 项与 @visual 7 项） |
+
+## 6. 自主决策清单
+
+1. 错误摘要「有/无错误」的判定**复用**既有 `deliveryStateTone`，未新增判定函数（避免双份真相）。
+2. 未改动 `historyErrorSummary` / `historyStateLabel` 的文案与逻辑，仅把注解提到容器 className 上。
+3. 新增修饰类 `history-error-cell--muted` 而非改造原有 `.history-error-cell` 语义，保持 `Failed` 行与其它引用处向后兼容。
+4. 渠道页卡头长标题换行**判定为既有设计而非缺陷**，不修（§3），仅记录。
+5. 刷新基线改用 `--update-snapshots=all`：因 `maxDiffPixelRatio` 会掩盖小面积颜色改动，`changed` 模式无法保证基线为当前真值（§4）。
+6. 未改任何 `.spec.ts` / `.test.tsx` 断言，未改 `tests/playwright.config.ts`。
+
+## 7. 未碰清单 / 零改动声明
+
+- 未改：`src/bridge/**`、`src/data/**`、`tests/**` 下所有断言与配置、`src/styles/tokens.css` / `patterns.css` / `layout.css` / `task7.css` / 其余 CSS、除 `HistoryTable.tsx` 外的 `features/**`、`.opencode/**`。
+- 业务零改动：数据请求、TanStack Query Key、表单提交、路由路径、状态机 —— 零改动。
+- 可访问名与 role：零改动（错误摘要仍为 `role="cell"`，容器未加 aria、未改结构层数）。
+- 工作区仅含本阶段改动：`HistoryTable.tsx`、`task9.css`、12 张基线 PNG；`test-results/`、`playwright-report/`、`dist/` 为已忽略产物，未加入版本控制。未提交。
+
+
+### ===== 附录：phase3-round3.md =====
+
+# 第三轮打磨决策日志｜无边框窗口 + 自绘标题栏 + 去冗余 + 对比度修复
+
+- 日期：2026-09-25/26（原始改动来自 09-25 第三轮会话，收尾与门禁修复由同日新会话完成）
+- 范围：`hosts/desktop-tauri/**`、`apps/desktop-ui/src/**`、`apps/desktop-ui/tests/**`、`tools/ui/quick-build.ps1`
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（第二轮设计稿）、`agent-notify-ui-ux` 技能书工程红线
+- 业务红线：`src/bridge/**` 契约、数据请求、TanStack Query Key、表单提交、路由路径、业务状态机 —— 零改动
+
+## 1. 本轮做了什么
+
+1. **无边框主窗口 + 自绘标题栏**：`decorations: false`；标题栏由 `RuntimeStatusBar` 承担（拖拽区 +
+   最小化/最大化/关闭，均带 `aria-label`/`title`）；主题同步给原生窗口（`setTheme`）并在模块加载时
+   立即应用防闪变；权限补进 `capabilities/main.json`。
+2. **自定义托盘图标**：32×32 RGBA（`icons/tray_icon_rgba_32.bin`），双击托盘显示窗口，托盘对象
+   `app.manage` 保活。
+3. **侧栏可折叠**（记忆到 localStorage）与品牌区 logo。
+4. **账号自定义显示名**：登录成功时命名，渠道列表/详情、历史表格、总览投递流统一消费。
+5. **`SafeLink`**：路由内用 `Link`、独立环境降级 `<a>`；总览 KPI 卡支持一键下钻。
+6. **去冗余**：移除重复的可见页头标题与说明（保留 `sr-only` h1）、移除设置页左分组目录
+   （合并为分组卡，仍"一决策一行"）。
+7. **对比度修复**（门禁发现）：亮色语义色与次级文字按 WCAG 逐对核算后深一档。
+8. **两处布局缺陷修复**（目检发现）：Agent 元信息标签被挤成竖排、select 箭头图标被 `background`
+   简写重置 `no-repeat` 后平铺。
+
+## 2. 门禁结果（全部绿）
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run typecheck` | 通过 |
+| `npm run test -- --run` | `Test Files 10 passed`、`Tests 65 passed` |
+| `npm run build` | 通过 |
+| `npm run test:a11y` | **`14 passed`**（light 7 + dark 7）——修复前 6 页红 |
+| `npm run test:visual` | **`14 passed`**；3 连跑 `14/14/14` 无 flaky |
+| `npm run test:e2e` | **`39 passed`**（含 a11y 14 + visual 14） |
+| `tools\rust\gate.ps1` | 通过（fmt + clippy `-D warnings` + 全量测试） |
+| `tools\lint.ps1` | 通过（35 个脚本、PSScriptAnalyzer 1.25.0、版本一致） |
+| 真机验收 | `tools\ui\quick-build.ps1 -Run` 构建 release（7 分 02 秒）→ 部署到安装目录 → 启动；截取真实窗口：自绘标题栏（`—` `□` `✕`）、折叠侧栏、KPI 下钻箭头、投递流分组、账号显示名、状态徽标均正常，无黑边/裁切；缩放到 1000×700 布局正常重排 |
+
+## 3. 对比度修正明细（亮色主题，白底 / 柔和底）
+
+| token | 原值 | 原值柔和底 | 新值 | 新值柔和底 |
+| --- | --- | --- | --- | --- |
+| `--color-primary` / `--color-info` | `#0284c7` | 3.70 ❌ | `#0369a1` | 5.28 ✅ |
+| `--color-warning` | `#d97706` | 2.92 ❌ | `#92400e` | 6.28 ✅ |
+| `--color-success` | `#16a34a` | 3.02 ❌ | `#166534` | 6.33 ✅ |
+| `--color-danger` | `#dc2626` | 4.28 ❌ | `#b91c1c` | 5.66 ✅ |
+| `--color-text-muted` | `#64748b` | 4.34 ❌（在 `--color-surface-muted` 上） | `#5b6675` | 5.32 ✅ |
+
+未选"刚好 4.50/4.51"的候选值（`#b45309`/`#15803d`），阈值太贴边不可靠。
+
+## 4. 自主决策清单
+
+1. **设置页左目录与可见页头标题的移除判定为刻意简化**（改动干净、成体系，且 `sr-only` 保住了无障碍名），
+   予以保留并在此记录；如需恢复，回退成本低（`SETTINGS_SECTIONS` + `PageHeader` 的 summary 分支）。
+2. **`sr-only` 标题不再用于「无裁切」断言**：`.sr-only` 设计即 `width:1px + overflow:hidden`，
+   改为断言可访问名存在 + 页面无水平溢出（断言意图不变）。
+3. **登录命名区块的内联样式全部落类**（`channel-account-naming-*`）：原样式含 6px/10px/650 等
+   不在网格/不成 token 的值。
+4. **文案纠偏**：命名标签原写"后续可在列表中随时修改"，但本轮没有"重命名"入口（`setAccountCustomName`
+   仅在登录流程调用），改为"（列表与历史里显示这个名称）"；若要做重命名入口，另开需求。
+5. **`quick-build.ps1` 参数化并补 BOM**后入库（原写死本机用户名路径）。
+6. **基线刷新用 `--update-snapshots=all`**（与第二轮一致：`maxDiffPixelRatio` 会掩盖小面积颜色改动）。
+7. **`src/bridge/mockHostBridge.ts` 的 `window.setTimeout → globalThis.setTimeout` 改动已回退**：
+   回退后 vitest（65）与 e2e（39）均通过，属不必要改动，为守住"bridge 零改动"红线而还原。
+
+## 5. 未碰清单 / 零改动声明
+
+- 未改：`src/bridge/**`（接口签名、`types.ts` 数据结构、`tauriHostBridge`/`mockHostBridge` 行为契约）。
+- 业务零改动：数据请求、Query Key、表单提交、路由路径、状态机。
+- 未改 `tests/playwright.config.ts`；`tests/visual.spec.ts` 仅同步上述一条断言（意图不变）。
+- `dist/`、`test-results/`、`playwright-report/` 为忽略产物，未入库。
+
+## 6. 遗留（未做，需产品决策）
+
+- **账号"重命名"入口**：当前只能登录时命名（见 §4.4）。
+- **窗口控制按钮的真机点击**：按钮接线、权限（capabilities）与生命周期测试均已覆盖，但"用鼠标点一次"
+  的真机确认留给用户执行。
+- **托盘图标真机目检**：托盘创建由 lifecycle 测试与代码保证；截图无法确认（任务栏自动隐藏）。
+

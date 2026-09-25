@@ -64,24 +64,15 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), LifecycleE
     let window = app
         .get_webview_window(MAIN_WINDOW_LABEL)
         .ok_or_else(|| LifecycleError::new("main_window_missing", "AgentNotify 主窗口不存在"))?;
-    window.unminimize().map_err(|error| {
-        LifecycleError::new(
-            "main_window_show_failed",
-            format!("恢复主窗口失败：{error}"),
-        )
-    })?;
+    let _ = window.unminimize();
     window.show().map_err(|error| {
         LifecycleError::new(
             "main_window_show_failed",
             format!("显示主窗口失败：{error}"),
         )
     })?;
-    window.set_focus().map_err(|error| {
-        LifecycleError::new(
-            "main_window_focus_failed",
-            format!("聚焦主窗口失败：{error}"),
-        )
-    })
+    let _ = window.set_focus();
+    Ok(())
 }
 
 pub fn show_main_window_when_ready<R: Runtime>(
