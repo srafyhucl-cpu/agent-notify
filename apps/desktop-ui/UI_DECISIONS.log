@@ -1249,3 +1249,84 @@ Agent 管理：color-contrast — .agent-row--selected 内 .muted-value / .statu
 - 可访问名与 role：零改动（错误摘要仍为 `role="cell"`，容器未加 aria、未改结构层数）。
 - 工作区仅含本阶段改动：`HistoryTable.tsx`、`task9.css`、12 张基线 PNG；`test-results/`、`playwright-report/`、`dist/` 为已忽略产物，未加入版本控制。未提交。
 
+
+### ===== 附录：phase3-round3.md =====
+
+# 第三轮打磨决策日志｜无边框窗口 + 自绘标题栏 + 去冗余 + 对比度修复
+
+- 日期：2026-09-25/26（原始改动来自 09-25 第三轮会话，收尾与门禁修复由同日新会话完成）
+- 范围：`hosts/desktop-tauri/**`、`apps/desktop-ui/src/**`、`apps/desktop-ui/tests/**`、`tools/ui/quick-build.ps1`
+- 依据：`docs/superpowers/specs/2026-09-24-ui-ux-redesign-design.md`（第二轮设计稿）、`agent-notify-ui-ux` 技能书工程红线
+- 业务红线：`src/bridge/**` 契约、数据请求、TanStack Query Key、表单提交、路由路径、业务状态机 —— 零改动
+
+## 1. 本轮做了什么
+
+1. **无边框主窗口 + 自绘标题栏**：`decorations: false`；标题栏由 `RuntimeStatusBar` 承担（拖拽区 +
+   最小化/最大化/关闭，均带 `aria-label`/`title`）；主题同步给原生窗口（`setTheme`）并在模块加载时
+   立即应用防闪变；权限补进 `capabilities/main.json`。
+2. **自定义托盘图标**：32×32 RGBA（`icons/tray_icon_rgba_32.bin`），双击托盘显示窗口，托盘对象
+   `app.manage` 保活。
+3. **侧栏可折叠**（记忆到 localStorage）与品牌区 logo。
+4. **账号自定义显示名**：登录成功时命名，渠道列表/详情、历史表格、总览投递流统一消费。
+5. **`SafeLink`**：路由内用 `Link`、独立环境降级 `<a>`；总览 KPI 卡支持一键下钻。
+6. **去冗余**：移除重复的可见页头标题与说明（保留 `sr-only` h1）、移除设置页左分组目录
+   （合并为分组卡，仍"一决策一行"）。
+7. **对比度修复**（门禁发现）：亮色语义色与次级文字按 WCAG 逐对核算后深一档。
+8. **两处布局缺陷修复**（目检发现）：Agent 元信息标签被挤成竖排、select 箭头图标被 `background`
+   简写重置 `no-repeat` 后平铺。
+
+## 2. 门禁结果（全部绿）
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm run typecheck` | 通过 |
+| `npm run test -- --run` | `Test Files 10 passed`、`Tests 65 passed` |
+| `npm run build` | 通过 |
+| `npm run test:a11y` | **`14 passed`**（light 7 + dark 7）——修复前 6 页红 |
+| `npm run test:visual` | **`14 passed`**；3 连跑 `14/14/14` 无 flaky |
+| `npm run test:e2e` | **`39 passed`**（含 a11y 14 + visual 14） |
+| `tools\rust\gate.ps1` | 通过（fmt + clippy `-D warnings` + 全量测试） |
+| `tools\lint.ps1` | 通过（35 个脚本、PSScriptAnalyzer 1.25.0、版本一致） |
+| 真机验收 | `tools\ui\quick-build.ps1 -Run` 构建 release（7 分 02 秒）→ 部署到安装目录 → 启动；截取真实窗口：自绘标题栏（`—` `□` `✕`）、折叠侧栏、KPI 下钻箭头、投递流分组、账号显示名、状态徽标均正常，无黑边/裁切；缩放到 1000×700 布局正常重排 |
+
+## 3. 对比度修正明细（亮色主题，白底 / 柔和底）
+
+| token | 原值 | 原值柔和底 | 新值 | 新值柔和底 |
+| --- | --- | --- | --- | --- |
+| `--color-primary` / `--color-info` | `#0284c7` | 3.70 ❌ | `#0369a1` | 5.28 ✅ |
+| `--color-warning` | `#d97706` | 2.92 ❌ | `#92400e` | 6.28 ✅ |
+| `--color-success` | `#16a34a` | 3.02 ❌ | `#166534` | 6.33 ✅ |
+| `--color-danger` | `#dc2626` | 4.28 ❌ | `#b91c1c` | 5.66 ✅ |
+| `--color-text-muted` | `#64748b` | 4.34 ❌（在 `--color-surface-muted` 上） | `#5b6675` | 5.32 ✅ |
+
+未选"刚好 4.50/4.51"的候选值（`#b45309`/`#15803d`），阈值太贴边不可靠。
+
+## 4. 自主决策清单
+
+1. **设置页左目录与可见页头标题的移除判定为刻意简化**（改动干净、成体系，且 `sr-only` 保住了无障碍名），
+   予以保留并在此记录；如需恢复，回退成本低（`SETTINGS_SECTIONS` + `PageHeader` 的 summary 分支）。
+2. **`sr-only` 标题不再用于「无裁切」断言**：`.sr-only` 设计即 `width:1px + overflow:hidden`，
+   改为断言可访问名存在 + 页面无水平溢出（断言意图不变）。
+3. **登录命名区块的内联样式全部落类**（`channel-account-naming-*`）：原样式含 6px/10px/650 等
+   不在网格/不成 token 的值。
+4. **文案纠偏**：命名标签原写"后续可在列表中随时修改"，但本轮没有"重命名"入口（`setAccountCustomName`
+   仅在登录流程调用），改为"（列表与历史里显示这个名称）"；若要做重命名入口，另开需求。
+5. **`quick-build.ps1` 参数化并补 BOM**后入库（原写死本机用户名路径）。
+6. **基线刷新用 `--update-snapshots=all`**（与第二轮一致：`maxDiffPixelRatio` 会掩盖小面积颜色改动）。
+7. **`src/bridge/mockHostBridge.ts` 的 `window.setTimeout → globalThis.setTimeout` 改动已回退**：
+   回退后 vitest（65）与 e2e（39）均通过，属不必要改动，为守住"bridge 零改动"红线而还原。
+
+## 5. 未碰清单 / 零改动声明
+
+- 未改：`src/bridge/**`（接口签名、`types.ts` 数据结构、`tauriHostBridge`/`mockHostBridge` 行为契约）。
+- 业务零改动：数据请求、Query Key、表单提交、路由路径、状态机。
+- 未改 `tests/playwright.config.ts`；`tests/visual.spec.ts` 仅同步上述一条断言（意图不变）。
+- `dist/`、`test-results/`、`playwright-report/` 为忽略产物，未入库。
+
+## 6. 遗留（未做，需产品决策）
+
+- **账号"重命名"入口**：当前只能登录时命名（见 §4.4）。
+- **窗口控制按钮的真机点击**：按钮接线、权限（capabilities）与生命周期测试均已覆盖，但"用鼠标点一次"
+  的真机确认留给用户执行。
+- **托盘图标真机目检**：托盘创建由 lifecycle 测试与代码保证；截图无法确认（任务栏自动隐藏）。
+
