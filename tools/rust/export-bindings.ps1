@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $target = 'x86_64-pc-windows-msvc'
@@ -16,6 +16,9 @@ if (Test-Path -LiteralPath (Join-Path $localCargo 'bin\cargo.exe') -PathType Lea
 }
 if ($env:CARGO_TARGET_DIR) { New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR | Out-Null }
 if ($env:TEMP) { New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null }
+
+# 同 tools\rust\gate.ps1：门禁/导出类构建不需要增量编译，避免 target 目录无谓膨胀。
+if ([string]::IsNullOrWhiteSpace($env:CARGO_INCREMENTAL)) { $env:CARGO_INCREMENTAL = '0' }
 
 $cargoCommand = Get-Command cargo.exe -ErrorAction SilentlyContinue
 if (-not $cargoCommand) {

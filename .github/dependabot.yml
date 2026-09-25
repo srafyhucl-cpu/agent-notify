@@ -1,30 +1,52 @@
 version: 2
 updates:
+  # 每个生态只开一个 PR（minor/patch 分组），避免"一次升级一个 PR"——每个 PR 都要单独
+  # 走一轮门禁，且分支保护是 strict，合并一个会让其余全部过期。major 仍单独开 PR。
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 2
+    groups:
+      go-modules:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 2
+    groups:
+      npm-root:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 2
+    groups:
+      cargo-workspace:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "npm"
     directory: "/apps/desktop-ui"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 2
+    groups:
+      npm-desktop-ui:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
