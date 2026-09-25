@@ -1,4 +1,6 @@
 [toolchain]
-channel = "stable-x86_64-pc-windows-msvc"
+# 只写通道名：Rust 会按当前主机解析三元组；带三元组的通道名会让 Dependabot 的
+# cargo 更新直接失败（"target tuple in channel name"），且会把 macOS/Linux 挡在门外。
+channel = "stable"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
