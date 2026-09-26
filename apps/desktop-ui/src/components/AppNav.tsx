@@ -25,7 +25,7 @@ export function AppNav({ collapsed = false, onToggleCollapse }: AppNavProps) {
         >
           <img
             src={logoUrl}
-            alt="AgentNotify Logo"
+            alt="AgentNotify 标志"
             className="app-nav-brand-logo"
             aria-hidden="true"
           />

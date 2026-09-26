@@ -31,6 +31,8 @@
 ; 卸载只由 Inno 删除本脚本安装的程序文件，再用既有清理脚本移除 AgentNotify 自己写入的
 ; Hook / 扩展 / mod：不触碰用户数据（配置、凭据、SQLite、迁移报告），
 ; 也不主动删除用户 OpenCode 配置目录里的插件（插件对 ingress 缺失是容错的，不会打断 OpenCode）。
+; 界面语言：官方中文语言文件随仓库分发（installer\languages\ChineseSimplified.isl），
+; 不依赖 ISCC 所在机器的内置语言包，CI 与本地构建保持一致；产品名 AgentNotify 保持英文。
 [Setup]
 AppId={{E7A4419F-499D-4A21-BD12-6C2D1F6B31A4}
 AppName=AgentNotify
@@ -39,6 +41,7 @@ AppPublisher=Agent-notify
 DefaultDirName={localappdata}\Programs\Agent-notify
 DefaultGroupName=AgentNotify
 DisableProgramGroupPage=yes
+ShowLanguageDialog=no
 PrivilegesRequired=lowest
 OutputDir={#OutputDir}
 OutputBaseFilename=Agent-notify-Setup-v{#AppVersion}
@@ -58,6 +61,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 #ifdef SignToolCommand
 SignTool=agentnotify
 #endif
+
+[Languages]
+; 单一简体中文，不显示语言选择页（ShowLanguageDialog=no）。
+; 语言文件随仓库自带，官方 6.5.0+ 翻译（UTF-8）。
+Name: "chinesesimp"; MessagesFile: "{#RepoRoot}\installer\languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："
