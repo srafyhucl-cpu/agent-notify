@@ -102,22 +102,29 @@
 - 依赖 PR：三个 CodeQL action PR 合为一个统一升级到 v4.38.2（避免工作流 v3/v4 混用）；npm 补丁升级逐个合并。
 - strict 保护的副作用：每次合并都会让其余 PR 过期，必须"更新分支 → 重跑门禁 → 合并"逐个推进。
 
-### 待办｜已知不稳定测试（未修，需单独排期）
+### 已收口｜不稳定测试（根因已确证，PR #28）
 
-- 现象：`hosts/desktop-tauri/tests/production_contract.rs:375` 的 `assert!(!diagnostics.components.is_empty())`
-  在 CI 上偶发失败（约 1/7 次）；本机连跑 15 次全过，未复现。失败运行：`actions/runs/36130870555`。
-- 已确证存在的可疑代码（是否为该 flake 的根因未确证）：`crates/agentnotify-runtime/src/supervisor.rs` 中
-  `set_state()` 用 `if let Ok(...) = self.inner.write()`、`components()` 用 `unwrap_or_default()`，两者都
-  **静默吞掉锁中毒**。影响不止测试：界面「诊断 → 后台组件」会静默显示为空且不报错，与「失败要明确暴露、
-  不做猜测式兜底」的约定冲突。
-- 建议修法（未实施）：改为显式从中毒锁恢复（`into_inner()`）并补"中毒后仍能读到组件"的用例；若根因是
-  启动竞态，则需让运行时启动在返回前完成组件注册。
+- 现象（准确记录）：`hosts/desktop-tauri/tests/production_contract.rs` 的 `host_commands_contract_execution`
+  中 `assert!(!diagnostics.components.is_empty())` 在 CI 上偶发失败（约 1/7 次，失败运行
+  `actions/runs/36130870555`）。⚠️ 它**不是** `production_adapters_pass_shared_contracts`——早期记录把两者混了。
+- **根因已确证（按失败版本的代码逐处取证）**：唯一能产生「状态 Running + 组件表为空」的路径，是组件表
+  `RwLock` 中毒后被静默吞掉（旧 `components()` 的 `.read().map(...).unwrap_or_default()`）。比对失败版本
+  （`c519bfd` / 其 base `ffd164f`）与今天：启动时序、`status.refresher` 的位置、bootstrap 装配完全一致；
+  迁移诊断模式的状态是 `MigrationRequired`，无法通过用例前面的 `state == Running` 断言——因此排除
+  「组件尚未注册完」这一早期假说。
+- 修复：PR #15 改为显式从中毒锁恢复（`unwrap_or_else(|poisoned| poisoned.into_inner())`）；
+  PR #28 把机制钉在**快照层**：`poisoned_component_lock_still_reports_components_in_snapshot`，
+  并把「持锁 panic 制造中毒」抽成测试辅助 `poison_components_lock()`。
+- 证据：本机连跑 **40 次**整份 `production_contract` 测试二进制 0 失败；#15 之后 CI **20+ 次连续全绿**
+  （1/7 概率下几乎不可能）；**把恢复逻辑临时退回旧写法后两个测试立即失败**（症状与 CI 一致），恢复后全绿。
+- 残留不确定性：究竟是哪个 panic 弄中毒了那把锁，CI 日志已过期无法追溯；但恢复语义与回归测试已覆盖，
+  本项不再列为未根治。
 
 ### 2026-09-25 续｜安全告警与依赖清理（阶段 1 收尾）
 
 - **锁中毒已修**（PR #15，已合并）：`set_state` / `report_failure` / `components` 三处改为显式从中毒锁恢复，
   并补用例 `poisoned_lock_still_reports_and_updates_components`；`production_contract` 的断言失败时会打印
-  运行时状态与全部诊断项 code，便于下次复现直接定位。**偶发失败本身仍未复现**，本项不算已根治。
+  运行时状态与全部诊断项 code，便于下次复现直接定位。偶发失败的根因与回归测试见上一节（2026-09-26 已收口）。
 - **Dependabot cargo 修复已验证生效**：错误从 `target tuple in channel name` 变为
   `security_update_not_possible`，说明通道名问题已解决，剩下的是真实依赖约束。
 - **安全告警 3 → 1**：
