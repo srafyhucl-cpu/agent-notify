@@ -133,23 +133,28 @@ jobs:
           }
 
           $env:GH_TOKEN = $sourceToken
-          $previousErrorAction = $ErrorActionPreference
-          $ErrorActionPreference = 'SilentlyContinue'
-          & $gh.Source release view $tag --repo $sourceRepository *> $null
-          $sourceExists = $LASTEXITCODE -eq 0
-          $ErrorActionPreference = $previousErrorAction
-          if ($sourceExists) {
-            $previousErrorAction = $ErrorActionPreference
-            $ErrorActionPreference = 'SilentlyContinue'
-            $sourceDraft = & $gh.Source api "repos/$sourceRepository/releases/tags/$tag" --jq .draft 2>$null
-            $sourceDraftExit = $LASTEXITCODE
-            $ErrorActionPreference = $previousErrorAction
-            if ($sourceDraftExit -ne 0 -or ([string]$sourceDraft).Trim().ToLowerInvariant() -ne 'true') {
+
+          # Drafts are NOT addressable by tag (GET /releases/tags/{tag} returns 404 for a draft),
+          # so every lookup lists releases and matches tag_name instead.
+          function Get-SourceRelease {
+            $raw = & $gh.Source api "repos/$sourceRepository/releases?per_page=100"
+            if ($LASTEXITCODE -ne 0) { throw "failed to list source releases: $sourceRepository" }
+            $text = ($raw | Out-String).Trim()
+            if ([string]::IsNullOrWhiteSpace($text) -or $text -eq '[]') { return $null }
+            return @(($text | ConvertFrom-Json) | Where-Object { $_.tag_name -eq $tag } | Select-Object -First 1)
+          }
+
+          $sourceRelease = Get-SourceRelease
+          if ($sourceRelease) {
+            if (-not $sourceRelease.draft) {
               throw "source release is already published; automatic overwrite is forbidden: $sourceRepository $tag"
             }
           } else {
             Invoke-Gh @('release', 'create', $tag, '--repo', $sourceRepository, '--title', "Agent-notify $tag", '--notes-file', $notesPath, '--draft')
+            $sourceRelease = Get-SourceRelease
+            if (-not $sourceRelease) { throw "source release draft was not created: $sourceRepository $tag" }
           }
+          $sourceReleaseId = $sourceRelease.id
           Invoke-Gh @('release', 'upload', $tag, $setupPath, $zipPath, $sumsPath, '--repo', $sourceRepository, '--clobber')
 
           $sourceVerify = Join-Path $repoRoot 'verify-source'
@@ -173,9 +178,11 @@ jobs:
           Assert-DownloadedAssets -Directory $mirrorVerify -Repository $mirrorRepository
 
           $env:GH_TOKEN = $sourceToken
-          $sourceDraft = & $gh.Source api "repos/$sourceRepository/releases/tags/$tag" --jq .draft
-          if ($LASTEXITCODE -ne 0 -or ([string]$sourceDraft).Trim().ToLowerInvariant() -ne 'true') { throw 'source release draft disappeared before publish' }
-          Invoke-Gh @('release', 'edit', $tag, '--repo', $sourceRepository, '--title', "Agent-notify $tag", '--notes-file', $notesPath, '--draft=false', '--latest')
-          $published = & $gh.Source api "repos/$sourceRepository/releases/tags/$tag" --jq .draft
-          if ($LASTEXITCODE -ne 0 -or ([string]$published).Trim().ToLowerInvariant() -ne 'false') { throw 'source release was not published' }
+          $sourceRelease = Get-SourceRelease
+          if (-not $sourceRelease -or -not $sourceRelease.draft) { throw 'source release draft disappeared before publish' }
+          # Publish by release id: tag lookups do not see drafts, and this keeps the
+          # already verified title/notes/assets untouched.
+          Invoke-Gh @('api', '-X', 'PATCH', "repos/$sourceRepository/releases/$sourceReleaseId", '-f', 'draft=false', '-f', 'make_latest=true')
+          $published = Get-SourceRelease
+          if (-not $published -or $published.draft) { throw 'source release was not published' }
           Write-Output "Published source and mirror release $tag"
