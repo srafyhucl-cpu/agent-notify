@@ -94,6 +94,7 @@ test.describe("descriptor 驱动的动态适配器", () => {
     );
     expect(payload).toMatchObject({ accountId: "account-a", title: "测试通知" });
     expect(String((payload as { body?: string }).body)).toContain("主账号");
-    await expect(page.getByText(/已向「主账号」发送测试通知/)).toBeVisible();
+    // 结果用浮层提示（不占版面），文案固定
+    await expect(page.getByRole("status")).toContainText("已发送测试消息。");
   });
 });

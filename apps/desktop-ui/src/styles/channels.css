@@ -15,17 +15,6 @@
   min-width: 0;
 }
 
-/* 行内「测试发送」的结果提示：成功后明确告知发给了哪条账号 */
-.channels-send-notice {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  color: var(--color-text);
-  background: var(--color-success-soft);
-  border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
-  border-radius: var(--radius-control);
-  font-size: var(--font-body);
-}
-
 /* 页头已提供 24px 间距，内容区不再重复留白 */
 .channels-page .channels-page-content {
   padding-top: 0;
