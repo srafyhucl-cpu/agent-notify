@@ -125,7 +125,10 @@ Name: "{userdesktop}\AgentNotify"; Filename: "{app}\agentnotify-desktop.exe"; Ta
 Name: "{userstartup}\AgentNotify"; Filename: "{app}\agentnotify-desktop.exe"; Tasks: startupicon
 
 [Run]
-Filename: "{app}\agentnotify-desktop.exe"; Description: "启动 AgentNotify"; Flags: nowait postinstall
+; 不能带 postinstall：Inno 在静默安装（应用内更新的安装器就是 /SILENT）里会跳过
+; postinstall 的 [Run] 条目——那样文件替换完、应用也退出了，却没人重新拉起新程序。
+; 去掉 postinstall 让它无论静默/向导安装都在文件替换完成后启动新程序。
+Filename: "{app}\agentnotify-desktop.exe"; Description: "启动 AgentNotify"; Flags: nowait
 
 [UninstallRun]
 ; 卸载时先跑既有清理脚本：只移除 AgentNotify 自己写入的 Codex notify、Antigravity / Devin Hook、

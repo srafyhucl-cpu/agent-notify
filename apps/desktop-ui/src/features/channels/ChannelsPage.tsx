@@ -224,8 +224,9 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
       const delivery = result.delivery;
       if (delivery?.state === "Sent") {
         setSendNotice("已发送测试消息。");
-      } else if (delivery?.state === "Failed") {
-        // 命令自身在投递失败时仍返回 accepted=true，这里必须如实反馈失败原因。
+      } else if (delivery?.state === "Failed" || delivery?.state === "Skipped") {
+        // 命令自身在投递失败/被跳过（如主动推送会话失效）时仍返回 accepted=true，
+        // 这里必须如实反馈原因（Skipped 也会带可读错误）。
         setSendError({
           code: delivery.error?.code ?? "delivery_failed",
           message:
