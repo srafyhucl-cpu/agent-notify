@@ -63,7 +63,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/desktop-ui/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop-ui/package-lock.json
+      # tools/test.ps1 type-checks the plugin with the repo-root tsc; without
+      # node_modules the release fails right at the gates.
+      - name: Install TypeScript dependencies
+        run: npm ci
       - name: Install Rust toolchain
         shell: powershell
         run: |
