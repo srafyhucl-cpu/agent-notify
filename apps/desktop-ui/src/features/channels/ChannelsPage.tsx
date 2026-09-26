@@ -6,6 +6,7 @@ import type { HostBridge } from "../../bridge";
 import type { ChannelAccountDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
+import { Toast } from "../../components/Toast";
 import { LoadingRows } from "../../components/LoadingRows";
 import {
   EmptyFunnel,
@@ -31,6 +32,9 @@ import "../../styles/channels.css";
 
 /** 行内「测试发送」的内置内容：正文带账号名，便于在微信里辨认来源。 */
 const TEST_NOTIFICATION_TITLE = "测试通知";
+
+/** 结果提示的停留时长：只做确认，不占版面。 */
+const SEND_NOTICE_DURATION_MS = 3000;
 
 function testNotificationBody(displayName: string): string {
   return `这是一条来自 Agent-notify 的测试通知，用于验证通道连通性。渠道账号：${displayName}。`;
@@ -149,6 +153,18 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
     }
   }, [entries, selectedAccountId]);
 
+  // 结果提示只停留几秒：它是浮层，不占版面，也不该长期挂在窗口上。
+  useEffect(() => {
+    if (!sendNotice) {
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setSendNotice(null),
+      SEND_NOTICE_DURATION_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [sendNotice]);
+
   const toggleAccount = async (
     account: ChannelAccountDto,
     enabled: boolean,
@@ -205,7 +221,7 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
         title: TEST_NOTIFICATION_TITLE,
         body: testNotificationBody(displayName),
       });
-      setSendNotice(`已向「${displayName}」发送测试通知，请在微信里确认是否收到。`);
+      setSendNotice("已发送测试消息。");
     } catch (error) {
       setSendError(error);
     } finally {
@@ -233,11 +249,7 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
           />
         ) : null}
 
-        {sendNotice ? (
-          <p className="channels-send-notice" role="status">
-            {sendNotice}
-          </p>
-        ) : null}
+        {sendNotice ? <Toast message={sendNotice} /> : null}
 
         {sendUserError ? (
           <InlineError title={sendUserError.title} message={sendUserError.message} />

@@ -466,6 +466,53 @@
   }
 }
 
+/* ========== 浮层提示 Toast ========== */
+/* 不占版面：固定贴窗口底部中央，只做结果确认；不遮挡顶部状态栏与窗口按钮。 */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-5);
+  z-index: var(--z-popover);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(90vw, 420px);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--surface-2-shadow);
+  transform: translateX(-50%);
+  /* 浮层不拦截操作：提示不该挡住用户下一步点击。 */
+  pointer-events: none;
+  animation: toast-enter var(--duration-base) var(--ease-spring);
+}
+
+.toast--success .toast-icon {
+  color: var(--color-success);
+}
+
+.toast--info .toast-icon {
+  color: var(--color-info);
+}
+
+.toast-message {
+  font-size: var(--font-body);
+  line-height: 1.4;
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, var(--space-2));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 /* ========== prefers-reduced-motion 全降级 ========== */
 @media (prefers-reduced-motion: reduce) {
   .pattern-status-badge--breath::after {
@@ -473,6 +520,10 @@
   }
 
   .loading-row-bar {
+    animation: none;
+  }
+
+  .toast {
     animation: none;
   }
 }

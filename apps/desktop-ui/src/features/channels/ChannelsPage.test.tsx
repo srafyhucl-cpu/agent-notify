@@ -306,9 +306,15 @@ describe("ChannelsPage", () => {
     expect(payload.title).toBe("测试通知");
     // 内置正文必须带账号名，方便在微信里辨认来源
     expect(payload.body).toContain("微信号2");
-    expect(
-      await screen.findByText(/已向「微信号2」发送测试通知/),
-    ).toBeVisible();
+    // 结果用浮层提示（不占版面），文案固定；几秒后自动消失
+    const toast = await screen.findByRole("status");
+    expect(toast).toHaveTextContent("已发送测试消息。");
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("status")).toBeNull();
+      },
+      { timeout: 4000 },
+    );
   });
 
   it("renames an account inline and keeps the custom name", async () => {
