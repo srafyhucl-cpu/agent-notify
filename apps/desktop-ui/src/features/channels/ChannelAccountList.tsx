@@ -139,7 +139,10 @@ export function ChannelAccountList({
                       <button
                         className="channel-account-name"
                         type="button"
-                        aria-pressed={isSelected}
+                        aria-expanded={isSelected}
+                        aria-controls={
+                          isSelected ? `channel-detail-${account.id}` : undefined
+                        }
                         onClick={() => onSelect(isSelected ? "" : account.id)}
                       >
                         <span className="channel-account-name-text">
@@ -216,7 +219,10 @@ export function ChannelAccountList({
                 {isSelected && renderDetail ? (
                   <tr className="channel-account-detail-row">
                     <td colSpan={5}>
-                      <div className="channel-account-inline-detail">
+                      <div
+                        className="channel-account-inline-detail"
+                        id={`channel-detail-${account.id}`}
+                      >
                         {renderDetail(entry)}
                       </div>
                     </td>

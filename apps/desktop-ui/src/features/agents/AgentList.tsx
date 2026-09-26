@@ -54,10 +54,13 @@ export function AgentList({
                   <Bot size={20} className="agent-card-icon" />
                 </span>
                 <div className="agent-card-titles">
+                  {/* 展开/收起是「披露」语义：用 aria-expanded；正文收起时会被卸载，
+                      此时不写 aria-controls——指向不存在的 ID 反而违规 */}
                   <button
                     className="agent-name-button"
                     type="button"
-                    aria-pressed={isExpanded}
+                    aria-expanded={isExpanded}
+                    aria-controls={isExpanded ? `agent-body-${agent.id}` : undefined}
                   >
                     <span className="agent-name-text">{agent.displayName}</span>
                   </button>
