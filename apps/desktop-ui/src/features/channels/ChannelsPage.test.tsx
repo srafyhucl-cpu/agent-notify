@@ -201,7 +201,7 @@ describe("ChannelsPage", () => {
       name: "账号 account-b",
     });
     await waitFor(() => {
-      expect(firstButton).toHaveAttribute("aria-pressed", "true");
+      expect(firstButton).toHaveAttribute("aria-expanded", "true");
     });
     const callsBeforeSwitch = bridge.calls("list_channel_accounts").length;
 

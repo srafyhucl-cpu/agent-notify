@@ -11,6 +11,7 @@ import {
 } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import { historyStateLabel } from "./HistoryTable";
+import { HISTORY_DETAIL_ID } from "./ids";
 
 function deliveryError(delivery: DeliveryDto) {
   return toUserError(
@@ -79,7 +80,7 @@ export function HistoryDetail({
 
   if (isLoading && !detail) {
     return (
-      <section className="history-detail" aria-label="通知详情">
+      <section className="history-detail" id={HISTORY_DETAIL_ID} aria-label="通知详情">
         <LoadingRows aria-label="正在加载通知详情" rows={4} />
       </section>
     );
@@ -88,7 +89,7 @@ export function HistoryDetail({
   if (loadError) {
     const userError = toUserError(loadError);
     return (
-      <section className="history-detail" aria-label="通知详情">
+      <section className="history-detail" id={HISTORY_DETAIL_ID} aria-label="通知详情">
         <InlineError title={userError.title} message={userError.message} />
       </section>
     );
@@ -96,7 +97,11 @@ export function HistoryDetail({
 
   if (!detail) {
     return (
-      <section className="history-detail history-detail--empty" aria-label="通知详情">
+      <section
+        className="history-detail history-detail--empty"
+        id={HISTORY_DETAIL_ID}
+        aria-label="通知详情"
+      >
         <h2>通知详情</h2>
         <p>选择一条历史记录查看投递与路由状态。</p>
       </section>
@@ -106,7 +111,11 @@ export function HistoryDetail({
   const actionError = retryError ? toUserError(retryError) : null;
 
   return (
-    <section className="history-detail" aria-label="通知详情">
+    <section
+      className="history-detail"
+      id={HISTORY_DETAIL_ID}
+      aria-label="通知详情"
+    >
       <header className="section-heading history-detail-heading">
         <div>
           <h2>{detail.notification.title}</h2>

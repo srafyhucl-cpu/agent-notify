@@ -11,6 +11,7 @@ import {
   type StatusBadgeTone,
 } from "../../components/patterns";
 import { formatAccountName } from "../../data/accountNames";
+import { HISTORY_DETAIL_ID } from "./ids";
 
 const HISTORY_ROW_HEIGHT = 54;
 const HISTORY_OVERSCAN = 8;
@@ -181,7 +182,8 @@ export function HistoryTable({
                     <button
                       className="history-title-button"
                       type="button"
-                      aria-pressed={selected}
+                      aria-expanded={selected}
+                      aria-controls={HISTORY_DETAIL_ID}
                       aria-label={notification.title}
                     >
                       <span className="history-title-text">
