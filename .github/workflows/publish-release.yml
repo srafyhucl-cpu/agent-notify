@@ -15,6 +15,12 @@ on:
         description: Artifact uploaded by the validated build job.
         required: true
         type: string
+    secrets:
+      # Callers must pass this token; GitHub rejects the whole workflow at startup
+      # when a caller maps a secret that the called workflow does not declare.
+      RELEASE_REPO_TOKEN:
+        description: Token with contents write access on the mirror release repository.
+        required: true
 
 permissions:
   contents: read
