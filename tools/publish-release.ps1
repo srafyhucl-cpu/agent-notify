@@ -95,18 +95,17 @@ try {
   if ([string]::IsNullOrWhiteSpace($notes)) { throw "CHANGELOG.md version $Version has no release notes" }
   [IO.File]::WriteAllText($notesPath, $notes, (New-Object Text.UTF8Encoding($false)))
 
-  # 草稿无法按 tag 查询（GET /releases/tags/{tag} 对草稿返回 404），统一列出后按 tag_name 匹配。
-  function Get-TargetRelease {
-    $raw = & $gh.Source api "repos/$Repository/releases?per_page=100"
-    if ($LASTEXITCODE -ne 0) { throw "无法列出 Release：$Repository" }
-    $text = ($raw | Out-String).Trim()
-    if ([string]::IsNullOrWhiteSpace($text) -or $text -eq '[]') { return $null }
-    return @(($text | ConvertFrom-Json) | Where-Object { $_.tag_name -eq $tag } | Select-Object -First 1)
-  }
+  # gh 对"按 tag 查草稿"是原生可解析的（裸 API 的 /releases/tags/{tag} 对草稿才返回 404），
+  # 所以状态判断直接用 `release view`（退出码 + isDraft），不再自己解析 releases 列表。
+  $previousErrorAction = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  $view = & $gh.Source release view $tag --repo $Repository --json isDraft 2>$null
+  $viewExit = $LASTEXITCODE
+  $ErrorActionPreference = $previousErrorAction
 
-  $targetRelease = Get-TargetRelease
-  if ($targetRelease) {
-    if (-not $targetRelease.draft) {
+  if ($viewExit -eq 0) {
+    $isDraft = (([string]$view).Trim() -match '"isDraft"\s*:\s*true')
+    if (-not $isDraft) {
       if (-not $AllowPublished) {
         throw "已存在已发布的 Release，未加 -AllowPublished 时拒绝覆盖：$Repository $tag"
       }
@@ -118,10 +117,7 @@ try {
     # 客户端若在窗口期内查询，会只看到 ZIP 而选错升级路径（压缩包分支要求旧版布局，必然失败）。
     & $gh.Source release create $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --draft
     if ($LASTEXITCODE -ne 0) { throw "gh release create (draft) failed: exit=$LASTEXITCODE" }
-    $targetRelease = Get-TargetRelease
-    if (-not $targetRelease) { throw "草稿创建后仍未查到：$Repository $tag" }
   }
-  $targetReleaseId = $targetRelease.id
   & $gh.Source release upload $tag $setupPath $zipPath $sumsPath --repo $Repository --clobber
   if ($LASTEXITCODE -ne 0) { throw "gh release upload failed: exit=$LASTEXITCODE" }
 
@@ -145,11 +141,17 @@ try {
     if (Test-Path -LiteralPath $verifyDir) { Remove-Item -LiteralPath $verifyDir -Recurse -Force }
   }
 
-  # 按 release id 发布：tag 查询看不到草稿，且这里不改动已通过验收的标题/说明/资产。
-  & $gh.Source api -X PATCH "repos/$Repository/releases/$targetReleaseId" -f draft=false -f make_latest=true
-  if ($LASTEXITCODE -ne 0) { throw "发布 Release 失败（API PATCH）：exit=$LASTEXITCODE" }
-  $published = Get-TargetRelease
-  if (-not $published -or $published.draft) { throw "Release 未发布成功：$Repository $tag" }
+  # gh 原生发布草稿（与 view 一样能解析草稿）：只翻 draft/latest，不重写已通过验收的标题/说明/资产。
+  & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --draft=false --latest
+  if ($LASTEXITCODE -ne 0) { throw "gh release edit (publish) failed: exit=$LASTEXITCODE" }
+  $previousErrorAction = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  $published = & $gh.Source release view $tag --repo $Repository --json isDraft 2>$null
+  $publishedExit = $LASTEXITCODE
+  $ErrorActionPreference = $previousErrorAction
+  if ($publishedExit -ne 0 -or (([string]$published).Trim() -match '"isDraft"\s*:\s*true')) {
+    throw "Release 未发布成功：$Repository $tag"
+  }
   Write-Output "[publish] published release with all assets: $Repository $tag"
 } finally {
   if (Test-Path -LiteralPath $notesPath) {
