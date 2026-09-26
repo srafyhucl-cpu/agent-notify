@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Pencil, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Pencil, Send, Trash2, X } from "lucide-react";
 import { Fragment, useState, type ReactNode } from "react";
 
 import type {
@@ -17,9 +17,13 @@ export interface ChannelAccountListProps {
   entries: ChannelAccountEntry[];
   selectedAccountId: string | null;
   pendingAccountId: string | null;
+  /** 正在发送测试通知的账号（行内按钮的进行中态） */
+  pendingTestAccountId?: string | null;
   onSelect: (accountId: string) => void;
   onToggle: (account: ChannelAccountDto, enabled: boolean) => void;
   onDelete: (account: ChannelAccountDto) => void;
+  /** 行内「测试发送」：内容由页面内置（含账号名），不需要用户输入 */
+  onTestSend?: (account: ChannelAccountDto) => void;
   renderDetail?: (entry: ChannelAccountEntry) => ReactNode;
 }
 
@@ -43,9 +47,11 @@ export function ChannelAccountList({
   entries,
   selectedAccountId,
   pendingAccountId,
+  pendingTestAccountId,
   onSelect,
   onToggle,
   onDelete,
+  onTestSend,
   renderDetail,
 }: ChannelAccountListProps) {
   const { getDisplayName, setCustomName } = useAccountNames();
@@ -75,6 +81,9 @@ export function ChannelAccountList({
             <th scope="col">账号</th>
             <th scope="col">状态</th>
             <th scope="col">启用</th>
+            <th scope="col" className="channel-th-test">
+              <span className="visually-hidden">测试发送</span>
+            </th>
             <th scope="col" className="channel-th-action">
               <span className="visually-hidden">操作</span>
             </th>
@@ -191,6 +200,25 @@ export function ChannelAccountList({
                       />
                       <span className="switch-track" aria-hidden="true" />
                     </label>
+                  </td>
+                  <td
+                    className="channel-account-test-cell"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {onTestSend && entry.channel.capabilities.sendText ? (
+                      <button
+                        className="button button-secondary button-sm channel-test-send"
+                        type="button"
+                        aria-label={`测试发送 ${displayName}`}
+                        disabled={pendingTestAccountId === account.id}
+                        onClick={() => onTestSend(account)}
+                      >
+                        <Send aria-hidden="true" size={13} />
+                        {pendingTestAccountId === account.id
+                          ? "发送中"
+                          : "测试发送"}
+                      </button>
+                    ) : null}
                   </td>
                   <td
                     className="channel-account-action-cell"

@@ -15,25 +15,30 @@
   min-width: 0;
 }
 
+/* 行内「测试发送」的结果提示：成功后明确告知发给了哪条账号 */
+.channels-send-notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  background: var(--color-success-soft);
+  border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
+  border-radius: var(--radius-control);
+  font-size: var(--font-body);
+}
+
 /* 页头已提供 24px 间距，内容区不再重复留白 */
 .channels-page .channels-page-content {
   padding-top: 0;
 }
 
-/* 紧凑左右响应式两栏布局：左侧账号管理，右侧测试发送控制台 */
+/* 单列布局：账号管理 + 行内「测试发送」都在同一列 */
 .channels-container {
   display: grid;
-  grid-template-columns: minmax(0, 1.22fr) minmax(320px, 0.98fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   align-items: start;
   width: 100%;
   min-width: 0;
-}
-
-@media (max-width: 960px) {
-  .channels-container {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .channels-main {
@@ -43,11 +48,23 @@
   min-width: 0;
 }
 
-.channels-aside {
-  display: grid;
-  gap: var(--space-4);
-  width: 100%;
-  min-width: 0;
+/* 行内「测试发送」列：账号行里「启用」后面的次要动作 */
+.channel-th-test {
+  width: 104px;
+  min-width: 104px;
+  text-align: center;
+}
+
+.channel-account-test-cell {
+  width: 104px;
+  min-width: 104px;
+  text-align: center;
+  padding: 0 var(--space-1) !important;
+}
+
+.channel-test-send {
+  white-space: nowrap;
+  margin: 0 auto;
 }
 
 .channel-th-action {
@@ -597,82 +614,6 @@
   background-color: var(--color-surface-muted);
 }
 
-.test-notification-card {
-  min-width: 0;
-}
-
-.test-notification-form {
-  display: grid;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.test-notification-fields {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-2);
-}
-
-.test-notification-fields label {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.test-notification-fields label > span {
-  font-size: var(--font-caption);
-  font-weight: 600;
-  color: var(--color-text-muted);
-}
-
-.test-notification-fields input,
-.test-notification-fields select,
-.test-notification-fields textarea {
-  width: 100%;
-  min-width: 0;
-  padding: 8px 12px;
-  color: var(--color-text);
-  /* 用 background-color：background 简写会把 select 箭头图标的 no-repeat 重置成 repeat */
-  background-color: var(--color-surface-muted);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
-  font-size: var(--font-body);
-  font-family: inherit;
-  transition: all var(--duration-fast) var(--ease-spring);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
-}
-
-.test-notification-fields input:focus,
-.test-notification-fields select:focus,
-.test-notification-fields textarea:focus {
-  /* 同 disabled 态：必须用 background-color，否则 select 的箭头图标会被平铺 */
-  background-color: var(--color-surface);
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-soft), inset 0 1px 1px rgba(0, 0, 0, 0.01);
-  outline: none;
-}
-
-.test-body-field {
-  grid-column: 1 / -1;
-}
-
-.test-notification-fields textarea {
-  min-height: 84px;
-  line-height: 1.5;
-  resize: vertical;
-}
-
-.test-notification-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-width: 0;
-  padding-top: var(--space-2);
-}
-
-/* 测试发送的提交按钮直接用基础 .button 样式：原先这里重复实现了一套（渐变 + 写死 #ffffff 文字 +
-   34px 高度 + 18px 内边距 + 6px 间距），既偏离 token，又让暗色主题下白字落在亮青主色上。 */
 
 .field-hint,
 .field-error {
@@ -935,31 +876,10 @@
   }
 }
 
-@media (max-width: 1080px) {
-  .channels-layout--split {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 900px) {
-  .test-notification-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .test-body-field {
-    grid-column: 1;
-  }
-}
-
 @media (max-width: 640px) {
-  .test-notification-footer,
   .dialog-header {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .test-notification-footer .button {
-    width: 100%;
   }
 
   .qr-panel {
