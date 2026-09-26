@@ -23,7 +23,9 @@
 ## 提交与发版
 - 提交信息用 Conventional Commits + 中文描述，例如 `feat(reply): ...`、`docs: ...`、`fix(ui): ...`。
 - 版本号唯一来源是仓库根 `VERSION`（2.0.0 起；此前为 `internal/app/version.go`，Go 版 UI 已不再作为发布入口）。发版前先跑 `tools\sync-version.ps1` 把版本同步到 `hosts/desktop-tauri/tauri.conf.json`、`Cargo.toml` 的 `[workspace.package]` 与 Devin 扩展，再更新 README 徽章与 `CHANGELOG.md`，按 SemVer 递增，打 tag 后推送；Release workflow 只在验证和构建成功后调用受保护 `main` 上的可复用发布 workflow。
-- 客户端更新源是二进制仓库 `srafyhucl-cpu/agent-notify-releases`，源码 Release 由同一可复用 workflow 创建；发布阶段只接收已构建资产，不读取 PFX，也不执行 tag 中的脚本。`RELEASE_REPO_TOKEN` 缺失时发布直接失败；已发布 Release 不允许 workflow 自动覆盖，补发必须显式运行 `tools\publish-release.ps1 -Version x.y.z -DistDir <产物目录>` 并保留审计输出。
+- 客户端更新源是二进制仓库 `srafyhucl-cpu/agent-notify-releases`，源码 Release 由同一可复用 workflow 创建；发布阶段只接收已构建资产，不读取 PFX，也不执行 tag 中的脚本。`RELEASE_REPO_TOKEN` 缺失时发布直接失败；已发布 Release 不允许 workflow 自动覆盖。
+- 补发（人工显式执行并保留审计输出）：`tools\publish-release.ps1 -Version x.y.z -DistDir <产物目录>`（默认镜像仓）；补源码仓加 `-Repository srafyhucl-cpu/agent-notify`；目标是**已发布**的 Release 时必须显式加 `-AllowPublished`，否则拒绝覆盖。草稿阶段的补发可重复执行（幂等）。
+- 改发布链路（workflow / 发布脚本）前先用 Release workflow 的 **dry-run 入口**验证：Actions → Release → Run workflow → `mode=validate`（约 1 分钟）或 `mode=build`（完整签名构建，约 20 分钟）；两种 mode 都不会发布，只有推 tag 才会。
 - 改 `.github/workflows/publish-release.yml` 的 `workflow_call` 接口（`inputs` / `secrets`）时必须同步调用方 `release.yml`：调用方映射了被调 workflow 未声明的 secret 时，GitHub 会在 **startup 阶段**直接判定整个 run 非法（`startup_failure`，无任何 job 日志），只有推 tag 才会暴露——2026-09-26 的 v2.0.7 首推就是这样失败的（漏声明 `RELEASE_REPO_TOKEN`）。
 - 2.0 Rust 客户端的签名信任锚只有 `hosts/desktop-tauri/src/update/verify.rs` 的 `DEFAULT_SIGNATURE_THUMBPRINT`；旧 `internal/update/signature.go` 只作为兼容读取路径。正式 ZIP 必须包含由同一发布证书签名的 `RELEASE-MANIFEST.json` 与 `RELEASE-MANIFEST.p7s`，清单覆盖 ZIP 内全部普通文件；缺清单、签名无效、文件集合或哈希不一致时，Stable 更新器在替换文件前拒绝，Beta 仅在两个控制文件同时缺失时兼容旧开发包。
 - 发布必须签名：构建 job 强制要求 `AGENT_NOTIFY_SIGN_PFX_BASE64` 和密码 secret，`tools\build-release.ps1`、`tools\signature-common.ps1` 与 `tools\publish-release.ps1` 会校验安装器、五个 ZIP 内程序和签名清单的指纹；未签名或指纹不符直接失败。轮换证书前必须先更新 Rust 内置指纹并随新版本发布。门禁自身由 `tests\signature-gate.tests.ps1` 回归（`tools\test.ps1` 会执行）。

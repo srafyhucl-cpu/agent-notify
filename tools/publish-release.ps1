@@ -16,7 +16,10 @@
 param(
   [string]$Version,
   [string]$Repository = 'srafyhucl-cpu/agent-notify-releases',
-  [string]$DistDir
+  [string]$DistDir,
+  # 默认拒绝覆盖已发布的 Release（workflow 与默认人工补发都走这条）；确需覆盖时显式加
+  # -AllowPublished，并自行保留审计输出。
+  [switch]$AllowPublished
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,31 +95,33 @@ try {
   if ([string]::IsNullOrWhiteSpace($notes)) { throw "CHANGELOG.md version $Version has no release notes" }
   [IO.File]::WriteAllText($notesPath, $notes, (New-Object Text.UTF8Encoding($false)))
 
-  $previousErrorAction = $ErrorActionPreference
-  $ErrorActionPreference = 'SilentlyContinue'
-  & $gh.Source release view $tag --repo $Repository *> $null
-  $releaseExists = $LASTEXITCODE -eq 0
-  $ErrorActionPreference = $previousErrorAction
-  if ($releaseExists) {
-    $previousErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = 'SilentlyContinue'
-    $draftValue = & $gh.Source api "repos/$Repository/releases/tags/$tag" --jq .draft 2>$null
-    $draftQueryExit = $LASTEXITCODE
-    $ErrorActionPreference = $previousErrorAction
-    if ($draftQueryExit -ne 0 -or $null -eq $draftValue) {
-      throw "无法读取已有 Release 的草稿状态：$Repository $tag"
-    }
-    if (([string]$draftValue).Trim().ToLowerInvariant() -ne 'true') {
-      throw "已存在已发布的 Release，workflow 不允许自动覆盖：$Repository $tag；请使用显式补发流程。"
-    }
+  # 草稿无法按 tag 查询（GET /releases/tags/{tag} 对草稿返回 404），统一列出后按 tag_name 匹配。
+  function Get-TargetRelease {
+    $raw = & $gh.Source api "repos/$Repository/releases?per_page=100"
+    if ($LASTEXITCODE -ne 0) { throw "无法列出 Release：$Repository" }
+    $text = ($raw | Out-String).Trim()
+    if ([string]::IsNullOrWhiteSpace($text) -or $text -eq '[]') { return $null }
+    return @(($text | ConvertFrom-Json) | Where-Object { $_.tag_name -eq $tag } | Select-Object -First 1)
   }
-  # 先创建为草稿（草稿对客户端不可见），把全部资产传完后再发布为 Latest。
-  # 曾出现的真实问题：gh release create 逐个上传资产，Release 在 Setup 传完前就已可见且被置为 Latest，
-  # 客户端若在窗口期内查询，会只看到 ZIP 而选错升级路径（压缩包分支要求旧版布局，必然失败）。
-  if (-not $releaseExists) {
+
+  $targetRelease = Get-TargetRelease
+  if ($targetRelease) {
+    if (-not $targetRelease.draft) {
+      if (-not $AllowPublished) {
+        throw "已存在已发布的 Release，未加 -AllowPublished 时拒绝覆盖：$Repository $tag"
+      }
+      Write-Warning "已发布的 Release 将被覆盖（-AllowPublished）：$Repository $tag"
+    }
+  } else {
+    # 先创建为草稿（草稿对客户端不可见），把全部资产传完后再发布为 Latest。
+    # 曾出现的真实问题：gh release create 逐个上传资产，Release 在 Setup 传完前就已可见且被置为 Latest，
+    # 客户端若在窗口期内查询，会只看到 ZIP 而选错升级路径（压缩包分支要求旧版布局，必然失败）。
     & $gh.Source release create $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --draft
     if ($LASTEXITCODE -ne 0) { throw "gh release create (draft) failed: exit=$LASTEXITCODE" }
+    $targetRelease = Get-TargetRelease
+    if (-not $targetRelease) { throw "草稿创建后仍未查到：$Repository $tag" }
   }
+  $targetReleaseId = $targetRelease.id
   & $gh.Source release upload $tag $setupPath $zipPath $sumsPath --repo $Repository --clobber
   if ($LASTEXITCODE -ne 0) { throw "gh release upload failed: exit=$LASTEXITCODE" }
 
@@ -140,8 +145,11 @@ try {
     if (Test-Path -LiteralPath $verifyDir) { Remove-Item -LiteralPath $verifyDir -Recurse -Force }
   }
 
-  & $gh.Source release edit $tag --repo $Repository --title "Agent-notify $tag" --notes-file $notesPath --draft=false --latest
-  if ($LASTEXITCODE -ne 0) { throw "gh release edit (publish) failed: exit=$LASTEXITCODE" }
+  # 按 release id 发布：tag 查询看不到草稿，且这里不改动已通过验收的标题/说明/资产。
+  & $gh.Source api -X PATCH "repos/$Repository/releases/$targetReleaseId" -f draft=false -f make_latest=true
+  if ($LASTEXITCODE -ne 0) { throw "发布 Release 失败（API PATCH）：exit=$LASTEXITCODE" }
+  $published = Get-TargetRelease
+  if (-not $published -or $published.draft) { throw "Release 未发布成功：$Repository $tag" }
   Write-Output "[publish] published release with all assets: $Repository $tag"
 } finally {
   if (Test-Path -LiteralPath $notesPath) {
