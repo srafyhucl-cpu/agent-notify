@@ -345,3 +345,45 @@ pub(super) fn map_status_error(error: StatusError) -> RuntimeError {
         StatusError::Store(error) => RuntimeError::Store(error),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::build_snapshot;
+    use crate::migration::MigrationSnapshot;
+    use crate::{ComponentState, DiagnosticLevel, RuntimeState, Supervisor};
+    use agentnotify_application::StatusOverview;
+
+    /// 回归：CI 上 `production_contract` 曾偶发「状态 Running 但组件列表为空」。
+    /// 唯一来源是组件表锁中毒被静默吞掉（PR #15 之前的 `unwrap_or_default()` 返回空表），
+    /// 这里把「中毒后快照仍报告组件」钉死在快照层，避免以后重构把恢复逻辑弄丢。
+    #[test]
+    fn poisoned_component_lock_still_reports_components_in_snapshot() {
+        let supervisor = Supervisor::new();
+        supervisor.set_state("delivery.outbox", ComponentState::Running);
+        supervisor.poison_components_lock();
+
+        let snapshot = build_snapshot(
+            "2.0.7-test",
+            "windows",
+            RuntimeState::Running,
+            StatusOverview::default(),
+            &supervisor,
+            &MigrationSnapshot::not_configured(),
+        );
+
+        assert!(
+            !snapshot.components.is_empty(),
+            "锁中毒后组件表不能被清空，否则诊断页会显示成「没有任何后台组件」"
+        );
+        let components_item = snapshot
+            .diagnostics
+            .iter()
+            .find(|item| item.code == "components")
+            .expect("快照必须包含组件诊断项");
+        assert_eq!(
+            components_item.level,
+            DiagnosticLevel::Ok,
+            "组件表可读时诊断项必须是 Ok，而不是把异常吞掉"
+        );
+    }
+}
