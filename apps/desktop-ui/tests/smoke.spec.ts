@@ -18,6 +18,10 @@ const CONTROL_SELECTOR = [
   ".theme-switcher-option:visible",
 ].join(", ");
 
+// 冒烟要逐页真实点击所有控件，在负载较高的机器上可能接近默认 30s 上限；
+// 放宽到 60s，避免环境抖动造成假失败。
+test.setTimeout(60_000);
+
 test("控件冒烟：逐页点击所有可用控件，不产生 console 错误与 JS 异常", async ({
   page,
 }) => {

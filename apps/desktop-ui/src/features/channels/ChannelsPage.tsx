@@ -216,12 +216,26 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
     setSendNotice(null);
     setPendingTestAccountId(account.id);
     try {
-      await sendMutation.mutateAsync({
+      const result = await sendMutation.mutateAsync({
         accountId: account.id,
         title: TEST_NOTIFICATION_TITLE,
         body: testNotificationBody(displayName),
       });
-      setSendNotice("已发送测试消息。");
+      const delivery = result.delivery;
+      if (delivery?.state === "Sent") {
+        setSendNotice("已发送测试消息。");
+      } else if (delivery?.state === "Failed") {
+        // 命令自身在投递失败时仍返回 accepted=true，这里必须如实反馈失败原因。
+        setSendError({
+          code: delivery.error?.code ?? "delivery_failed",
+          message:
+            delivery.error?.message ?? "消息未能送达，请到历史页查看失败原因。",
+          retryable: delivery.retryable,
+        });
+      } else {
+        // 仍在投递或后端尚未生成终态：诚实提示已提交，不提前宣称送达。
+        setSendNotice("已提交，等待送达。");
+      }
     } catch (error) {
       setSendError(error);
     } finally {
