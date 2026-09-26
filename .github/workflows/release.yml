@@ -3,6 +3,18 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Dry run: exercise the release chain without publishing anything.
+  # Use it to validate release-workflow changes before pushing a real tag.
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Dry run scope: validate only, or validate + signed build'
+        required: true
+        default: build
+        type: choice
+        options:
+          - validate
+          - build
 
 concurrency:
   group: release-${{ github.ref }}
@@ -31,17 +43,27 @@ jobs:
         shell: powershell
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $tag = $env:RELEASE_TAG
-          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "invalid release tag: $tag" }
-          $version = $tag.Substring(1)
           $fileVersion = (Get-Content -LiteralPath 'VERSION' -Raw -Encoding UTF8).Trim()
-          if ($fileVersion -ne $version) { throw "tag $tag does not match VERSION $fileVersion" }
-          $comparison = gh api "repos/$env:GITHUB_REPOSITORY/compare/main...$env:GITHUB_SHA" | ConvertFrom-Json
-          if ($comparison.status -notin @('ahead', 'behind', 'identical')) {
-            throw "release commit is not reachable from protected main: $env:GITHUB_SHA"
+          if ($env:EVENT_NAME -eq 'push') {
+            $tag = $env:RELEASE_TAG
+            if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "invalid release tag: $tag" }
+            $version = $tag.Substring(1)
+            if ($fileVersion -ne $version) { throw "tag $tag does not match VERSION $fileVersion" }
+            $comparison = gh api "repos/$env:GITHUB_REPOSITORY/compare/main...$env:GITHUB_SHA" | ConvertFrom-Json
+            if ($comparison.status -notin @('ahead', 'behind', 'identical')) {
+              throw "release commit is not reachable from protected main: $env:GITHUB_SHA"
+            }
+          } else {
+            # A dry run always validates protected main's current state and takes
+            # the version from VERSION (the single source of truth).
+            if ($env:REF_NAME -ne 'refs/heads/main') { throw "dry run must be started from main, got $env:REF_NAME" }
+            $version = $fileVersion
+            $tag = "v$version"
           }
           ./tools/check-version.ps1 -Version $version
           "release_tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding ascii -Append
@@ -49,6 +71,7 @@ jobs:
   build:
     name: Build signed release assets
     needs: validate
+    if: ${{ github.event_name == 'push' || inputs.mode == 'build' }}
     runs-on: windows-latest
     environment: release
     permissions:
@@ -140,7 +163,8 @@ jobs:
       - name: Extract release notes
         shell: powershell
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          # Works for both a tag push and a dry run (the validate job resolves it).
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
         run: |
           $ErrorActionPreference = 'Stop'
           $version = $env:RELEASE_TAG.TrimStart('v')
@@ -174,6 +198,8 @@ jobs:
   publish:
     name: Publish release assets
     needs: [validate, build]
+    # A dry run never publishes; only a real tag push does.
+    if: ${{ github.event_name == 'push' }}
     permissions:
       actions: read
       contents: write
