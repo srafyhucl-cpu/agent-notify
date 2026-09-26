@@ -162,6 +162,23 @@ try {
     Copy-Item -LiteralPath $hookExe -Destination (Join-Path $buildRoot $hook.ExeName) -Force
   }
 
+  # 2.5) 前端必须真的被嵌进主程序：更换 dist 后若宿主没有重新编译，exe 里会留着上一版的包名，
+  #      用户升级后界面就停在旧版（2026-09-26 在 2.0.7 上真实发生过一次）。
+  #      资源名带内容哈希，同名即同内容，所以逐个名比对就足够。
+  $indexHtmlPath = Join-Path $uiRoot 'dist\index.html'
+  $assetNames = @(
+    [regex]::Matches([IO.File]::ReadAllText($indexHtmlPath), 'assets/[A-Za-z0-9_.-]+\.(?:js|css)') |
+      ForEach-Object { $_.Value } | Sort-Object -Unique
+  )
+  if ($assetNames.Count -eq 0) { throw "无法从 $indexHtmlPath 解析出前端资源名" }
+  $stagedText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($stagedDesktop))
+  foreach ($asset in $assetNames) {
+    if (-not $stagedText.Contains($asset)) {
+      throw "主程序未嵌入最新前端资源（$asset）：前端已重建但宿主没有重新编译，请清理 agentnotify-desktop 的构建产物后重试。"
+    }
+  }
+  Write-Output "[release] 已确认主程序嵌入最新前端资源（$($assetNames.Count) 个）"
+
   # 3) 与安装器共用同一签名工具约定（<tool> sign <file>）；设置 AGENT_NOTIFY_SIGNTOOL 后
   #    所有可执行文件（桌面端、ingress、三个 Hook）都会签名，并强制校验指纹等于客户端内置的信任指纹。
   if (-not [string]::IsNullOrWhiteSpace($env:AGENT_NOTIFY_SIGNTOOL)) {
