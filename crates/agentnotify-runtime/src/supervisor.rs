@@ -167,6 +167,18 @@ impl Supervisor {
             .collect()
     }
 
+    /// 测试用：持写锁 panic，制造锁中毒（只用于验证「恢复后组件表仍可读」，不写业务数据）。
+    #[cfg(test)]
+    pub(crate) fn poison_components_lock(&self) {
+        let inner = Arc::clone(&self.inner);
+        let poisoned = std::thread::spawn(move || {
+            let _guard = inner.write().expect("首次加锁必须成功");
+            panic!("测试故意持锁 panic，制造锁中毒");
+        })
+        .join();
+        assert!(poisoned.is_err(), "测试线程必须 panic 才能制造中毒");
+    }
+
     pub fn spawn_component<F>(&self, name: impl Into<String>, future: F) -> JoinHandle<()>
     where
         F: std::future::Future<Output = Result<(), ComponentFailure>> + Send + 'static,
@@ -195,22 +207,13 @@ impl Supervisor {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::{ComponentState, Supervisor};
 
     #[test]
     fn poisoned_lock_still_reports_and_updates_components() {
         let supervisor = Supervisor::new();
         supervisor.set_state("outbox", ComponentState::Running);
-
-        let inner = Arc::clone(&supervisor.inner);
-        let poisoned = std::thread::spawn(move || {
-            let _guard = inner.write().expect("首次加锁必须成功");
-            panic!("测试故意持锁 panic，制造锁中毒");
-        })
-        .join();
-        assert!(poisoned.is_err(), "测试线程必须 panic 才能制造中毒");
+        supervisor.poison_components_lock();
 
         // 中毒后组件表不能被静默清空，且必须仍可写入新状态。
         assert_eq!(supervisor.components().len(), 1);
