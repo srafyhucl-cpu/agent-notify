@@ -164,6 +164,7 @@ export function HistoryTable({
                   aria-rowindex={virtualRow.index + 2}
                   data-index={virtualRow.index}
                   key={notification.id}
+                  onClick={() => onSelect(notification.id)}
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
@@ -176,12 +177,12 @@ export function HistoryTable({
                     {agentNames.get(notification.agentId) ?? notification.agentId}
                   </span>
                   <span className="history-session-cell" role="cell">
+                    {/* 键盘与点击路径都走整行：按钮上的点击冒泡到行，避免双重触发 */}
                     <button
                       className="history-title-button"
                       type="button"
                       aria-pressed={selected}
                       aria-label={notification.title}
-                      onClick={() => onSelect(notification.id)}
                     >
                       <span className="history-title-text">
                         {notification.title}
