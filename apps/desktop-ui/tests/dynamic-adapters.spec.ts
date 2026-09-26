@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { channelFixture } from "../src/test/fixtures";
 import {
+  countInvocations,
   defaultScenario,
   emitHostEvent,
   gotoSection,
@@ -74,13 +75,25 @@ test.describe("descriptor 驱动的动态适配器", () => {
     await expect(dialog).toBeHidden();
   });
 
-  test("测试发送必须显式选择账号", async ({ page }) => {
+  test("测试发送收进账号行：一键发送，内置内容带账号名", async ({ page }) => {
     await openHarness(page, defaultScenario());
     await gotoSection(page, "渠道");
 
-    const sendForm = page.getByRole("form", { name: "测试发送" });
-    await expect(
-      sendForm.getByRole("button", { name: "发送测试通知" }),
-    ).toBeDisabled();
+    // 旧面板已下线：不再需要选账号/填标题正文
+    await expect(page.getByRole("form", { name: "测试发送" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "测试发送 主账号" }).click();
+
+    await expect
+      .poll(() => countInvocations(page, "send_test_notification"))
+      .toBe(1);
+    const payload = await page.evaluate(
+      () =>
+        window.__AGENT_NOTIFY_BRIDGE__?.calls("send_test_notification")[0]
+          ?.payload ?? null,
+    );
+    expect(payload).toMatchObject({ accountId: "account-a", title: "测试通知" });
+    expect(String((payload as { body?: string }).body)).toContain("主账号");
+    await expect(page.getByText(/已向「主账号」发送测试通知/)).toBeVisible();
   });
 });

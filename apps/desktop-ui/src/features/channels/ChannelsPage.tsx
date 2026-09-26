@@ -1,11 +1,5 @@
-import { AlertTriangle, Plus, Send, X } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { AlertTriangle, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { HostBridge } from "../../bridge";
@@ -18,10 +12,7 @@ import {
   SectionCard,
 } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
-import {
-  formatChannelAccountOptionLabel,
-  getAccountDisplayName,
-} from "../../data/accountNames";
+import { getAccountDisplayName } from "../../data/accountNames";
 import {
   useDisableChannelAccountMutation,
   useEnableChannelAccountMutation,
@@ -37,6 +28,13 @@ import {
 import { ChannelLoginDialog } from "./ChannelLoginDialog";
 import { useChannelLogin } from "./useChannelLogin";
 import "../../styles/channels.css";
+
+/** 行内「测试发送」的内置内容：正文带账号名，便于在微信里辨认来源。 */
+const TEST_NOTIFICATION_TITLE = "测试通知";
+
+function testNotificationBody(displayName: string): string {
+  return `这是一条来自 Agent-notify 的测试通知，用于验证通道连通性。渠道账号：${displayName}。`;
+}
 
 function accountsFromChannels(
   channels: Array<{
@@ -59,10 +57,6 @@ function accountsFromChannels(
   return channels.flatMap((channel) =>
     channel.accounts.map((account) => ({ channel, account })),
   );
-}
-
-function utf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).length;
 }
 
 export interface ChannelsPageProps {
@@ -111,9 +105,10 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
   }, [logoutTarget]);
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginChannelId, setLoginChannelId] = useState<string | null>(null);
-  const [sendAccountId, setSendAccountId] = useState("");
-  const [sendTitle, setSendTitle] = useState("");
-  const [sendBody, setSendBody] = useState("");
+  const [pendingTestAccountId, setPendingTestAccountId] = useState<string | null>(
+    null,
+  );
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [sendError, setSendError] = useState<unknown>(null);
 
   const channels = channelsQuery.data?.channels ?? [];
@@ -128,23 +123,10 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
         channel.accounts.map((account) => ({ channel, account })),
       )
       .find((entry) => entry.account.id === selectedAccountId) ?? null;
-  const channelsLayoutClass = selectedEntry
-    ? "channels-layout channels-layout--split"
-    : "channels-layout";
   const loginChannel =
     channels.find((channel) => channel.id === loginChannelId) ??
     channels[0] ??
     null;
-  const sendEntries = entries.filter(
-    ({ channel }) => channel.capabilities.sendText,
-  );
-  const selectedSendEntry =
-    sendEntries.find(({ account }) => account.id === sendAccountId) ?? null;
-  const maxTextBytes = selectedSendEntry?.channel.capabilities.maxTextBytes;
-  const bodyTooLarge =
-    maxTextBytes !== null &&
-    maxTextBytes !== undefined &&
-    utf8ByteLength(sendBody) > maxTextBytes;
   const loadError = channelsQuery.error ? toUserError(channelsQuery.error) : null;
   const detailError = selectedAccountQuery.error
     ? toUserError(selectedAccountQuery.error)
@@ -166,15 +148,6 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
       setSelectedAccountId(null);
     }
   }, [entries, selectedAccountId]);
-
-  useEffect(() => {
-    if (
-      sendAccountId &&
-      !sendEntries.some((entry) => entry.account.id === sendAccountId)
-    ) {
-      setSendAccountId("");
-    }
-  }, [sendAccountId, sendEntries]);
 
   const toggleAccount = async (
     account: ChannelAccountDto,
@@ -217,43 +190,26 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
     }
   };
 
-  const submitTestNotification = async (event: FormEvent) => {
-    event.preventDefault();
+  /**
+   * 行内「测试发送」：标题与正文内置，不需要用户输入；正文必须带账号名，
+   * 这样在微信里能一眼看出是哪条账号发来的。
+   */
+  const sendTestNotification = async (account: ChannelAccountDto) => {
+    const displayName = getAccountDisplayName(account);
     setSendError(null);
-
-    if (!sendAccountId) {
-      setSendError({
-        code: "test_account_required",
-        message: "请选择一个具体账号后再发送测试通知。",
-        retryable: false,
-      });
-      return;
-    }
-    if (bodyTooLarge) {
-      setSendError({
-        code: "test_body_too_large",
-        message: `正文超过 ${String(maxTextBytes)} 字节，请缩短后再发送。`,
-        retryable: false,
-      });
-      return;
-    }
-
-    const finalTitle = sendTitle.trim() || "测试通知";
-    const finalBody =
-      sendBody.trim() ||
-      "这是一条来自 Agent-notify 的测试通知消息，用于验证通道连通性。";
-
+    setSendNotice(null);
+    setPendingTestAccountId(account.id);
     try {
       await sendMutation.mutateAsync({
-        accountId: sendAccountId,
-        title: finalTitle,
-        body: finalBody,
+        accountId: account.id,
+        title: TEST_NOTIFICATION_TITLE,
+        body: testNotificationBody(displayName),
       });
-      setSendAccountId("");
-      setSendTitle("");
-      setSendBody("");
+      setSendNotice(`已向「${displayName}」发送测试通知，请在微信里确认是否收到。`);
     } catch (error) {
       setSendError(error);
+    } finally {
+      setPendingTestAccountId(null);
     }
   };
 
@@ -275,6 +231,16 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
               </button>
             }
           />
+        ) : null}
+
+        {sendNotice ? (
+          <p className="channels-send-notice" role="status">
+            {sendNotice}
+          </p>
+        ) : null}
+
+        {sendUserError ? (
+          <InlineError title={sendUserError.title} message={sendUserError.message} />
         ) : null}
 
         {actionUserError ? (
@@ -355,16 +321,15 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
                       entries={channelEntries}
                       selectedAccountId={selectedAccountId}
                       pendingAccountId={pendingAccountId}
-                      onSelect={(id) => {
-                        setSelectedAccountId(id || null);
-                        if (id && sendEntries.some((entry) => entry.account.id === id)) {
-                          setSendAccountId(id);
-                        }
-                      }}
+                      pendingTestAccountId={pendingTestAccountId}
+                      onSelect={(id) => setSelectedAccountId(id || null)}
                       onToggle={(account, enabled) =>
                         void toggleAccount(account, enabled)
                       }
                       onDelete={(account) => setLogoutTarget(account)}
+                      onTestSend={(account) =>
+                        void sendTestNotification(account)
+                      }
                       renderDetail={(entry) => (
                         <div className="channel-detail-inline-wrapper">
                           {detailError ? (
@@ -402,106 +367,6 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
             })}
           </div>
 
-          <aside className="channels-aside">
-            {sendEntries.length > 0 ? (
-              <SectionCard
-                className="test-notification-card"
-                title="测试发送"
-                description="向指定渠道账号发送测试通知，验证通道连通性。"
-              >
-                <form
-                  className="test-notification-form"
-                  aria-label="测试发送"
-                  onSubmit={(event) => void submitTestNotification(event)}
-                >
-                  <div className="test-notification-fields">
-                    <label>
-                      <span>测试发送账号</span>
-                      <select
-                        value={sendAccountId}
-                        disabled={sendMutation.isPending}
-                        onChange={(event) =>
-                          setSendAccountId(event.currentTarget.value)
-                        }
-                      >
-                        <option value="">请选择具体账号</option>
-                        {sendEntries.map(({ channel, account }) => (
-                          <option
-                            value={account.id}
-                            disabled={!account.enabled}
-                            key={account.id}
-                          >
-                            {formatChannelAccountOptionLabel(
-                              channel.displayName,
-                              getAccountDisplayName(account),
-                            )}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label>
-                      <span>标题</span>
-                      <input
-                        type="text"
-                        value={sendTitle}
-                        placeholder="测试通知"
-                        disabled={sendMutation.isPending}
-                        onChange={(event) =>
-                          setSendTitle(event.currentTarget.value)
-                        }
-                      />
-                    </label>
-
-                    <label className="test-body-field">
-                      <span>正文</span>
-                      <textarea
-                        rows={4}
-                        value={sendBody}
-                        placeholder="这是一条来自 Agent-notify 的测试通知消息，用于验证通道连通性。"
-                        disabled={sendMutation.isPending}
-                        aria-invalid={bodyTooLarge}
-                        onChange={(event) =>
-                          setSendBody(event.currentTarget.value)
-                        }
-                      />
-                    </label>
-                  </div>
-
-                  <div className="test-notification-footer">
-                    <span
-                      className={bodyTooLarge ? "field-error" : "field-hint"}
-                    >
-                      {bodyTooLarge
-                        ? `正文超过 ${String(maxTextBytes)} 字节`
-                        : maxTextBytes === null || maxTextBytes === undefined
-                          ? "当前渠道未声明正文长度限制"
-                          : `${String(utf8ByteLength(sendBody))} / ${String(maxTextBytes)} 字节`}
-                    </span>
-                    <button
-                      className="button"
-                      type="submit"
-                      disabled={
-                        sendMutation.isPending ||
-                        !sendAccountId ||
-                        bodyTooLarge
-                      }
-                    >
-                      <Send aria-hidden="true" size={15} />
-                      {sendMutation.isPending ? "正在发送" : "发送测试通知"}
-                    </button>
-                  </div>
-
-                  {sendUserError ? (
-                    <InlineError
-                      title={sendUserError.title}
-                      message={sendUserError.message}
-                    />
-                  ) : null}
-                </form>
-              </SectionCard>
-            ) : null}
-          </aside>
         </div>
       </div>
 

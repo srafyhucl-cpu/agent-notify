@@ -280,37 +280,35 @@ describe("ChannelsPage", () => {
     expect(screen.queryByRole("button", { name: "提交配对码" })).not.toBeInTheDocument();
   });
 
-  it("requires an explicit account for test notifications", async () => {
+  it("sends a test notification from the account row with built-in content", async () => {
     const user = userEvent.setup();
     const first = accountFixture("account-a");
-    const second = accountFixture("account-b");
+    const second = accountFixture("account-b", { displayName: "微信号2" });
     const bridge = createMockHostBridge({
       channels: [channelFixture([first, second])],
     });
 
     renderChannels(bridge);
-    const sendForm = await screen.findByRole("form", { name: "测试发送" });
-    const accountSelect = within(sendForm).getByLabelText("测试发送账号");
-    const sendButton = within(sendForm).getByRole("button", {
-      name: "发送测试通知",
-    });
-
-    expect(accountSelect).toHaveValue("");
-    expect(sendButton).toBeDisabled();
-
-    await user.selectOptions(accountSelect, "account-b");
-    await user.type(within(sendForm).getByLabelText("标题"), "测试标题");
-    await user.type(within(sendForm).getByLabelText("正文"), "测试正文");
-    await user.click(sendButton);
+    // 行内一键发送：不需要选账号，也不需要填标题/正文
+    await user.click(
+      await screen.findByRole("button", { name: "测试发送 微信号2" }),
+    );
 
     await waitFor(() => {
       expect(bridge.calls("send_test_notification")).toHaveLength(1);
     });
-    expect(bridge.calls("send_test_notification")[0]?.payload).toEqual({
-      accountId: "account-b",
-      title: "测试标题",
-      body: "测试正文",
-    });
+    const payload = bridge.calls("send_test_notification")[0]?.payload as {
+      accountId: string;
+      title: string;
+      body: string;
+    };
+    expect(payload.accountId).toBe("account-b");
+    expect(payload.title).toBe("测试通知");
+    // 内置正文必须带账号名，方便在微信里辨认来源
+    expect(payload.body).toContain("微信号2");
+    expect(
+      await screen.findByText(/已向「微信号2」发送测试通知/),
+    ).toBeVisible();
   });
 
   it("renames an account inline and keeps the custom name", async () => {
