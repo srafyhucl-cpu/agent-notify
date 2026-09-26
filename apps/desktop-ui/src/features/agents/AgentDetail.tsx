@@ -59,7 +59,7 @@ export function AgentDetail({ agent, bridge }: AgentDetailProps) {
           }
         >
           <FieldRow
-            label="Agent ID"
+            label="Agent 标识"
             control={<span className="monospace-cell">{agent.id}</span>}
           />
           <FieldRow
