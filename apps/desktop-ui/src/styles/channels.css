@@ -208,7 +208,7 @@
 }
 
 .channel-metric-label {
-  font-size: 11px;
+  font-size: var(--font-small);
   font-weight: 600;
   color: var(--color-text-muted);
 }
@@ -280,7 +280,8 @@
 }
 
 .capability-name {
-  font-weight: 500;
+  /* 与值（.capability-val 650）保持层级：名称为常规字重 */
+  font-weight: 400;
 }
 
 .capability-val {
@@ -395,7 +396,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   font-size: var(--font-caption);
-  font-weight: 550;
+  font-weight: 600;
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-spring);
 }
@@ -834,7 +835,7 @@
   margin: 0;
   font-size: var(--font-caption);
   color: var(--color-text-muted);
-  font-weight: 550;
+  font-weight: 600;
 }
 
 .channel-login-qr {

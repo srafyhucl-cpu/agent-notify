@@ -802,12 +802,11 @@
   font-size: var(--font-caption);
 }
 
-/* ========== 设置页（Phase 5e：左分组目录（sticky）+ 右分组面板，一决策一行） ========== */
+/* ========== 设置页（Phase 5e：分组合并为卡片，一决策一行） ========== */
 
 :root {
-  /* 设置页控件列与左目录宽度（无现成语义 token，集中命名） */
+  /* 设置页控件列宽度（无现成语义 token，集中命名） */
   --settings-control-width: 220px;
-  --settings-index-width: 148px;
 }
 
 /* 页头已提供间距，内容区不再重复留白 */
@@ -816,68 +815,6 @@
   gap: var(--space-5);
   min-width: 0;
   padding-top: 0;
-}
-
-/* 左目录 sticky + 右分组面板；所有分组同时渲染，目录仅锚点跳转 */
-.settings-layout {
-  display: grid;
-  grid-template-columns:
-    minmax(var(--settings-index-width), 0.22fr)
-    minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-5);
-  min-width: 0;
-}
-
-.settings-index {
-  position: sticky;
-  top: var(--space-5);
-  align-self: start;
-  min-width: 0;
-}
-
-.settings-index-title {
-  margin: 0 0 var(--space-2);
-  padding: 0 var(--space-3);
-  color: var(--color-text-muted);
-  font-size: var(--font-caption);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.settings-index-list {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.settings-index-link {
-  display: block;
-  min-width: 0;
-  min-height: var(--control-height);
-  padding: var(--space-1) var(--space-3);
-  color: var(--color-text-muted);
-  border-left: 2px solid transparent;
-  border-radius: var(--radius-control);
-  font-size: var(--font-body);
-  font-weight: 550;
-  line-height: 1.4;
-  text-decoration: none;
-}
-
-.settings-index-link:hover {
-  color: var(--color-text);
-  background: var(--color-surface-muted);
-}
-
-/* 当前位置高亮：柔和底 + 左侧描边 + 字重冗余，不靠颜色单载（文字用正文色保对比度） */
-.settings-index-link[aria-current="true"] {
-  color: var(--color-text);
-  background: var(--color-primary-soft);
-  border-left-color: var(--color-primary);
-  font-weight: 700;
 }
 
 .settings-form,
@@ -1143,17 +1080,6 @@ select.settings-control {
     position: sticky;
     top: 0;
     z-index: var(--z-sticky);
-  }
-}
-
-@media (max-width: 1080px) {
-  .settings-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .settings-index {
-    position: static;
-    top: auto;
   }
 }
 

@@ -156,7 +156,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   font-size: var(--font-size-3);
-  font-weight: 550;
+  font-weight: 600;
   text-decoration: none;
   transition:
     color var(--duration-fast) var(--ease-spring),
