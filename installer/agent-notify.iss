@@ -212,6 +212,33 @@ begin
     Log('静默升级：无法启动 taskkill 结束 agentnotify-desktop.exe，交由 Restart Manager 处理。');
 end;
 
+// 升级后界面停在旧版是 WebView2 磁盘缓存造成的：缓存里的 index.html 仍指向上一版的前端包。
+// 2026-09-26 在 2.0.7 真实发生过（新程序配上 2.0.6 时代的 Code Cache，界面停在旧版）。
+// 只清三类缓存目录，Local Storage 一律保留——自定义账号名、主题选择都存在那里。
+// 失败只记日志不打断安装：缓存缺失最多让首屏稍慢，不该阻止升级。
+procedure ClearWebViewCache();
+var
+  CacheRoot: String;
+  Names: TArrayOfString;
+  Index: Integer;
+begin
+  CacheRoot := ExpandConstant('{localappdata}\com.agentnotify.desktop\EBWebView\Default');
+  SetArrayLength(Names, 3);
+  Names[0] := 'Cache';
+  Names[1] := 'Code Cache';
+  Names[2] := 'GPUCache';
+  for Index := 0 to GetArrayLength(Names) - 1 do
+  begin
+    if DirExists(CacheRoot + '\' + Names[Index]) then
+    begin
+      if DelTree(CacheRoot + '\' + Names[Index], True, True, True) then
+        Log('已清理 WebView2 缓存：' + Names[Index])
+      else
+        Log('未能完整清理 WebView2 缓存（可忽略，界面可能短暂停留在旧版）：' + Names[Index]);
+    end;
+  end;
+end;
+
 // PrepareToInstall 在 Setup 检查文件占用（CloseApplications 的 Restart Manager 阶段）之前调用，
 // 是官方文档指定用于关闭待更新应用的时机；错过它就会在替换文件前弹出「无法自动关闭所有应用程序」。
 // NeedsRestart 有意不动：本过程没有重启需求，也不替 Setup 决定是否提示重启。
@@ -219,6 +246,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   TerminateStaleInstancesForSilentUpgrade();
+  ClearWebViewCache();
 end;
 
 procedure RunLegacyHookCleanup();
