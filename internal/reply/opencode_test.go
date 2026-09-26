@@ -402,7 +402,8 @@ func writeTestJSON(t *testing.T, path string, value any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, data, privateFilePerm); err != nil {
+	// 轮询方可能并发读取这些文件，必须原子写入（复用生产写入方，别退回 os.WriteFile）。
+	if err := writeFileAtomic(path, data); err != nil {
 		t.Fatal(err)
 	}
 }

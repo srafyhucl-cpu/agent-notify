@@ -107,7 +107,7 @@ func TestCommandCodeQueuePersistsJobAndReadsResult(t *testing.T) {
 					}
 					result, _ := json.Marshal(spoolReplyResult{OK: true})
 					_ = os.MkdirAll(filepath.Join(dir, "results"), privateDirPerm)
-					_ = os.WriteFile(filepath.Join(dir, "results", entry.Name()), result, privateFilePerm)
+					_ = writeFileAtomic(filepath.Join(dir, "results", entry.Name()), result)
 					return
 				}
 			}
