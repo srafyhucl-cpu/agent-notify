@@ -93,6 +93,22 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
   const [actionError, setActionError] = useState<unknown>(null);
   const [logoutTarget, setLogoutTarget] =
     useState<ChannelAccountDto | null>(null);
+  const cancelLogoutRef = useRef<HTMLButtonElement>(null);
+
+  // 与登录对话框一致：Escape 关闭；打开时把焦点移到「取消」（破坏性操作不自动聚焦）。
+  useEffect(() => {
+    if (!logoutTarget) {
+      return;
+    }
+    cancelLogoutRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setLogoutTarget(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [logoutTarget]);
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginChannelId, setLoginChannelId] = useState<string | null>(null);
   const [sendAccountId, setSendAccountId] = useState("");
@@ -534,6 +550,7 @@ export function ChannelsPage({ bridge }: ChannelsPageProps) {
               <button
                 className="button button-secondary"
                 type="button"
+                ref={cancelLogoutRef}
                 disabled={pendingAccountId === logoutTarget.id}
                 onClick={() => setLogoutTarget(null)}
               >

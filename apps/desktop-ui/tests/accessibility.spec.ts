@@ -52,4 +52,19 @@ test.describe("可访问性", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
   });
+
+  test("@a11y 退出账号确认框支持 Escape 关闭并把焦点移到取消", async ({ page }) => {
+    await openHarness(page, defaultScenario());
+
+    await gotoSection(page, "渠道");
+    await page.getByRole("button", { name: /^退出账号/ }).first().click();
+
+    const dialog = page.getByRole("alertdialog", { name: /删除账号/ });
+    await expect(dialog).toBeVisible();
+    // 破坏性操作不自动聚焦：焦点落在「取消」上
+    await expect(page.getByRole("button", { name: "取消" })).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
 });

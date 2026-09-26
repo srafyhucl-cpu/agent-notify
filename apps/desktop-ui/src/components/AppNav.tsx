@@ -63,8 +63,8 @@ export function AppNav({ collapsed = false, onToggleCollapse }: AppNavProps) {
             type="button"
             className="app-nav-collapse-btn"
             onClick={onToggleCollapse}
-            aria-label={collapsed ? "展开导航栏" : "收起导航栏"}
-            title={collapsed ? "展开导航栏" : "收起导航栏"}
+            aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+            title={collapsed ? "展开侧栏" : "收起侧栏"}
           >
             {collapsed ? (
               <PanelLeftOpen size={16} aria-hidden="true" />

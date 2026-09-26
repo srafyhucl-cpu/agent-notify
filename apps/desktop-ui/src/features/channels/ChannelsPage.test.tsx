@@ -313,6 +313,31 @@ describe("ChannelsPage", () => {
     });
   });
 
+  it("renames an account inline and keeps the custom name", async () => {
+    window.localStorage.clear();
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      channels: [channelFixture([accountFixture("account-a")])],
+    });
+
+    renderChannels(bridge);
+    await user.click(
+      await screen.findByRole("button", { name: "重命名账号 账号 account-a" }),
+    );
+
+    const input = await screen.findByRole("textbox", { name: "账号名称" });
+    await user.clear(input);
+    await user.type(input, "工作微信{Enter}");
+
+    expect(
+      await screen.findByRole("button", { name: "重命名账号 工作微信" }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem("agentnotify.account_names")).toContain(
+      "工作微信",
+    );
+    window.localStorage.clear();
+  });
+
   it("explains routing impact before logout and sends the selected account ID", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
