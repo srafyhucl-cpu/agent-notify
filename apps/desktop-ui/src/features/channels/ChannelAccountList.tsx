@@ -108,6 +108,7 @@ export function ChannelAccountList({
                         <input
                           className="rename-input"
                           type="text"
+                          aria-label="账号名称"
                           value={editingName}
                           onChange={(e) => setEditingName(e.currentTarget.value)}
                           onKeyDown={(e) => {

@@ -241,18 +241,18 @@
 }
 
 .channel-health-dot--success {
-  background: #10b981;
-  box-shadow: 0 0 6px color-mix(in srgb, #10b981 60%, transparent);
+  background: var(--color-success);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-success) 60%, transparent);
 }
 
 .channel-health-dot--warning {
-  background: #f59e0b;
-  box-shadow: 0 0 6px color-mix(in srgb, #f59e0b 60%, transparent);
+  background: var(--color-warning);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-warning) 60%, transparent);
 }
 
 .channel-health-dot--danger {
-  background: #ef4444;
-  box-shadow: 0 0 6px color-mix(in srgb, #ef4444 60%, transparent);
+  background: var(--color-danger);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-danger) 60%, transparent);
 }
 
 .channel-detail-health-desc {
@@ -264,13 +264,13 @@
 .capability-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .capability-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   padding: 3px 8px;
   font-size: var(--font-caption);
   background: var(--color-surface-muted);
@@ -670,43 +670,8 @@
   padding-top: var(--space-2);
 }
 
-.test-notification-footer .button[type="submit"] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 18px;
-  background: linear-gradient(180deg, var(--color-primary-hover) 0%, var(--color-primary) 100%);
-  color: #ffffff;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 85%, black);
-  border-radius: var(--radius-control);
-  font-size: var(--font-body);
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 2px 8px -1px color-mix(in srgb, var(--color-primary) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: all var(--duration-fast) var(--ease-spring);
-}
-
-.test-notification-footer .button[type="submit"]:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px 0 color-mix(in srgb, var(--color-primary) 45%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-}
-
-.test-notification-footer .button[type="submit"]:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-.test-notification-footer .button[type="submit"]:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  box-shadow: none;
-  background: var(--color-surface-muted);
-  color: var(--color-text-muted);
-  border-color: var(--border-subtle);
-  transform: none;
-}
+/* 测试发送的提交按钮直接用基础 .button 样式：原先这里重复实现了一套（渐变 + 写死 #ffffff 文字 +
+   34px 高度 + 18px 内边距 + 6px 间距），既偏离 token，又让暗色主题下白字落在亮青主色上。 */
 
 .field-hint,
 .field-error {

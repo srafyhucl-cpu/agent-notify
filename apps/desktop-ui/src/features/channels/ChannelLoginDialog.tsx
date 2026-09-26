@@ -261,7 +261,7 @@ export function ChannelLoginDialog({
               <p>{session?.message ?? "账号已经配对完成。"}</p>
               <div className="channel-account-naming-box">
                 <label className="channel-account-naming-label" htmlFor="channel-login-custom-name">
-                  微信名称 <span className="channel-account-naming-hint">（列表与历史里显示这个名称）</span>
+                  微信名称 <span className="channel-account-naming-hint">（登录后可在渠道列表里重命名）</span>
                 </label>
                 <input
                   id="channel-login-custom-name"
