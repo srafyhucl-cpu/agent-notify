@@ -47,6 +47,8 @@ export interface MockHostBridgeOptions {
   loginSession?: LoginSessionDto;
   errors?: Partial<Record<BusinessCommand, CommandError>>;
   delays?: Partial<Record<BusinessCommand, number>>;
+  /** 测试发送的投递结果；默认 Sent（用于断言"失败/待送达"的 UI 分支）。 */
+  sendTestDelivery?: DeliveryDto;
 }
 
 export interface MockHostBridge extends HostBridge {
@@ -344,7 +346,9 @@ export function createMockHostBridge(
         const test = payload as CommandPayloadMap["send_test_notification"];
         result = {
           accepted: true,
-          delivery: deliveryFixture("delivery-test-1", test.accountId),
+          delivery:
+            options.sendTestDelivery ??
+            deliveryFixture("delivery-test-1", test.accountId),
         };
         break;
       }

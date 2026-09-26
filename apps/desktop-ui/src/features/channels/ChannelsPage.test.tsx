@@ -317,6 +317,39 @@ describe("ChannelsPage", () => {
     );
   });
 
+  it("surfaces a failed test delivery instead of claiming success", async () => {
+    const user = userEvent.setup();
+    const account = accountFixture("account-a", { displayName: "微信号" });
+    const bridge = createMockHostBridge({
+      channels: [channelFixture([account])],
+      sendTestDelivery: {
+        id: "delivery-failed",
+        notificationId: "notification-1",
+        channelId: "future-channel",
+        accountId: "account-a",
+        state: "Failed",
+        externalMessageId: null,
+        error: {
+          code: "channel_rejected",
+          message: "渠道拒绝了这条消息",
+        },
+        retryable: true,
+        updatedAt: "2026-09-19T00:00:00Z",
+      },
+    });
+
+    renderChannels(bridge);
+    await user.click(
+      await screen.findByRole("button", { name: "测试发送 微信号" }),
+    );
+
+    // 投递失败必须如实报错（错误长期可见），不能弹"已发送"浮层
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "渠道拒绝了这条消息",
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("renames an account inline and keeps the custom name", async () => {
     window.localStorage.clear();
     const user = userEvent.setup();

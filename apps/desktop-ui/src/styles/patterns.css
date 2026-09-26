@@ -467,11 +467,11 @@
 }
 
 /* ========== 浮层提示 Toast ========== */
-/* 不占版面：固定贴窗口底部中央，只做结果确认；不遮挡顶部状态栏与窗口按钮。 */
+/* 不占版面：水平居中、贴窗口上中场；只做结果确认。 */
 .toast {
   position: fixed;
   left: 50%;
-  bottom: var(--space-5);
+  top: 18%;
   z-index: var(--z-popover);
   display: inline-flex;
   align-items: center;
