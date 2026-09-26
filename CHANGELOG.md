@@ -4,6 +4,13 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。版本号唯一来源是仓库根目录的 `VERSION`
 （2.0.0 起；此前为 `internal/app/version.go`）。
 
+## [2.0.10] - 2026-09-27
+
+### Changed
+
+- 安装器界面全面中文化：向导的窗口标题、按钮与提示文本全部改为简体中文（官方 Inno 6.5.0+ 中文语言文件随仓库分发，不依赖构建机内置语言包），产品名 `AgentNotify` 保持英文。
+- 桌面端界面残留英文文案补齐中文化：Agent 详情「Agent ID」改为「Agent 标识」，侧边栏 Logo 的读屏文本「AgentNotify Logo」改为「AgentNotify 标志」。
+
 ## [2.0.9] - 2026-09-27
 
 ### Fixed
