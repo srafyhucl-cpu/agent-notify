@@ -189,7 +189,7 @@
   font-size: var(--font-caption);
   color: var(--color-text);
   background: var(--color-surface-muted);
-  padding: 2px 6px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-control);
   border: 1px solid var(--hairline);
 }
