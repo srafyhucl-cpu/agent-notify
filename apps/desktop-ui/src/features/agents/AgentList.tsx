@@ -47,8 +47,8 @@ export function AgentList({
               isExpanded ? "agent-accordion-card--expanded" : ""
             }`}
           >
-            {/* 卡片头部 */}
-            <div className="agent-card-header">
+            {/* 卡片头部：整块可点（与渠道页整行可点一致）；键盘路径仍走标题按钮 */}
+            <div className="agent-card-header" onClick={handleCardClick}>
               <div className="agent-card-identity">
                 <span className="agent-card-icon-wrap" aria-hidden="true">
                   <Bot size={20} className="agent-card-icon" />
@@ -58,7 +58,6 @@ export function AgentList({
                     className="agent-name-button"
                     type="button"
                     aria-pressed={isExpanded}
-                    onClick={handleCardClick}
                   >
                     <span className="agent-name-text">{agent.displayName}</span>
                   </button>

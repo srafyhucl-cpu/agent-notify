@@ -917,8 +917,10 @@
 }
 
 .agent-accordion-card--expanded {
+  /* 与渠道页选中行同一套语言：左侧 3px 主色药丸 + 柔和主色底；不使用辉光（发光白名单里没有它） */
   border-color: color-mix(in srgb, var(--color-primary) 35%, var(--surface-1-border));
-  box-shadow: var(--surface-2-shadow), 0 0 12px -2px var(--color-primary-soft);
+  background: color-mix(in srgb, var(--color-primary-soft) 45%, var(--surface-1));
+  box-shadow: inset 3px 0 0 var(--color-primary), var(--surface-1-shadow);
 }
 
 .agent-card-header {
@@ -936,11 +938,6 @@
 
 .agent-card-header:hover {
   background: var(--color-surface-muted);
-}
-
-.agent-card-header:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -2px;
 }
 
 .agent-card-identity {
