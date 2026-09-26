@@ -38,4 +38,38 @@ test.describe("交互一致性（整块可点）", () => {
     await page.keyboard.press("Enter");
     await expect(titleButton).toHaveAttribute("aria-pressed", "false");
   });
+
+  test("历史行：整行可点、选中态与渠道页同款（左侧主色药丸）、键盘仍可用", async ({
+    page,
+  }) => {
+    await openHarness(page);
+    await gotoSection(page, "历史");
+
+    const rows = page.locator(".history-row:not(.history-row--header)");
+    const firstRow = rows.first();
+    const detailRegion = page.getByRole("region", { name: "通知详情" });
+    await expect(firstRow).not.toHaveClass(/history-row--selected/);
+
+    // ① 可点提示与可点区域一致：行内有 pointer，且点时间单元格（不是标题按钮）即可选中
+    expect(
+      await firstRow.evaluate((element) => getComputedStyle(element).cursor),
+    ).toBe("pointer");
+    await firstRow.locator(".history-time-cell").click();
+    await expect(firstRow).toHaveClass(/history-row--selected/);
+    await expect(
+      detailRegion.getByRole("heading", { name: "构建完成" }),
+    ).toBeVisible();
+
+    // ② 选中态与渠道页、Agent 展开卡同一套语言：左侧 3px 主色药丸
+    expect(
+      await firstRow.evaluate((element) => getComputedStyle(element).boxShadow),
+    ).toContain("inset");
+
+    // ③ 单行单选：键盘 Enter 到另一行会切换选中，不会同时选中两行
+    const secondRow = rows.nth(1);
+    await secondRow.getByRole("button", { name: "投递失败" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(secondRow).toHaveClass(/history-row--selected/);
+    await expect(firstRow).not.toHaveClass(/history-row--selected/);
+  });
 });
