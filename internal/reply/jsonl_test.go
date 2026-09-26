@@ -27,7 +27,7 @@ func writeTestJSONL(t *testing.T, path string, values ...any) {
 		}
 		lines = append(lines, string(data))
 	}
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), privateFilePerm); err != nil {
+	if err := writeFileAtomic(path, []byte(strings.Join(lines, "\n")+"\n")); err != nil {
 		t.Fatalf("write JSONL fixture: %v", err)
 	}
 }

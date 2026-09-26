@@ -17,6 +17,10 @@ const (
 	defaultSpoolPollInterval = 100 * time.Millisecond
 	spoolJobTTL              = 10 * time.Minute
 	replyIDBytes             = 16
+	// Windows 上杀软/索引器会短暂占用刚写入的结果文件（共享冲突），
+	// 读取与删除都按这套有界重试处理；重试后仍失败才作为错误暴露。
+	spoolFileRetries    = 10
+	spoolFileRetryDelay = 20 * time.Millisecond
 )
 
 // spoolReplyJob 是发送到桌面端 Agent 扩展的持久化回复任务。
@@ -285,21 +289,31 @@ func consumeSpoolResult(
 // removeSpoolFile 删除结果文件；Windows 上文件可能被杀软或其它句柄短暂占用，
 // 这里做几次有界重试，避免坏结果文件残留导致后续反复报错。
 func removeSpoolFile(path string) {
-	for attempt := 0; attempt < 10; attempt++ {
+	for attempt := 0; attempt < spoolFileRetries; attempt++ {
 		if err := os.Remove(path); err == nil || os.IsNotExist(err) {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(spoolFileRetryDelay)
 	}
 }
 
+// readSpoolResult 读取结果文件。Windows 上文件可能被杀软或其它句柄短暂占用
+// （共享冲突），这里与 removeSpoolFile 用同一套有界重试；重试后仍失败才作为错误暴露。
 func readSpoolResult(path, label string) (spoolReplyResult, bool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
+	var data []byte
+	var err error
+	for attempt := 0; ; attempt++ {
+		data, err = os.ReadFile(path)
+		if err == nil {
+			break
+		}
 		if os.IsNotExist(err) {
 			return spoolReplyResult{}, false, nil
 		}
-		return spoolReplyResult{}, false, fmt.Errorf("%s: read result: %w", label, err)
+		if attempt >= spoolFileRetries-1 {
+			return spoolReplyResult{}, false, fmt.Errorf("%s: read result: %w", label, err)
+		}
+		time.Sleep(spoolFileRetryDelay)
 	}
 	var result spoolReplyResult
 	if err := json.Unmarshal(data, &result); err != nil {
