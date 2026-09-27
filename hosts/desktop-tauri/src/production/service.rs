@@ -64,6 +64,8 @@ impl ProductionHostCommandService {
         settings: ProductionSettingsStore,
         config_dir: &Path,
         updates: Arc<UpdateService>,
+        // 是否装配派活链路（AgentDriver）：生产 true 用信封唤醒真实 Agent；headless/测试 false（纯状态推进）。
+        enable_agent_driver: bool,
     ) -> Self {
         let orchestration = OrcCommandHandler::with_driver(
             orchestration_store(&store, &settings).await,
@@ -74,10 +76,14 @@ impl ProductionHostCommandService {
                 runtime.channel_registry(),
                 Some(store.clone()),
             ))),
-            // P2 派活：推进/创建任务时把信封交给工作流配置的真实 Agent（registry 恒已装配）。
-            Some(Arc::new(ProductionAgentDriver::new(
-                runtime.agent_registry(),
-            ))),
+            // P2 派活：推进/创建任务时把信封交给工作流配置的真实 Agent；生产才有真实驱动。
+            if enable_agent_driver {
+                Some(Arc::new(ProductionAgentDriver::new(
+                    runtime.agent_registry(),
+                )))
+            } else {
+                None
+            },
         );
         Self {
             app,

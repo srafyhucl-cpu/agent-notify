@@ -48,7 +48,7 @@ pub async fn bootstrap_headless(
     CommandError,
 > {
     let updates = production_update_service(&paths)?;
-    bootstrap_internal(None, paths, secret_store, updates).await
+    bootstrap_internal(None, paths, secret_store, updates, false).await
 }
 
 /// 测试用装配：注入假更新传输，命令层不会访问真实网络。
@@ -68,7 +68,7 @@ pub async fn bootstrap_headless_with_update_transport(
         crate::update::UpdateConfig::from_environment(),
         transport,
     ));
-    bootstrap_internal(None, paths, secret_store, updates).await
+    bootstrap_internal(None, paths, secret_store, updates, false).await
 }
 
 pub async fn bootstrap_production(
@@ -83,8 +83,15 @@ pub async fn bootstrap_production(
     CommandError,
 > {
     let updates = production_update_service(&paths)?;
-    let (coordinator, service) =
-        bootstrap_internal(Some(app.clone()), paths, secret_store, updates).await?;
+    let (coordinator, service) = bootstrap_internal(
+        Some(app.clone()),
+        paths,
+        secret_store,
+        updates,
+        // 生产（有窗口）装配派活链路：创建/推进任务时用信封唤醒真实 Agent。
+        true,
+    )
+    .await?;
 
     // 启动事件转发任务
     let forwarder = EventForwarder::new(app.clone(), coordinator.clone());
@@ -107,6 +114,9 @@ async fn bootstrap_internal(
     paths: AppPaths,
     secret_store: Arc<dyn SecretStore>,
     updates: Arc<UpdateService>,
+    // 是否装配派活链路（AgentDriver）：生产 true（用信封唤醒真实 Agent），
+    // 测试/headless false（保持"纯状态推进"语义，P1-3/1-4 既有行为零变化）。
+    enable_agent_driver: bool,
 ) -> Result<
     (
         Arc<ProductionRuntimeCoordinator>,
@@ -188,8 +198,13 @@ async fn bootstrap_internal(
                 channel_registry.clone(),
                 Some(store.clone()),
             ))),
-            // P2 派活：微信路由与 bridge 命令共用同一份 handler 与驱动器（行为一致）。
-            Some(Arc::new(ProductionAgentDriver::new(agent_registry.clone()))),
+            // 派活链路：生产（有窗口）才有真实 Agent 驱动；headless/测试不装，
+            // 保持"纯状态推进"语义（P1-3/1-4 既有行为零变化）。
+            if enable_agent_driver {
+                Some(Arc::new(ProductionAgentDriver::new(agent_registry.clone())))
+            } else {
+                None
+            },
         ),
         channel_registry.clone(),
         store.clone(),
@@ -220,6 +235,7 @@ async fn bootstrap_internal(
             settings,
             &harness_config_dir,
             updates,
+            enable_agent_driver,
         )
         .await,
     );
