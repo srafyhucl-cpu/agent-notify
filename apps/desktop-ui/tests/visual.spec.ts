@@ -17,6 +17,7 @@ import {
 const SLUGS: Record<SectionLabel, string> = {
   总览: "overview",
   "Agent 管理": "agents",
+  集群: "cluster",
   渠道: "channels",
   历史: "history",
   诊断: "diagnostics",

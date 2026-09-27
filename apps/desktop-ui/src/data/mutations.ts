@@ -157,3 +157,33 @@ export function useDiagnosticActionMutation<TCommand extends BusinessCommand>(
       invalidate(queryClient, [queryKeys.diagnostics(), queryKeys.snapshot()]),
   });
 }
+
+export function useCreateOrcTaskMutation(bridge: HostBridge) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CommandPayloadMap["create_orc_task"]) =>
+      bridge.invoke("create_orc_task", payload),
+    onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
+  });
+}
+
+export function useAdvanceOrcTaskMutation(bridge: HostBridge) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CommandPayloadMap["advance_orc_task"]) =>
+      bridge.invoke("advance_orc_task", payload),
+    onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
+  });
+}
+
+export function useRecoverBlockedOrcTaskMutation(bridge: HostBridge) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CommandPayloadMap["recover_blocked_orc_task"]) =>
+      bridge.invoke("recover_blocked_orc_task", payload),
+    onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
+  });
+}

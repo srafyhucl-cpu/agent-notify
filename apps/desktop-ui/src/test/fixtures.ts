@@ -8,6 +8,7 @@ import type {
   LegacyMigrationDto,
   NotificationDetailDto,
   NotificationSummaryDto,
+  OrcTaskDto,
   SettingsDto,
 } from "../bridge/types";
 
@@ -236,6 +237,24 @@ export function legacyMigrationFixture(
     reportFile: null,
     report: null,
     error: null,
+    ...overrides,
+  };
+}
+
+/** 编排任务样本（P1 集群页，§3.2 TASK 的脱敏视图）。 */
+export function orcTaskFixture(
+  id: string,
+  overrides: Partial<OrcTaskDto> = {},
+): OrcTaskDto {
+  return {
+    id,
+    workflowId: "workflow-preset",
+    state: "working",
+    currentStep: 2,
+    blockedStep: null,
+    blockReason: null,
+    notifyMode: "final_only",
+    goal: `集群任务 ${id}`,
     ...overrides,
   };
 }

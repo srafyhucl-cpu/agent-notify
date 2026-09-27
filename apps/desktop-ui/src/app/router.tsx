@@ -10,6 +10,7 @@ import { createQueryClient } from "../data/queryClient";
 import { useHostEvent } from "../data/useHostEvent";
 import { AgentsPage } from "../features/agents/AgentsPage";
 import { ChannelsPage } from "../features/channels/ChannelsPage";
+import { ClusterPage } from "../features/cluster/ClusterPage";
 import { DiagnosticsPage } from "../features/diagnostics/DiagnosticsPage";
 import { HistoryPage } from "../features/history/HistoryPage";
 import { OverviewPage } from "../features/overview/OverviewPage";
@@ -17,6 +18,7 @@ import { SettingsPage } from "../features/settings/SettingsPage";
 import { AppShell } from "./AppShell";
 import "../styles/task9.css";
 import "../styles/task7.css";
+import "../styles/cluster.css";
 
 export interface AppRouterProps {
   bridge: HostBridge;
@@ -31,6 +33,7 @@ function RoutedApp({ bridge }: AppRouterProps) {
         <Route index element={<Navigate replace to="/overview" />} />
         <Route path="/overview" element={<OverviewPage bridge={bridge} />} />
         <Route path="/agents" element={<AgentsPage bridge={bridge} />} />
+        <Route path="/cluster" element={<ClusterPage bridge={bridge} />} />
         <Route path="/channels" element={<ChannelsPage bridge={bridge} />} />
         <Route path="/history" element={<HistoryPage bridge={bridge} />} />
         <Route
