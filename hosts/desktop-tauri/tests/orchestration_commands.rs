@@ -8,7 +8,7 @@ use agentnotify_desktop::bridge::dto::{
     AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload, OrcMessageKindDto,
     OrcTaskIdPayload, OrcTaskStateDto,
 };
-use agentnotify_desktop::production::service::OrcCommandHandler;
+use agentnotify_desktop::production::service::{OrcCommandHandler, load_harness_templates};
 use agentnotify_orchestration::{OrcStore, Workflow};
 use agentnotify_storage_sqlite::SqliteStore;
 
@@ -233,4 +233,104 @@ fn orc_state_dto_serializes_to_stable_snake_case_strings() {
 
     let json = serde_json::to_value(OrcMessageKindDto::Instruction).expect("必须可序列化");
     assert_eq!(json, serde_json::json!("instruction"));
+}
+
+/// P1-5 装配：`load_harness_templates` 从 `config_dir/harness-templates.json` 读用户模板；
+/// 文件缺失 = 正常未配置（内置默认兜底）；内容损坏 = 告警日志 + 全部回退默认，编排不瘫痪。
+#[tokio::test]
+async fn load_harness_templates_assembly_seam() {
+    // 有效配置：用户模板（按 workflow_id + step order）生效
+    {
+        let root = tempfile::Builder::new()
+            .prefix("agentnotify-orc-templates-valid-")
+            .tempdir_in(agentnotify_testkit::test_temp_root())
+            .expect("测试临时目录必须可创建");
+        let config_dir = root.path().join("config");
+        std::fs::create_dir_all(&config_dir).expect("config 目录必须可创建");
+        std::fs::write(
+            config_dir.join("harness-templates.json"),
+            r#"{"workflows":{"preset-requirement-to-report":{"steps":[
+                {"order":1,"harness_template":"判断步模板：{goal}"}
+            ]}}}"#,
+        )
+        .expect("写入模板配置必须成功");
+
+        let templates = load_harness_templates(&config_dir);
+        assert_eq!(
+            templates.user_template("preset-requirement-to-report", 1),
+            Some("判断步模板：{goal}")
+        );
+    }
+    // 文件缺失：正常未配置，无用户模板（内置默认兜底）
+    {
+        let root = tempfile::Builder::new()
+            .prefix("agentnotify-orc-templates-missing-")
+            .tempdir_in(agentnotify_testkit::test_temp_root())
+            .expect("测试临时目录必须可创建");
+        let config_dir = root.path().join("config");
+        let templates = load_harness_templates(&config_dir);
+        assert!(
+            templates
+                .user_template("preset-requirement-to-report", 1)
+                .is_none(),
+            "配置缺失时必须回退内置默认"
+        );
+    }
+    // 配置损坏：tracing::warn 告警（无法直接断言日志，断言回退行为）+ 全部回退默认
+    {
+        let root = tempfile::Builder::new()
+            .prefix("agentnotify-orc-templates-corrupt-")
+            .tempdir_in(agentnotify_testkit::test_temp_root())
+            .expect("测试临时目录必须可创建");
+        let config_dir = root.path().join("config");
+        std::fs::create_dir_all(&config_dir).expect("config 目录必须可创建");
+        std::fs::write(config_dir.join("harness-templates.json"), "{ 不是合法 JSON")
+            .expect("写入模板配置必须成功");
+
+        let templates = load_harness_templates(&config_dir);
+        assert!(
+            templates
+                .user_template("preset-requirement-to-report", 1)
+                .is_none(),
+            "配置损坏时必须回退内置默认，编排不瘫痪"
+        );
+    }
+}
+
+/// P1-5：`OrcCommandHandler` 可注入模板解析器（with_templates），默认构造保持向后兼容。
+#[tokio::test]
+async fn orc_handler_injects_harness_templates() {
+    let (_root, store) = open_sqlite("agentnotify-orc-templates-inject-");
+    std::fs::write(
+        _root.path().join("harness-templates.json"),
+        r#"{"workflows":{"preset-requirement-to-report":{"steps":[
+            {"order":1,"harness_template":"注入模板：{goal}"}
+        ]}}}"#,
+    )
+    .expect("写入模板配置必须成功");
+
+    let templates = load_harness_templates(_root.path());
+    let handler = OrcCommandHandler::with_templates(
+        Some(OrcStore::with_repository(
+            Workflow::preset(false).unwrap(),
+            store.clone(),
+        )),
+        templates,
+    );
+    assert_eq!(
+        handler
+            .templates()
+            .user_template("preset-requirement-to-report", 1),
+        Some("注入模板：{goal}")
+    );
+
+    // 默认构造（new）不带用户模板：向后兼容，P0 测试与行为不变
+    let plain = OrcCommandHandler::new(None);
+    assert!(
+        plain
+            .templates()
+            .user_template("preset-requirement-to-report", 1)
+            .is_none(),
+        "默认构造必须只含内置默认模板"
+    );
 }
