@@ -1,10 +1,8 @@
 # Agent-notify 集群版架构设计
 
-> 状态：草案 v0.6（待评审）· 对应终极目标：手机聚合多 Agent 推送 + 多 Agent 协同干活 + 手机上看到 Agent 的文件成果
+> 状态：v0.7（P0/P1 已实现 · 派活链路已合）· 对应终极目标：手机聚合多 Agent 推送 + 多 Agent 协同干活 + 手机上看到 Agent 的文件成果
 > 基线：Agent-notify 2.0.x（Tauri 桌面端 + 5 个 Agent + ClawBot 微信通道）
-> v0.5 决策：起步阶段**不做 App / 不建 hub**，集群全部经现有微信通道触达——纯桌面端增量；App/hub/文件预览延后为后续阶段。
-> v0.5 追加：通知节奏可配置（默认只推最顶层最终汇报，可切逐步流转）· harness 用户可配置 + 内置默认兜底 · 节点自由选 Agent（可复用同一 Agent）。
-> v0.6（本轮）：按公开资料遍历 A2A v1.0 官方规范与 Rust SDK，确认"拿来用 vs 自己造"边界，并补齐会话创建语义。
+> v0.7 进度：P0（编排骨架）与 P1（集群页 + 微信指令 + 通知节奏 + harness 模板 + 编排开关 + 工作流选择）与**派活链路**（AgentDriver）已全部合入 main；下一步真机验收完整闭环。
 
 ---
 
@@ -397,6 +395,34 @@ stateDiagram-v2
   - 任务进入 `blocked` 状态（不自动跳步），等用户在桌面端/微信重新发起该 Step。
 - 落库：`TASK_MESSAGE` 增加 `delivery_state`（`delivered/undelivered`）；`TASK` 增加 `blocked_step`。失败原因进 `TASK_MESSAGE.error`（复用 `SafeError`）。
 
+### 4.7 派活链路（AgentDriver，完整闭环的传动带）
+
+状态机推进只是"记状态 + 呈现"，**必须把活真推给 Agent 干**——这是完整闭环的最后一环：
+
+```
+创建任务 → dispatch(Step 1 信封, open 新会话)
+  → Agent（OpenCode）收到信封开始干活 → 汇报
+  → advance → dispatch(Step n 信封, resume 同会话)
+  → … → 最后一步完成 → 微信收 final 汇报
+```
+
+- **`AgentDriver` trait**（desktop `production/agent_driver.rs`）：`dispatch(task_id, agent_id, session_id, envelope, open) -> Result`；生产实现 `ProductionAgentDriver{registry}` 从 `AgentRegistry` 取适配器：
+  - `open=true`（Step 1）先试 `adapter.open()`（A2A 新会话语义）；OpenCode 覆写它 → 真开新会话；其他适配器默认 `UnsupportedCapability` → 降级 `resume` 续聊同会话。
+  - `open=false` 直接 `resume`。
+  - Agent 未注册 / 插件未连接 → 明确中文错误。
+- **session 策略**：每 (task, step) 稳定会话 `task-<task_id>-step-<n>`，Step 1 open、后续 step resume；BackToWork/Recover 复用同一步会话。
+- **触发点**：`advance` 与任务 `create`（创建即派 Step 1，否则链路断在第一环）。推进落库后，`outcome.action ∈ {Advance, BackToWork, Recover}` → 组装该步信封（`TemplateResolver.render`）→ dispatch 该步 `agent_hint` 指定的 Agent。
+- **失败语义**：派活是推进后的附加动作——推进结果先落库，派活成败不改变它、不阻塞命令返回；`agent_hint` 缺失 → `orc_step_agent_missing` 并自动 blocked（写清原因）；driver 失败 → 自动 blocked + P1-4 presenter 微信失败提醒（不自动重推）。
+- **零影响保障**：未注入 driver（`new`/`with_templates`/`with_presenter`）时 `dispatch_step` 直接 return，连 agent_hint 检查都不触发——P1-3/1-4 既有行为逐字节不变。
+
+### 4.8 编排启用与工作流选择（真机验收前置）
+
+- **启用开关**：设置页「编排（集群）」区开关（`orchestration.enabled`，默认 false）；开启后重启应用生效。
+- **工作流选择**：settings `orchestration.workflow`——
+  - `opencode-only`：只用 OpenCode 的单 Agent 三步流转（判断→规划→实施，全部 opencode 承担，`Workflow::preset_opencode_only`）；用户只开 OpenCode 即可体验完整编排闭环。
+  - 默认/其它：`需求→Codex 判断→OpenCode 规划→CommandCode 实施`多 Agent 委托（`Workflow::preset(false)`）。
+- **派活的前置**：被唤醒的 Agent 必须已在运行（OpenCode 插件 heartbeat Ready）；不可用 → 任务自动 `blocked` + 微信失败提醒（§4.6 不自动重推）。
+
 ---
 
 ## 5. 桌面端扩展设计
@@ -580,8 +606,9 @@ sequenceDiagram
 
 | 阶段 | 内容 | 交付 | 验收 |
 |---|---|---|---|
-| **P0** | `agentnotify-orchestration`：**引入 `a2a-rs`**（任务/消息结构 + TaskStore）+ 可配置 Workflow（Step 定义 + **默认 harness 模板** + agent/session 双维度）+ Step 推进/blocked 状态机（映射 A2A 生命周期）+ **会话创建（A2A 新 Task 语义，插件补 `open=true`）** + 微信呈现（前后缀 + 只推顶层汇报 + 失败不重推） | 新 crate + 单测 | 预置「需求→Codex 判断→OpenCode 规划→CommandCode 实施→汇报」在真实流程跑通（默认模板即可用）；**只用 OpenCode 的 Workflow（每节点都选 OpenCode）同样可跑**；微信收到带前后缀的顶层汇报；故意停一个成员验证 blocked |
-| **P1** | 桌面「集群」页：任务+对话线+角色+发指令；人可从微信/桌面双入口发指令；**通知节奏开关（final_only / verbose，任务级 + 全局默认）**；**harness 模板自定义入口（配置文件 + UI）** | UI + 路由扩展 | 桌面/微信都能向集群发指令；人确认门可用；切"逐步流转"后每个 Step 汇报都推；用户自定义模板生效并回退默认不炸 |
+| **P0** ✅ | `agentnotify-orchestration`：**引入 `a2a-rs`**（任务/消息结构 + TaskStore）+ 可配置 Workflow（Step 定义 + **默认 harness 模板** + agent/session 双维度）+ Step 推进/blocked 状态机（映射 A2A 生命周期）+ **会话创建（A2A 新 Task 语义，插件补 `open=true`）** + 微信呈现（前后缀 + 只推顶层汇报 + 失败不重推） | 新 crate + 单测 | **已完成**（`e595fd7`）：预置工作流/信封/状态机/`open=true` 全落地 |
+| **P1** ✅ | 桌面「集群」页：任务+对话线+角色+发指令；人可从微信/桌面双入口发指令；**通知节奏开关（final_only / verbose，任务级 + 全局默认）**；**harness 模板自定义入口（配置文件 + UI）**；**编排启用开关 + 工作流选择** | 5 子任务 + 开关 + 工作流选择 | **已完成**（`ede38fc`~`ebce7df`）：集群页 / 微信路由 / 通知节奏 / harness 模板 / 编排开关 / opencode-only 工作流全落地 |
+| **P1-后** ✅ | **派活链路（AgentDriver）**：advance/创建后用信封唤醒真实 Agent 干活（open/resume + 失败自动 blocked） | `53e6e83` | **已完成**：任务推进真正接通 Agent；无 Agent → 自动 blocked + 微信失败提醒 |
 | **P2** | 文件触达（可选，工作流汇报挂文件 → 桌面端查看）+ hub 方案细化 | 增量 | 汇报带产物可在桌面端/日志看到 |
 | **P3** | 移动 App 与 hub（App 决策启动后）：Flutter + 推送 + 文件预览 | 移动 App + hub | 手机看任务、看文件、回指令 |
 
