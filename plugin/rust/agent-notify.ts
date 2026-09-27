@@ -103,6 +103,8 @@ interface ReplyJob {
   createdAt: string
   expiresAt: string
   owner?: string
+  /** true 时以 sessionID 作为新会话首个 prompt 发起开工；缺省按 false（续聊既有会话）。 */
+  open?: boolean
 }
 
 let fsMod: FsModule | null = null
@@ -403,6 +405,33 @@ async function promptExistingSession(
   )
 }
 
+/**
+ * 以新会话开工（open=true）：job.sessionID 由编排层生成（如 task-<id>-step-<n>），
+ * 作为首个 prompt 发起，OpenCode 对不存在的 sessionID 会自动创建会话。
+ * 仅支持 delivery:"steer" 绑定；旧版 promptAsync 形状无法可靠新建会话，明确报错不猜测。
+ */
+async function promptNewSession(
+  ctx: PluginContext,
+  job: ReplyJob,
+): Promise<void> {
+  const binding = replyPrompt(ctx)
+  if (!binding) {
+    throw new Error("当前 OpenCode 版本不支持会话 prompt")
+  }
+  if ("shape" in binding) {
+    throw new Error("当前 OpenCode 版本不支持发起新会话，请升级 OpenCode 后重试")
+  }
+  await withTimeout(
+    binding.send.call(binding.session, {
+      sessionID: job.sessionID,
+      text: job.text,
+      delivery: "steer",
+    }),
+    promptTimeoutMs(),
+    "发起新会话超时，未自动重试以避免重复执行",
+  )
+}
+
 function writeResult(jobID: string, ok: boolean, error = ""): void {
   try {
     if (!fsMod || !jobID) {
@@ -524,7 +553,11 @@ async function processReplyJobs(
           continue
         }
         try {
-          await promptExistingSession(ctx, job)
+          if (job.open === true) {
+            await promptNewSession(ctx, job)
+          } else {
+            await promptExistingSession(ctx, job)
+          }
           writeResult(jobID, true)
         } catch (error) {
           writeResult(jobID, false, safeJobError(error, job.text))
@@ -911,6 +944,8 @@ const __test = {
   dispatchTerminalEvent,
   dispatchCompletion,
   processReplyJobs,
+  promptExistingSession,
+  promptNewSession,
   completionEnvelope,
   eventIdentity,
   terminalEventType,

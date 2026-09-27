@@ -22,6 +22,7 @@ pub const fn capabilities() -> AgentCapabilities {
     AgentCapabilities {
         notify: true,
         resume: true,
+        session_open: false,
         session_title: true,
         hook_installer: true,
         reply_window: false,

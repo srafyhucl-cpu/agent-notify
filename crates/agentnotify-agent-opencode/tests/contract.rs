@@ -18,6 +18,10 @@ fn descriptor_and_capabilities_are_stable() {
     assert_eq!(adapter.descriptor().id.as_str(), "opencode");
     assert!(adapter.capabilities().notify);
     assert!(adapter.capabilities().resume);
+    assert!(
+        adapter.capabilities().session_open,
+        "OpenCode 支持发起新会话"
+    );
     assert!(adapter.capabilities().session_title);
     assert!(adapter.capabilities().hook_installer);
     assert!(!adapter.capabilities().reply_window);

@@ -34,6 +34,9 @@ pub struct OpenCodeReplyJob {
     pub id: String,
     pub session_id: AgentSessionId,
     pub text: String,
+    /// 为 true 时插件以该 session_id 发起新会话开工（A2A“新任务 = 新会话”），
+    /// false 时沿用既有会话续聊。旧任务没有该字段按 false 处理。
+    pub open: bool,
     pub created_at: Timestamp,
     pub expires_at: Timestamp,
 }
@@ -84,6 +87,33 @@ impl OpenCodeReplyInbox {
         text: &str,
         timeout: Duration,
     ) -> Result<(), AgentError> {
+        self.submit_job(session_id, text, false, timeout).await
+    }
+
+    /// 以新会话开工（open=true 语义）：编排层生成新 sessionID（如
+    /// `task-<task_id>-step-<n>`），插件以其作为首个 prompt 发起，OpenCode 对
+    /// 不存在的 sessionID 会自动创建会话。超时与失败语义与续聊一致。
+    pub async fn open(&self, session_id: &AgentSessionId, text: &str) -> Result<(), AgentError> {
+        self.open_with_timeout(session_id, text, DEFAULT_RESULT_WAIT)
+            .await
+    }
+
+    pub async fn open_with_timeout(
+        &self,
+        session_id: &AgentSessionId,
+        text: &str,
+        timeout: Duration,
+    ) -> Result<(), AgentError> {
+        self.submit_job(session_id, text, true, timeout).await
+    }
+
+    async fn submit_job(
+        &self,
+        session_id: &AgentSessionId,
+        text: &str,
+        open: bool,
+        timeout: Duration,
+    ) -> Result<(), AgentError> {
         let text = text.trim();
         if text.is_empty() {
             return Err(AgentError::InvalidInput);
@@ -107,6 +137,7 @@ impl OpenCodeReplyInbox {
             id: uuid::Uuid::new_v4().to_string(),
             session_id: session_id.clone(),
             text: text.to_owned(),
+            open,
             created_at: now,
             expires_at,
         };
@@ -279,6 +310,8 @@ struct WireJob<'a> {
     #[serde(rename = "sessionID")]
     session_id: &'a str,
     text: &'a str,
+    /// open=true 时插件以 sessionID 发起新会话；字段缺省时插件按 false（续聊）处理。
+    open: bool,
     created_at: String,
     expires_at: String,
 }
@@ -289,6 +322,7 @@ impl<'a> From<&'a OpenCodeReplyJob> for WireJob<'a> {
             id: &job.id,
             session_id: job.session_id.as_str(),
             text: &job.text,
+            open: job.open,
             created_at: job.created_at.to_rfc3339(),
             expires_at: job.expires_at.to_rfc3339(),
         }

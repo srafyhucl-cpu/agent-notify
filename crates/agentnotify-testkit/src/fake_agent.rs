@@ -31,6 +31,7 @@ impl FakeAgent {
             capabilities: AgentCapabilities {
                 notify: true,
                 resume: true,
+                session_open: false,
                 session_title: true,
                 hook_installer: false,
                 reply_window: false,

@@ -14,6 +14,9 @@ pub struct AgentDescriptor {
 pub struct AgentCapabilities {
     pub notify: bool,
     pub resume: bool,
+    /// 可否由外部发起新会话开工（A2A“新任务 = 新会话”语义），默认 false 向后兼容。
+    #[serde(default)]
+    pub session_open: bool,
     pub session_title: bool,
     pub hook_installer: bool,
     pub reply_window: bool,

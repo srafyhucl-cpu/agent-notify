@@ -75,6 +75,7 @@ async fn adapter_contract_accepts_valid_resume_adapter() {
         capabilities: AgentCapabilities {
             notify: true,
             resume: true,
+            session_open: false,
             session_title: true,
             hook_installer: false,
             reply_window: false,
@@ -89,6 +90,7 @@ async fn adapter_contract_rejects_empty_resume_text() {
         capabilities: AgentCapabilities {
             notify: true,
             resume: true,
+            session_open: false,
             session_title: true,
             hook_installer: false,
             reply_window: false,
@@ -103,6 +105,7 @@ async fn adapter_contract_checks_unsupported_resume() {
         capabilities: AgentCapabilities {
             notify: true,
             resume: false,
+            session_open: false,
             session_title: true,
             hook_installer: false,
             reply_window: false,

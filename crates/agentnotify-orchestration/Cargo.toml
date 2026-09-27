@@ -1,0 +1,14 @@
+[package]
+name = "agentnotify-orchestration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+a2a-rs-core = "1.0.26"
+a2a-rs-server = "1.0.26"
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true
