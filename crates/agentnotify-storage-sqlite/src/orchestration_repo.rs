@@ -28,8 +28,9 @@ fn repository_error(error: StoreError) -> OrcRepositoryError {
 #[async_trait]
 impl OrcTaskRepository for SqliteStore {
     async fn save_task(&self, task: &Task) -> Result<(), OrcRepositoryError> {
-        let json = serde_json::to_string(task)
-            .map_err(|e| OrcRepositoryError::new("orc_serialize_failed", format!("序列化编排任务失败：{e}")))?;
+        let json = serde_json::to_string(task).map_err(|e| {
+            OrcRepositoryError::new("orc_serialize_failed", format!("序列化编排任务失败：{e}"))
+        })?;
         let meta = OrcTask::from_a2a(task.clone())
             .and_then(|orc| orc.meta())
             .map_err(|e| {
@@ -65,9 +66,7 @@ impl OrcTaskRepository for SqliteStore {
         self.run(move |connection| {
             query_optional(
                 connection,
-                &format!(
-                    "SELECT {ORC_TASK_COLUMNS} FROM orc_tasks WHERE task_id = ?1"
-                ),
+                &format!("SELECT {ORC_TASK_COLUMNS} FROM orc_tasks WHERE task_id = ?1"),
                 params![task_id],
                 task_from_row,
             )

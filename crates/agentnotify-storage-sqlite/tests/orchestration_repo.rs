@@ -39,7 +39,8 @@ async fn orc_task_save_then_load_round_trip() {
     let created;
     {
         let store = SqliteStore::open(&path).unwrap();
-        let orc = OrcStore::with_repository(Workflow::preset(false).unwrap(), Arc::new(store.clone()));
+        let orc =
+            OrcStore::with_repository(Workflow::preset(false).unwrap(), Arc::new(store.clone()));
         created = orc
             .create_task("做一个贪吃蛇游戏", NotifyMode::FinalOnly)
             .await
@@ -52,7 +53,8 @@ async fn orc_task_save_then_load_round_trip() {
     // 关闭重开：SQLite 文件里仍能读回完整任务。
     {
         let store = SqliteStore::open(&path).unwrap();
-        let orc = OrcStore::with_repository(Workflow::preset(false).unwrap(), Arc::new(store.clone()));
+        let orc =
+            OrcStore::with_repository(Workflow::preset(false).unwrap(), Arc::new(store.clone()));
         let reloaded = orc.get_task(created.id()).await.unwrap();
         assert_eq!(reloaded, created, "重开数据库后任务内容必须一致");
         assert_eq!(reloaded.state(), TaskState::Working);
@@ -91,7 +93,10 @@ async fn orc_task_update_preserves_created_at_and_updates_content() {
 
     // 内容确实更新：阻塞原因已随 a2a_task_json 落库。
     let meta = blocked.meta().unwrap();
-    assert_eq!(meta.block_reason.as_deref(), Some("codex 未登录，消息未送达"));
+    assert_eq!(
+        meta.block_reason.as_deref(),
+        Some("codex 未登录，消息未送达")
+    );
 }
 
 /// 未知 task_id → Ok(None)（由调用方决定语义，仓储不猜测）。
@@ -112,10 +117,14 @@ async fn orc_repo_list_is_ordered_newest_first() {
     let store = SqliteStore::open(&path).unwrap();
     let orc = OrcStore::with_repository(Workflow::preset(false).unwrap(), Arc::new(store.clone()));
 
-    orc.create_task("先建任务", NotifyMode::FinalOnly).await.unwrap();
+    orc.create_task("先建任务", NotifyMode::FinalOnly)
+        .await
+        .unwrap();
     // 保证两条 created_at 可区分（毫秒精度）。
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    orc.create_task("后建任务", NotifyMode::FinalOnly).await.unwrap();
+    orc.create_task("后建任务", NotifyMode::FinalOnly)
+        .await
+        .unwrap();
 
     let tasks = store.list_tasks().await.unwrap();
     assert_eq!(tasks.len(), 2);
@@ -123,7 +132,11 @@ async fn orc_repo_list_is_ordered_newest_first() {
     // 用目标区分先后（created_at 新→旧 ⇒ 后建任务在前）。
     let newest = OrcTask::from_a2a(tasks[0].clone()).unwrap();
     let oldest = OrcTask::from_a2a(tasks[1].clone()).unwrap();
-    assert_eq!(newest.goal().unwrap(), "后建任务", "最新创建的任务必须排在最前");
+    assert_eq!(
+        newest.goal().unwrap(),
+        "后建任务",
+        "最新创建的任务必须排在最前"
+    );
     assert_eq!(oldest.goal().unwrap(), "先建任务");
     drop(store);
     drop(orc);

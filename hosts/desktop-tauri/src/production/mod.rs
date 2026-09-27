@@ -177,14 +177,7 @@ async fn bootstrap_internal(
     ));
 
     let service = Arc::new(
-        ProductionHostCommandService::new(
-            app,
-            coordinator.clone(),
-            store,
-            settings,
-            updates,
-        )
-        .await,
+        ProductionHostCommandService::new(app, coordinator.clone(), store, settings, updates).await,
     );
 
     // 启动生产运行时

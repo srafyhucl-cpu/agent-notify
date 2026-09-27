@@ -9,10 +9,10 @@ use tauri::State;
 use super::dto::{
     AdvanceOrcTaskPayload, AgentDto, BeginChannelLoginPayload, BeginChannelLoginResultDto,
     ChannelAccountDto, ChannelAccountIdPayload, ChannelListDto, CreateOrcTaskPayload, DeliveryDto,
-    DeliveryIdPayload, DiagnosticsDto, EmptyPayload, InstallUpdatePayload,
-    InstallUpdateResultDto, LegacyMigrationDto, LoginSessionDto, MarkBlockedOrcTaskPayload,
-    MutationAcceptedDto, NotificationDetailDto, NotificationFilterPayload, NotificationIdPayload,
-    NotificationListDto, OrcTaskDto, OrcTaskIdPayload, RuntimeSnapshotDto, RuntimeSummaryDto,
+    DeliveryIdPayload, DiagnosticsDto, EmptyPayload, InstallUpdatePayload, InstallUpdateResultDto,
+    LegacyMigrationDto, LoginSessionDto, MarkBlockedOrcTaskPayload, MutationAcceptedDto,
+    NotificationDetailDto, NotificationFilterPayload, NotificationIdPayload, NotificationListDto,
+    OrcTaskDto, OrcTaskIdPayload, RuntimeSnapshotDto, RuntimeSummaryDto,
     SendTestNotificationPayload, SetRuntimePausedPayload, SettingsDto,
     SubmitChannelLoginCodePayload, TestNotificationResultDto, UpdateAgentConfigPayload,
     UpdateStatusDto,
@@ -113,10 +113,7 @@ pub trait HostCommandService: Send + Sync {
         payload: CreateOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError>;
 
-    async fn list_orc_tasks(
-        &self,
-        payload: EmptyPayload,
-    ) -> Result<Vec<OrcTaskDto>, CommandError>;
+    async fn list_orc_tasks(&self, payload: EmptyPayload) -> Result<Vec<OrcTaskDto>, CommandError>;
 
     async fn advance_orc_task(
         &self,

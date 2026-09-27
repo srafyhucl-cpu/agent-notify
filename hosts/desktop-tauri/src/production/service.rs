@@ -990,7 +990,10 @@ impl HostCommandService for ProductionHostCommandService {
         self.orchestration.create(payload).await
     }
 
-    async fn list_orc_tasks(&self, _payload: EmptyPayload) -> Result<Vec<OrcTaskDto>, CommandError> {
+    async fn list_orc_tasks(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OrcTaskDto>, CommandError> {
         self.orchestration.list().await
     }
 
@@ -1099,10 +1102,7 @@ impl OrcCommandHandler {
         })
     }
 
-    pub async fn create(
-        &self,
-        payload: CreateOrcTaskPayload,
-    ) -> Result<OrcTaskDto, CommandError> {
+    pub async fn create(&self, payload: CreateOrcTaskPayload) -> Result<OrcTaskDto, CommandError> {
         let store = self.require_store()?;
         let goal = payload.goal.trim();
         if goal.is_empty() {

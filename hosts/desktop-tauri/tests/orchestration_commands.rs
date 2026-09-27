@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use agentnotify_desktop::bridge::dto::{
-    AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload,
-    OrcMessageKindDto, OrcTaskIdPayload, OrcTaskStateDto,
+    AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload, OrcMessageKindDto,
+    OrcTaskIdPayload, OrcTaskStateDto,
 };
 use agentnotify_desktop::production::service::OrcCommandHandler;
 use agentnotify_orchestration::{OrcStore, Workflow};
@@ -18,9 +18,8 @@ fn open_sqlite(prefix: &str) -> (tempfile::TempDir, Arc<SqliteStore>) {
         .prefix(prefix)
         .tempdir_in(agentnotify_testkit::test_temp_root())
         .expect("测试临时目录必须可创建");
-    let store = Arc::new(
-        SqliteStore::open(root.path().join("state.db")).expect("SQLite 数据库必须可创建"),
-    );
+    let store =
+        Arc::new(SqliteStore::open(root.path().join("state.db")).expect("SQLite 数据库必须可创建"));
     (root, store)
 }
 
@@ -151,10 +150,7 @@ async fn orc_commands_report_clear_error_when_disabled() {
         err.message
     );
 
-    let err = handler
-        .list()
-        .await
-        .expect_err("未启用时列出任务必须报错");
+    let err = handler.list().await.expect_err("未启用时列出任务必须报错");
     assert_eq!(err.code, "orchestration_disabled");
 
     let err = handler

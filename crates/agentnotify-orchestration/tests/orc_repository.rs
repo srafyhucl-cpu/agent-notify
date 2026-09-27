@@ -10,8 +10,8 @@
 use std::sync::Arc;
 
 use agentnotify_orchestration::{
-    InMemoryOrcTaskRepository, MessageKind, NotifyMode, OrcErrorCode, OrcRepositoryError,
-    OrcStore, OrcTaskRepository, Task, TaskState, TransitionAction, Workflow,
+    InMemoryOrcTaskRepository, MessageKind, NotifyMode, OrcErrorCode, OrcRepositoryError, OrcStore,
+    OrcTaskRepository, Task, TaskState, TransitionAction, Workflow,
 };
 
 /// 可注入失败的内存仓储：按方法分别模拟持久化层错误（如数据库不可用）。
@@ -27,21 +27,30 @@ struct FaultyRepository {
 impl OrcTaskRepository for FaultyRepository {
     async fn save_task(&self, task: &Task) -> Result<(), OrcRepositoryError> {
         if self.fail_save {
-            return Err(OrcRepositoryError::new("mock_save_failed", "模拟保存任务失败"));
+            return Err(OrcRepositoryError::new(
+                "mock_save_failed",
+                "模拟保存任务失败",
+            ));
         }
         self.inner.save_task(task).await
     }
 
     async fn get_task(&self, task_id: &str) -> Result<Option<Task>, OrcRepositoryError> {
         if self.fail_get {
-            return Err(OrcRepositoryError::new("mock_get_failed", "模拟读取任务失败"));
+            return Err(OrcRepositoryError::new(
+                "mock_get_failed",
+                "模拟读取任务失败",
+            ));
         }
         self.inner.get_task(task_id).await
     }
 
     async fn list_tasks(&self) -> Result<Vec<Task>, OrcRepositoryError> {
         if self.fail_list {
-            return Err(OrcRepositoryError::new("mock_list_failed", "模拟列出任务失败"));
+            return Err(OrcRepositoryError::new(
+                "mock_list_failed",
+                "模拟列出任务失败",
+            ));
         }
         self.inner.list_tasks().await
     }
@@ -75,7 +84,11 @@ async fn orc_store_uses_injected_repository() {
         .unwrap();
 
     // 仓储 trait 直接可读：证明写入确实进了注入的实现。
-    let direct = repo.get_task(task.id()).await.unwrap().expect("任务必须已保存");
+    let direct = repo
+        .get_task(task.id())
+        .await
+        .unwrap()
+        .expect("任务必须已保存");
     assert_eq!(direct.id, task.id());
 }
 
@@ -93,7 +106,11 @@ async fn save_failure_surfaces_repository_error() {
         .await
         .unwrap_err();
     assert_eq!(error.code, OrcErrorCode::Repository);
-    assert!(error.message.contains("模拟保存任务失败"), "{}", error.message);
+    assert!(
+        error.message.contains("模拟保存任务失败"),
+        "{}",
+        error.message
+    );
 }
 
 /// load 失败 → get_task 明确报错；任务不存在仍保持既有 TaskNotFound 语义。
@@ -113,7 +130,11 @@ async fn load_failure_surfaces_repository_error() {
 
     let error = store.get_task("no-such-id").await.unwrap_err();
     assert_eq!(error.code, OrcErrorCode::Repository);
-    assert!(error.message.contains("模拟读取任务失败"), "{}", error.message);
+    assert!(
+        error.message.contains("模拟读取任务失败"),
+        "{}",
+        error.message
+    );
 }
 
 /// 仓储存在但任务缺失：非仓储错误，仍是 TaskNotFound（由 OrcStore 语义决定）。
@@ -135,7 +156,11 @@ async fn list_failure_surfaces_repository_error() {
 
     let error = store.list_tasks().await.unwrap_err();
     assert_eq!(error.code, OrcErrorCode::Repository);
-    assert!(error.message.contains("模拟列出任务失败"), "{}", error.message);
+    assert!(
+        error.message.contains("模拟列出任务失败"),
+        "{}",
+        error.message
+    );
 }
 
 /// 业务流程（推进/阻塞/恢复）在注入仓储下走同一套 save→load 边界。
@@ -157,7 +182,11 @@ async fn business_flow_uses_repository_save_boundary() {
     let saved = repo.get_task(&id).await.unwrap().expect("推进后必须落库");
     assert_eq!(saved.status.state, TaskState::Working, "推进后回到干活中");
     let resumed = store.get_task(&id).await.unwrap();
-    assert_eq!(resumed.current_step().unwrap(), 2, "推进后的当前步骤必须落库");
+    assert_eq!(
+        resumed.current_step().unwrap(),
+        2,
+        "推进后的当前步骤必须落库"
+    );
 }
 
 /// 仓储错误消息透传给用户（中文可读），错误码稳定可程序化判断。
