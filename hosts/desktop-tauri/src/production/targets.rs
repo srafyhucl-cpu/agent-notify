@@ -234,6 +234,17 @@ impl RuntimeTargetProvider for ProductionTargetProvider {
     }
 }
 
+impl ProductionTargetProvider {
+    /// 取投递目标列表的第一个（默认账号优先、其次最近会话）；没有任何可用账号 → `None`。
+    /// 编排呈现层（`orc_notify` 的 `ProductionOrcPresenter`）复用同一账号选择逻辑外发集群消息。
+    pub async fn first_delivery_target(
+        &self,
+    ) -> Result<Option<DeliveryTarget>, RuntimeTargetError> {
+        let targets = self.resolve().await?;
+        Ok(targets.delivery_targets.into_iter().next())
+    }
+}
+
 fn parse_hh_mm(s: &str) -> Option<(u16, u16)> {
     let parts: Vec<&str> = s.split(':').collect();
     if parts.len() != 2 {
