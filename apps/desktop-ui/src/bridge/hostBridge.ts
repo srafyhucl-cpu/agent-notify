@@ -1,4 +1,5 @@
 import type {
+  AdvanceOrcTaskPayload,
   AgentDto,
   BeginChannelLoginPayload,
   BeginChannelLoginResultDto,
@@ -7,6 +8,7 @@ import type {
   ChannelAccountIdPayload,
   ChannelListDto,
   CommandError,
+  CreateOrcTaskPayload,
   DeliveryDto,
   DeliveryIdPayload,
   DiagnosticsDto,
@@ -16,11 +18,14 @@ import type {
   InstallUpdateResultDto,
   LegacyMigrationDto,
   LoginSessionDto,
+  MarkBlockedOrcTaskPayload,
   MutationAcceptedDto,
   NotificationDetailDto,
   NotificationFilterPayload,
   NotificationIdPayload,
   NotificationListDto,
+  OrcTaskDto,
+  OrcTaskIdPayload,
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
   SendTestNotificationPayload,
@@ -57,6 +62,11 @@ export interface CommandPayloadMap {
   quit_app: EmptyPayload;
   get_update_status: EmptyPayload;
   install_update: InstallUpdatePayload;
+  create_orc_task: CreateOrcTaskPayload;
+  list_orc_tasks: EmptyPayload;
+  advance_orc_task: AdvanceOrcTaskPayload;
+  mark_blocked_orc_task: MarkBlockedOrcTaskPayload;
+  recover_blocked_orc_task: OrcTaskIdPayload;
 }
 
 export interface CommandResultMap {
@@ -81,6 +91,11 @@ export interface CommandResultMap {
   quit_app: MutationAcceptedDto;
   get_update_status: UpdateStatusDto;
   install_update: InstallUpdateResultDto;
+  create_orc_task: OrcTaskDto;
+  list_orc_tasks: OrcTaskDto[];
+  advance_orc_task: OrcTaskDto;
+  mark_blocked_orc_task: OrcTaskDto;
+  recover_blocked_orc_task: OrcTaskDto;
 }
 
 export interface EventPayloadMap {

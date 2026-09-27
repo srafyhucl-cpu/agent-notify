@@ -83,7 +83,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task";
 
 export type ChannelAccountDto = {
 	id: string,

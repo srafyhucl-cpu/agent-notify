@@ -27,6 +27,11 @@ pub enum BusinessCommand {
     QuitApp,
     GetUpdateStatus,
     InstallUpdate,
+    CreateOrcTask,
+    ListOrcTasks,
+    AdvanceOrcTask,
+    MarkBlockedOrcTask,
+    RecoverBlockedOrcTask,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
