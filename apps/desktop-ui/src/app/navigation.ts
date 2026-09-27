@@ -5,12 +5,14 @@ import {
   RadioTower,
   Settings,
   Stethoscope,
+  Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export type AppRoutePath =
   | "/overview"
   | "/agents"
+  | "/cluster"
   | "/channels"
   | "/history"
   | "/diagnostics"
@@ -25,6 +27,7 @@ export interface NavigationItem {
 export const navigationItems: readonly NavigationItem[] = [
   { path: "/channels", label: "渠道", icon: RadioTower },
   { path: "/agents", label: "Agent 管理", icon: Bot },
+  { path: "/cluster", label: "集群", icon: Workflow },
   { path: "/overview", label: "总览", icon: LayoutDashboard },
   { path: "/history", label: "历史", icon: History },
   { path: "/diagnostics", label: "诊断", icon: Stethoscope },

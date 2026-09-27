@@ -16,6 +16,7 @@ import {
   longUnbrokenText,
   notificationDetailFixture,
   notificationFixture,
+  orcTaskFixture,
   settingsFixture,
   twoAgents,
 } from "../src/test/fixtures";
@@ -25,6 +26,7 @@ export const HARNESS_PATH = "/tests/harness/";
 export const SECTIONS = [
   "总览",
   "Agent 管理",
+  "集群",
   "渠道",
   "历史",
   "诊断",
@@ -37,6 +39,7 @@ export type SectionLabel = (typeof SECTIONS)[number];
 export const SECTION_PATHS: Record<SectionLabel, string> = {
   总览: "/overview",
   "Agent 管理": "/agents",
+  集群: "/cluster",
   渠道: "/channels",
   历史: "/history",
   诊断: "/diagnostics",
@@ -105,6 +108,15 @@ export function defaultScenario(): MockHostBridgeOptions {
       ],
     }),
     settings: settingsFixture(),
+    // 集群页：单个正常推进中的任务即可覆盖平台层（导航/a11y/冒烟/视觉）。
+    // 阻塞态（标红/原因/重新发起）属状态语义，由 ClusterPage Vitest 单测覆盖，
+    // 避免冒烟逐页点击时详情卡切换导致控件集合变化（见 smoke.spec.ts 设计）。
+    orcTasks: [
+      orcTaskFixture("orc-task-1", {
+        goal: "把登录流程加入重试机制",
+        currentStep: 2,
+      }),
+    ],
   };
 }
 
@@ -166,6 +178,12 @@ export function longTextScenario(): MockHostBridgeOptions {
         ],
       }),
     },
+    // 集群页：首任务目标换成超长中文 + 不可断文本，验证列表/详情换行不裁切。
+    orcTasks: (scenario.orcTasks ?? []).map((task, index) =>
+      index === 0
+        ? { ...task, goal: `${longChineseText} ${longUnbrokenText}` }
+        : task,
+    ),
   };
 }
 

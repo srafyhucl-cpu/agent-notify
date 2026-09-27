@@ -9,6 +9,7 @@ import { twoAgents } from "../test/fixtures";
 const ROUTES = [
   { route: "/overview", heading: "总览" },
   { route: "/agents", heading: "Agent 管理" },
+  { route: "/cluster", heading: "集群" },
   { route: "/channels", heading: "渠道" },
   { route: "/history", heading: "历史" },
   { route: "/diagnostics", heading: "诊断" },
