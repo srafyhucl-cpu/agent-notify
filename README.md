@@ -6,9 +6,13 @@
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
 </p>
 
-AgentNotify 是 Windows 通知工具。任务完成后，它通过 ClawBot 把标题和摘要发到微信，并在本机保留推送历史；在微信里引用这条通知回复，可以继续对应的 Agent 会话。
+**给 OpenCode、Devin、Antigravity、Command Code 用户的 Windows 微信通知与遥控。**
 
-2.0.0 起正式入口是 Tauri 桌面版：主程序 `agentnotify-desktop.exe`，工作台式主窗口，状态存 SQLite。当前支持 **OpenCode、Codex、Antigravity、Devin、Command Code 五个 Agent + ClawBot/微信**，其它渠道尚未实现，见[接入范围](#接入范围)。
+任务完成、失败或等待确认时，AgentNotify 通过 ClawBot（微信机器人通道）把标题和摘要推到微信，并在本机保留推送历史；在微信里**引用这条通知回复**，即可继续对应的 Agent 会话——人不在电脑前，也能接着推进任务。
+
+Happy、Lucarne 等同类工具只覆盖 Claude Code / Codex 系；**OpenCode、Antigravity、Devin、Command Code 这四个 Agent 的「微信通知 + 引用回复续聊」，目前没有现成的同类工具**。五个 Agent 的完整支持列表见[接入范围](#接入范围)。
+
+2.0.0 起正式入口是 Tauri 桌面版：主程序 `agentnotify-desktop.exe`，工作台式主窗口，状态存 SQLite；其它渠道尚未实现。
 
 ## 功能
 
