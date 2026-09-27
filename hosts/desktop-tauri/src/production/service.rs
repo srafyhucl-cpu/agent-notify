@@ -10,7 +10,8 @@ use agentnotify_domain::{
     AgentId, ChannelAccountId, DeliveryId, DeliveryState, NotificationId, RequestId, Timestamp,
 };
 use agentnotify_orchestration::{
-    MessageKind, NotifyMode, OrcError, OrcStore, OrcTask, TaskState, TemplateResolver, Workflow,
+    MessageKind, NotifyMode, OrcError, OrcStore, OrcTask, StepOutcome, TaskState, TemplateResolver,
+    TransitionAction, Workflow,
 };
 use agentnotify_storage_sqlite::{NotificationQuery, SqliteStore};
 use tauri::{AppHandle, Wry};
@@ -22,6 +23,11 @@ use super::mapping::{
     map_migration_snapshot, map_notification_record, sanitize_account_config,
     update_state_for_error,
 };
+use super::orc_notify::{
+    OrcClusterPresenter, ProductionOrcPresenter, failure_body, progress_body,
+    render_cluster_message, should_notify,
+};
+use super::orc_wechat_route::state_cn;
 use super::runtime::ProductionRuntimeCoordinator;
 use super::settings::ProductionSettingsStore;
 use crate::bridge::commands::HostCommandService;
@@ -56,9 +62,15 @@ impl ProductionHostCommandService {
         config_dir: &Path,
         updates: Arc<UpdateService>,
     ) -> Self {
-        let orchestration = OrcCommandHandler::with_templates(
+        let orchestration = OrcCommandHandler::with_presenter(
             orchestration_store(&store, &settings).await,
             load_harness_templates(config_dir),
+            Arc::new(ProductionOrcPresenter::new(
+                settings.clone(),
+                runtime.target_provider(),
+                runtime.channel_registry(),
+                Some(store.clone()),
+            )),
         );
         Self {
             app,
@@ -1089,10 +1101,14 @@ pub struct OrcCommandHandler {
     store: Option<OrcStore>,
     /// harness 模板解析器（P1-5）：用户模板优先、内置默认兜底；派活时由此生成任务信封。
     templates: TemplateResolver,
+    /// 集群消息呈现（P1-4）：缺省不呈现（行为与 P1-3 一致）；注入后 advance/mark_blocked 按通知节奏外发。
+    presenter: Option<Arc<dyn OrcClusterPresenter>>,
 }
 
 /// 编排开关设置键（settings 表），默认关闭。
 pub const KEY_ORCHESTRATION_ENABLED: &str = "orchestration.enabled";
+/// 全局默认通知节奏设置键（settings 表，P1-4 §4.6）：缺失/非法回退 `final_only` 并告警。
+pub const KEY_ORCHESTRATION_NOTIFY_MODE: &str = "orchestration.notify_mode";
 /// 用户 harness 模板配置文件（`config_dir` 下，§4.3 / P1-5；缺失 = 内置默认兜底）。
 pub const HARNESS_TEMPLATES_FILE: &str = "harness-templates.json";
 const ORCHESTRATION_DISABLED_CODE: &str = "orchestration_disabled";
@@ -1107,7 +1123,25 @@ impl OrcCommandHandler {
 
     /// 装配用户 harness 模板解析器（用户模板优先、内置默认兜底，§4.3 / P1-5）。
     pub fn with_templates(store: Option<OrcStore>, templates: TemplateResolver) -> Self {
-        Self { store, templates }
+        Self {
+            store,
+            templates,
+            presenter: None,
+        }
+    }
+
+    /// 装配集群消息呈现（P1-4）：注入生产实现后，任务创建继承全局默认通知节奏，
+    /// advance / mark_blocked 按 §4.6 决定是否外发微信。不注入 = 与 P1-3 行为一致。
+    pub fn with_presenter(
+        store: Option<OrcStore>,
+        templates: TemplateResolver,
+        presenter: Arc<dyn OrcClusterPresenter>,
+    ) -> Self {
+        Self {
+            store,
+            templates,
+            presenter: Some(presenter),
+        }
     }
 
     /// 模板解析器访问：派活生成任务信封时用（用户模板优先、内置默认兜底）。
@@ -1127,12 +1161,26 @@ impl OrcCommandHandler {
         if goal.is_empty() {
             return Err(CommandError::new("orc_goal_empty", "任务目标不能为空"));
         }
-        let notify_mode = parse_notify_mode(payload.notify_mode.as_deref())?;
+        // P1-4：显式指定 → 任务级覆盖（校验失败明确报错）；未指定 → 继承全局默认
+        // `orchestration.notify_mode`（缺失/非法回退 final_only 并告警，§4.6）。
+        let notify_mode = match payload.notify_mode.as_deref() {
+            Some(raw) => parse_notify_mode(Some(raw))?,
+            None => self.global_default_notify_mode().await,
+        };
         let task = store
             .create_task(goal, notify_mode)
             .await
             .map_err(orc_error)?;
         orc_task_to_dto(&task)
+    }
+
+    /// 全局默认通知节奏：已装配呈现层时读设置（缺失/非法回退 final_only 并告警）；
+    /// 未装配（向前兼容）按 final_only。
+    async fn global_default_notify_mode(&self) -> NotifyMode {
+        match &self.presenter {
+            Some(presenter) => presenter.default_notify_mode().await,
+            None => NotifyMode::FinalOnly,
+        }
     }
 
     pub async fn list(&self) -> Result<Vec<OrcTaskDto>, CommandError> {
@@ -1147,12 +1195,56 @@ impl OrcCommandHandler {
     ) -> Result<OrcTaskDto, CommandError> {
         let store = self.require_store()?;
         let kind = parse_message_kind(payload.kind);
-        store
+        let outcome = store
             .on_message(&payload.task_id, kind)
             .await
             .map_err(orc_error)?;
         let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
-        orc_task_to_dto(&task)
+        let dto = orc_task_to_dto(&task)?;
+        // P1-4 呈现层单一入口：推进后按任务通知节奏决定是否外发微信（失败不阻塞命令结果）。
+        if let Some(presenter) = &self.presenter {
+            self.present_advance(presenter, store, &task, &dto, kind, &outcome)
+                .await;
+        }
+        Ok(dto)
+    }
+
+    /// P1-4 推进后呈现：按 `should_notify` 规则决定是否外发微信集群消息（§4.6）。
+    /// 元数据损坏等呈现侧失败只告警，不影响已落库的推进结果。
+    async fn present_advance(
+        &self,
+        presenter: &Arc<dyn OrcClusterPresenter>,
+        store: &OrcStore,
+        task: &OrcTask,
+        dto: &OrcTaskDto,
+        kind: MessageKind,
+        outcome: &StepOutcome,
+    ) {
+        let mode = match task.notify_mode() {
+            Ok(mode) => mode,
+            Err(error) => {
+                tracing::warn!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务通知节奏失败，跳过集群消息推送"
+                );
+                return;
+            }
+        };
+        if !should_notify(mode, outcome) {
+            return;
+        }
+        let total = store.workflow().max_order();
+        let step = dto.current_step;
+        // 正文里的"收到汇报的那一步"：Advance 后 current_step 已指向下一步，需回退一步。
+        let reported_step = if outcome.action == TransitionAction::Advance {
+            step.saturating_sub(1)
+        } else {
+            step
+        };
+        let body = progress_body(kind, outcome.action, reported_step);
+        let text = render_cluster_message(task.id(), step, total, state_cn(&dto.state), &body);
+        presenter.push(task.id(), text).await;
     }
 
     pub async fn mark_blocked(
@@ -1171,7 +1263,20 @@ impl OrcCommandHandler {
             .mark_blocked(&payload.task_id, payload.step, reason)
             .await
             .map_err(orc_error)?;
-        orc_task_to_dto(&task)
+        let dto = orc_task_to_dto(&task)?;
+        // P1-4 失败提醒不受 notify_mode 限制：一律外发（§4.6：写清失败 Step/原因，不自动重推）。
+        if let Some(presenter) = &self.presenter {
+            let total = store.workflow().max_order();
+            let text = render_cluster_message(
+                task.id(),
+                payload.step,
+                total,
+                state_cn(&dto.state),
+                &failure_body(payload.step, reason),
+            );
+            presenter.push(task.id(), text).await;
+        }
+        Ok(dto)
     }
 
     pub async fn recover_blocked(

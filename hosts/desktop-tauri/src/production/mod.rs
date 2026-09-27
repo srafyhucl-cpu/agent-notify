@@ -2,6 +2,7 @@ mod agents;
 mod app_exit;
 pub mod events;
 mod mapping;
+pub mod orc_notify;
 pub mod orc_wechat_route;
 pub mod runtime;
 pub mod service;
@@ -26,6 +27,7 @@ use agents::{
 use service::{OrcCommandHandler, load_harness_templates, orchestration_store};
 
 pub use events::EventForwarder;
+pub use orc_notify::{OrcClusterPresenter, ProductionOrcPresenter};
 pub use orc_wechat_route::WechatOrcRouter;
 pub use runtime::ProductionRuntimeCoordinator;
 pub use service::ProductionHostCommandService;
@@ -171,10 +173,18 @@ async fn bootstrap_internal(
 
     // P1-3 微信集群指令入口：宿主装配微信路由（复用与 bridge 命令同一份 OrcCommandHandler
     // 实现；未启用编排时由 handler 明确报错并回执「编排未启用」）。
+    // P1-4 编排呈现：默认通知节奏读设置（`orchestration.notify_mode`），推送目标复用
+    // ProductionTargetProvider 的账号解析（默认账号优先，其次最近会话）。
     let wechat_orc_router = WechatOrcRouter::new(
-        OrcCommandHandler::with_templates(
+        OrcCommandHandler::with_presenter(
             orchestration_store(&store, &settings).await,
             load_harness_templates(&harness_config_dir),
+            Arc::new(ProductionOrcPresenter::new(
+                settings.clone(),
+                target_provider.clone(),
+                channel_registry.clone(),
+                Some(store.clone()),
+            )),
         ),
         channel_registry.clone(),
         store.clone(),

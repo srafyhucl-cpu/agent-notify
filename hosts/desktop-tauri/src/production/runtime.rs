@@ -220,6 +220,11 @@ impl ProductionRuntimeCoordinator {
         self.channel_registry.clone()
     }
 
+    /// 投递目标提供器：编排呈现层（P1-4）复用同一账号选择逻辑外发集群消息。
+    pub fn target_provider(&self) -> Arc<ProductionTargetProvider> {
+        self.target_provider.clone()
+    }
+
     pub fn login_adapter(&self) -> Arc<ClawBotLoginAdapter> {
         self.login_adapter.clone()
     }

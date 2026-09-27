@@ -212,7 +212,7 @@ fn success_text(action: WechatAction, dto: &OrcTaskDto) -> String {
 }
 
 /// 任务状态 → 中文（微信回执用；未覆盖的新状态不猜测，落到稳定枚举名）。
-fn state_cn(state: &OrcTaskStateDto) -> &'static str {
+pub(crate) fn state_cn(state: &OrcTaskStateDto) -> &'static str {
     match state {
         OrcTaskStateDto::Working => "干活中",
         OrcTaskStateDto::InputRequired => "等待确认",
@@ -226,13 +226,13 @@ fn state_cn(state: &OrcTaskStateDto) -> &'static str {
     }
 }
 
-fn valid_notice_receipt(
+pub(crate) fn valid_notice_receipt(
     receipt: &DeliveryReceipt,
     capabilities: &agentnotify_channel_sdk::ChannelCapabilities,
 ) -> bool {
     receipt.state == agentnotify_domain::DeliveryState::Sent && receipt.is_valid_for(capabilities)
 }
 
-fn channel_error_safe(error: ChannelError) -> SafeError {
+pub(crate) fn channel_error_safe(error: ChannelError) -> SafeError {
     SafeError::new(error.code(), error.message()).expect("渠道适配器错误常量必须有效")
 }
