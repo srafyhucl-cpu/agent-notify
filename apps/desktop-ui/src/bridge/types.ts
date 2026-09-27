@@ -28,6 +28,11 @@ export const commands = {
 	quitApp: (payload: EmptyPayload) => __TAURI_INVOKE<MutationAcceptedDto>("quit_app", { payload }),
 	getUpdateStatus: (payload: EmptyPayload) => __TAURI_INVOKE<UpdateStatusDto>("get_update_status", { payload }),
 	installUpdate: (payload: InstallUpdatePayload) => __TAURI_INVOKE<InstallUpdateResultDto>("install_update", { payload }),
+	createOrcTask: (payload: CreateOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("create_orc_task", { payload }),
+	listOrcTasks: (payload: EmptyPayload) => __TAURI_INVOKE<OrcTaskDto[]>("list_orc_tasks", { payload }),
+	advanceOrcTask: (payload: AdvanceOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("advance_orc_task", { payload }),
+	markBlockedOrcTask: (payload: MarkBlockedOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("mark_blocked_orc_task", { payload }),
+	recoverBlockedOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("recover_blocked_orc_task", { payload }),
 };
 
 /** Events */
@@ -38,6 +43,12 @@ export const events = {
 };
 
 /* Types */
+/**  推进编排任务：消息驱动（§4.4），`kind` 决定转移语义。 */
+export type AdvanceOrcTaskPayload = {
+	taskId: string,
+	kind: OrcMessageKindDto,
+};
+
 export type AgentCapabilitiesDto = {
 	notify: boolean,
 	resume: boolean,
@@ -152,6 +163,12 @@ export type ComponentDto = {
 
 export type ComponentStateDto = "Starting" | "Running" | "Paused" | "Stopped" | "Failed";
 
+/**  创建编排任务：`notify_mode` 缺省为 final_only（只推最终汇报，默认）。 */
+export type CreateOrcTaskPayload = {
+	goal: string,
+	notifyMode: string | null,
+};
+
 export type DeliveryChangedEvent = {
 	deliveryId: string,
 	notificationId: string | null,
@@ -240,6 +257,13 @@ export type LoginSessionDto = {
 
 export type LoginSessionStateDto = "Idle" | "Preparing" | "QrReady" | "WaitingScan" | "NeedVerifyCode" | "WaitingFirstInbound" | "Paired" | "Expired" | "Blocked" | "Failed";
 
+/**  标记编排任务阻塞（§4.6 不自动重推）：`step` 为失败步骤，`reason` 写清谁不可用/未送达。 */
+export type MarkBlockedOrcTaskPayload = {
+	taskId: string,
+	step: number,
+	reason: string,
+};
+
 export type MigrationIssueDto = {
 	code: string,
 	message: string,
@@ -314,6 +338,31 @@ export type NotificationSummaryDto = {
 	occurredAt: string,
 	deliveryStates: DeliveryStateDto[],
 };
+
+/**  编排消息 kind（推进命令用，§4 消息总线）。 */
+export type OrcMessageKindDto = "report" | "instruction" | "confirm" | "question" | "info";
+
+/**  编排任务视图：只暴露脱敏后的任务上下文（§3.2 TASK）。 */
+export type OrcTaskDto = {
+	id: string,
+	workflowId: string,
+	state: OrcTaskStateDto,
+	currentStep: number,
+	/**  被卡住的步骤（未阻塞为 None） */
+	blockedStep: number | null,
+	/**  阻塞原因（未阻塞为 None；写清哪步失败/谁不可用/未送达） */
+	blockReason: string | null,
+	/**  通知节奏：final_only / verbose（§4.6） */
+	notifyMode: string,
+	goal: string,
+};
+
+export type OrcTaskIdPayload = {
+	taskId: string,
+};
+
+/**  编排任务状态（稳定字符串，与 A2A `TaskState` 一一对应，§8.3 映射表）。 */
+export type OrcTaskStateDto = "unspecified" | "submitted" | "working" | "completed" | "failed" | "canceled" | "input_required" | "rejected" | "auth_required";
 
 export type QuietHoursDto = {
 	enabled: boolean,
