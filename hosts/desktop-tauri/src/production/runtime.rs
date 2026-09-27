@@ -12,8 +12,9 @@ use agentnotify_channel_clawbot::ClawBotLoginAdapter;
 use agentnotify_channel_sdk::ChannelRegistry;
 use agentnotify_domain::Timestamp;
 use agentnotify_runtime::{
-    AppRuntime, MigrationConfig, RuntimeConfig, RuntimeError, RuntimeHandle, RuntimeSnapshot,
-    RuntimeState as CoreRuntimeState, TelemetryConfig, start_migration_diagnostics,
+    AppRuntime, InboundInterceptor, MigrationConfig, RuntimeConfig, RuntimeError, RuntimeHandle,
+    RuntimeSnapshot, RuntimeState as CoreRuntimeState, TelemetryConfig,
+    start_migration_diagnostics,
 };
 use agentnotify_storage_sqlite::{AgentConfigRecord, LegacyPaths, SqliteStore};
 use tokio::sync::Mutex;
@@ -79,6 +80,8 @@ pub struct ProductionRuntimeCoordinator {
     app_version: String,
     platform: String,
     ingress_pipe_enabled: bool,
+    /// 入站消息拦截器（P1-3 微信集群指令入口）；`None` = 不拦截，行为与旧版完全一致。
+    inbound_interceptor: Option<Arc<dyn InboundInterceptor>>,
     /// 迁移自愈重试是否已在跑，避免重复排程。
     migration_autoretry_inflight: Arc<AtomicBool>,
 }
@@ -140,8 +143,19 @@ impl ProductionRuntimeCoordinator {
             app_version: app_version.into(),
             platform: platform.into(),
             ingress_pipe_enabled,
+            inbound_interceptor: None,
             migration_autoretry_inflight: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// 注入入站消息拦截器（P1-3 微信集群指令入口）；注入后再 `start_or_restart` 生效。
+    /// 默认 `None`（不拦截），保证既有调用方与测试路径零影响。
+    pub fn with_inbound_interceptor(
+        mut self,
+        interceptor: Option<Arc<dyn InboundInterceptor>>,
+    ) -> Self {
+        self.inbound_interceptor = interceptor;
+        self
     }
 
     pub fn paths(&self) -> AppPaths {
@@ -248,6 +262,7 @@ impl ProductionRuntimeCoordinator {
             worker_idle_delay: WORKER_IDLE_DELAY,
             status_refresh_interval: STATUS_REFRESH_INTERVAL,
             channel_poll_interval: CHANNEL_POLL_INTERVAL,
+            inbound_interceptor: self.inbound_interceptor.clone(),
         }
     }
 

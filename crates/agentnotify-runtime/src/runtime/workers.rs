@@ -16,7 +16,9 @@ use crate::migration::{MigrationSnapshot, MigrationState};
 use crate::{ComponentFailure, ComponentState, RuntimeState, Supervisor};
 
 use super::error::RuntimeError;
-use super::{DiagnosticItem, DiagnosticLevel, RuntimeSnapshot, SnapshotMetadata};
+use super::{
+    DiagnosticItem, DiagnosticLevel, InboundInterceptor, RuntimeSnapshot, SnapshotMetadata,
+};
 
 pub(super) async fn enabled_accounts(
     store: Arc<SqliteStore>,
@@ -78,6 +80,7 @@ pub(super) async fn run_channel(
 
 pub(super) async fn run_inbound_consumer(
     mut receiver: mpsc::Receiver<InboundMessage>,
+    interceptor: Option<Arc<dyn InboundInterceptor>>,
     reply: Arc<ReplyService>,
     mut cancel: watch::Receiver<bool>,
 ) -> Result<(), ComponentFailure> {
@@ -90,6 +93,23 @@ pub(super) async fn run_inbound_consumer(
                 let Some(message) = message else {
                     return Ok(());
                 };
+                if let Some(interceptor) = interceptor.as_ref() {
+                    match interceptor.intercept(&message).await {
+                        // 已消费：消息不再进入引用回复路由
+                        Ok(true) => continue,
+                        // 非本拦截器的消息，按老路径走
+                        Ok(false) => {}
+                        Err(error) => {
+                            // 拦截器异常不回落引用回复：集群指令若落进引用回复会收到
+                            // 误导性的「无法续聊」提示。记录后按已消费处理，不重试。
+                            tracing::warn!(
+                                code = error.code(),
+                                "入站拦截器处理失败，消息按已消费处理（不进入引用回复路由）"
+                            );
+                            continue;
+                        }
+                    }
+                }
                 if let Err(error) = reply.handle(message).await {
                     if matches!(&error, ReplyError::Store(store_error) if store_error_is_fatal(store_error)) {
                         return Err(ComponentFailure::new(

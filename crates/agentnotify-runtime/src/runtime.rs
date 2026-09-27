@@ -40,6 +40,20 @@ struct SnapshotMetadata {
     migration: Arc<MigrationSnapshot>,
 }
 
+/// 入站消息拦截边界（P1-3 微信集群指令入口）：在引用回复路由之前先询问拦截器。
+///
+/// 拦截器实现由宿主注入（桌面端用它把「【集群 <task_id>】…」消息路由到编排命令）；
+/// 拦截器内部负责向用户回执可读结果，本 trait 只表达消费判定，不承载业务错误。
+#[async_trait::async_trait]
+pub trait InboundInterceptor: Send + Sync {
+    /// 判断是否消费本条入站消息：
+    /// - `Ok(true)`：已消费，不再进入引用回复路由（引用回复不得再看到这条消息）；
+    /// - `Ok(false)`：不是本拦截器的消息，按老路径走；
+    /// - `Err`：拦截器自身异常；调用方记录日志并按「已消费」处理，避免把集群指令
+    ///   误落进引用回复路由（否则用户会收到误导性的「无法续聊」提示）。
+    async fn intercept(&self, message: &InboundMessage) -> Result<bool, RuntimeTargetError>;
+}
+
 /// 运行时装配参数。所有适配器必须先在注册表中显式注册。
 #[derive(Clone)]
 pub struct RuntimeConfig {
@@ -63,6 +77,8 @@ pub struct RuntimeConfig {
     pub worker_idle_delay: Duration,
     pub status_refresh_interval: Duration,
     pub channel_poll_interval: Duration,
+    /// 入站消息拦截器（默认无）：有则先在引用回复路由前询问是否消费（见 [`InboundInterceptor`]）。
+    pub inbound_interceptor: Option<Arc<dyn InboundInterceptor>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -340,7 +356,12 @@ impl AppRuntime {
         let reply_cancel = cancel_receiver.clone();
         tasks.push(supervisor.clone().spawn_component(
             "reply.inbound",
-            run_inbound_consumer(inbound_receiver, reply, reply_cancel),
+            run_inbound_consumer(
+                inbound_receiver,
+                config.inbound_interceptor.clone(),
+                reply,
+                reply_cancel,
+            ),
         ));
         let delivery_cancel = cancel_receiver.clone();
         tasks.push(supervisor.clone().spawn_component(
