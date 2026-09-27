@@ -82,18 +82,13 @@ jobs:
           CGO_ENABLED: "1"
         run: go test -race ./...
 
-  rust:
-    name: Rust and UI workspace
+  rust-gate:
+    name: Rust gate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: apps/desktop-ui/package-lock.json
       - name: Install Rust toolchain
         shell: powershell
         run: |
@@ -102,6 +97,8 @@ jobs:
           rustc --version
       # Without this cache every run rebuilds the whole Tauri stack from scratch
       # (~16 min). A cache hit cuts the Rust job to a few minutes.
+      # Cargo.lock changes rotate the cache key; restore-keys reuses the previous
+      # build output so a dependency bump does not rebuild the whole workspace.
       - name: Cache cargo registry and build output
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -112,6 +109,22 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             cargo-${{ runner.os }}-
-      - name: Run Rust and UI gate
+      - name: Run Rust gate (fmt, clippy, cargo test)
+        shell: powershell
+        run: ./tools/rust/gate.ps1
+
+  ui-gate:
+    name: UI gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop-ui/package-lock.json
+      - name: Run UI gate (bridge, typecheck, vitest, build, e2e)
         shell: powershell
         run: ./tools/ui/gate.ps1
