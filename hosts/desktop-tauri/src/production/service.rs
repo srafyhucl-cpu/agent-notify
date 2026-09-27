@@ -7,7 +7,8 @@ use agentnotify_application::{ChannelAccountStore, IngestResult, StatusStore};
 use agentnotify_channel_clawbot::CLAWBOT_CHANNEL_ID;
 use agentnotify_channel_sdk::{BeginLoginRequest, ChannelLoginAdapter, LoginSessionId};
 use agentnotify_domain::{
-    AgentId, ChannelAccountId, DeliveryId, DeliveryState, NotificationId, RequestId, Timestamp,
+    AgentId, AgentSessionId, ChannelAccountId, DeliveryId, DeliveryState, NotificationId,
+    RequestId, Timestamp,
 };
 use agentnotify_orchestration::{
     MessageKind, NotifyMode, OrcError, OrcStore, OrcTask, StepOutcome, TaskState, TemplateResolver,
@@ -15,6 +16,8 @@ use agentnotify_orchestration::{
 };
 use agentnotify_storage_sqlite::{NotificationQuery, SqliteStore};
 use tauri::{AppHandle, Wry};
+
+use super::agent_driver::{AgentDriver, ProductionAgentDriver};
 
 use super::app_exit::{ProductionAppExitRequester, spawn_graceful_exit};
 use super::events::map_delivery_state;
@@ -61,16 +64,26 @@ impl ProductionHostCommandService {
         settings: ProductionSettingsStore,
         config_dir: &Path,
         updates: Arc<UpdateService>,
+        // 是否装配派活链路（AgentDriver）：生产 true 用信封唤醒真实 Agent；headless/测试 false（纯状态推进）。
+        enable_agent_driver: bool,
     ) -> Self {
-        let orchestration = OrcCommandHandler::with_presenter(
+        let orchestration = OrcCommandHandler::with_driver(
             orchestration_store(&store, &settings).await,
             load_harness_templates(config_dir),
-            Arc::new(ProductionOrcPresenter::new(
+            Some(Arc::new(ProductionOrcPresenter::new(
                 settings.clone(),
                 runtime.target_provider(),
                 runtime.channel_registry(),
                 Some(store.clone()),
-            )),
+            ))),
+            // P2 派活：推进/创建任务时把信封交给工作流配置的真实 Agent；生产才有真实驱动。
+            if enable_agent_driver {
+                Some(Arc::new(ProductionAgentDriver::new(
+                    runtime.agent_registry(),
+                )))
+            } else {
+                None
+            },
         );
         Self {
             app,
@@ -1103,6 +1116,9 @@ pub struct OrcCommandHandler {
     templates: TemplateResolver,
     /// 集群消息呈现（P1-4）：缺省不呈现（行为与 P1-3 一致）；注入后 advance/mark_blocked 按通知节奏外发。
     presenter: Option<Arc<dyn OrcClusterPresenter>>,
+    /// 派活驱动器（P2）：缺省不派活（行为与 P1-3/1-4 一致）；注入后 create/advance
+    /// 把当前 Step 的任务信封真正交给配置的 Agent。
+    driver: Option<Arc<dyn AgentDriver>>,
 }
 
 /// 编排开关设置键（settings 表），默认关闭。
@@ -1114,6 +1130,10 @@ pub const HARNESS_TEMPLATES_FILE: &str = "harness-templates.json";
 const ORCHESTRATION_DISABLED_CODE: &str = "orchestration_disabled";
 const ORCHESTRATION_DISABLED_MESSAGE: &str =
     "编排未启用：请在设置中启用 orchestration.enabled 后重启应用";
+/// 当前步骤未配置 Agent（agent_hint 缺失）时的稳定错误码（P2 派活，写进 blocked 原因）。
+const ORC_STEP_AGENT_MISSING: &str = "orc_step_agent_missing";
+/// 派活信封会话 id 前缀：`task-<task_id>-step-<n>`（每个 (task, step) 一个稳定会话）。
+const ORC_DISPATCH_SESSION_PREFIX: &str = "task";
 
 impl OrcCommandHandler {
     /// 默认装配：仅内置默认信封模板（向后兼容）。
@@ -1127,6 +1147,7 @@ impl OrcCommandHandler {
             store,
             templates,
             presenter: None,
+            driver: None,
         }
     }
 
@@ -1141,6 +1162,25 @@ impl OrcCommandHandler {
             store,
             templates,
             presenter: Some(presenter),
+            driver: None,
+        }
+    }
+
+    /// 完整装配（P2 派活链路）：呈现层 + 派活驱动器。
+    ///
+    /// - `presenter=None` → 不推微信（与 P1-3 一致）；
+    /// - `driver=None` → 只推进 + 呈现，不派活（与 P1-4 一致，向后兼容）。
+    pub fn with_driver(
+        store: Option<OrcStore>,
+        templates: TemplateResolver,
+        presenter: Option<Arc<dyn OrcClusterPresenter>>,
+        driver: Option<Arc<dyn AgentDriver>>,
+    ) -> Self {
+        Self {
+            store,
+            templates,
+            presenter,
+            driver,
         }
     }
 
@@ -1171,7 +1211,12 @@ impl OrcCommandHandler {
             .create_task(goal, notify_mode)
             .await
             .map_err(orc_error)?;
-        orc_task_to_dto(&task)
+        let dto = orc_task_to_dto(&task)?;
+        // P2 派活：任务创建即唤醒第 1 步的 Agent（新会话开工，open=true）。
+        // 派活是附加动作：失败只标记 blocked（§4.6 不自动重推）+ 呈现层推失败提醒，
+        // 不影响已落库的创建结果与命令返回。
+        self.dispatch_step(store, &task).await;
+        Ok(dto)
     }
 
     /// 全局默认通知节奏：已装配呈现层时读设置（缺失/非法回退 final_only 并告警）；
@@ -1206,6 +1251,9 @@ impl OrcCommandHandler {
             self.present_advance(presenter, store, &task, &dto, kind, &outcome)
                 .await;
         }
+        // P2 派活：Advance/BackToWork/Recover 且任务未完成 → 把当前目标 Step 的信封
+        // 交给该步配置的 Agent（失败只标记 blocked，不改变已落库的推进结果）。
+        self.dispatch_current_step(store, &task, &outcome).await;
         Ok(dto)
     }
 
@@ -1266,17 +1314,164 @@ impl OrcCommandHandler {
         let dto = orc_task_to_dto(&task)?;
         // P1-4 失败提醒不受 notify_mode 限制：一律外发（§4.6：写清失败 Step/原因，不自动重推）。
         if let Some(presenter) = &self.presenter {
-            let total = store.workflow().max_order();
-            let text = render_cluster_message(
-                task.id(),
-                payload.step,
-                total,
-                state_cn(&dto.state),
-                &failure_body(payload.step, reason),
-            );
-            presenter.push(task.id(), text).await;
+            self.present_blocked(presenter, store, task.id(), payload.step, reason)
+                .await;
         }
         Ok(dto)
+    }
+
+    /// P1-4 失败提醒呈现：写清哪一步失败、原因，需人工处理（会话语义与命令 mark_blocked 一致）。
+    async fn present_blocked(
+        &self,
+        presenter: &Arc<dyn OrcClusterPresenter>,
+        store: &OrcStore,
+        task_id: &str,
+        step: u32,
+        reason: &str,
+    ) {
+        let total = store.workflow().max_order();
+        let text = render_cluster_message(
+            task_id,
+            step,
+            total,
+            state_cn(&OrcTaskStateDto::Failed),
+            &failure_body(step, reason),
+        );
+        presenter.push(task_id, text).await;
+    }
+
+    /// P2 推进后自动派活：`outcome.action` 属于要干活的转移（Advance/BackToWork/Recover）
+    /// 且任务未完成时，派活当前目标 Step 的 Agent；其余转移（Stay/WaitConfirm/Complete）不派活。
+    ///
+    /// 与呈现层同语义：派活成功/失败都不改变已落库的推进结果；失败只标记 blocked
+    /// （§4.6 不自动重推），由 [`Self::present_blocked`] 推微信失败提醒，不阻塞命令返回。
+    async fn dispatch_current_step(&self, store: &OrcStore, task: &OrcTask, outcome: &StepOutcome) {
+        use TransitionAction::{Advance, BackToWork, Recover};
+        if !matches!(outcome.action, Advance | BackToWork | Recover) {
+            return;
+        }
+        if task.state() == TaskState::Completed {
+            return;
+        }
+        self.dispatch_step(store, task).await;
+    }
+
+    /// P2 派活当前步骤：组装信封 → 交给该步配置的 Agent（Step 1 试图开新会话，后续步续聊）。
+    ///
+    /// - 未注入 driver → 保持 P1-3/1-4 行为（只推进 + 呈现，不派活，agent_hint 缺失也不报错）；
+    /// - 步骤缺失（内部不一致）→ 记 error 日志后跳过，不阻塞推进、不标记阻塞；
+    /// - `agent_hint` 缺失 → 明确错误码 `orc_step_agent_missing` 并自动 blocked
+    ///   （写清「Step N 未配置 Agent」，用户可改工作流后恢复）。
+    async fn dispatch_step(&self, store: &OrcStore, task: &OrcTask) {
+        // 未注入 driver：保持 P1-3/1-4 行为（推进 + 呈现，不派活）。
+        let Some(driver) = self.driver.as_ref() else {
+            return;
+        };
+        let current_step = match task.current_step() {
+            Ok(step) => step,
+            Err(error) => {
+                tracing::error!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务当前步骤失败，跳过派活"
+                );
+                return;
+            }
+        };
+        let Some(step) = store.workflow().step(current_step) else {
+            tracing::error!(
+                task_id = %task.id(),
+                step = current_step,
+                "工作流缺少当前步骤（内部不一致），跳过派活"
+            );
+            return;
+        };
+        let Some(agent_hint) = step.agent_hint.as_deref() else {
+            let reason = format!("Step {current_step} 未配置 Agent（agent_hint），无法派活");
+            tracing::warn!(task_id = %task.id(), step = current_step, code = ORC_STEP_AGENT_MISSING, "{reason}");
+            self.auto_blocked(store, task.id(), current_step, reason)
+                .await;
+            return;
+        };
+        let goal = match task.goal() {
+            Ok(goal) => goal,
+            Err(error) => {
+                tracing::error!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务目标失败，跳过派活"
+                );
+                return;
+            }
+        };
+        // 信封渲染（用户模板优先、内置默认兜底，§4.3 / P1-5）：渲染告警只记日志不阻断。
+        let next_role = store
+            .workflow()
+            .next_step(current_step)
+            .map(|next| next.role.as_str());
+        let rendered = self
+            .templates
+            .render_envelope(store.workflow(), step, &goal, next_role);
+        for warning in &rendered.warnings {
+            tracing::warn!(
+                task_id = %task.id(),
+                kind = %warning.kind.as_str(),
+                "{}",
+                warning.message
+            );
+        }
+        let targets = match dispatch_targets(task.id(), agent_hint, current_step) {
+            Ok(targets) => targets,
+            Err(reason) => {
+                tracing::warn!(task_id = %task.id(), step = current_step, "{reason}");
+                self.auto_blocked(store, task.id(), current_step, reason)
+                    .await;
+                return;
+            }
+        };
+        let (agent_id, session_id) = targets;
+        let open = current_step == 1;
+        if let Err(error) = driver
+            .dispatch(task.id(), &agent_id, &session_id, &rendered.text, open)
+            .await
+        {
+            tracing::warn!(
+                task_id = %task.id(),
+                step = current_step,
+                code = error.code(),
+                "派活失败：{}",
+                error.message()
+            );
+            self.auto_blocked(
+                store,
+                task.id(),
+                current_step,
+                format!("Step {current_step} 派活失败：{}", error.message()),
+            )
+            .await;
+        }
+    }
+
+    /// P2 派活失败 → 自动 blocked（§4.6：不自动重推，等人工处理）并推微信失败提醒。
+    /// 落库失败（如任务已终止）只记日志，不再改变推进结果。
+    async fn auto_blocked(&self, store: &OrcStore, task_id: &str, step: u32, reason: String) {
+        match store.mark_blocked(task_id, step, &reason).await {
+            Ok(task) => {
+                if let Some(presenter) = &self.presenter {
+                    self.present_blocked(presenter, store, task.id(), step, &reason)
+                        .await;
+                }
+            }
+            Err(error) => {
+                tracing::error!(
+                    task_id,
+                    step,
+                    code = error.code.as_str(),
+                    "派活失败后自动标记阻塞失败：{}",
+                    error.message
+                );
+            }
+        }
     }
 
     pub async fn recover_blocked(
@@ -1357,6 +1552,23 @@ fn parse_message_kind(kind: OrcMessageKindDto) -> MessageKind {
 /// 编排错误 → 命令错误：保留稳定错误码与中文用户消息。
 fn orc_error(error: OrcError) -> CommandError {
     CommandError::new(error.code.as_str(), error.message)
+}
+
+/// P2 派活目标：由 `agent_hint` 解析 Agent id，并为 (task, step) 生成稳定会话 id
+/// （`task-<task_id>-step-<n>`）。Step 1 用该会话开新会话，后续步 resume 同一会话。
+/// 解析失败返回用户可读中文原因（不猜测兜底）。
+fn dispatch_targets(
+    task_id: &str,
+    agent_hint: &str,
+    step: u32,
+) -> Result<(AgentId, AgentSessionId), String> {
+    let agent_id = AgentId::new(agent_hint.to_string())
+        .map_err(|_| format!("Step {step} 的 Agent 标识无效（{agent_hint}），无法派活"))?;
+    let session_id = AgentSessionId::new(format!(
+        "{ORC_DISPATCH_SESSION_PREFIX}-{task_id}-step-{step}"
+    ))
+    .map_err(|_| format!("Step {step} 的会话标识生成失败，无法派活"))?;
+    Ok((agent_id, session_id))
 }
 
 /// 脱敏后的任务视图：只暴露任务上下文，不暴露内部元数据细节。
