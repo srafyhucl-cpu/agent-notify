@@ -109,6 +109,20 @@ async function dispatchCommand(
       return commands.installUpdate(
         payload as CommandPayloadMap["install_update"],
       );
+    case "create_orc_task":
+      return commands.createOrcTask(payload as CommandPayloadMap["create_orc_task"]);
+    case "list_orc_tasks":
+      return commands.listOrcTasks(payload as CommandPayloadMap["list_orc_tasks"]);
+    case "advance_orc_task":
+      return commands.advanceOrcTask(payload as CommandPayloadMap["advance_orc_task"]);
+    case "mark_blocked_orc_task":
+      return commands.markBlockedOrcTask(
+        payload as CommandPayloadMap["mark_blocked_orc_task"],
+      );
+    case "recover_blocked_orc_task":
+      return commands.recoverBlockedOrcTask(
+        payload as CommandPayloadMap["recover_blocked_orc_task"],
+      );
     default: {
       const neverCommand: never = command;
       throw new Error(`未处理命令: ${String(neverCommand)}`);

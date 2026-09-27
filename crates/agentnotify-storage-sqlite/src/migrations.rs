@@ -23,6 +23,10 @@ const MIGRATIONS: &[Migration] = &[
         version: 2,
         sql: include_str!("../migrations/0002_canonical_timestamps.sql"),
     },
+    Migration {
+        version: 3,
+        sql: include_str!("../migrations/0003_orchestration.sql"),
+    },
 ];
 
 /// SQLite 存储适配器。数据库连接由专用调度线程独占。

@@ -27,6 +27,11 @@ pub enum BusinessCommand {
     QuitApp,
     GetUpdateStatus,
     InstallUpdate,
+    CreateOrcTask,
+    ListOrcTasks,
+    AdvanceOrcTask,
+    MarkBlockedOrcTask,
+    RecoverBlockedOrcTask,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -112,6 +117,80 @@ pub enum UpdateStateDto {
     ReadyToInstall,
     Unsupported,
     Failed,
+}
+
+/// 编排任务状态（稳定字符串，与 A2A `TaskState` 一一对应，§8.3 映射表）。
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum OrcTaskStateDto {
+    Unspecified,
+    Submitted,
+    Working,
+    Completed,
+    Failed,
+    Canceled,
+    InputRequired,
+    Rejected,
+    AuthRequired,
+}
+
+/// 编排消息 kind（推进命令用，§4 消息总线）。
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum OrcMessageKindDto {
+    Report,
+    Instruction,
+    Confirm,
+    Question,
+    Info,
+}
+
+/// 编排任务视图：只暴露脱敏后的任务上下文（§3.2 TASK）。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcTaskDto {
+    pub id: String,
+    pub workflow_id: String,
+    pub state: OrcTaskStateDto,
+    pub current_step: u32,
+    /// 被卡住的步骤（未阻塞为 None）
+    pub blocked_step: Option<u32>,
+    /// 阻塞原因（未阻塞为 None；写清哪步失败/谁不可用/未送达）
+    pub block_reason: Option<String>,
+    /// 通知节奏：final_only / verbose（§4.6）
+    pub notify_mode: String,
+    pub goal: String,
+}
+
+/// 创建编排任务：`notify_mode` 缺省为 final_only（只推最终汇报，默认）。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateOrcTaskPayload {
+    pub goal: String,
+    pub notify_mode: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcTaskIdPayload {
+    pub task_id: String,
+}
+
+/// 推进编排任务：消息驱动（§4.4），`kind` 决定转移语义。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvanceOrcTaskPayload {
+    pub task_id: String,
+    pub kind: OrcMessageKindDto,
+}
+
+/// 标记编排任务阻塞（§4.6 不自动重推）：`step` 为失败步骤，`reason` 写清谁不可用/未送达。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkBlockedOrcTaskPayload {
+    pub task_id: String,
+    pub step: u32,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, Type)]

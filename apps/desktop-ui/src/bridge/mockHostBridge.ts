@@ -1,4 +1,5 @@
 import type {
+  AdvanceOrcTaskPayload,
   AgentDto,
   BeginChannelLoginPayload,
   BeginChannelLoginResultDto,
@@ -6,16 +7,21 @@ import type {
   ChannelAccountDto,
   ChannelDto,
   CommandError,
+  CreateOrcTaskPayload,
   DeliveryDto,
   DiagnosticsDto,
   HostEvent,
   InstallUpdateResultDto,
   LoginSessionDto,
   LegacyMigrationDto,
+  MarkBlockedOrcTaskPayload,
   MutationAcceptedDto,
   NotificationDetailDto,
+  NotificationFilterPayload,
   NotificationListDto,
   NotificationSummaryDto,
+  OrcTaskDto,
+  OrcTaskIdPayload,
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
   SettingsDto,
@@ -49,6 +55,8 @@ export interface MockHostBridgeOptions {
   delays?: Partial<Record<BusinessCommand, number>>;
   /** 测试发送的投递结果；默认 Sent（用于断言"失败/待送达"的 UI 分支）。 */
   sendTestDelivery?: DeliveryDto;
+  /** 预置的编排任务（集群页测试用）。 */
+  orcTasks?: OrcTaskDto[];
 }
 
 export interface MockHostBridge extends HostBridge {
@@ -217,6 +225,17 @@ function accepted(id?: string): MutationAcceptedDto {
   };
 }
 
+function orcTaskNotFound(taskId: string): never {
+  throw {
+    code: "orc.task_not_found",
+    message: `任务不存在：${taskId}`,
+  };
+}
+
+function advanceOrcTaskError(taskId: string): never {
+  return orcTaskNotFound(taskId);
+}
+
 function deliveryFixture(id: string, accountId: string): DeliveryDto {
   return {
     id,
@@ -265,6 +284,7 @@ export function createMockHostBridge(
   const listeners = new Map<HostEvent, Set<(payload: unknown) => void>>();
   const channels = options.channels ?? [defaultChannel()];
   const agents = options.agents ?? [];
+  const orcTasks: OrcTaskDto[] = [...(options.orcTasks ?? [])];
 
   async function applyDelay(command: BusinessCommand) {
     const delay = options.delays?.[command] ?? 0;
@@ -426,6 +446,58 @@ export function createMockHostBridge(
           options.installUpdateResult ??
           defaultInstallUpdateResult(options.updateStatus);
         break;
+      case "create_orc_task": {
+        const create = payload as CreateOrcTaskPayload;
+        const task: OrcTaskDto = {
+          id: `orc-${orcTasks.length + 1}`,
+          workflowId: "preset-judge-plan-execute",
+          state: "working",
+          currentStep: 1,
+          notifyMode: create.notifyMode ?? "final_only",
+          goal: create.goal,
+          blockedStep: null,
+          blockReason: null,
+        } satisfies OrcTaskDto;
+        orcTasks.push(task);
+        result = task;
+        break;
+      }
+      case "list_orc_tasks":
+        result = [...orcTasks];
+        break;
+      case "advance_orc_task": {
+        const advance = payload as unknown as AdvanceOrcTaskPayload;
+        const task = orcTasks.find((item) => item.id === advance.taskId);
+        if (task) {
+          task.currentStep =
+            task.currentStep < 3 ? task.currentStep + 1 : task.currentStep;
+          task.state = "working";
+        }
+        result = task ?? advanceOrcTaskError(advance.taskId ?? "<unknown>");
+        break;
+      }
+      case "mark_blocked_orc_task": {
+        const block = payload as unknown as MarkBlockedOrcTaskPayload;
+        const task = orcTasks.find((item) => item.id === block.taskId);
+        if (task) {
+          task.state = "failed";
+          task.blockedStep = block.step;
+          task.blockReason = block.reason ?? "投递失败";
+        }
+        result = task ?? orcTaskNotFound(block.taskId);
+        break;
+      }
+      case "recover_blocked_orc_task": {
+        const recover = payload as unknown as OrcTaskIdPayload;
+        const task = orcTasks.find((item) => item.id === recover.taskId);
+        if (task) {
+          task.state = "working";
+          task.blockedStep = null;
+          task.blockReason = null;
+        }
+        result = task ?? orcTaskNotFound(recover.taskId);
+        break;
+      }
       default: {
         const neverCommand: never = command;
         throw new Error(`未处理命令: ${String(neverCommand)}`);

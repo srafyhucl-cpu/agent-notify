@@ -1462,3 +1462,89 @@ fn make_clawbot_account(
             .expect("时间必须可序列化");
     account
 }
+
+/// 完整宿主装配下编排默认关闭：命令必须返回"编排未启用"的明确错误（§8.5 默认关闭）。
+#[tokio::test]
+async fn orchestration_commands_disabled_by_default_on_host() {
+    let (_root, paths, _store, secret_store) = create_test_env("agentnotify-orc-host-off-test-");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let error = service
+        .create_orc_task(CreateOrcTaskPayload {
+            goal: "目标".into(),
+            notify_mode: None,
+        })
+        .await
+        .expect_err("默认关闭时命令必须报错");
+    assert_eq!(error.code(), "orchestration_disabled");
+    assert!(error.message().contains("编排未启用"));
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// 完整宿主装配下开启编排（写 `orchestration.enabled=true` 再启动）：
+/// create → advance → mark_blocked → recover 经真实命令链路走 SQLite 文件。
+#[tokio::test]
+async fn orchestration_commands_full_chain_via_host_service() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-orc-host-on-test-");
+    store
+        .write_settings_entries(BTreeMap::from([(
+            "orchestration.enabled".to_string(),
+            serde_json::json!(true),
+        )]))
+        .await
+        .expect("写入编排开关必须成功");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let created = service
+        .create_orc_task(CreateOrcTaskPayload {
+            goal: "做一个贪吃蛇游戏".into(),
+            notify_mode: Some("final_only".into()),
+        })
+        .await
+        .expect("创建任务必须成功");
+    assert_eq!(created.state, OrcTaskStateDto::Working);
+    assert_eq!(created.current_step, 1);
+    let task_id = created.id.clone();
+
+    let advanced = service
+        .advance_orc_task(AdvanceOrcTaskPayload {
+            task_id: task_id.clone(),
+            kind: OrcMessageKindDto::Report,
+        })
+        .await
+        .expect("推进任务必须成功");
+    assert_eq!(advanced.current_step, 2);
+
+    let blocked = service
+        .mark_blocked_orc_task(MarkBlockedOrcTaskPayload {
+            task_id: task_id.clone(),
+            step: 2,
+            reason: "opencode 会话不可用（未登录），消息未送达".into(),
+        })
+        .await
+        .expect("标记阻塞必须成功");
+    assert_eq!(blocked.state, OrcTaskStateDto::Failed);
+    assert_eq!(blocked.blocked_step, Some(2));
+
+    let recovered = service
+        .recover_blocked_orc_task(OrcTaskIdPayload { task_id })
+        .await
+        .expect("恢复任务必须成功");
+    assert_eq!(recovered.state, OrcTaskStateDto::Working);
+    assert_eq!(recovered.blocked_step, None);
+
+    let all = service
+        .list_orc_tasks(EmptyPayload {})
+        .await
+        .expect("列出任务必须成功");
+    assert_eq!(all.len(), 1);
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}

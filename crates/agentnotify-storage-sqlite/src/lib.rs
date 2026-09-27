@@ -8,6 +8,7 @@ mod host_queries;
 mod ingest_store;
 mod legacy;
 mod migrations;
+mod orchestration_repo;
 mod recovery;
 mod route_store;
 mod row_codec;

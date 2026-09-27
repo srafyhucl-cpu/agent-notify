@@ -19,6 +19,12 @@
 ## 验证
 - 改完先过门禁：`go test ./...`、`go vet ./...`、`gofmt -l cmd internal`、`node_modules\.bin\tsc.cmd --noEmit`；涉及脚本或插件时加跑 `tools\test.ps1`、`tools\lint.ps1`。
 - 真实功能必须在真实链路上验收（微信收到消息、引用回复进入正确线程），不能只看单测。
+- **子代理交付标准（防返工，P1 起强制执行）**：每个子代理任务交付前必须本地过全部门禁，CI 只做"确认"不做"发现"——
+  - Rust 改动：`cargo fmt --all --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 必须零 diff / 零 lint 错误（本机无 MSVC 时按 `tools\rust\gate.ps1` 用 `tools\rust\xwin-env.ps1` 的 lld-link 回退，见 `tools\rust\gate.ps1`；轻量 crate 的 `cargo test` 本地跑，desktop 等重集成放 CI 全量跑）。
+  - 改动 Rust Bridge 契约（`hosts/desktop-tauri/src/bridge/*`）**必须**重跑 `tools\rust\export-bindings.ps1` 并提交生成的绑定（否则 CI 的 UI 门禁在 `HostBridge bindings are stale` 处失败）。
+  - Rust 侧新命令/字段的 `hosts/desktop-tauri/tests/bridge_contract.rs` 命令名单要同步；改动 capabilities/descriptor 时各 repo 集成测试的字面量同步（如 `session_open: false`）。
+  - 测试要生产级（能断言行为），不能是摆设；本机跑不了的（desktop 重集成）由 CI 全量执行，报告中明确标注"留 CI"。
+  - 不改 `.github/workflows/*.yml`、不格式化无关文件、不重构；提交前确认工作区没有并行 agent 的改动。
 
 ## 提交与发版
 - 提交信息用 Conventional Commits + 中文描述，例如 `feat(reply): ...`、`docs: ...`、`fix(ui): ...`。

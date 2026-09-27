@@ -72,12 +72,16 @@ async fn open_creates_required_tables_and_enables_wal() {
     let temp = tempfile::tempdir().unwrap();
     let store = SqliteStore::open(temp.path().join("state.db")).unwrap();
 
-    assert_eq!(store.schema_version().await.unwrap(), 2);
+    assert_eq!(store.schema_version().await.unwrap(), 3);
     assert_eq!(
         store.journal_mode().await.unwrap().to_ascii_lowercase(),
         "wal"
     );
     assert!(store.table_exists("schema_migrations").await.unwrap());
+    assert!(
+        store.table_exists("orc_tasks").await.unwrap(),
+        "0003 迁移必须创建 orc_tasks 表"
+    );
 
     for table in CORE_TABLES {
         assert!(store.table_exists(table).await.unwrap(), "缺少表 {table}");
@@ -91,11 +95,11 @@ async fn reopening_is_idempotent() {
 
     {
         let store = SqliteStore::open(&path).unwrap();
-        assert_eq!(store.schema_version().await.unwrap(), 2);
+        assert_eq!(store.schema_version().await.unwrap(), 3);
     }
     {
         let store = SqliteStore::open(&path).unwrap();
-        assert_eq!(store.schema_version().await.unwrap(), 2);
+        assert_eq!(store.schema_version().await.unwrap(), 3);
     }
 }
 
@@ -106,7 +110,7 @@ async fn migration_checksum_mismatch_is_rejected() {
 
     {
         let store = SqliteStore::open(&path).unwrap();
-        assert_eq!(store.schema_version().await.unwrap(), 2);
+        assert_eq!(store.schema_version().await.unwrap(), 3);
     }
 
     {
@@ -134,7 +138,7 @@ async fn heals_legacy_crlf_checksums_recorded_by_older_release() {
 
     {
         let store = SqliteStore::open(&path).unwrap();
-        assert_eq!(store.schema_version().await.unwrap(), 2);
+        assert_eq!(store.schema_version().await.unwrap(), 3);
     }
 
     {
@@ -150,7 +154,7 @@ async fn heals_legacy_crlf_checksums_recorded_by_older_release() {
 
     // 自愈必须幂等：再次打开仍成功，且不再需要改写。
     let store = SqliteStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().await.unwrap(), 2);
+    assert_eq!(store.schema_version().await.unwrap(), 3);
     drop(store);
 
     let connection = Connection::open(&path).unwrap();
@@ -172,7 +176,7 @@ async fn accepts_legacy_lf_checksums_recorded_by_older_release() {
     drop(seed_fully_migrated_database(&path, lf_checksum));
 
     let store = SqliteStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().await.unwrap(), 2);
+    assert_eq!(store.schema_version().await.unwrap(), 3);
     drop(store);
 
     let connection = Connection::open(&path).unwrap();
@@ -236,7 +240,7 @@ async fn upgrades_v1_database_and_canonicalizes_timestamps() {
     }
 
     let store = SqliteStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().await.unwrap(), 2);
+    assert_eq!(store.schema_version().await.unwrap(), 3);
     drop(store);
 
     let connection = Connection::open(&path).unwrap();
@@ -262,7 +266,7 @@ async fn upgrades_v1_database_and_canonicalizes_timestamps() {
 
     assert_eq!(setting_time, "2026-09-19T09:00:00.800Z");
     assert_eq!(applied_time, "2026-09-19T09:00:00.800Z");
-    assert_eq!(versions, 2);
+    assert_eq!(versions, 3);
 }
 
 #[tokio::test]
@@ -271,13 +275,13 @@ async fn future_migration_version_is_rejected() {
     let path = temp.path().join("state.db");
 
     let store = SqliteStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().await.unwrap(), 2);
+    assert_eq!(store.schema_version().await.unwrap(), 3);
     drop(store);
 
     let connection = Connection::open(&path).unwrap();
     connection
         .execute(
-            "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (3, 'future', '2026-09-19T09:00:00.800Z')",
+            "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (4, 'future', '2026-09-19T09:00:00.800Z')",
             [],
         )
         .unwrap();

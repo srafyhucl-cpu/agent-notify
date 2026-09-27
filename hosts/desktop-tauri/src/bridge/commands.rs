@@ -7,11 +7,12 @@ use tokio::sync::{Notify, RwLock};
 use tauri::State;
 
 use super::dto::{
-    AgentDto, BeginChannelLoginPayload, BeginChannelLoginResultDto, ChannelAccountDto,
-    ChannelAccountIdPayload, ChannelListDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto,
-    EmptyPayload, InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto,
-    LoginSessionDto, MutationAcceptedDto, NotificationDetailDto, NotificationFilterPayload,
-    NotificationIdPayload, NotificationListDto, RuntimeSnapshotDto, RuntimeSummaryDto,
+    AdvanceOrcTaskPayload, AgentDto, BeginChannelLoginPayload, BeginChannelLoginResultDto,
+    ChannelAccountDto, ChannelAccountIdPayload, ChannelListDto, CreateOrcTaskPayload, DeliveryDto,
+    DeliveryIdPayload, DiagnosticsDto, EmptyPayload, InstallUpdatePayload, InstallUpdateResultDto,
+    LegacyMigrationDto, LoginSessionDto, MarkBlockedOrcTaskPayload, MutationAcceptedDto,
+    NotificationDetailDto, NotificationFilterPayload, NotificationIdPayload, NotificationListDto,
+    OrcTaskDto, OrcTaskIdPayload, RuntimeSnapshotDto, RuntimeSummaryDto,
     SendTestNotificationPayload, SetRuntimePausedPayload, SettingsDto,
     SubmitChannelLoginCodePayload, TestNotificationResultDto, UpdateAgentConfigPayload,
     UpdateStatusDto,
@@ -106,6 +107,28 @@ pub trait HostCommandService: Send + Sync {
         &self,
         payload: InstallUpdatePayload,
     ) -> Result<InstallUpdateResultDto, CommandError>;
+
+    async fn create_orc_task(
+        &self,
+        payload: CreateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
+
+    async fn list_orc_tasks(&self, payload: EmptyPayload) -> Result<Vec<OrcTaskDto>, CommandError>;
+
+    async fn advance_orc_task(
+        &self,
+        payload: AdvanceOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
+
+    async fn mark_blocked_orc_task(
+        &self,
+        payload: MarkBlockedOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
+
+    async fn recover_blocked_orc_task(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
 }
 
 /// Tauri 管理的命令状态；后续宿主任务只负责注入新的服务实现。
@@ -396,6 +419,41 @@ impl HostCommandService for UnavailableHostCommandService {
     ) -> Result<InstallUpdateResultDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+
+    async fn create_orc_task(
+        &self,
+        _payload: CreateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn list_orc_tasks(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OrcTaskDto>, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn advance_orc_task(
+        &self,
+        _payload: AdvanceOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn mark_blocked_orc_task(
+        &self,
+        _payload: MarkBlockedOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn recover_blocked_orc_task(
+        &self,
+        _payload: OrcTaskIdPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
 }
 
 #[tauri::command]
@@ -606,4 +664,54 @@ pub async fn install_update(
 ) -> Result<InstallUpdateResultDto, CommandError> {
     let service = state.service.current().await;
     service.install_update(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_orc_task(
+    state: State<'_, BridgeState>,
+    payload: CreateOrcTaskPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.create_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_orc_tasks(
+    state: State<'_, BridgeState>,
+    payload: EmptyPayload,
+) -> Result<Vec<OrcTaskDto>, CommandError> {
+    let service = state.service.current().await;
+    service.list_orc_tasks(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn advance_orc_task(
+    state: State<'_, BridgeState>,
+    payload: AdvanceOrcTaskPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.advance_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn mark_blocked_orc_task(
+    state: State<'_, BridgeState>,
+    payload: MarkBlockedOrcTaskPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.mark_blocked_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn recover_blocked_orc_task(
+    state: State<'_, BridgeState>,
+    payload: OrcTaskIdPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.recover_blocked_orc_task(payload).await
 }

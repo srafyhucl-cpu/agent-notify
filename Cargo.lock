@@ -233,6 +233,7 @@ dependencies = [
  "agentnotify-channel-sdk",
  "agentnotify-domain",
  "agentnotify-ingress",
+ "agentnotify-orchestration",
  "agentnotify-runtime",
  "agentnotify-storage-sqlite",
  "agentnotify-testkit",
@@ -307,6 +308,7 @@ version = "2.0.10"
 dependencies = [
  "a2a-rs-core",
  "a2a-rs-server",
+ "async-trait",
  "serde",
  "serde_json",
  "tokio",
@@ -345,6 +347,7 @@ dependencies = [
  "agentnotify-channel-clawbot",
  "agentnotify-channel-sdk",
  "agentnotify-domain",
+ "agentnotify-orchestration",
  "async-trait",
  "rusqlite",
  "serde",
