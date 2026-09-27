@@ -43,6 +43,18 @@ pub fn render_envelope(
         Some(t) if !t.trim().is_empty() => t,
         _ => DEFAULT_ENVELOPE_TEMPLATE,
     };
+    render_with_template(workflow, step, goal, next_role, template)
+}
+
+/// 按给定模板渲染信封（模板选择由调用方完成；`render_envelope` 与
+/// [`crate::template::TemplateResolver`] 共用本实现，保证替换行为完全一致）。
+pub(crate) fn render_with_template(
+    workflow: &Workflow,
+    step: &WorkflowStep,
+    goal: &str,
+    next_role: Option<&str>,
+    template: &str,
+) -> String {
     let table = placeholder_table(workflow, step, goal, next_role);
     substitute(template, &table)
 }

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,7 +10,7 @@ use agentnotify_domain::{
     AgentId, ChannelAccountId, DeliveryId, DeliveryState, NotificationId, RequestId, Timestamp,
 };
 use agentnotify_orchestration::{
-    MessageKind, NotifyMode, OrcError, OrcStore, OrcTask, TaskState, Workflow,
+    MessageKind, NotifyMode, OrcError, OrcStore, OrcTask, TaskState, TemplateResolver, Workflow,
 };
 use agentnotify_storage_sqlite::{NotificationQuery, SqliteStore};
 use tauri::{AppHandle, Wry};
@@ -53,9 +53,13 @@ impl ProductionHostCommandService {
         runtime: Arc<ProductionRuntimeCoordinator>,
         store: Arc<SqliteStore>,
         settings: ProductionSettingsStore,
+        config_dir: &Path,
         updates: Arc<UpdateService>,
     ) -> Self {
-        let orchestration = OrcCommandHandler::new(orchestration_store(&store, &settings).await);
+        let orchestration = OrcCommandHandler::with_templates(
+            orchestration_store(&store, &settings).await,
+            load_harness_templates(config_dir),
+        );
         Self {
             app,
             runtime,
@@ -1083,17 +1087,32 @@ impl ProductionHostCommandService {
 /// 未启用时所有编排命令返回明确错误（`orchestration_disabled`），对既有功能零影响。
 pub struct OrcCommandHandler {
     store: Option<OrcStore>,
+    /// harness 模板解析器（P1-5）：用户模板优先、内置默认兜底；派活时由此生成任务信封。
+    templates: TemplateResolver,
 }
 
 /// 编排开关设置键（settings 表），默认关闭。
 pub const KEY_ORCHESTRATION_ENABLED: &str = "orchestration.enabled";
+/// 用户 harness 模板配置文件（`config_dir` 下，§4.3 / P1-5；缺失 = 内置默认兜底）。
+pub const HARNESS_TEMPLATES_FILE: &str = "harness-templates.json";
 const ORCHESTRATION_DISABLED_CODE: &str = "orchestration_disabled";
 const ORCHESTRATION_DISABLED_MESSAGE: &str =
     "编排未启用：请在设置中启用 orchestration.enabled 后重启应用";
 
 impl OrcCommandHandler {
+    /// 默认装配：仅内置默认信封模板（向后兼容）。
     pub fn new(store: Option<OrcStore>) -> Self {
-        Self { store }
+        Self::with_templates(store, TemplateResolver::new())
+    }
+
+    /// 装配用户 harness 模板解析器（用户模板优先、内置默认兜底，§4.3 / P1-5）。
+    pub fn with_templates(store: Option<OrcStore>, templates: TemplateResolver) -> Self {
+        Self { store, templates }
+    }
+
+    /// 模板解析器访问：派活生成任务信封时用（用户模板优先、内置默认兜底）。
+    pub fn templates(&self) -> &TemplateResolver {
+        &self.templates
     }
 
     fn require_store(&self) -> Result<&OrcStore, CommandError> {
@@ -1189,6 +1208,23 @@ pub async fn orchestration_store(
     }
     let workflow = Workflow::preset(false).expect("预置工作流必须有效");
     Some(OrcStore::with_repository(workflow, store.clone()))
+}
+
+/// 装配编排时加载用户 harness 模板配置（§4.3 / P1-5）。
+///
+/// 文件缺失 = 正常未配置（内置默认兜底，不告警）；读取/解析/单条损坏 →
+/// 每条告警写清哪里失败、如何回退并记入日志（不静默），编排不会因用户配置坏而瘫痪。
+pub fn load_harness_templates(config_dir: impl AsRef<Path>) -> TemplateResolver {
+    let result =
+        TemplateResolver::from_config_file(config_dir.as_ref().join(HARNESS_TEMPLATES_FILE));
+    for warning in &result.warnings {
+        tracing::warn!(
+            kind = %warning.kind.as_str(),
+            "{}",
+            warning.message
+        );
+    }
+    result.resolver
 }
 
 /// 通知节奏解析：缺省 final_only（只推最终汇报，§4.6）；未知取值明确报错，不猜测。

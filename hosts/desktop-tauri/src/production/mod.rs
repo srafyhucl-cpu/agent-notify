@@ -23,7 +23,7 @@ use crate::update::{UpdateService, UpdateTransport};
 use agents::{
     assemble_agents, legacy_installation_detected, load_agent_configs, seed_disabled_agent_configs,
 };
-use service::{OrcCommandHandler, orchestration_store};
+use service::{OrcCommandHandler, load_harness_templates, orchestration_store};
 
 pub use events::EventForwarder;
 pub use orc_wechat_route::WechatOrcRouter;
@@ -165,10 +165,17 @@ async fn bootstrap_internal(
     ));
 
     let ingress_pipe_enabled = app.is_some();
+
+    // 装配 harness 模板配置文件路径（P1-5）：在 paths 移入 coordinator 前取出。
+    let harness_config_dir = paths.config_dir.clone();
+
     // P1-3 微信集群指令入口：宿主装配微信路由（复用与 bridge 命令同一份 OrcCommandHandler
     // 实现；未启用编排时由 handler 明确报错并回执「编排未启用」）。
     let wechat_orc_router = WechatOrcRouter::new(
-        OrcCommandHandler::new(orchestration_store(&store, &settings).await),
+        OrcCommandHandler::with_templates(
+            orchestration_store(&store, &settings).await,
+            load_harness_templates(&harness_config_dir),
+        ),
         channel_registry.clone(),
         store.clone(),
         Some(store.clone()),
@@ -191,7 +198,15 @@ async fn bootstrap_internal(
     );
 
     let service = Arc::new(
-        ProductionHostCommandService::new(app, coordinator.clone(), store, settings, updates).await,
+        ProductionHostCommandService::new(
+            app,
+            coordinator.clone(),
+            store,
+            settings,
+            &harness_config_dir,
+            updates,
+        )
+        .await,
     );
 
     // 启动生产运行时
