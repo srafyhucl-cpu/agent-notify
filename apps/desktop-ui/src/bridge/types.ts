@@ -413,6 +413,8 @@ export type SettingsDto = {
 	autoStart: boolean,
 	startHidden: boolean,
 	updateChannel: UpdateChannelDto,
+	/**  编排功能开关（`orchestration.enabled`，默认关闭；开启后重启用）。 */
+	orchestrationEnabled?: boolean,
 };
 
 export type SnapshotChangedEvent = {

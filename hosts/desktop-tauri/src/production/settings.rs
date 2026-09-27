@@ -22,6 +22,7 @@ pub const KEY_REPLY_ROUTE_TTL_SECONDS: &str = "reply.routeTtlSeconds";
 pub const KEY_AUTO_START: &str = "autoStart";
 pub const KEY_START_HIDDEN: &str = "startHidden";
 pub const KEY_UPDATE_CHANNEL: &str = "updateChannel";
+pub const KEY_ORCHESTRATION_ENABLED: &str = "orchestration.enabled";
 
 const DEFAULT_ROUTE_TTL_SECONDS: u32 = 86400;
 
@@ -192,6 +193,11 @@ pub fn entries_to_dto(entries: &BTreeMap<String, Value>) -> SettingsDto {
         _ => UpdateChannelDto::Stable,
     };
 
+    let orchestration_enabled = entries
+        .get(KEY_ORCHESTRATION_ENABLED)
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
     SettingsDto {
         notifications_paused,
         quiet_hours,
@@ -203,6 +209,7 @@ pub fn entries_to_dto(entries: &BTreeMap<String, Value>) -> SettingsDto {
         auto_start,
         start_hidden,
         update_channel,
+        orchestration_enabled,
     }
 }
 
@@ -254,6 +261,10 @@ pub fn dto_to_entries(dto: &SettingsDto) -> BTreeMap<String, Value> {
         UpdateChannelDto::Stable => "stable",
     };
     entries.insert(KEY_UPDATE_CHANNEL.into(), Value::String(channel_str.into()));
+    entries.insert(
+        KEY_ORCHESTRATION_ENABLED.into(),
+        Value::Bool(dto.orchestration_enabled),
+    );
 
     entries
 }

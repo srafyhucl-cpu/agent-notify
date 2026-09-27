@@ -484,6 +484,9 @@ pub struct SettingsDto {
     pub auto_start: bool,
     pub start_hidden: bool,
     pub update_channel: UpdateChannelDto,
+    /// 编排功能开关（`orchestration.enabled`，默认关闭；开启后重启用）。
+    #[serde(default)]
+    pub orchestration_enabled: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
