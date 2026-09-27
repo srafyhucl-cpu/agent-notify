@@ -1,3 +1,4 @@
+pub mod agent_driver;
 mod agents;
 mod app_exit;
 pub mod events;
@@ -21,11 +22,13 @@ use crate::bridge::error::CommandError;
 use crate::platform::AppPaths;
 use crate::update::{UpdateService, UpdateTransport};
 
+use agent_driver::ProductionAgentDriver;
 use agents::{
     assemble_agents, legacy_installation_detected, load_agent_configs, seed_disabled_agent_configs,
 };
 use service::{OrcCommandHandler, load_harness_templates, orchestration_store};
 
+pub use agent_driver::AgentDriver;
 pub use events::EventForwarder;
 pub use orc_notify::{OrcClusterPresenter, ProductionOrcPresenter};
 pub use orc_wechat_route::WechatOrcRouter;
@@ -176,15 +179,17 @@ async fn bootstrap_internal(
     // P1-4 编排呈现：默认通知节奏读设置（`orchestration.notify_mode`），推送目标复用
     // ProductionTargetProvider 的账号解析（默认账号优先，其次最近会话）。
     let wechat_orc_router = WechatOrcRouter::new(
-        OrcCommandHandler::with_presenter(
+        OrcCommandHandler::with_driver(
             orchestration_store(&store, &settings).await,
             load_harness_templates(&harness_config_dir),
-            Arc::new(ProductionOrcPresenter::new(
+            Some(Arc::new(ProductionOrcPresenter::new(
                 settings.clone(),
                 target_provider.clone(),
                 channel_registry.clone(),
                 Some(store.clone()),
-            )),
+            ))),
+            // P2 派活：微信路由与 bridge 命令共用同一份 handler 与驱动器（行为一致）。
+            Some(Arc::new(ProductionAgentDriver::new(agent_registry.clone()))),
         ),
         channel_registry.clone(),
         store.clone(),

@@ -94,5 +94,17 @@ pub trait AgentAdapter: Send + Sync {
         text: &str,
     ) -> Result<ResumeReceipt, AgentError>;
 
+    /// 以新会话开工（可选能力，A2A「新任务 = 新会话」，编排派活 Step 1 用）。
+    ///
+    /// 默认不支持（返回 `UnsupportedCapability`），由编排层降级为 [`AgentAdapter::resume`]
+    /// 续聊同一个稳定 session_id 起步；OpenCode 等支持「新会话」语义的适配器覆写本方法。
+    async fn open(
+        &self,
+        _session_id: &AgentSessionId,
+        _text: &str,
+    ) -> Result<ResumeReceipt, AgentError> {
+        Err(AgentError::UnsupportedCapability)
+    }
+
     async fn inspect(&self) -> AgentHealth;
 }

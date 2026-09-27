@@ -71,6 +71,18 @@ impl AgentAdapter for OpenCodeAgent {
         })
     }
 
+    /// 新会话开工（编排派活 Step 1）：插件以该 session_id 发起新会话（A2A 新任务语义）。
+    async fn open(
+        &self,
+        session_id: &AgentSessionId,
+        text: &str,
+    ) -> Result<ResumeReceipt, AgentError> {
+        self.inbox.open(session_id, text).await?;
+        Ok(ResumeReceipt {
+            session_id: session_id.clone(),
+        })
+    }
+
     async fn inspect(&self) -> AgentHealth {
         health_for(self.inbox.inspect_state().await)
     }
