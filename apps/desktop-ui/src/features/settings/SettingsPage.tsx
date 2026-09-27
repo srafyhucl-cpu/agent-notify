@@ -388,6 +388,34 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
                   </SectionCard>
                 </div>
 
+                <div id="settings-orchestration" className="settings-anchor">
+                  <SectionCard
+                    title="编排（集群）"
+                    description="多 Agent 协同编排：开启后可在「集群」页创建任务，编排层按工作流逐步唤醒 Agent。"
+                  >
+                    <div className="settings-fields">
+                      <FieldRow
+                        label="启用编排"
+                        description="默认关闭；开启后重启应用生效（还需要对应 Agent 已在运行才会被唤醒）。"
+                        control={
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            aria-label="启用编排"
+                            checked={draft.orchestrationEnabled ?? false}
+                            disabled={updateSettingsMutation.isPending}
+                            onChange={(event) =>
+                              patchDraft({
+                                orchestrationEnabled: event.currentTarget.checked,
+                              })
+                            }
+                          />
+                        }
+                      />
+                    </div>
+                  </SectionCard>
+                </div>
+
                 <div id="settings-replies" className="settings-anchor">
                   <SectionCard
                     title="回复"
