@@ -182,6 +182,7 @@ impl AgentAdapter for TestAgent {
         AgentCapabilities {
             notify: true,
             resume: !matches!(self.mode, AgentMode::Unsupported),
+            session_open: false,
             session_title: true,
             hook_installer: false,
             reply_window: false,

@@ -1,0 +1,226 @@
+//! 编排任务（§3.2 TASK 实体）：A2A Task 为唯一事实源 + 编排语境元数据。
+//!
+//! 会话语义（§8.3/§8.4）：新会话 = message 的 taskId/contextId 均为 None；
+//! 续聊 = 带 taskId + contextId。编排语境序列化在 A2A Task.metadata["orc"]，
+//! 不建第二套事实源。
+
+use a2a_rs_core::{Message, Part, Role, Task, TaskState, TaskStatus};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::error::OrcError;
+use crate::workflow::Workflow;
+
+/// 通知节奏（§4.6）：默认只推最终汇报，可切逐步流转。
+/// wire 取值与设计文档 `TASK.notify_mode` 一致（final_only / verbose）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotifyMode {
+    /// 只推最顶层最终汇报（默认）
+    #[default]
+    FinalOnly,
+    /// 每个 Step 的汇报都推（逐步流转）
+    Verbose,
+}
+
+impl NotifyMode {
+    /// 稳定字符串取值（final_only / verbose），供呈现层使用。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::FinalOnly => "final_only",
+            Self::Verbose => "verbose",
+        }
+    }
+}
+
+/// 编排语境元数据：挂在 A2A `Task.metadata["orc"]` 下（键见 [`ORC_META_KEY`]）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcMeta {
+    pub workflow_id: String,
+    /// 当前步骤序号（从 1 开始）
+    pub current_step: u32,
+    /// 被卡住的步骤（未阻塞为 None）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_step: Option<u32>,
+    /// 阻塞原因（未阻塞为 None；写清哪一步失败/谁不可用/未送达）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_reason: Option<String>,
+    pub notify_mode: NotifyMode,
+    /// 任务目标（用户原话）
+    pub goal: String,
+}
+
+/// A2A Task.metadata 中编排语境所在的键。
+pub const ORC_META_KEY: &str = "orc";
+
+/// 编排任务：A2A Task 包装 + 工作流语境（workflow_id/current_step/notify_mode/blocked 等）。
+///
+/// 语境以 [`OrcMeta`] 存在 `a2a_task.metadata["orc"]`，读写都经本包装，
+/// 保证 A2A Task 是唯一事实源（§8.3「不建第二套」）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrcTask {
+    pub a2a_task: Task,
+}
+
+impl OrcTask {
+    /// 新建编排任务：当前步骤 = 第 1 步，A2A 状态 = Working（开工）。
+    /// context_id 取任务自身 id：一个编排任务即一个逻辑会话（§3.3/§8.4）。
+    pub fn new(workflow: &Workflow, goal: &str, notify_mode: NotifyMode) -> Result<Self, OrcError> {
+        let id = Uuid::new_v4().to_string();
+        let meta = OrcMeta {
+            workflow_id: workflow.id.clone(),
+            current_step: 1,
+            blocked_step: None,
+            block_reason: None,
+            notify_mode,
+            goal: goal.to_string(),
+        };
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            ORC_META_KEY.to_string(),
+            serde_json::to_value(meta)
+                .map_err(|e| OrcError::meta_invalid(&format!("序列化失败：{e}")))?,
+        );
+        let a2a_task = Task {
+            kind: "task".to_string(),
+            id: id.clone(),
+            context_id: id,
+            status: TaskStatus {
+                state: TaskState::Working,
+                message: None,
+                timestamp: None,
+            },
+            artifacts: None,
+            history: None,
+            metadata: Some(serde_json::Value::Object(metadata)),
+        };
+        Ok(Self { a2a_task })
+    }
+
+    /// 从 A2A Task 还原编排语境；缺 metadata/编排键/字段损坏 → 明确报错（不猜测兜底）。
+    pub fn from_a2a(task: Task) -> Result<Self, OrcError> {
+        let _ = Self::meta_of(&task)?;
+        Ok(Self { a2a_task: task })
+    }
+
+    pub fn id(&self) -> &str {
+        &self.a2a_task.id
+    }
+
+    /// 任务当前 A2A 状态（唯一事实源）。
+    pub fn state(&self) -> TaskState {
+        self.a2a_task.status.state
+    }
+
+    pub fn set_state(&mut self, state: TaskState) {
+        self.a2a_task.status.state = state;
+    }
+
+    pub fn meta(&self) -> Result<OrcMeta, OrcError> {
+        Self::meta_of(&self.a2a_task)
+    }
+
+    pub fn workflow_id(&self) -> Result<String, OrcError> {
+        Ok(self.meta()?.workflow_id)
+    }
+
+    pub fn current_step(&self) -> Result<u32, OrcError> {
+        Ok(self.meta()?.current_step)
+    }
+
+    pub fn blocked_step(&self) -> Result<Option<u32>, OrcError> {
+        Ok(self.meta()?.blocked_step)
+    }
+
+    pub fn notify_mode(&self) -> Result<NotifyMode, OrcError> {
+        Ok(self.meta()?.notify_mode)
+    }
+
+    pub fn goal(&self) -> Result<String, OrcError> {
+        Ok(self.meta()?.goal)
+    }
+
+    pub fn set_current_step(&mut self, step: u32) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.current_step = step;
+        self.put_meta(&meta)
+    }
+
+    /// 记录阻塞：step = 哪一步失败，reason = 谁不可用/未送达的原因（§4.6）。
+    pub fn set_blocked(&mut self, step: u32, reason: &str) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.blocked_step = Some(step);
+        meta.block_reason = Some(reason.to_string());
+        self.put_meta(&meta)
+    }
+
+    /// 清除阻塞标记（人工重新发起后）。
+    pub fn clear_blocked(&mut self) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.blocked_step = None;
+        meta.block_reason = None;
+        self.put_meta(&meta)
+    }
+
+    fn meta_of(task: &Task) -> Result<OrcMeta, OrcError> {
+        let metadata = task
+            .metadata
+            .as_ref()
+            .ok_or_else(|| OrcError::meta_invalid("metadata 缺失"))?;
+        let orc = metadata
+            .get(ORC_META_KEY)
+            .ok_or_else(|| OrcError::meta_invalid(&format!("缺少 {ORC_META_KEY} 键")))?;
+        serde_json::from_value(orc.clone())
+            .map_err(|e| OrcError::meta_invalid(&format!("解析失败：{e}")))
+    }
+
+    fn put_meta(&mut self, meta: &OrcMeta) -> Result<(), OrcError> {
+        let value = serde_json::to_value(meta)
+            .map_err(|e| OrcError::meta_invalid(&format!("序列化失败：{e}")))?;
+        let metadata = self
+            .a2a_task
+            .metadata
+            .get_or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        let map = metadata
+            .as_object_mut()
+            .ok_or_else(|| OrcError::meta_invalid("metadata 不是 JSON 对象"))?;
+        map.insert(ORC_META_KEY.to_string(), value);
+        Ok(())
+    }
+}
+
+/// 新会话消息（A2A 语义 = 发起新任务/新会话）：task_id/context_id 均为 None，wire 上不出现。
+pub fn new_session_message(role: Role, text: impl Into<String>) -> Message {
+    Message {
+        kind: "message".to_string(),
+        message_id: Uuid::new_v4().to_string(),
+        context_id: None,
+        task_id: None,
+        role,
+        parts: vec![Part::text(text)],
+        metadata: None,
+        extensions: vec![],
+        reference_task_ids: None,
+    }
+}
+
+/// 续聊消息：带 task_id + context_id（wire 名 taskId/contextId，§8.4）。
+pub fn continue_message(
+    role: Role,
+    text: impl Into<String>,
+    task_id: &str,
+    context_id: &str,
+) -> Message {
+    Message {
+        kind: "message".to_string(),
+        message_id: Uuid::new_v4().to_string(),
+        context_id: Some(context_id.to_string()),
+        task_id: Some(task_id.to_string()),
+        role,
+        parts: vec![Part::text(text)],
+        metadata: None,
+        extensions: vec![],
+        reference_task_ids: None,
+    }
+}

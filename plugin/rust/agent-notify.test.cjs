@@ -284,6 +284,67 @@ test("heartbeat, at-most-once claim, timeout and dispose are bounded", async () 
   assert.equal(fs.readdirSync(heartbeatDir).length, 0)
 })
 
+test("open=true job starts a new session with the orchestration sessionID", async () => {
+  const { __test } = await pluginModule
+  const promptCalls = []
+  const ctx = fakeContext(async (input) => {
+    promptCalls.push(input)
+  })
+  writeJob("job-open", "【task_9】Step 1 开工信封", {
+    open: true,
+    sessionID: "task-9-step-1",
+  })
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  assert.deepEqual(readResult("job-open"), { ok: true, error: "" })
+  assert.equal(promptCalls.length, 1)
+  assert.deepEqual(promptCalls[0], {
+    sessionID: "task-9-step-1",
+    text: "【task_9】Step 1 开工信封",
+    delivery: "steer",
+  })
+})
+
+test("open=false or missing open resumes the existing session unchanged", async () => {
+  const { __test } = await pluginModule
+  const promptCalls = []
+  const ctx = fakeContext(async (input) => {
+    promptCalls.push(input)
+  })
+  writeJob("job-resume-false", "继续处理", { open: false })
+  writeJob("job-resume-missing", "继续处理")
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  assert.deepEqual(readResult("job-resume-false"), { ok: true, error: "" })
+  assert.deepEqual(readResult("job-resume-missing"), { ok: true, error: "" })
+  assert.deepEqual(promptCalls, [
+    { sessionID: "session-1", text: "继续处理", delivery: "steer" },
+    { sessionID: "session-1", text: "继续处理", delivery: "steer" },
+  ])
+})
+
+test("open=true on legacy promptAsync shape fails with a clear message", async () => {
+  const { __test } = await pluginModule
+  const legacyCtx = {
+    session: {
+      get: async () => ({ data: { title: "插件测试" } }),
+      context: async () => ({ data: [] }),
+    },
+    client: { session: { promptAsync: async () => {} } },
+    event: {
+      subscribe: async function* subscribe() {
+        yield* []
+      },
+    },
+  }
+  writeJob("job-open-legacy", "开工信封", { open: true })
+  await __test.processReplyJobs(legacyCtx, "test-instance")
+
+  const result = readResult("job-open-legacy")
+  assert.equal(result.ok, false)
+  assert.match(result.error, /不支持发起新会话/)
+})
+
 test("ingress failure is swallowed and does not reject OpenCode", async () => {
   const { __test } = await pluginModule
   const ctx = fakeContext(async () => {})

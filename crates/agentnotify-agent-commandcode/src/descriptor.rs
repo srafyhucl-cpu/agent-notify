@@ -26,6 +26,7 @@ pub const fn capabilities() -> AgentCapabilities {
     AgentCapabilities {
         notify: true,
         resume: true,
+        session_open: false,
         session_title: true,
         hook_installer: true,
         // Command Code 是唯一由 mod 撑开等待窗口的 Agent，回复能力受窗口约束。

@@ -303,6 +303,7 @@ impl AgentAdapter for TestAgent {
         AgentCapabilities {
             notify: true,
             resume: self.resume,
+            session_open: false,
             session_title: true,
             hook_installer: false,
             reply_window: false,

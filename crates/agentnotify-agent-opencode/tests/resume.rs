@@ -172,10 +172,71 @@ async fn job_payload_uses_plugin_field_names() {
         object.get("sessionId").is_none(),
         "不得写成 camelCase 的 sessionId"
     );
+    assert_eq!(
+        object.get("open"),
+        Some(&serde_json::Value::Bool(false)),
+        "续聊任务必须显式写出 open=false"
+    );
     assert!(object.get("createdAt").is_some());
     assert!(object.get("expiresAt").is_some());
     assert!(object.get("id").is_some());
     assert!(object.get("text").is_some());
+}
+
+/// open=true 的任务必须以插件约定的字段名写出 open 标志，插件据此发起新会话开工。
+#[tokio::test]
+async fn open_job_payload_writes_open_flag() {
+    let (_temp, inbox) = ready_inbox().await;
+    let session_id = AgentSessionId::new("task-9-step-1").unwrap();
+    let adapter = agentnotify_agent_opencode::OpenCodeAgent::new(inbox.clone());
+    let reader = tokio::spawn({
+        let inbox = inbox.clone();
+        async move { capture_job_json(&inbox).await }
+    });
+
+    adapter
+        .inbox()
+        .open_with_timeout(&session_id, "【task_9】开工信封", Duration::from_secs(2))
+        .await
+        .unwrap();
+
+    let raw = reader.await.unwrap();
+    let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let object = value.as_object().unwrap();
+    assert_eq!(
+        object.get("sessionID").and_then(|value| value.as_str()),
+        Some("task-9-step-1")
+    );
+    assert_eq!(
+        object.get("open"),
+        Some(&serde_json::Value::Bool(true)),
+        "open 任务必须写出 open=true"
+    );
+    assert!(object.get("text").is_some());
+}
+
+/// 发起新会话的成功结果同样返回已接受回执。
+#[tokio::test]
+async fn open_session_success_returns_accepted_receipt() {
+    let (_temp, inbox) = ready_inbox().await;
+    let session_id = AgentSessionId::new("task-9-step-2").unwrap();
+    let adapter = agentnotify_agent_opencode::OpenCodeAgent::new(inbox.clone());
+    let plugin = tokio::spawn({
+        let inbox = inbox.clone();
+        async move {
+            let job_id = claim_pending_once(&inbox).await;
+            write_result(&inbox, &job_id, true, "").await;
+        }
+    });
+
+    adapter
+        .inbox()
+        .open(&session_id, "【task_9】Step 2 开工信封")
+        .await
+        .expect("open 成功结果应返回接受回执");
+
+    plugin.await.unwrap();
+    assert_eq!(inbox.pending_count().await, 0);
 }
 
 /// 运行时写出的每个字段都必须由插件接口声明。这条断言直接读插件源码里的 `ReplyJob`，
