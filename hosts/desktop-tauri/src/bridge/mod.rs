@@ -14,7 +14,7 @@ pub use dto::*;
 pub use error::CommandError;
 pub use events::{ChannelLoginChangedEvent, DeliveryChangedEvent, SnapshotChangedEvent};
 
-pub const BUSINESS_COMMAND_NAMES: [&str; 21] = [
+pub const BUSINESS_COMMAND_NAMES: [&str; 26] = [
     "get_snapshot",
     "list_agents",
     "update_agent_config",
@@ -36,6 +36,11 @@ pub const BUSINESS_COMMAND_NAMES: [&str; 21] = [
     "quit_app",
     "get_update_status",
     "install_update",
+    "create_orc_task",
+    "list_orc_tasks",
+    "advance_orc_task",
+    "mark_blocked_orc_task",
+    "recover_blocked_orc_task",
 ];
 
 pub fn specta_builder() -> Builder<tauri::Wry> {
@@ -63,6 +68,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::quit_app,
             commands::get_update_status,
             commands::install_update,
+            commands::create_orc_task,
+            commands::list_orc_tasks,
+            commands::advance_orc_task,
+            commands::mark_blocked_orc_task,
+            commands::recover_blocked_orc_task,
         ])
         .events(collect_events![
             events::SnapshotChangedEvent,

@@ -30,6 +30,11 @@ fn stable_command_names_are_exact_and_append_only() {
             "quit_app",
             "get_update_status",
             "install_update",
+            "create_orc_task",
+            "list_orc_tasks",
+            "advance_orc_task",
+            "mark_blocked_orc_task",
+            "recover_blocked_orc_task",
         ]
     );
 }

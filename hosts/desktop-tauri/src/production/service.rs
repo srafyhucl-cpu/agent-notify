@@ -9,6 +9,9 @@ use agentnotify_channel_sdk::{BeginLoginRequest, ChannelLoginAdapter, LoginSessi
 use agentnotify_domain::{
     AgentId, ChannelAccountId, DeliveryId, DeliveryState, NotificationId, RequestId, Timestamp,
 };
+use agentnotify_orchestration::{
+    MessageKind, NotifyMode, OrcError, OrcStore, OrcTask, TaskState, Workflow,
+};
 use agentnotify_storage_sqlite::{NotificationQuery, SqliteStore};
 use tauri::{AppHandle, Wry};
 
@@ -41,22 +44,25 @@ pub struct ProductionHostCommandService {
     store: Arc<SqliteStore>,
     settings: ProductionSettingsStore,
     updates: Arc<UpdateService>,
+    orchestration: OrcCommandHandler,
 }
 
 impl ProductionHostCommandService {
-    pub fn new(
+    pub async fn new(
         app: Option<AppHandle<Wry>>,
         runtime: Arc<ProductionRuntimeCoordinator>,
         store: Arc<SqliteStore>,
         settings: ProductionSettingsStore,
         updates: Arc<UpdateService>,
     ) -> Self {
+        let orchestration = OrcCommandHandler::new(orchestration_store(&store, &settings).await);
         Self {
             app,
             runtime,
             store,
             settings,
             updates,
+            orchestration,
         }
     }
 
@@ -976,6 +982,38 @@ impl HostCommandService for ProductionHostCommandService {
             },
         )
     }
+
+    async fn create_orc_task(
+        &self,
+        payload: CreateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.create(payload).await
+    }
+
+    async fn list_orc_tasks(&self, _payload: EmptyPayload) -> Result<Vec<OrcTaskDto>, CommandError> {
+        self.orchestration.list().await
+    }
+
+    async fn advance_orc_task(
+        &self,
+        payload: AdvanceOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.advance(payload).await
+    }
+
+    async fn mark_blocked_orc_task(
+        &self,
+        payload: MarkBlockedOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.mark_blocked(payload).await
+    }
+
+    async fn recover_blocked_orc_task(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.recover_blocked(payload).await
+    }
 }
 
 impl ProductionHostCommandService {
@@ -1033,6 +1071,182 @@ impl ProductionHostCommandService {
         }
 
         Err(CommandError::new("account_not_found", "更新后找不到账号"))
+    }
+}
+
+/// 编排命令处理器（P1-1，B 方案接线）。
+///
+/// 持有可选的 [`OrcStore`]：`orchestration.enabled` 开启时才装配 SQLite 仓储（§8.5 默认关闭）；
+/// 未启用时所有编排命令返回明确错误（`orchestration_disabled`），对既有功能零影响。
+pub struct OrcCommandHandler {
+    store: Option<OrcStore>,
+}
+
+/// 编排开关设置键（settings 表），默认关闭。
+pub const KEY_ORCHESTRATION_ENABLED: &str = "orchestration.enabled";
+const ORCHESTRATION_DISABLED_CODE: &str = "orchestration_disabled";
+const ORCHESTRATION_DISABLED_MESSAGE: &str =
+    "编排未启用：请在设置中启用 orchestration.enabled 后重启应用";
+
+impl OrcCommandHandler {
+    pub fn new(store: Option<OrcStore>) -> Self {
+        Self { store }
+    }
+
+    fn require_store(&self) -> Result<&OrcStore, CommandError> {
+        self.store.as_ref().ok_or_else(|| {
+            CommandError::new(ORCHESTRATION_DISABLED_CODE, ORCHESTRATION_DISABLED_MESSAGE)
+        })
+    }
+
+    pub async fn create(
+        &self,
+        payload: CreateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let store = self.require_store()?;
+        let goal = payload.goal.trim();
+        if goal.is_empty() {
+            return Err(CommandError::new("orc_goal_empty", "任务目标不能为空"));
+        }
+        let notify_mode = parse_notify_mode(payload.notify_mode.as_deref())?;
+        let task = store
+            .create_task(goal, notify_mode)
+            .await
+            .map_err(orc_error)?;
+        orc_task_to_dto(&task)
+    }
+
+    pub async fn list(&self) -> Result<Vec<OrcTaskDto>, CommandError> {
+        let store = self.require_store()?;
+        let tasks = store.list_tasks().await.map_err(orc_error)?;
+        tasks.iter().map(orc_task_to_dto).collect()
+    }
+
+    pub async fn advance(
+        &self,
+        payload: AdvanceOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let store = self.require_store()?;
+        let kind = parse_message_kind(payload.kind);
+        store
+            .on_message(&payload.task_id, kind)
+            .await
+            .map_err(orc_error)?;
+        let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
+        orc_task_to_dto(&task)
+    }
+
+    pub async fn mark_blocked(
+        &self,
+        payload: MarkBlockedOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let store = self.require_store()?;
+        let reason = payload.reason.trim();
+        if reason.is_empty() {
+            return Err(CommandError::new(
+                "orc_block_reason_empty",
+                "阻塞原因不能为空（请写清哪一步失败、谁不可用、未送达）",
+            ));
+        }
+        let task = store
+            .mark_blocked(&payload.task_id, payload.step, reason)
+            .await
+            .map_err(orc_error)?;
+        orc_task_to_dto(&task)
+    }
+
+    pub async fn recover_blocked(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let store = self.require_store()?;
+        let task = store
+            .recover_blocked(&payload.task_id)
+            .await
+            .map_err(orc_error)?;
+        orc_task_to_dto(&task)
+    }
+}
+
+/// 读取 `orchestration.enabled`（默认关闭，§8.5）；开启时装配绑定预置工作流的 SQLite 仓储。
+/// 设置读取失败按默认关闭处理（保守：编排是可选功能，不阻塞应用启动）。
+pub async fn orchestration_store(
+    store: &Arc<SqliteStore>,
+    settings: &ProductionSettingsStore,
+) -> Option<OrcStore> {
+    let enabled = match settings.store().settings_entries().await {
+        Ok(entries) => entries
+            .get(KEY_ORCHESTRATION_ENABLED)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        Err(error) => {
+            tracing::warn!(%error, "读取编排开关失败，按默认关闭（orchestration.enabled=false）处理");
+            false
+        }
+    };
+    if !enabled {
+        return None;
+    }
+    let workflow = Workflow::preset(false).expect("预置工作流必须有效");
+    Some(OrcStore::with_repository(workflow, store.clone()))
+}
+
+/// 通知节奏解析：缺省 final_only（只推最终汇报，§4.6）；未知取值明确报错，不猜测。
+fn parse_notify_mode(raw: Option<&str>) -> Result<NotifyMode, CommandError> {
+    match raw {
+        None | Some("final_only") => Ok(NotifyMode::FinalOnly),
+        Some("verbose") => Ok(NotifyMode::Verbose),
+        Some(other) => Err(CommandError::new(
+            "orc_notify_mode_invalid",
+            format!("无效的通知节奏：{other}（可选 final_only / verbose）"),
+        )),
+    }
+}
+
+fn parse_message_kind(kind: OrcMessageKindDto) -> MessageKind {
+    match kind {
+        OrcMessageKindDto::Report => MessageKind::Report,
+        OrcMessageKindDto::Instruction => MessageKind::Instruction,
+        OrcMessageKindDto::Confirm => MessageKind::Confirm,
+        OrcMessageKindDto::Question => MessageKind::Question,
+        OrcMessageKindDto::Info => MessageKind::Info,
+    }
+}
+
+/// 编排错误 → 命令错误：保留稳定错误码与中文用户消息。
+fn orc_error(error: OrcError) -> CommandError {
+    CommandError::new(error.code.as_str(), error.message)
+}
+
+/// 脱敏后的任务视图：只暴露任务上下文，不暴露内部元数据细节。
+fn orc_task_to_dto(task: &OrcTask) -> Result<OrcTaskDto, CommandError> {
+    let meta = task.meta().map_err(orc_error)?;
+    Ok(OrcTaskDto {
+        id: task.id().to_string(),
+        workflow_id: meta.workflow_id,
+        state: orc_task_state_dto(task.state()),
+        current_step: meta.current_step,
+        blocked_step: meta.blocked_step,
+        block_reason: meta.block_reason,
+        notify_mode: meta.notify_mode.as_str().to_string(),
+        goal: meta.goal,
+    })
+}
+
+/// A2A `TaskState` → 稳定 DTO 字符串（§8.3 映射表的桌面呈现侧）。
+/// `TaskState` 带 `#[non_exhaustive]`：未来新增状态统一落到 `Unspecified`，保持契约稳定。
+fn orc_task_state_dto(state: TaskState) -> OrcTaskStateDto {
+    match state {
+        TaskState::Unspecified => OrcTaskStateDto::Unspecified,
+        TaskState::Submitted => OrcTaskStateDto::Submitted,
+        TaskState::Working => OrcTaskStateDto::Working,
+        TaskState::Completed => OrcTaskStateDto::Completed,
+        TaskState::Failed => OrcTaskStateDto::Failed,
+        TaskState::Canceled => OrcTaskStateDto::Canceled,
+        TaskState::InputRequired => OrcTaskStateDto::InputRequired,
+        TaskState::Rejected => OrcTaskStateDto::Rejected,
+        TaskState::AuthRequired => OrcTaskStateDto::AuthRequired,
+        _ => OrcTaskStateDto::Unspecified,
     }
 }
 

@@ -10,6 +10,7 @@ agentnotify-application = { path = "../agentnotify-application" }
 agentnotify-domain = { path = "../agentnotify-domain" }
 agentnotify-channel-clawbot = { path = "../agentnotify-channel-clawbot" }
 agentnotify-channel-sdk = { path = "../agentnotify-channel-sdk" }
+agentnotify-orchestration = { path = "../agentnotify-orchestration" }
 async-trait.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

@@ -176,13 +176,16 @@ async fn bootstrap_internal(
         ingress_pipe_enabled,
     ));
 
-    let service = Arc::new(ProductionHostCommandService::new(
-        app,
-        coordinator.clone(),
-        store,
-        settings,
-        updates,
-    ));
+    let service = Arc::new(
+        ProductionHostCommandService::new(
+            app,
+            coordinator.clone(),
+            store,
+            settings,
+            updates,
+        )
+        .await,
+    );
 
     // 启动生产运行时
     let _ = coordinator.start_or_restart().await?;

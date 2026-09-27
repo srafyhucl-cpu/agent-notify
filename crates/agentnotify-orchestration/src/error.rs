@@ -30,6 +30,8 @@ pub enum OrcErrorCode {
     CannotBlockTerminal,
     /// 状态机未覆盖的非法转移
     InvalidTransition,
+    /// 底层任务仓储访问失败（数据库不可用/数据损坏等持久化层错误）
+    Repository,
 }
 
 impl OrcErrorCode {
@@ -47,6 +49,7 @@ impl OrcErrorCode {
             Self::TaskNotBlocked => "orc.task_not_blocked",
             Self::CannotBlockTerminal => "orc.cannot_block_terminal",
             Self::InvalidTransition => "orc.invalid_transition",
+            Self::Repository => "orc.repository_error",
         }
     }
 }
@@ -154,3 +157,46 @@ impl fmt::Display for OrcError {
 }
 
 impl std::error::Error for OrcError {}
+
+/// 底层任务仓储访问失败（持久化层错误，如数据库不可用、数据损坏）。
+///
+/// 这是 `OrcTaskRepository` 实现（内存 / SQLite）与编排业务之间的错误边界：
+/// 仓储实现返回本类型，`OrcStore` 统一映射为 [`OrcError`]（`Repository` 码）向上暴露，
+/// 保证编排 crate 不感知具体存储实现，也不依赖 storage-sqlite。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrcRepositoryError {
+    code: String,
+    message: String,
+}
+
+impl OrcRepositoryError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+
+    pub fn code(&self) -> &str {
+        &self.code
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl fmt::Display for OrcRepositoryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for OrcRepositoryError {}
+
+impl From<OrcRepositoryError> for OrcError {
+    /// 仓储失败统一收口为 `Repository` 错误码，保留面向用户的中文消息。
+    fn from(value: OrcRepositoryError) -> Self {
+        Self::new(OrcErrorCode::Repository, value.message)
+    }
+}
