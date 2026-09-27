@@ -136,6 +136,39 @@ impl Workflow {
         Self::new(PRESET_WORKFLOW_ID, PRESET_WORKFLOW_NAME, steps)
     }
 
+    /// 只用 OpenCode 的单 Agent 工作流：三步判断/规划/实施全部由 opencode 承担
+    /// （节点自由选 Agent，允许复用同一 Agent；§3.1 编排与 Agent 数量解耦，R11）。
+    pub fn preset_opencode_only() -> Result<Self, OrcError> {
+        let steps = vec![
+            WorkflowStep::new(
+                PRESET_ORDER_JUDGE,
+                ROLE_ORCHESTRATOR,
+                Some(AGENT_HINT_OPENCODE.to_string()),
+                None,
+                false,
+            ),
+            WorkflowStep::new(
+                PRESET_ORDER_PLAN,
+                ROLE_PLANNER,
+                Some(AGENT_HINT_OPENCODE.to_string()),
+                None,
+                false,
+            ),
+            WorkflowStep::new(
+                PRESET_ORDER_EXECUTE,
+                ROLE_EXECUTOR,
+                Some(AGENT_HINT_OPENCODE.to_string()),
+                None,
+                false,
+            ),
+        ];
+        Self::new(
+            "preset-opencode-only",
+            "OpenCode 三步流转（判断→规划→实施）",
+            steps,
+        )
+    }
+
     /// 最后一步的序号（= 步骤数）。
     pub fn max_order(&self) -> u32 {
         self.steps.len() as u32
