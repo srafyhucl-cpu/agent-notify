@@ -207,6 +207,7 @@ async fn fixture() -> Fixture {
             worker_idle_delay: Duration::from_millis(5),
             status_refresh_interval: Duration::from_millis(5),
             channel_poll_interval: Duration::from_millis(5),
+            inbound_interceptor: None,
         },
         healthy,
         failing,

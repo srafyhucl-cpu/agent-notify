@@ -2,6 +2,7 @@ mod agents;
 mod app_exit;
 pub mod events;
 mod mapping;
+pub mod orc_wechat_route;
 pub mod runtime;
 pub mod service;
 pub mod settings;
@@ -22,8 +23,10 @@ use crate::update::{UpdateService, UpdateTransport};
 use agents::{
     assemble_agents, legacy_installation_detected, load_agent_configs, seed_disabled_agent_configs,
 };
+use service::{OrcCommandHandler, orchestration_store};
 
 pub use events::EventForwarder;
+pub use orc_wechat_route::WechatOrcRouter;
 pub use runtime::ProductionRuntimeCoordinator;
 pub use service::ProductionHostCommandService;
 pub use settings::ProductionSettingsStore;
@@ -162,19 +165,30 @@ async fn bootstrap_internal(
     ));
 
     let ingress_pipe_enabled = app.is_some();
-    let coordinator = Arc::new(ProductionRuntimeCoordinator::with_ingress_pipe(
-        paths,
+    // P1-3 微信集群指令入口：宿主装配微信路由（复用与 bridge 命令同一份 OrcCommandHandler
+    // 实现；未启用编排时由 handler 明确报错并回执「编排未启用」）。
+    let wechat_orc_router = WechatOrcRouter::new(
+        OrcCommandHandler::new(orchestration_store(&store, &settings).await),
+        channel_registry.clone(),
         store.clone(),
-        settings.clone(),
-        secret_store,
-        agent_registry,
-        channel_registry,
-        login_adapter,
-        target_provider,
-        env!("CARGO_PKG_VERSION"),
-        "windows",
-        ingress_pipe_enabled,
-    ));
+        Some(store.clone()),
+    );
+    let coordinator = Arc::new(
+        ProductionRuntimeCoordinator::with_ingress_pipe(
+            paths,
+            store.clone(),
+            settings.clone(),
+            secret_store,
+            agent_registry,
+            channel_registry,
+            login_adapter,
+            target_provider,
+            env!("CARGO_PKG_VERSION"),
+            "windows",
+            ingress_pipe_enabled,
+        )
+        .with_inbound_interceptor(Some(Arc::new(wechat_orc_router))),
+    );
 
     let service = Arc::new(
         ProductionHostCommandService::new(app, coordinator.clone(), store, settings, updates).await,
