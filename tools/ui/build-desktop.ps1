@@ -57,7 +57,13 @@ if (-not (Get-Command link.exe -ErrorAction SilentlyContinue)) {
 if (-not $SkipGate) {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tools\ui\gate.ps1')
   if ($LASTEXITCODE -ne 0) {
-    throw "UI/Rust gate failed with exit code $LASTEXITCODE"
+    throw "UI gate failed with exit code $LASTEXITCODE"
+  }
+  # 拆分的 Rust 门禁：ui\gate.ps1 自 P1-1 起只跑前端全链，Rust（fmt/clippy/test）单独一个入口；
+  # 本地全量构建要保持与发版一致的完整验证，这里显式补跑 Rust gate。
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tools\rust\gate.ps1')
+  if ($LASTEXITCODE -ne 0) {
+    throw "Rust gate failed with exit code $LASTEXITCODE"
   }
 } else {
   & npm --prefix (Join-Path $RepoRoot 'apps\desktop-ui') run build

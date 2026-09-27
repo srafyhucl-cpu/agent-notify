@@ -6,6 +6,13 @@ $env:TMP = $env:TEMP
 $env:PLAYWRIGHT_BROWSERS_PATH = if ($env:PLAYWRIGHT_BROWSERS_PATH -like 'D:\*') { $env:PLAYWRIGHT_BROWSERS_PATH } else { 'D:\Tools\playwright-browsers' }
 New-Item -ItemType Directory -Force -Path $env:npm_config_cache,$env:TEMP | Out-Null
 
+# 本脚本只跑 UI 全链（npm ci → bridge 生成校验 → typecheck → vitest → build → Playwright e2e）。
+# Rust 门禁（fmt/clippy/cargo test）由两个入口负责，避免重复：
+# - 本地全量：先后跑 tools\ui\gate.ps1 与 tools\rust\gate.ps1（或 tools\test.ps1）；
+# - CI：ci.yml 的 rust 与 ui 两个 job 分别调用各自 gate，并行执行。
+# 注意：不要在结尾追加 rust gate 调用——它会让 Unix 与 Windows 的 gate 语义发散，也会
+# 让 CI 的 "Rust and UI workspace" 变成一个串行跑完两者的长 job。
+
 Push-Location (Join-Path $root 'apps\desktop-ui')
 try {
     npm ci
@@ -34,5 +41,3 @@ try {
 finally {
     Pop-Location
 }
-
-powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\rust\gate.ps1')

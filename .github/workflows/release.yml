@@ -126,6 +126,7 @@ jobs:
           ./tools/lint.ps1
           ./tools/test.ps1
           ./tools/ui/gate.ps1
+          ./tools/rust/gate.ps1
       - name: Install verified Inno Setup
         shell: powershell
         run: |
