@@ -111,6 +111,29 @@ fn step_lookup_and_ordering() {
     assert!(wf.step(99).is_none(), "order 超出范围越界");
 }
 
+/// 只用 OpenCode 的单 Agent 工作流：三步角色各司其职、Agent 提示全是 opencode（§3.1 解耦，R11）。
+#[test]
+fn preset_opencode_only_shape() {
+    let wf = Workflow::preset_opencode_only().unwrap();
+    assert_eq!(wf.id, "preset-opencode-only");
+    assert_eq!(wf.steps.len(), 3);
+    assert_eq!(wf.max_order(), 3);
+
+    for order in [PRESET_ORDER_JUDGE, PRESET_ORDER_PLAN, PRESET_ORDER_EXECUTE] {
+        let s = wf.step(order).unwrap();
+        assert_eq!(
+            s.agent_hint.as_deref(),
+            Some(AGENT_HINT_OPENCODE),
+            "Step {order} 必须由 OpenCode 承担"
+        );
+        assert!(!s.human_gate, "单 Agent 流转步骤不应有人工确认门");
+    }
+
+    assert_eq!(wf.step(PRESET_ORDER_JUDGE).unwrap().role, ROLE_ORCHESTRATOR);
+    assert_eq!(wf.step(PRESET_ORDER_PLAN).unwrap().role, ROLE_PLANNER);
+    assert_eq!(wf.step(PRESET_ORDER_EXECUTE).unwrap().role, ROLE_EXECUTOR);
+}
+
 /// 用户自定义工作流：自定义角色与 human_gate 原样保留。
 #[test]
 fn custom_workflow_keeps_user_fields() {

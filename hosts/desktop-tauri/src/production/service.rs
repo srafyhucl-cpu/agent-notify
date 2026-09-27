@@ -1123,6 +1123,8 @@ pub struct OrcCommandHandler {
 
 /// 编排开关设置键（settings 表），默认关闭。
 pub const KEY_ORCHESTRATION_ENABLED: &str = "orchestration.enabled";
+/// 编排工作流选择设置键（settings 表）：`opencode-only` 只用 OpenCode 单 Agent；其它/缺失 = 默认多 Agent 委托。
+pub const KEY_ORCHESTRATION_WORKFLOW: &str = "orchestration.workflow";
 /// 全局默认通知节奏设置键（settings 表，P1-4 §4.6）：缺失/非法回退 `final_only` 并告警。
 pub const KEY_ORCHESTRATION_NOTIFY_MODE: &str = "orchestration.notify_mode";
 /// 用户 harness 模板配置文件（`config_dir` 下，§4.3 / P1-5；缺失 = 内置默认兜底）。
@@ -1506,7 +1508,23 @@ pub async fn orchestration_store(
     if !enabled {
         return None;
     }
-    let workflow = Workflow::preset(false).expect("预置工作流必须有效");
+    // 工作流选择（`orchestration.workflow`）：`opencode-only` = 只用 OpenCode 单 Agent 三步流转
+    //（用户只开 OpenCode 即可体验完整编排）；默认/其它取值 = 「需求→判断→规划→实施」多 Agent 委托。
+    let workflow = match settings.store().settings_entries().await {
+        Ok(entries) => match entries
+            .get(KEY_ORCHESTRATION_WORKFLOW)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+        {
+            Some("opencode-only") => Workflow::preset_opencode_only(),
+            _ => Workflow::preset(false),
+        },
+        Err(error) => {
+            tracing::warn!(%error, "读取编排工作流配置失败，按默认多 Agent 委托处理");
+            Workflow::preset(false)
+        }
+    }
+    .expect("预置工作流必须有效");
     Some(OrcStore::with_repository(workflow, store.clone()))
 }
 
