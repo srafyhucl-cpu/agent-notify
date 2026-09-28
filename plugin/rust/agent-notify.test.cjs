@@ -94,6 +94,19 @@ test("completion event has a stable idempotency key", async () => {
     second.payload.idempotencyKey,
     first.payload.idempotencyKey,
   )
+  assert.equal(first.payload.failed, undefined, "成功事件不得带失败标记")
+
+  // 失败回合必须带显式 failed: true（宿主据此走阻塞路径，不当完成推进）。
+  const failed = __test.completionEnvelope(
+    "session-1",
+    "标题",
+    "任务执行失败：模型不可用",
+    event,
+    "",
+    true,
+  )
+  assert.equal(failed.payload.failed, true)
+  assert.equal(failed.payload.eventType, "session.completed")
 })
 
 test("session.idle submits once per assistant message", async () => {
@@ -125,6 +138,7 @@ test("session.idle submits once per assistant message", async () => {
 
   assert.equal(submitted.length, 1)
   assert.equal(submitted[0].payload.body, "真实完成正文")
+  assert.equal(submitted[0].payload.failed, undefined, "成功事件不得带失败标记")
   assert.equal(
     submitted[0].payload.idempotencyKey,
     "opencode:session-idle:message:msg-1",
@@ -159,6 +173,7 @@ test("OpenCode V2 event payload and assistant context are supported", async () =
   assert.equal(submitted.length, 1)
   assert.equal(submitted[0].payload.sessionId, "session-v2")
   assert.equal(submitted[0].payload.body, "V2 assistant 正文")
+  assert.equal(submitted[0].payload.failed, undefined, "成功事件不得带失败标记")
   assert.equal(
     submitted[0].payload.idempotencyKey,
     "opencode:session-v2:message:msg-v2-assistant",
@@ -194,6 +209,7 @@ test("session.execution.failed reports V2 provider errors", async () => {
 
   assert.equal(submitted.length, 1)
   assert.match(submitted[0].payload.title, /任务失败/)
+  assert.equal(submitted[0].payload.failed, true, "失败终态必须带显式失败标记")
   assert.equal(
     submitted[0].payload.body,
     "任务执行失败：Model unavailable: invalid/model",
@@ -247,6 +263,7 @@ test("session.error reports failure and suppresses the same idle round", async (
   assert.equal(submitted.length, 1)
   assert.match(submitted[0].payload.title, /任务失败/)
   assert.match(submitted[0].payload.body, /provider unavailable/)
+  assert.equal(submitted[0].payload.failed, true, "session.error 必须带显式失败标记")
 })
 
 test("heartbeat, at-most-once claim, timeout and dispose are bounded", async () => {

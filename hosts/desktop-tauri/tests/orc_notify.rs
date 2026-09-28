@@ -177,7 +177,12 @@ async fn final_only_pushes_only_the_final_report() {
 
     // 首节点汇总产出回注 → 任务完成，推最终汇报（正文 = 首节点产出）
     handler
-        .report_from_agent(&task_id, 1, "项目经理最终汇报：贪吃蛇已完成并自测通过。")
+        .report_from_agent(
+            &task_id,
+            1,
+            "项目经理最终汇报：贪吃蛇已完成并自测通过。",
+            false,
+        )
         .await
         .expect("汇总回注必须成功");
     let records = pushed.lock().unwrap();
@@ -275,7 +280,7 @@ async fn verbose_pushes_every_step_progress() {
 
     // 首节点汇总产出回注 → 任务完成，推最终汇报（verbose 也有这一条）。
     handler
-        .report_from_agent(&task_id, 1, "项目经理最终汇报")
+        .report_from_agent(&task_id, 1, "项目经理最终汇报", false)
         .await
         .expect("汇总回注必须成功");
     {
@@ -389,7 +394,7 @@ async fn final_only_pushes_gate_wait_and_final_report() {
 
     // 首节点汇总产出回注 → 完成并推最终汇报
     handler
-        .report_from_agent(&task_id, 1, "复核结论：通过，可以交付。")
+        .report_from_agent(&task_id, 1, "复核结论：通过，可以交付。", false)
         .await
         .expect("汇总回注必须成功");
     let records = pushed.lock().unwrap();

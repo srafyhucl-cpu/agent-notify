@@ -206,6 +206,21 @@ fn completed_envelope(session_id: &str, body: &str) -> AgentEventEnvelope {
     }
 }
 
+/// 失败终态事件（插件契约）：`eventType` 仍为 session.completed，但带显式 `failed: true` 标记。
+fn failed_envelope(session_id: &str, body: &str) -> AgentEventEnvelope {
+    AgentEventEnvelope {
+        request_id: RequestId::new("req-orc-report-failed").expect("有效请求标识"),
+        agent_id: AgentId::new("opencode").expect("有效 Agent 标识"),
+        payload: serde_json::json!({
+            "eventType": "session.completed",
+            "sessionId": session_id,
+            "title": "【opencode】会话（任务失败）",
+            "body": body,
+            "failed": true,
+        }),
+    }
+}
+
 /// 汇报到达（step 1 会话完成）→ 任务自动推进到 step 2，并派活 step 2 的 Agent。
 #[tokio::test]
 async fn completed_session_advances_task_and_dispatches_next_step() {
@@ -455,7 +470,60 @@ async fn summary_dispatch_failure_blocks_and_recover_redispatches() {
     );
 }
 
-/// 首节点汇总回合失败（插件把失败也上报为 session.completed）→ blocked 写清原因。
+/// 普通步骤执行失败（显式 failed 标记）→ blocked 且**不推进**，失败提醒照发。
+#[tokio::test]
+async fn middle_step_failure_blocks_without_advance() {
+    let (_root, store) = open_sqlite("agentnotify-orc-report-step-fail-");
+    let driver = Arc::new(FakeDriver::new());
+    let (presenter, pushed) = FakePresenter::new();
+    let handler = report_handler_with_presenter(&store, driver.clone(), presenter);
+    let observer = OrcReportObserver::new(handler.clone());
+
+    let task_id = create_task(&handler, &working_dir(&_root)).await;
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    assert_eq!(driver.calls().len(), 1, "开始只派活 Step 1");
+
+    observer
+        .observe(&failed_envelope(
+            &format!("task-{task_id}-step-1"),
+            "任务执行失败：所选模型不可用",
+        ))
+        .await;
+
+    let tasks = handler.list().await.expect("列出任务必须成功");
+    let task = tasks
+        .iter()
+        .find(|t| t.id == task_id)
+        .expect("任务必须存在");
+    assert_eq!(task.state, OrcTaskStateDto::Failed, "失败必须阻塞");
+    assert_eq!(task.blocked_step, Some(1));
+    assert_eq!(task.current_step, 1, "失败不得推进步骤");
+    let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
+    assert!(
+        reason.contains("Step 1 执行失败"),
+        "必须写清哪一步失败：{reason}"
+    );
+    assert!(reason.contains("所选模型不可用"), "{reason}");
+    assert!(!task.finalizing, "普通步骤失败不得进入汇总阶段：{task:?}");
+
+    assert_eq!(
+        driver.calls().len(),
+        1,
+        "失败不得派活下一步：{:?}",
+        driver.calls()
+    );
+    let pushed = pushed.lock().unwrap();
+    assert_eq!(pushed.len(), 1, "必须推失败提醒：{pushed:?}");
+    assert!(pushed[0].1.contains("Step 1 失败"), "{}", pushed[0].1);
+    assert!(pushed[0].1.contains("所选模型不可用"), "{}", pushed[0].1);
+}
+
+/// 首节点汇总回合失败（显式 failed 标记）→ blocked 写清原因。
 #[tokio::test]
 async fn summary_round_failure_blocks_with_clear_reason() {
     let (_root, store) = open_sqlite("agentnotify-orc-report-pm-round-fail-");
@@ -480,7 +548,7 @@ async fn summary_round_failure_blocks_with_clear_reason() {
     }
 
     observer
-        .observe(&completed_envelope(
+        .observe(&failed_envelope(
             &format!("task-{task_id}-step-1"),
             "任务执行失败：所选模型不可用",
         ))
@@ -499,6 +567,42 @@ async fn summary_round_failure_blocks_with_clear_reason() {
         "必须写清汇总回合失败：{reason}"
     );
     assert!(reason.contains("所选模型不可用"), "{reason}");
+}
+
+/// 旧插件兼容：失败终态无显式标记时，正文「任务执行失败：」仍识别为失败（不当作完成推进）。
+#[tokio::test]
+async fn legacy_failure_body_still_blocks() {
+    let (_root, store) = open_sqlite("agentnotify-orc-report-legacy-fail-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = report_handler(&store, driver.clone());
+    let observer = OrcReportObserver::new(handler.clone());
+
+    let task_id = create_task(&handler, &working_dir(&_root)).await;
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+
+    observer
+        .observe(&completed_envelope(
+            &format!("task-{task_id}-step-1"),
+            "任务执行失败：旧插件未带标记",
+        ))
+        .await;
+
+    let tasks = handler.list().await.expect("列出任务必须成功");
+    let task = tasks
+        .iter()
+        .find(|t| t.id == task_id)
+        .expect("任务必须存在");
+    assert_eq!(task.state, OrcTaskStateDto::Failed);
+    assert_eq!(task.blocked_step, Some(1));
+    assert_eq!(task.current_step, 1, "失败不得推进步骤");
+    let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
+    assert!(reason.contains("Step 1 执行失败"), "{reason}");
+    assert!(reason.contains("旧插件未带标记"), "{reason}");
 }
 
 /// 非编排会话（普通 OpenCode 会话）完成 → 任务不受影响。

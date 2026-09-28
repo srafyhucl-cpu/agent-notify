@@ -586,8 +586,11 @@ impl OrcCommandHandler {
     /// 后复用 [`Self::advance`]（Report）完成推进（含通知节奏呈现与下一步派活），
     /// 保证与人工推进同一条链路。
     ///
-    /// 汇总阶段（§4）：首节点（step=1）会话的上报 = 最终汇报 → 任务 Completed 并推送呈现层；
-    /// 失败正文（插件对失败回合上报 `任务执行失败：…`）→ blocked 写清原因。
+    /// 失败语义（§4.6）：`failed=true`（插件显式标记，或旧插件正文以「任务执行失败：」开头）
+    /// **不 advance**——普通步骤 → blocked（「Step N 执行失败：…」）+ 失败提醒；
+    /// 汇总阶段首节点失败 → blocked（「首节点汇总回合失败：…」）。成功路径不变。
+    ///
+    /// 汇总阶段（§4）：首节点（step=1）会话的成功上报 = 最终汇报 → 任务 Completed 并推送呈现层。
     ///
     /// 返回 `Ok(false)` = 过期/无关事件（任务不存在、步不一致、任务非干活中），静默忽略；
     /// 错误 = 回注自身失败（由调用方记日志，不影响事件消费）。
@@ -596,6 +599,7 @@ impl OrcCommandHandler {
         task_id: &str,
         step: u32,
         body: &str,
+        failed: bool,
     ) -> Result<bool, CommandError> {
         let (store, task) = match self.task_store(task_id).await {
             Ok(resolved) => resolved,
@@ -605,17 +609,19 @@ impl OrcCommandHandler {
         if !task.is_started().unwrap_or(false) {
             return Ok(false);
         }
+        // 显式失败标记优先；旧插件（无标记）按正文前缀识别，保持兼容。
+        let failed = failed || legacy_failure_marker(body);
         if task.is_finalizing().unwrap_or(false) {
             // 汇总阶段只认干活中的首节点会话；其它步/阻塞中的迟到事件忽略。
             if step != 1 || task.state() != TaskState::Working {
                 return Ok(false);
             }
-            if let Some(reason) = agent_failure_reason(body) {
+            if failed {
                 self.auto_blocked(
                     &store,
                     task_id,
                     1,
-                    format!("{SUMMARY_ROUND_FAILED_PREFIX}{reason}"),
+                    format!("{SUMMARY_ROUND_FAILED_PREFIX}{}", failure_detail(body)),
                 )
                 .await;
                 return Ok(true);
@@ -632,6 +638,17 @@ impl OrcCommandHandler {
         }
         if task.current_step().ok() != Some(step) || task.state() != TaskState::Working {
             return Ok(false);
+        }
+        // 失败回合：不记录产出、不推进，直接 blocked + 失败提醒（与人工 mark_blocked 同链路）。
+        if failed {
+            self.auto_blocked(
+                &store,
+                task_id,
+                step,
+                format!("Step {step} 执行失败：{}", failure_detail(body)),
+            )
+            .await;
+            return Ok(true);
         }
         // 推进前记录该步产出（回流汇总用，单步/总量截断由 orchestration 负责）。
         store
@@ -1135,19 +1152,24 @@ fn completes_last_step(
     }
 }
 
-/// 失败回合识别（插件契约）：失败终态同样上报为 `session.completed`，
-/// 正文以 `任务执行失败：` 开头；命中返回失败详情（可能为空，表示插件未给细节）。
-fn agent_failure_reason(body: &str) -> Option<String> {
-    body.trim()
+/// 旧插件兼容：失败终态同样上报为 `session.completed` 且正文以 `任务执行失败：` 开头；
+/// 新插件带显式 `failed: true` 标记（两条路都能识别，旧插件不至于把失败当完成推进）。
+fn legacy_failure_marker(body: &str) -> bool {
+    body.trim().starts_with(AGENT_FAILURE_BODY_PREFIX)
+}
+
+/// 失败详情：去空白并剥掉旧插件的「任务执行失败：」前缀；空正文给可读兜底（不猜测细节）。
+fn failure_detail(body: &str) -> String {
+    let detail = body.trim();
+    let detail = detail
         .strip_prefix(AGENT_FAILURE_BODY_PREFIX)
-        .map(|reason| {
-            let reason = reason.trim();
-            if reason.is_empty() {
-                "OpenCode 未返回具体错误信息".to_string()
-            } else {
-                reason.to_string()
-            }
-        })
+        .unwrap_or(detail)
+        .trim();
+    if detail.is_empty() {
+        "OpenCode 未返回具体错误信息".to_string()
+    } else {
+        detail.to_string()
+    }
 }
 
 /// P2 派活目标：由 `agent_hint` 解析 Agent id，并为 (task, step) 生成稳定会话 id

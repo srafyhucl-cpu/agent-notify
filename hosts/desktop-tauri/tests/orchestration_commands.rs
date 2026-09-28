@@ -452,7 +452,7 @@ async fn orc_commands_validate_inputs_and_expose_business_errors() {
     assert_eq!(finalizing.state, OrcTaskStateDto::Working);
 
     handler
-        .report_from_agent(&created.id, 1, "项目经理最终汇报")
+        .report_from_agent(&created.id, 1, "项目经理最终汇报", false)
         .await
         .expect("首节点汇总回注必须成功");
     let err = handler

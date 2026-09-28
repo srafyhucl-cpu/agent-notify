@@ -1093,8 +1093,9 @@ function completionEnvelope(
   body: string,
   event: unknown,
   identity = "",
+  failed = false,
 ): JsonRecord {
-  return {
+  const payload: JsonRecord = {
     protocolVersion: 1,
     kind: "agent.event",
     requestId: crypto.randomUUID(),
@@ -1109,6 +1110,11 @@ function completionEnvelope(
       metadata: {},
     },
   }
+  // 失败回合显式标记：宿主据 payload.failed 走阻塞路径，不把失败当「汇报完成」推进。
+  if (failed) {
+    ;(payload.payload as JsonRecord).failed = true
+  }
+  return payload
 }
 
 function submitIngress(envelope: JsonRecord): Promise<void> {
@@ -1307,6 +1313,7 @@ async function dispatchTerminalEvent(
         body,
         event,
         identity,
+        failure !== "",
       ),
     )
     lastTerminalBySession.set(sessionID, identity)

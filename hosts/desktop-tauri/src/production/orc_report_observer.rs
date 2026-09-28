@@ -65,12 +65,20 @@ impl AgentEventObserver for OrcReportObserver {
         let Some((task_id, step)) = parse_orc_session(session_id) else {
             return;
         };
-        // 事件正文（产出记录 + 失败回合识别用；缺失/非字符串按空正文处理）。
+        // 事件正文与显式失败标记（产出记录 / 失败路径用；缺失按成功处理）。
         let body = payload
             .get("body")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
-        match self.handler.report_from_agent(task_id, step, body).await {
+        let failed = payload
+            .get("failed")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        match self
+            .handler
+            .report_from_agent(task_id, step, body, failed)
+            .await
+        {
             Ok(true) => tracing::info!(task_id, step, "Agent 汇报已回注，任务自动推进"),
             Ok(false) => tracing::debug!(task_id, step, "Agent 汇报与任务当前状态不匹配，已忽略"),
             Err(error) => tracing::warn!(
