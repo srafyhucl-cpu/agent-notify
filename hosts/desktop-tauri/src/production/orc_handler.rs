@@ -24,8 +24,8 @@ use agentnotify_storage_sqlite::SqliteStore;
 
 use super::agent_driver::{AgentDriver, DispatchOptions};
 use super::orc_node_config::{
-    NodeConfig, apply_steps_snapshot, missing_agent_step, steps_snapshot_of, template_dtos,
-    validate_template_steps,
+    NodeConfig, ORC_STEP_AGENT_MISSING, apply_steps_snapshot, missing_agent_step,
+    steps_snapshot_of, task_steps_snapshot, template_dtos, validate_template_steps,
 };
 use super::orc_notify::{
     OrcClusterPresenter, failure_body, finalizing_body, progress_body, render_cluster_message,
@@ -74,8 +74,6 @@ pub const HARNESS_TEMPLATES_FILE: &str = "harness-templates.json";
 const ORCHESTRATION_DISABLED_CODE: &str = "orchestration_disabled";
 const ORCHESTRATION_DISABLED_MESSAGE: &str =
     "编排未启用：请在设置中启用 orchestration.enabled 后重启应用";
-/// 当前步骤未配置 Agent（agent_hint 缺失）时的稳定错误码（P2 派活，写进 blocked 原因）。
-const ORC_STEP_AGENT_MISSING: &str = "orc_step_agent_missing";
 /// 创建任务的模板不存在（新任务只开放内置三档模板）。
 const ORC_TEMPLATE_UNKNOWN: &str = "orc_template_unknown";
 /// 任务的工作流无法解析（既不是装配工作流也不是内置模板）。
@@ -340,13 +338,26 @@ impl OrcCommandHandler {
             Some(raw) => parse_notify_mode(Some(raw))?,
             None => self.global_default_notify_mode().await,
         };
-        let merged = self.node_config().await.merge_workflow(&workflow);
+        // 节点配置来源（§3）：
+        // - 新流程（创建任务弹窗逐个节点确认，payload.steps 有值）：任务级提交，**创建即快照锁定**，
+        //   此后改设置不影响该任务（所见即所得）；
+        // - 旧调用方（无 steps）：保持原行为——按当前设置实时合并，start 时才快照。
+        let (merged, locked_snapshot) = match payload.steps.as_deref() {
+            Some(steps) => {
+                let snapshot = task_steps_snapshot(&workflow, steps)?;
+                (apply_steps_snapshot(&workflow, &snapshot), Some(snapshot))
+            }
+            None => (self.node_config().await.merge_workflow(&workflow), None),
+        };
         let store = OrcStore::with_repository(merged, repository);
         let mut task = store
             .create_task(goal, notify_mode)
             .await
             .map_err(orc_error)?;
         task.set_working_dir(working_dir).map_err(orc_error)?;
+        if let Some(snapshot) = locked_snapshot {
+            task.set_steps_snapshot(&snapshot).map_err(orc_error)?;
+        }
         store.save(task.clone()).await.map_err(orc_error)?;
         // 创建后**不自动派活**：任务先进入「待开始」（started=false），用户在界面上
         // 看清工作流节点（每步角色与派给谁）后点「开始执行」再派活第 1 步。
@@ -356,6 +367,7 @@ impl OrcCommandHandler {
 
     /// 开始执行（人工确认后）：预检全部节点 Agent 已配置、工作目录仍存在，
     /// **把合并后的步骤配置快照进任务**（此后改设置不影响该任务），然后标记已开始并派活第 1 步（§3.1）。
+    /// 新流程任务在创建时已锁定快照（payload.steps），这里幂等重写；旧任务在此首次锁定。
     ///
     /// 预检失败 → 明确报错且任务保持「待开始」（不写快照）；已开始的任务再调 → 明确错误。
     pub async fn start(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError> {

@@ -59,6 +59,7 @@ fn working_dir(root: &tempfile::TempDir) -> String {
 
 fn create_payload(goal: &str, template_id: &str, dir: &str) -> CreateOrcTaskPayload {
     CreateOrcTaskPayload {
+        steps: None,
         goal: goal.into(),
         template_id: template_id.into(),
         working_dir: dir.into(),
@@ -179,6 +180,7 @@ async fn orc_commands_persist_across_reopen() {
         let handler = enabled_handler(&store);
         let created = handler
             .create(CreateOrcTaskPayload {
+                steps: None,
                 goal: "持久化验证".into(),
                 template_id: PRESET_ID.into(),
                 working_dir: dir.clone(),
@@ -218,6 +220,133 @@ async fn orc_commands_persist_across_reopen() {
             "工作目录必须持久化"
         );
     }
+}
+
+/// 新流程（v3）：创建时提交任务级节点配置（`payload.steps`）→ **创建即锁定快照**；
+/// 之后改设置页默认节点配置不影响该任务；锁定快照齐全时可直接开始执行。
+#[tokio::test]
+async fn create_with_task_steps_locks_snapshot() {
+    let (_root, store) = open_sqlite("agentnotify-orc-create-steps-");
+    let handler = dynamic_handler(&store, _root.path());
+    let dir = working_dir(&_root);
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            steps: Some(vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: Some("anthropic/claude-sonnet-4-5".into()),
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: Some("codex".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 3,
+                    agent: Some("commandcode".into()),
+                    model: None,
+                },
+            ]),
+            goal: "创建即锁定".into(),
+            template_id: TEMPLATE_STANDARD.into(),
+            working_dir: dir.clone(),
+            notify_mode: Some("final_only".into()),
+        })
+        .await
+        .expect("创建必须成功");
+    assert!(!created.started, "新建任务必须是「待开始」");
+    let agents: Vec<Option<String>> = created
+        .workflow
+        .steps
+        .iter()
+        .map(|step| step.agent_hint.clone())
+        .collect();
+    assert_eq!(
+        agents,
+        vec![
+            Some("opencode".into()),
+            Some("codex".into()),
+            Some("commandcode".into())
+        ],
+        "创建返回的节点必须是提交的任务级配置"
+    );
+    assert_eq!(
+        created.workflow.steps[0].model.as_deref(),
+        Some("anthropic/claude-sonnet-4-5")
+    );
+
+    // 改设置页默认配置 → 已创建任务仍按自己的快照展示（不被覆盖）。
+    configure_all_steps(&handler, TEMPLATE_STANDARD, "other-agent").await;
+    let tasks = handler.list().await.expect("列出任务必须成功");
+    let task = tasks
+        .iter()
+        .find(|task| task.id == created.id)
+        .expect("任务必须还在");
+    assert_eq!(
+        task.workflow.steps[0].agent_hint.as_deref(),
+        Some("opencode"),
+        "创建时锁定的节点配置不能被后续设置改动覆盖"
+    );
+    assert_eq!(
+        task.workflow.steps[2].agent_hint.as_deref(),
+        Some("commandcode")
+    );
+
+    // 快照齐全 → 开始执行预检通过。
+    let started = handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("锁定快照齐全时开始执行必须成功");
+    assert!(started.started);
+}
+
+/// 新流程拒绝创建「跑不起来」的任务：缺任一节点 Agent → 明确报错且不落库。
+#[tokio::test]
+async fn create_with_task_steps_requires_every_agent() {
+    let (_root, store) = open_sqlite("agentnotify-orc-create-steps-missing-");
+    let handler = dynamic_handler(&store, _root.path());
+    let dir = working_dir(&_root);
+
+    let error = handler
+        .create(CreateOrcTaskPayload {
+            steps: Some(vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: None,
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 3,
+                    agent: Some("codex".into()),
+                    model: None,
+                },
+            ]),
+            goal: "缺 Agent 的任务".into(),
+            template_id: TEMPLATE_STANDARD.into(),
+            working_dir: dir,
+            notify_mode: None,
+        })
+        .await
+        .expect_err("缺 Agent 必须报错");
+    assert_eq!(error.code, "orc_step_agent_missing");
+    assert!(
+        error.message.contains("第 2 步"),
+        "错误必须点名缺失步骤：{}",
+        error.message
+    );
+    assert!(
+        handler.list().await.expect("列出任务必须成功").is_empty(),
+        "创建失败不得落库"
+    );
 }
 
 /// 默认关闭（enabled=false → 未装配仓储）：所有编排命令返回明确错误。
@@ -387,6 +516,7 @@ async fn orc_commands_validate_inputs_and_expose_business_errors() {
 
     let err = handler
         .create(CreateOrcTaskPayload {
+            steps: None,
             goal: "目标".into(),
             template_id: PRESET_ID.into(),
             working_dir: dir.clone(),

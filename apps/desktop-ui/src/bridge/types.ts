@@ -170,7 +170,7 @@ export type ComponentStateDto = "Starting" | "Running" | "Paused" | "Stopped" | 
 
 /**
  *  创建编排任务（§3.1）：`template_id` 必选（任务锁定模板）；`working_dir` 必填（必须是已存在目录）；
- *  `notify_mode` 缺省为 final_only（只推最终汇报，默认）。
+ *  `notify_mode` 缺省为 final_only（只推最终汇报，默认）；`steps` 为任务级节点配置（创建即锁定）。
  */
 export type CreateOrcTaskPayload = {
 	goal: string,
@@ -179,6 +179,12 @@ export type CreateOrcTaskPayload = {
 	/**  任务工作目录（OpenCode 会话创建位置；必须是已存在的目录）。 */
 	workingDir: string,
 	notifyMode: string | null,
+	/**
+	 *  任务级节点配置（启动器弹窗逐个节点确认）：order 必须与模板一致、每个节点都有 Agent；
+	 *  提交后**创建即锁定**为该任务的步骤快照（此后改设置不影响），不需要再在设置页配置。
+	 *  None = 旧调用方：保持原行为（start 时按当时设置实时合并并锁定）。
+	 */
+	steps: OrcTemplateStepConfigDto[] | null,
 };
 
 /**  当前编排工作流（供创建任务前预览节点）。 */
@@ -435,7 +441,7 @@ export type OrcWorkflowStepDto = {
 	role: string,
 	/**  建议 Agent（可为空：留空时该步不派活，仅等待人工推进）。 */
 	agentHint: string | null,
-	/**  该步使用的模型（`provider/model`；None = 用该 Agent 默认模型）。 */
+	/**  该步使用的模型（`provider/model`；None = 未指定，由该 Agent 自己决定）。 */
 	model: string | null,
 	/**  是否需人确认才进入下一步。 */
 	humanGate: boolean,

@@ -1,12 +1,12 @@
-import { Network } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Plus } from "lucide-react";
+import { useState } from "react";
 
 import type { HostBridge } from "../../bridge";
 import type { OrcMessageKindDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
-import { PageHeader } from "../../components/patterns";
+import { SectionCard } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import {
   useAdvanceOrcTaskMutation,
@@ -17,7 +17,10 @@ import {
 import { useOpencodeProjects } from "../../data/useOpencodeProjects";
 import { useOrcTasks } from "../../data/useOrcTasks";
 import { useOrcTemplates } from "../../data/useOrcTemplates";
-import { CreateTaskForm, type CreateOrcTaskInput } from "./CreateTaskForm";
+import {
+  CreateTaskDialog,
+  type CreateOrcTaskInput,
+} from "./CreateTaskDialog";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList } from "./TaskList";
 
@@ -26,9 +29,9 @@ export interface ClusterPageProps {
 }
 
 /**
- * 集群页（P1，§6.2 桌面集群形态）：任务列表 + 详情/发指令 + 创建入口（模板与节点预览、工作目录）。
- * 只消费现有编排 DTO/命令；进度命令经 HostBridge 调用 advance_orc_task / recover_blocked_orc_task /
- * start_orc_task；创建必须显式选择模板（§3.1）。
+ * 集群页（2026-09 动线重做）：对齐渠道页的「单卡 + 行内手风琴」结构——
+ * 右上角「新建任务」弹窗里选模板并逐个节点配置 Agent/模型（创建即锁定）；
+ * 任务列表默认全部收起，点行展开才看工作流与操作，不再默认展开某个任务详情。
  */
 export function ClusterPage({ bridge }: ClusterPageProps) {
   const tasksQuery = useOrcTasks(bridge);
@@ -39,22 +42,17 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const recoverMutation = useRecoverBlockedOrcTaskMutation(bridge);
   const startMutation = useStartOrcTaskMutation(bridge);
 
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // 手风琴：同一时间最多展开一个任务；进入页面不默认展开任何任务。
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [pendingAction, setPendingAction] = useState<
-    "advance" | "recover" | "start" | null
+    "create" | "advance" | "recover" | "start" | null
   >(null);
 
   const tasks = tasksQuery.data ?? [];
-  // 默认选中列表首项；选中项被刷新移除时回落到首项，避免详情指向不存在的任务。
-  const selectedTask = useMemo(
-    () =>
-      tasks.find((task) => task.id === selectedTaskId) ?? tasks[0] ?? null,
-    [selectedTaskId, tasks],
-  );
   const loadError = tasksQuery.error ? toUserError(tasksQuery.error) : null;
-  const createUserError = createError ? toUserError(createError) : null;
   const actionUserError = actionError ? toUserError(actionError) : null;
   const templatesError = templatesQuery.error
     ? toUserError(templatesQuery.error).message
@@ -62,23 +60,41 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const projectsError = projectsQuery.error
     ? toUserError(projectsQuery.error).message
     : null;
+  // 行内操作（开始/推进/重新发起）的进行中态；创建由弹窗自己的按钮承担。
+  const rowBusy = pendingAction !== null && pendingAction !== "create";
 
-  const handleCreate = async (input: CreateOrcTaskInput): Promise<boolean> => {
+  /**
+   * 创建任务（弹窗提交）：成功后展开新任务、关闭弹窗；
+   * 「创建并开始」再紧接着派活第 1 步——派活失败只在页面顶部如实提示，任务保持待开始可重试。
+   */
+  const handleCreate = async (
+    input: CreateOrcTaskInput,
+    startImmediately: boolean,
+  ): Promise<boolean> => {
     setCreateError(null);
+    setActionError(null);
+    setPendingAction("create");
     try {
       const created = await createMutation.mutateAsync(input);
-      setSelectedTaskId(created.id);
+      setExpandedTaskId(created.id);
+      setCreateOpen(false);
+      if (startImmediately) {
+        try {
+          await startMutation.mutateAsync({ taskId: created.id });
+        } catch (error) {
+          setActionError(error);
+        }
+      }
       return true;
     } catch (error) {
       setCreateError(error);
       return false;
+    } finally {
+      setPendingAction(null);
     }
   };
 
-  const handleAdvance = async (
-    taskId: string,
-    kind: OrcMessageKindDto,
-  ) => {
+  const handleAdvance = async (taskId: string, kind: OrcMessageKindDto) => {
     setActionError(null);
     setPendingAction("advance");
     try {
@@ -115,18 +131,8 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   };
 
   return (
-    <section className="workbench-page cluster-page" aria-label="集群">
-      <PageHeader
-        title="集群"
-        summary="查看编排任务进度，向集群下达指令；阻塞任务可在此重新发起。"
-        actions={
-          <span className="page-count" aria-label={`共 ${tasks.length} 个任务`}>
-            <Network aria-hidden="true" size={16} />
-            {tasks.length} 个
-          </span>
-        }
-      />
-
+    <section className="workbench-page cluster-page">
+      <h1 className="visually-hidden">集群</h1>
       <div className="workbench-page-content cluster-page-content">
         {loadError ? (
           <InlineError
@@ -144,68 +150,80 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
           />
         ) : null}
 
-        {createUserError ? (
+        {actionUserError ? (
           <InlineError
-            title={createUserError.title}
-            message={createUserError.message}
+            title={actionUserError.title}
+            message={actionUserError.message}
           />
         ) : null}
 
-        {actionUserError ? (
-          <InlineError title={actionUserError.title} message={actionUserError.message} />
-        ) : null}
+        <SectionCard
+          title="编排任务"
+          count={tasks.length}
+          description="按固定工作流依次唤醒 Agent（首步是项目经理，最后汇总汇报）；点任务行展开查看工作流与进度。"
+          action={
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => {
+                setCreateError(null);
+                setCreateOpen(true);
+              }}
+            >
+              <Plus aria-hidden="true" size={15} />
+              新建任务
+            </button>
+          }
+        >
+          {tasksQuery.isPending && !tasksQuery.data ? (
+            <LoadingRows aria-label="正在加载集群任务" rows={4} />
+          ) : null}
 
-        <CreateTaskForm
-          pending={createMutation.isPending}
+          {!tasksQuery.isPending && tasks.length === 0 && !loadError ? (
+            <EmptyState
+              title="暂无集群任务"
+              description="点右上角「新建任务」按固定模板创建：为每个节点选好 Agent 后，编排层会逐步唤醒对应 Agent，进度显示在这里。"
+            />
+          ) : null}
+
+          {tasks.length > 0 ? (
+            <TaskList
+              tasks={tasks}
+              expandedTaskId={expandedTaskId}
+              onToggle={(taskId) =>
+                setExpandedTaskId((current) =>
+                  current === taskId ? null : taskId,
+                )
+              }
+              renderDetail={(task) => (
+                <TaskDetail
+                  task={task}
+                  busy={rowBusy}
+                  onStart={() => void handleStart(task.id)}
+                  onAdvance={(kind) => void handleAdvance(task.id, kind)}
+                  onRecover={() => void handleRecover(task.id)}
+                />
+              )}
+            />
+          ) : null}
+        </SectionCard>
+      </div>
+
+      {createOpen ? (
+        <CreateTaskDialog
+          bridge={bridge}
+          pending={pendingAction === "create"}
           templates={templatesQuery.data ?? null}
           templatesError={templatesError}
           onRetryTemplates={() => void templatesQuery.refetch()}
           projects={projectsQuery.data ?? null}
           projectsError={projectsError}
           onRetryProjects={() => void projectsQuery.refetch()}
+          error={createError}
           onSubmit={handleCreate}
+          onClose={() => setCreateOpen(false)}
         />
-
-        {tasksQuery.isPending && !tasksQuery.data ? (
-          <LoadingRows aria-label="正在加载集群任务" rows={4} />
-        ) : null}
-
-        {!tasksQuery.isPending && tasks.length === 0 && !loadError ? (
-          <EmptyState
-            title="暂无集群任务"
-            description="创建第一个任务后，编排层会按预置工作流逐步唤醒对应 Agent，进度会显示在这里。"
-          />
-        ) : null}
-
-        {tasks.length > 0 ? (
-          <div className="cluster-workspace">
-            <TaskList
-              tasks={tasks}
-              selectedTaskId={selectedTask?.id ?? null}
-              onSelect={setSelectedTaskId}
-            />
-            <TaskDetail
-              task={selectedTask}
-              busy={pendingAction !== null}
-              onStart={() => {
-                if (selectedTask) {
-                  void handleStart(selectedTask.id);
-                }
-              }}
-              onAdvance={(kind) => {
-                if (selectedTask) {
-                  void handleAdvance(selectedTask.id, kind);
-                }
-              }}
-              onRecover={() => {
-                if (selectedTask) {
-                  void handleRecover(selectedTask.id);
-                }
-              }}
-            />
-          </div>
-        ) : null}
-      </div>
+      ) : null}
     </section>
   );
 }

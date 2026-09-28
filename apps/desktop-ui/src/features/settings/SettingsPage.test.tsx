@@ -532,7 +532,9 @@ describe("SettingsPage 编排（集群）节点配置", () => {
 
     await user.selectOptions(agentSelect, "opencode");
     expect(modelInput).toBeEnabled();
-    expect(screen.getByText("留空 = 用该 Agent 默认模型")).toBeVisible();
+    expect(
+      screen.getByText("留空 = 不指定，由 OpenCode 用其当前默认模型"),
+    ).toBeVisible();
 
     await user.type(modelInput, "anthropic/claude-sonnet-4-5");
     await user.selectOptions(agentSelect, "agent-alpha");

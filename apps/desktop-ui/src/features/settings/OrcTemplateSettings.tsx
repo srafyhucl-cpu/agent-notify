@@ -14,10 +14,9 @@ import { Toast } from "../../components/Toast";
 import { toUserError } from "../../data/errors";
 import { useSaveOrcTemplateConfigMutation } from "../../data/mutations";
 import { useOrcTemplates } from "../../data/useOrcTemplates";
+import { ORC_MODEL_CAPABLE_AGENT } from "../cluster/labels";
 import { OrcNodeChain, type OrcNodeChainStep } from "../cluster/OrcNodeChain";
 
-/** v1 仅 OpenCode 支持指定模型（§3）。 */
-const MODEL_CAPABLE_AGENT = "opencode";
 /** 保存成功提示停留时长：浮层只做结果确认，不长期挂在窗口上。 */
 const SAVED_NOTICE_DURATION_MS = 3000;
 
@@ -177,8 +176,8 @@ export function OrcTemplateSettings({
       <div className="settings-subsection-heading">
         <strong>工作流模板与节点配置</strong>
         <small>
-          选定模板后逐个节点选择 Agent 与模型，保存后用于新建任务；节点 Agent
-          不预填，模型仅 OpenCode 支持指定，留空 = 用该 Agent 默认模型。
+          选定模板后逐个节点选择 Agent 与模型，保存后作为新建任务的默认配置（创建任务时可再调整）；
+          节点 Agent 不预填，模型仅 OpenCode 支持指定，留空 = 不指定（由 OpenCode 用其当前默认模型）。
         </small>
       </div>
 
@@ -249,7 +248,7 @@ export function OrcTemplateSettings({
               );
               const agent = current?.agent ?? "";
               const model = current?.model ?? "";
-              const modelDisabled = agent !== MODEL_CAPABLE_AGENT;
+              const modelDisabled = agent !== ORC_MODEL_CAPABLE_AGENT;
               return (
                 <div className="orc-node-fields">
                   <label className="orc-node-field">
@@ -264,7 +263,7 @@ export function OrcTemplateSettings({
                         // 切到不支持指定模型的 Agent 时清空模型，避免保存时被后端拒绝。
                         updateStep(
                           step.order,
-                          nextAgent === MODEL_CAPABLE_AGENT
+                          nextAgent === ORC_MODEL_CAPABLE_AGENT
                             ? { agent: nextAgent }
                             : { agent: nextAgent, model: "" },
                         );
@@ -286,7 +285,7 @@ export function OrcTemplateSettings({
                       aria-label={`第 ${step.order} 步 模型`}
                       type="text"
                       inputMode="text"
-                      placeholder="provider/model（留空 = 默认模型）"
+                      placeholder="provider/model"
                       value={model}
                       disabled={modelDisabled || saveMutation.isPending}
                       onChange={(event) =>
@@ -302,7 +301,7 @@ export function OrcTemplateSettings({
                       ? "请先选择 Agent"
                       : modelDisabled
                         ? "该 Agent 暂不支持指定模型"
-                        : "留空 = 用该 Agent 默认模型"}
+                        : "留空 = 不指定，由 OpenCode 用其当前默认模型"}
                   </p>
                 </div>
               );

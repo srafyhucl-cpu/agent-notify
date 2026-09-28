@@ -193,7 +193,7 @@ pub struct OrcWorkflowStepDto {
     pub role: String,
     /// 建议 Agent（可为空：留空时该步不派活，仅等待人工推进）。
     pub agent_hint: Option<String>,
-    /// 该步使用的模型（`provider/model`；None = 用该 Agent 默认模型）。
+    /// 该步使用的模型（`provider/model`；None = 未指定，由该 Agent 自己决定）。
     pub model: Option<String>,
     /// 是否需人确认才进入下一步。
     pub human_gate: bool,
@@ -255,7 +255,7 @@ pub struct CurrentOrcWorkflowDto {
 }
 
 /// 创建编排任务（§3.1）：`template_id` 必选（任务锁定模板）；`working_dir` 必填（必须是已存在目录）；
-/// `notify_mode` 缺省为 final_only（只推最终汇报，默认）。
+/// `notify_mode` 缺省为 final_only（只推最终汇报，默认）；`steps` 为任务级节点配置（创建即锁定）。
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateOrcTaskPayload {
@@ -265,6 +265,10 @@ pub struct CreateOrcTaskPayload {
     /// 任务工作目录（OpenCode 会话创建位置；必须是已存在的目录）。
     pub working_dir: String,
     pub notify_mode: Option<String>,
+    /// 任务级节点配置（启动器弹窗逐个节点确认）：order 必须与模板一致、每个节点都有 Agent；
+    /// 提交后**创建即锁定**为该任务的步骤快照（此后改设置不影响），不需要再在设置页配置。
+    /// None = 旧调用方：保持原行为（start 时按当时设置实时合并并锁定）。
+    pub steps: Option<Vec<OrcTemplateStepConfigDto>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]

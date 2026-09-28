@@ -591,12 +591,64 @@ export function createMockHostBridge(
             retryable: false,
           };
         }
+        // 任务级节点配置（新流程，创建即锁定）：order 与模板一致、模型规则、每个节点必须有 Agent。
+        let steps = template.steps.map((step) => ({
+          order: step.order,
+          agent: step.agent?.trim() || null,
+          model: step.model?.trim() || null,
+        }));
+        if (create.steps) {
+          if (create.steps.length !== template.steps.length) {
+            throw {
+              code: "orc_template_steps_invalid",
+              message: `模板 ${template.id} 共 ${String(template.steps.length)} 个节点，提交了 ${String(create.steps.length)} 个：请刷新后重试`,
+              retryable: false,
+            };
+          }
+          create.steps.forEach((step, index) => {
+            const expected = template.steps[index].order;
+            if (step.order !== expected) {
+              throw {
+                code: "orc_template_steps_invalid",
+                message: `模板 ${template.id} 第 ${String(index + 1)} 个节点序号应为 ${String(expected)}，实际为 ${String(step.order)}：请刷新后重试`,
+                retryable: false,
+              };
+            }
+            const agent = step.agent?.trim() ?? "";
+            const model = step.model?.trim() ?? "";
+            if (model) {
+              if (!isProviderModel(model)) {
+                orcModelInvalid(model);
+              }
+              if (agent !== "opencode") {
+                throw {
+                  code: "orc_model_agent_unsupported",
+                  message: "该 Agent 暂不支持指定模型",
+                  retryable: false,
+                };
+              }
+            }
+          });
+          steps = create.steps.map((step) => ({
+            order: step.order,
+            agent: step.agent?.trim() || null,
+            model: step.model?.trim() || null,
+          }));
+          const missing = steps.find((step) => step.agent === null);
+          if (missing) {
+            throw {
+              code: "orc_step_agent_missing",
+              message: `第 ${String(missing.order)} 步未选择 Agent：请在创建任务时为每个节点选择 Agent`,
+              retryable: false,
+            };
+          }
+        }
         const workflow: OrcWorkflowDto = {
           id: template.id,
           name: template.name,
-          steps: template.steps.map((step) => ({
+          steps: steps.map((step, index) => ({
             order: step.order,
-            role: step.role,
+            role: template.steps[index].role,
             agentHint: step.agent,
             model: step.model,
             humanGate: false,

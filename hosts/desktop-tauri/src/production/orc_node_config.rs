@@ -22,6 +22,8 @@ pub const ORC_TEMPLATE_STEPS_INVALID: &str = "orc_template_steps_invalid";
 pub const ORC_MODEL_INVALID: &str = "orc_model_invalid";
 /// 指定了模型但该 Agent 不支持（v1 仅 OpenCode 支持指定模型）。
 pub const ORC_MODEL_AGENT_UNSUPPORTED: &str = "orc_model_agent_unsupported";
+/// 某节点未选择 Agent（创建任务/开始执行的预检共用错误码）。
+pub const ORC_STEP_AGENT_MISSING: &str = "orc_step_agent_missing";
 /// v1 支持「指定模型」的 Agent id。
 pub const MODEL_AGENT_OPENCODE: &str = "opencode";
 
@@ -217,6 +219,28 @@ pub fn missing_agent_step(workflow: &Workflow) -> Option<u32> {
         .iter()
         .find(|step| trimmed_nonempty(step.agent_hint.as_deref()).is_none())
         .map(|step| step.order)
+}
+
+/// 创建任务时锁定节点（启动器弹窗「仅创建 / 创建并开始」）：
+/// - 步骤数与 order 必须与模板一致、model 规则与设置页一致（复用 `validate_template_steps`）；
+/// - **每个节点都必须已选 Agent**（缺任一节点即明确报错，不允许创建“跑不起来”的任务）。
+///
+/// 返回可直接落库的任务步骤快照（创建即锁定，此后改设置不影响该任务）。
+pub fn task_steps_snapshot(
+    workflow: &Workflow,
+    steps: &[OrcTemplateStepConfigDto],
+) -> Result<Vec<StepConfigSnapshot>, CommandError> {
+    let entries = validate_template_steps(workflow, steps)?;
+    let mut config = NodeConfig::default();
+    config.set_template(&workflow.id, entries);
+    let merged = config.merge_workflow(workflow);
+    if let Some(order) = missing_agent_step(&merged) {
+        return Err(CommandError::new(
+            ORC_STEP_AGENT_MISSING,
+            format!("第 {order} 步未选择 Agent：请在创建任务时为每个节点选择 Agent"),
+        ));
+    }
+    Ok(steps_snapshot_of(&merged))
 }
 
 /// 任务开始时的步骤配置快照（§3）：`agent` 必为预检后的非空 Agent；空 model = 默认模型。
@@ -587,6 +611,73 @@ mod tests {
             None,
             "预置工作流各步都有 hint"
         );
+    }
+
+    /// 创建任务锁定：每个节点都必须已选 Agent；模型规则与设置页一致。
+    #[test]
+    fn task_steps_snapshot_requires_agent_every_step() {
+        let workflow = standard(); // 3 步
+        let step = |order: u32, agent: &str, model: Option<&str>| OrcTemplateStepConfigDto {
+            order,
+            agent: Some(agent.to_string()),
+            model: model.map(str::to_string),
+        };
+
+        let snapshot = task_steps_snapshot(
+            &workflow,
+            &[
+                step(1, "opencode", Some("anthropic/claude-sonnet-4-5")),
+                step(2, "codex", None),
+                step(3, "commandcode", None),
+            ],
+        )
+        .expect("全部节点已选 Agent 必须通过");
+        assert_eq!(snapshot.len(), 3);
+        assert_eq!(snapshot[0].agent, "opencode");
+        assert_eq!(
+            snapshot[0].model.as_deref(),
+            Some("anthropic/claude-sonnet-4-5")
+        );
+        assert_eq!(snapshot[2].agent, "commandcode");
+
+        let missing = task_steps_snapshot(
+            &workflow,
+            &[
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: None,
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 3,
+                    agent: Some("commandcode".into()),
+                    model: None,
+                },
+            ],
+        )
+        .expect_err("缺 Agent 必须报错");
+        assert_eq!(missing.code(), ORC_STEP_AGENT_MISSING);
+        assert!(
+            missing.message().contains("第 2 步"),
+            "{}",
+            missing.message()
+        );
+
+        let unsupported = task_steps_snapshot(
+            &workflow,
+            &[
+                step(1, "codex", Some("anthropic/claude-sonnet-4-5")),
+                step(2, "codex", None),
+                step(3, "commandcode", None),
+            ],
+        )
+        .expect_err("非 OpenCode 指定模型必须报错");
+        assert_eq!(unsupported.code(), ORC_MODEL_AGENT_UNSUPPORTED);
     }
 
     /// 快照：从合并后工作流生成（agent 非空、model 可选），并可覆盖模板步骤。

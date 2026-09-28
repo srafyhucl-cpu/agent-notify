@@ -83,6 +83,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
       templateId: "template-standard",
       workingDir: "D:/Project/agent-notify",
       notifyMode: "verbose",
+      steps: null,
     });
     expect(created).toMatchObject({
       id: "orc-2",
@@ -105,6 +106,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
       templateId: "template-quickfix",
       workingDir: "D:/Project/agent-notify",
       notifyMode: null,
+      steps: null,
     });
     expect(created.notifyMode).toBe("final_only");
   });
@@ -118,6 +120,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
         templateId: "template-missing",
         workingDir: "D:/Project/agent-notify",
         notifyMode: null,
+        steps: null,
       }),
     ).rejects.toMatchObject({ code: "orc_template_unknown" });
 
@@ -127,6 +130,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
         templateId: "template-standard",
         workingDir: "   ",
         notifyMode: null,
+        steps: null,
       }),
     ).rejects.toMatchObject({
       code: "orc_working_dir_invalid",
@@ -139,6 +143,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
         templateId: "template-standard",
         workingDir: "not-a-directory",
         notifyMode: null,
+        steps: null,
       }),
     ).rejects.toMatchObject({
       code: "orc_working_dir_invalid",

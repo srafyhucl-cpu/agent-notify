@@ -56,16 +56,54 @@ export const ORC_ROLE_LABELS: Record<string, string> = {
 /** 首节点 = 项目经理：负责汇总各步产出并向人做最终汇报（§2/§4）。 */
 export const ORC_PROJECT_MANAGER_LABEL = "项目经理";
 
+/** v1 仅 OpenCode 支持指定模型（§3）；设置页与创建任务弹窗共用。 */
+export const ORC_MODEL_CAPABLE_AGENT = "opencode";
+
 /** 节点 Agent 显示（配置/预览）：未选择时明确提示「未配置」，不猜默认值。 */
 export function orcStepAgentLabel(agent: string | null | undefined): string {
   const value = agent?.trim();
   return value ? value : "未配置";
 }
 
-/** 节点模型显示（预览/详情）：空 = 用该 Agent 默认模型（透明语义，非隐藏默认）。 */
+/**
+ * 节点模型显示（预览/详情）：空 = 未指定（由该 Agent 自己决定，OpenCode 用其当前默认模型）。
+ * 不写「默认模型」这种含糊说法，避免让人以为我们替他选了模型。
+ */
 export function orcStepModelLabel(model: string | null | undefined): string {
   const value = model?.trim();
-  return value ? value : "默认模型";
+  return value ? value : "未指定";
+}
+
+/** 是否处于「已创建但还没开始」的阶段（待开始；终态任务不算）。 */
+function isPendingStart(task: Pick<OrcTaskDto, "state" | "started">): boolean {
+  return !task.started && !ORC_TERMINAL_STATES.has(task.state);
+}
+
+/**
+ * 任务状态展示文案：未开始的任务单独呈现为「待开始」（底层状态是 Working，
+ * 直接显示「执行中」会把还没派活的任务误读成在跑）。
+ */
+export function orcTaskStateLabel(
+  task: Pick<OrcTaskDto, "state" | "started">,
+): string {
+  return isPendingStart(task)
+    ? "待开始"
+    : ORC_TASK_STATE_LABELS[task.state];
+}
+
+/** 任务状态展示语义色：与 orcTaskStateLabel 配套（待开始 = 中性灰）。 */
+export function orcTaskStateTone(
+  task: Pick<OrcTaskDto, "state" | "started">,
+): StatusBadgeTone {
+  return isPendingStart(task) ? "neutral" : ORC_TASK_STATE_TONES[task.state];
+}
+
+/** 列表进度文案：未开始显示总步数，已开始显示「第 N / M 步」。 */
+export function orcTaskProgressLabel(
+  task: Pick<OrcTaskDto, "state" | "started" | "currentStep" | "workflow">,
+): string {
+  const total = task.workflow.steps.length;
+  return isPendingStart(task) ? `共 ${total} 步` : `第 ${task.currentStep} / ${total} 步`;
 }
 
 /**
