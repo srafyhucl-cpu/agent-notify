@@ -42,6 +42,8 @@ const WORKER_IDLE_DELAY: Duration = Duration::from_millis(250);
 const STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
 /// 渠道轮询间隔。
 const CHANNEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// spool 周期重放间隔（管道投递失败的事件在运行期补送，见 runtime 侧说明）。
+const SPOOL_REPLAY_INTERVAL: Duration = Duration::from_secs(15);
 /// 自愈重试上限（约 3.5 分钟）。旧版真的还在运行时不做无限重试，
 /// 保留诊断模式与界面上的"重新检测"入口，日志给出可操作提示。
 const MIGRATION_AUTORETRY_MAX_ATTEMPTS: u32 = 6;
@@ -280,6 +282,7 @@ impl ProductionRuntimeCoordinator {
             worker_idle_delay: WORKER_IDLE_DELAY,
             status_refresh_interval: STATUS_REFRESH_INTERVAL,
             channel_poll_interval: CHANNEL_POLL_INTERVAL,
+            spool_replay_interval: SPOOL_REPLAY_INTERVAL,
             inbound_interceptor: self.inbound_interceptor.clone(),
             agent_event_observer: self.agent_event_observer.clone(),
         }
