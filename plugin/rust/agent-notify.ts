@@ -375,8 +375,9 @@ function withTimeout<T>(
 // ---------------------------------------------------------------------------
 // 编排层用合成会话 id（`task-<task_id>-step-<n>`）标识每步会话；OpenCode 只认自己
 // 的真实会话 id（`ses...`，服务端校验）。因此：
-// - open=true：`ctx.session.create` 建真实会话，登记 合成→真实 映射后 prompt 真实 id；
-// - open=false / 微信引用回复：按映射换成真实 id 再 prompt（普通会话 id 直通）；
+// - 合成 id 无映射（每步首个 prompt：step 1 是 open=true，后续 step 是 open=false）：
+//   `ctx.session.create` 建真实会话，登记 合成→真实 映射后 prompt 真实 id；
+// - 合成 id 有映射 / 普通会话 id：按映射换真实 id 直通 prompt（微信引用回复不受影响）；
 // - 完成事件回传：真实 id 换回合成 id，桌面端才能把汇报归到对应任务/步骤。
 
 /** 编排合成会话 id 前缀（与 Rust 侧 ORC_DISPATCH_SESSION_PREFIX 一致）。 */
@@ -470,7 +471,11 @@ async function createRealSession(
 }
 
 /**
- * 解析 prompt 目标会话 id：合成 id 换成真实 id（open=true 且无映射时按需创建并登记）。
+ * 解析 prompt 目标会话 id：合成 id 换成真实 id；无映射时创建并登记。
+ *
+ * 每 (task, step) 一个新会话：step 1 以 open=true 首次派活，后续 step 以
+ * open=false 首次派活（新合成 id 首次出现）——两种都是"该步会话尚未建立"，
+ * 统一走创建。open 仅表示编排侧的语义提示，不改变本函数行为。
  * 非合成 id 直通（普通会话 / 微信引用回复保持原语义）。
  */
 async function resolvePromptSessionID(
@@ -484,9 +489,6 @@ async function resolvePromptSessionID(
   const existing = map.get(job.sessionID)
   if (existing) {
     return existing
-  }
-  if (job.open !== true) {
-    throw new Error(`编排会话尚未建立映射（${job.sessionID}）：请重新发起该任务`)
   }
   const real = await createRealSession(ctx, job.sessionID)
   map.set(job.sessionID, real)

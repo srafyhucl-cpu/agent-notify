@@ -349,23 +349,34 @@ test("open=false reuses the mapped real session for orchestration ids", async ()
   ])
 })
 
-test("open=false without a mapping fails with a clear message", async () => {
+test("open=false without a mapping creates a session for the step", async () => {
   const { __test } = await pluginModule
   __test.resetSessionMapForTests()
+  const created = []
   const promptCalls = []
   const ctx = fakeContext(async (input) => {
     promptCalls.push(input)
   })
-  writeJob("job-resume-unmapped", "继续处理", {
+  ctx.session.create = async (input) => {
+    created.push(input)
+    return { id: "ses_step2_created" }
+  }
+  writeJob("job-resume-unmapped", "Step 2 规划信封", {
     open: false,
     sessionID: "task-unmapped-step-2",
   })
   await __test.processReplyJobs(ctx, "test-instance")
 
-  const result = readResult("job-resume-unmapped")
-  assert.equal(result.ok, false)
-  assert.match(result.error, /映射/)
-  assert.equal(promptCalls.length, 0)
+  assert.deepEqual(readResult("job-resume-unmapped"), { ok: true, error: "" })
+  assert.equal(created.length, 1)
+  assert.match(created[0].title, /task-unmapped-step-2/)
+  assert.deepEqual(promptCalls, [
+    {
+      sessionID: "ses_step2_created",
+      text: "Step 2 规划信封",
+      delivery: "steer",
+    },
+  ])
 })
 
 test("completion event carries the orchestration sessionID after mapping", async () => {
