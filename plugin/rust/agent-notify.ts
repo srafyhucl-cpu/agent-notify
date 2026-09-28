@@ -352,6 +352,54 @@ function clearHeartbeat(instanceID: string): void {
   }
 }
 
+/** 实例 id → 创建时间（instanceID = `${pid}-${Date.now().toString(36)}-${random}`）。 */
+function instanceCreatedAt(instanceID: string): number {
+  const encoded = instanceID.split("-")[1] ?? ""
+  const parsed = encoded ? Number.parseInt(encoded, 36) : Number.NaN
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/**
+ * 是否已被更新的活实例取代：**插件热重载会留下不退出旧实例**（旧实例心跳仍在刷新、
+ * 事件订阅可能仍在提交），旧实例检测到新实例后应自行退休，避免多实例重复上报。
+ * 判断依据：心跳目录里存在比本实例更新（或同刻 id 更大）且仍新鲜的心跳。
+ */
+function supersededByNewerInstance(instanceID: string): boolean {
+  if (!fsMod || !HEARTBEAT_DIR) {
+    return false
+  }
+  let names: string[] = []
+  try {
+    names = fsMod.readdirSync(HEARTBEAT_DIR)
+  } catch {
+    return false
+  }
+  const now = Date.now()
+  const mine = instanceCreatedAt(instanceID)
+  for (const name of names) {
+    if (!name.endsWith(".json")) {
+      continue
+    }
+    const other = name.slice(0, -".json".length)
+    if (other === instanceID) {
+      continue
+    }
+    try {
+      const age = now - fsMod.statSync(`${HEARTBEAT_DIR}/${name}`).mtimeMs
+      if (age > HEARTBEAT_MAX_AGE_MS) {
+        continue
+      }
+    } catch {
+      continue
+    }
+    const theirs = instanceCreatedAt(other)
+    if (theirs > mine || (theirs === mine && other > instanceID)) {
+      return true
+    }
+  }
+  return false
+}
+
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -388,11 +436,19 @@ const SESSION_MAP_FILE = REPLY_DIR ? `${REPLY_DIR}/session-map.json` : ""
 const SESSION_MAP_LIMIT = 2048
 
 let sessionMapCache: Map<string, string> | null = null
+/** 上次从磁盘强制刷新映射的时间（节流：避免每个未命中事件都读盘）。 */
+let sessionMapRefreshedAt = 0
+let sessionMapRefreshMinIntervalMs = 3 * MILLISECONDS_PER_SECOND
 
-function loadSessionMap(): Map<string, string> {
-  if (sessionMapCache) {
+/**
+ * 读取会话映射（进程内缓存）。`refresh=true` 时强制从磁盘重读——
+ * 多实例/热重载期间其他实例写入的映射需要及时可见，避免映射缺失误报原始 id。
+ */
+function loadSessionMap(refresh = false): Map<string, string> {
+  if (sessionMapCache && !refresh) {
     return sessionMapCache
   }
+  sessionMapRefreshedAt = Date.now()
   const map = new Map<string, string>()
   try {
     if (fsMod && SESSION_MAP_FILE && fsMod.existsSync(SESSION_MAP_FILE)) {
@@ -410,6 +466,21 @@ function loadSessionMap(): Map<string, string> {
   }
   sessionMapCache = map
   return map
+}
+
+/** 未命中时按节流刷新磁盘映射（多实例写入的映射对本实例可见）。 */
+function refreshSessionMapThrottled(): void {
+  if (Date.now() - sessionMapRefreshedAt < sessionMapRefreshMinIntervalMs) {
+    return
+  }
+  loadSessionMap(true)
+}
+
+/** 测试专用：调整刷新节流窗口（0 = 每次都刷新）。 */
+function setSessionMapRefreshIntervalForTests(intervalMs: number): void {
+  sessionMapRefreshMinIntervalMs = Number.isFinite(intervalMs) && intervalMs >= 0
+    ? intervalMs
+    : 0
 }
 
 function persistSessionMap(): void {
@@ -435,7 +506,16 @@ function isOrchestrationSessionID(sessionID: string): boolean {
 
 /** 真实会话 id → 合成会话 id（无映射原样返回，普通会话不受影响）。 */
 function mappedSessionID(sessionID: string): string {
-  for (const [synthetic, real] of loadSessionMap()) {
+  let map = loadSessionMap()
+  for (const [synthetic, real] of map) {
+    if (real === sessionID) {
+      return synthetic
+    }
+  }
+  // 未命中：可能映射由其他（热重载前）实例写入，按节流从磁盘刷新一次再找。
+  refreshSessionMapThrottled()
+  map = loadSessionMap()
+  for (const [synthetic, real] of map) {
     if (real === sessionID) {
       return synthetic
     }
@@ -485,8 +565,14 @@ async function resolvePromptSessionID(
   if (!isOrchestrationSessionID(job.sessionID)) {
     return job.sessionID
   }
-  const map = loadSessionMap()
-  const existing = map.get(job.sessionID)
+  let map = loadSessionMap()
+  let existing = map.get(job.sessionID)
+  if (!existing) {
+    // 未命中：可能映射由其他（热重载前）实例写入，按节流刷新一次再找。
+    refreshSessionMapThrottled()
+    map = loadSessionMap()
+    existing = map.get(job.sessionID)
+  }
   if (existing) {
     return existing
   }
@@ -1051,6 +1137,7 @@ function resetTerminalStateForTests(): void {
 
 function resetSessionMapForTests(): void {
   sessionMapCache = new Map()
+  sessionMapRefreshedAt = 0
   try {
     if (fsMod && SESSION_MAP_FILE && fsMod.existsSync(SESSION_MAP_FILE)) {
       fsMod.unlinkSync(SESSION_MAP_FILE)
@@ -1075,12 +1162,15 @@ const __test = {
   promptJob,
   resolvePromptSessionID,
   mappedSessionID,
+  instanceCreatedAt,
+  supersededByNewerInstance,
   completionEnvelope,
   eventIdentity,
   terminalEventType,
   eventSessionID,
   resetTerminalStateForTests,
   resetSessionMapForTests,
+  setSessionMapRefreshIntervalForTests,
   replyPrompt,
 }
 
@@ -1105,13 +1195,30 @@ export default {
 
     const instanceID = newInstanceID()
     writeHeartbeat(ctx, instanceID)
+
+    const controller = new AbortController()
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined
+    const dispose = () => {
+      if (heartbeatTimer !== undefined) {
+        clearInterval(heartbeatTimer)
+        heartbeatTimer = undefined
+      }
+      controller.abort()
+      clearHeartbeat(instanceID)
+    }
+
     void processReplyJobs(ctx, instanceID)
-    const heartbeatTimer = setInterval(() => {
+    heartbeatTimer = setInterval(() => {
+      // 热重载可能留下旧实例（其心跳仍在刷新）：检测到更新的活实例即自行退休，避免重复上报。
+      if (supersededByNewerInstance(instanceID)) {
+        dbg(`retire superseded instance=${instanceID}`)
+        dispose()
+        return
+      }
       writeHeartbeat(ctx, instanceID)
       void processReplyJobs(ctx, instanceID)
     }, HEARTBEAT_INTERVAL_MS)
 
-    const controller = new AbortController()
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({
@@ -1130,10 +1237,6 @@ export default {
       }
     })()
 
-    return () => {
-      clearInterval(heartbeatTimer)
-      controller.abort()
-      clearHeartbeat(instanceID)
-    }
+    return dispose
   },
 }
