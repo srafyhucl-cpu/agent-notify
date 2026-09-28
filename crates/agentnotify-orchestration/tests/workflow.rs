@@ -2,9 +2,11 @@
 
 use agentnotify_orchestration::{
     AGENT_HINT_CODEX, AGENT_HINT_COMMANDCODE, AGENT_HINT_OPENCODE, OrcErrorCode,
-    PRESET_ORDER_EXECUTE, PRESET_ORDER_JUDGE, PRESET_ORDER_PLAN, PRESET_ORDER_REVIEW,
-    PRESET_WORKFLOW_ID, PRESET_WORKFLOW_NAME, ROLE_EXECUTOR, ROLE_ORCHESTRATOR, ROLE_PLANNER,
-    ROLE_REVIEWER, Workflow, WorkflowStep,
+    PRESET_OPENCODE_ONLY_ID, PRESET_ORDER_EXECUTE, PRESET_ORDER_JUDGE, PRESET_ORDER_PLAN,
+    PRESET_ORDER_REVIEW, PRESET_WORKFLOW_ID, PRESET_WORKFLOW_NAME, ROLE_EXECUTOR,
+    ROLE_ORCHESTRATOR, ROLE_PLANNER, ROLE_REVIEWER, TEMPLATE_FULL_ID, TEMPLATE_FULL_NAME,
+    TEMPLATE_IDS, TEMPLATE_QUICKFIX_ID, TEMPLATE_QUICKFIX_NAME, TEMPLATE_STANDARD_ID,
+    TEMPLATE_STANDARD_NAME, Workflow, WorkflowStep,
 };
 
 /// 便捷构造普通步骤（无门、无模板、无 Agent 提示）。
@@ -153,4 +155,75 @@ fn custom_workflow_keeps_user_fields() {
     assert_eq!(s2.agent_hint.as_deref(), Some("我的-agent"));
     assert_eq!(s2.harness_template.as_deref(), Some("自定义模板"));
     assert!(s2.human_gate);
+}
+
+/// 三档固定模板的形状与「不预置 Agent/模型」承诺（P3 设计 §2/§3）。
+#[test]
+fn fixed_templates_shape() {
+    let quickfix = Workflow::template_quickfix().unwrap();
+    assert_eq!(quickfix.id, TEMPLATE_QUICKFIX_ID);
+    assert_eq!(quickfix.name, TEMPLATE_QUICKFIX_NAME);
+    assert_eq!(quickfix.steps.len(), 2);
+    assert_eq!(quickfix.step(1).unwrap().role, ROLE_EXECUTOR);
+    assert_eq!(quickfix.step(2).unwrap().role, ROLE_REVIEWER);
+
+    let standard = Workflow::template_standard().unwrap();
+    assert_eq!(standard.id, TEMPLATE_STANDARD_ID);
+    assert_eq!(standard.name, TEMPLATE_STANDARD_NAME);
+    assert_eq!(standard.steps.len(), 3);
+    let roles: Vec<&str> = standard.steps.iter().map(|s| s.role.as_str()).collect();
+    assert_eq!(roles, [ROLE_PLANNER, ROLE_EXECUTOR, ROLE_REVIEWER]);
+
+    let full = Workflow::template_full().unwrap();
+    assert_eq!(full.id, TEMPLATE_FULL_ID);
+    assert_eq!(full.name, TEMPLATE_FULL_NAME);
+    assert_eq!(full.steps.len(), 4);
+    let roles: Vec<&str> = full.steps.iter().map(|s| s.role.as_str()).collect();
+    assert_eq!(
+        roles,
+        [
+            ROLE_ORCHESTRATOR,
+            ROLE_PLANNER,
+            ROLE_EXECUTOR,
+            ROLE_REVIEWER
+        ]
+    );
+
+    for wf in [&quickfix, &standard, &full] {
+        for (index, step) in wf.steps.iter().enumerate() {
+            assert_eq!(step.order, (index + 1) as u32, "序号必须从 1 连续");
+            assert!(step.agent_hint.is_none(), "模板不预置 Agent（由用户配置）");
+            assert!(step.model.is_none(), "模板不预置模型（由用户配置）");
+            assert!(!step.human_gate, "固定模板不含人工确认门");
+            assert!(step.harness_template.is_none(), "模板用内置默认信封");
+        }
+    }
+}
+
+/// 内置目录：三档模板 + 旧预设 id 均可解析；未知 id 明确返回 None。
+#[test]
+fn builtin_lookup_covers_templates_and_legacy_presets() {
+    for id in TEMPLATE_IDS {
+        let wf = Workflow::builtin(id).unwrap_or_else(|| panic!("模板 {id} 必须可解析"));
+        assert_eq!(wf.id, id);
+    }
+    assert!(
+        Workflow::builtin(PRESET_WORKFLOW_ID).is_some(),
+        "旧预设 id 仍可解析（老任务兼容）"
+    );
+    assert!(Workflow::builtin(PRESET_OPENCODE_ONLY_ID).is_some());
+    assert!(Workflow::builtin("no-such-workflow").is_none());
+}
+
+/// 步骤模型为可选项：默认空（用 Agent 默认模型），`with_model` 可设置。
+#[test]
+fn step_model_is_optional_and_settable() {
+    let plain = step(1, ROLE_EXECUTOR);
+    assert!(plain.model.is_none());
+
+    let with_model = step(1, ROLE_EXECUTOR).with_model("anthropic/claude-sonnet-4-5");
+    assert_eq!(
+        with_model.model.as_deref(),
+        Some("anthropic/claude-sonnet-4-5")
+    );
 }
