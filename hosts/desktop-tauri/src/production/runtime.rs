@@ -86,6 +86,8 @@ pub struct ProductionRuntimeCoordinator {
     inbound_interceptor: Option<Arc<dyn InboundInterceptor>>,
     /// Agent 事件观察者（汇报自动回注，§4.4）；`None` = 不观察，行为与旧版完全一致。
     agent_event_observer: Option<agentnotify_runtime::SharedAgentEventObserver>,
+    /// 通知过滤器（§5：编排会话原始完成事件不推微信）；`None` = 全部放行，行为与旧版一致。
+    event_filter: Option<agentnotify_runtime::SharedAgentEventFilter>,
     /// 迁移自愈重试是否已在跑，避免重复排程。
     migration_autoretry_inflight: Arc<AtomicBool>,
 }
@@ -149,6 +151,7 @@ impl ProductionRuntimeCoordinator {
             ingress_pipe_enabled,
             inbound_interceptor: None,
             agent_event_observer: None,
+            event_filter: None,
             migration_autoretry_inflight: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -170,6 +173,16 @@ impl ProductionRuntimeCoordinator {
         observer: Option<agentnotify_runtime::SharedAgentEventObserver>,
     ) -> Self {
         self.agent_event_observer = observer;
+        self
+    }
+
+    /// 注入通知过滤器（§5：编排会话原始完成事件不推微信）；注入后再 `start_or_restart` 生效。
+    /// 默认 `None`（全部放行），保证既有调用方与测试路径零影响。
+    pub fn with_event_filter(
+        mut self,
+        filter: Option<agentnotify_runtime::SharedAgentEventFilter>,
+    ) -> Self {
+        self.event_filter = filter;
         self
     }
 
@@ -285,6 +298,7 @@ impl ProductionRuntimeCoordinator {
             spool_replay_interval: SPOOL_REPLAY_INTERVAL,
             inbound_interceptor: self.inbound_interceptor.clone(),
             agent_event_observer: self.agent_event_observer.clone(),
+            event_filter: self.event_filter.clone(),
         }
     }
 

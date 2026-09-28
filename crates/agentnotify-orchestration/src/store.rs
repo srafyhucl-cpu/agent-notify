@@ -86,6 +86,24 @@ impl OrcStore {
         &self.workflow
     }
 
+    /// 任务仓储句柄：任务级工作流解析（按 `task.workflow_id` 换绑工作流）时复用同一仓储。
+    pub fn repository(&self) -> Arc<dyn OrcTaskRepository> {
+        self.tasks.clone()
+    }
+
+    /// 直接按 id 从仓储读取任务（不绑定工作流；先取任务、再按 `workflow_id` 解析工作流）。
+    /// 任务不存在 → `OrcErrorCode::TaskNotFound`；仓储失败 → `OrcErrorCode::Repository`。
+    pub async fn fetch_task(
+        repository: &Arc<dyn OrcTaskRepository>,
+        task_id: &str,
+    ) -> Result<OrcTask, OrcError> {
+        let task = repository
+            .get_task(task_id)
+            .await?
+            .ok_or_else(|| OrcError::task_not_found(task_id))?;
+        OrcTask::from_a2a(task)
+    }
+
     /// 创建任务：工作流第 1 步开工（A2A 状态 Working，新会话语义，§3.3）。
     pub async fn create_task(
         &self,
@@ -190,6 +208,48 @@ impl OrcStore {
         }
         task.set_state(TaskState::Working);
         task.clear_blocked()?;
+        self.tasks.save_task(&task.a2a_task).await?;
+        self.get_task(task_id).await
+    }
+
+    /// 记录某步产出正文（回流汇总用，§4）：推进前由宿主写入，截断由 [`OrcTask::record_step_report`] 负责。
+    pub async fn record_step_report(
+        &self,
+        task_id: &str,
+        step: u32,
+        body: &str,
+    ) -> Result<OrcTask, OrcError> {
+        let mut task = self.get_task(task_id).await?;
+        task.record_step_report(step, body)?;
+        self.tasks.save_task(&task.a2a_task).await?;
+        self.get_task(task_id).await
+    }
+
+    /// 进入「项目经理汇总阶段」（§4）：最后一步已完成，等待首节点汇总成最终汇报。
+    /// A2A 状态回到 Working（「汇总中」仍属干活阶段），只置 meta 标记；幂等。
+    pub async fn enter_finalizing(&self, task_id: &str) -> Result<OrcTask, OrcError> {
+        let mut task = self.get_task(task_id).await?;
+        if !task.is_finalizing()? {
+            task.set_final_report_pending(true)?;
+        }
+        if task.state() != TaskState::Working {
+            task.set_state(TaskState::Working);
+        }
+        self.tasks.save_task(&task.a2a_task).await?;
+        self.get_task(task_id).await
+    }
+
+    /// 完成「项目经理汇总」（§4）：首节点汇总产出已到 → 任务 Completed。
+    /// 不在汇总阶段调用 → 明确报错（不做猜测兜底）。
+    pub async fn complete_finalizing(&self, task_id: &str) -> Result<OrcTask, OrcError> {
+        let mut task = self.get_task(task_id).await?;
+        if !task.is_finalizing()? {
+            return Err(OrcError::invalid_transition(
+                "任务不在项目经理汇总阶段，不能标记汇总完成",
+            ));
+        }
+        task.set_final_report_pending(false)?;
+        task.set_state(TaskState::Completed);
         self.tasks.save_task(&task.a2a_task).await?;
         self.get_task(task_id).await
     }

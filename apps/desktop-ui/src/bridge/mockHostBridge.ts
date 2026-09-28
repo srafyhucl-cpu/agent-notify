@@ -21,11 +21,14 @@ import type {
   NotificationFilterPayload,
   NotificationListDto,
   NotificationSummaryDto,
+  OpencodeProjectDto,
   OrcTaskDto,
   OrcTaskIdPayload,
+  OrcTemplateDto,
   OrcWorkflowDto,
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
+  SaveOrcTemplateConfigPayload,
   SettingsDto,
   UpdateStatusDto,
 } from "./types";
@@ -59,8 +62,12 @@ export interface MockHostBridgeOptions {
   sendTestDelivery?: DeliveryDto;
   /** 预置的编排任务（集群页测试用）。 */
   orcTasks?: OrcTaskDto[];
-  /** 当前工作流节点（创建表单预览测试用）；缺省 = 多 Agent 委托预置。 */
+  /** 当前工作流节点（旧 `get_current_orc_workflow` 兼容命令用）；缺省 = 多 Agent 委托预置。 */
   orcWorkflow?: OrcWorkflowDto;
+  /** 编排模板（设置页节点配置与创建任务预览）；缺省 = 内置三档模板（未配置 Agent/模型）。 */
+  orcTemplates?: OrcTemplateDto[];
+  /** OpenCode 已知项目（工作目录下拉，按最近活跃倒序）；缺省 = 两条固定样本。 */
+  opencodeProjects?: OpencodeProjectDto[];
 }
 
 export interface MockHostBridge extends HostBridge {
@@ -235,17 +242,104 @@ function defaultOrcWorkflow(): OrcWorkflowDto {
     id: "preset-requirement-to-report",
     name: "需求→判断→规划→实施",
     steps: [
-      { order: 1, role: "orchestrator", agentHint: "codex", humanGate: false },
-      { order: 2, role: "planner", agentHint: "opencode", humanGate: false },
-      { order: 3, role: "executor", agentHint: "commandcode", humanGate: false },
+      { order: 1, role: "orchestrator", agentHint: "codex", model: null, humanGate: false },
+      { order: 2, role: "planner", agentHint: "opencode", model: null, humanGate: false },
+      { order: 3, role: "executor", agentHint: "commandcode", model: null, humanGate: false },
     ],
   };
 }
+
+/**
+ * 测试默认模板：与后端内置三档模板同构（`Workflow::builtin`）。
+ * 节点不预置 Agent/模型（§3 不预填），由设置页节点配置填充。
+ */
+function defaultOrcTemplates(): OrcTemplateDto[] {
+  return [
+    {
+      id: "template-quickfix",
+      name: "快速修复",
+      steps: [
+        { order: 1, role: "executor", agent: null, model: null },
+        { order: 2, role: "reviewer", agent: null, model: null },
+      ],
+    },
+    {
+      id: "template-standard",
+      name: "标准交付",
+      steps: [
+        { order: 1, role: "planner", agent: null, model: null },
+        { order: 2, role: "executor", agent: null, model: null },
+        { order: 3, role: "reviewer", agent: null, model: null },
+      ],
+    },
+    {
+      id: "template-full",
+      name: "完整评估",
+      steps: [
+        { order: 1, role: "orchestrator", agent: null, model: null },
+        { order: 2, role: "planner", agent: null, model: null },
+        { order: 3, role: "executor", agent: null, model: null },
+        { order: 4, role: "reviewer", agent: null, model: null },
+      ],
+    },
+  ];
+}
+
+/** 测试默认 OpenCode 项目：按最近活跃倒序（与后端读取顺序一致）。 */
+function defaultOpencodeProjects(): OpencodeProjectDto[] {
+  return [
+    { directory: "D:/Project/agent-notify", name: "agent-notify", lastActiveAt: 1_760_000_000 },
+    { directory: "D:/Project/legacy-demo", name: null, lastActiveAt: 1_750_000_000 },
+  ];
+}
+
+/** 模板 id → 展示名（错误文案与后端保持一致）。 */
+const TEMPLATE_NAME_HINTS = "快速修复 / 标准交付 / 完整评估";
+
+function orcTemplateUnknown(templateId: string): never {
+  throw {
+    code: "orc_template_unknown",
+    message: `模板不存在：${templateId}（可选：${TEMPLATE_NAME_HINTS}）`,
+    retryable: false,
+  };
+}
+
+function orcModelInvalid(model: string): never {
+  throw {
+    code: "orc_model_invalid",
+    message: `模型格式应为 provider/model：${model}`,
+    retryable: false,
+  };
+}
+
+/** 模型格式与后端一致：第一个 `/` 前后都非空。 */
+function isProviderModel(value: string): boolean {
+  const separator = value.indexOf("/");
+  if (separator <= 0) {
+    return false;
+  }
+  return (
+    value.slice(0, separator).trim().length > 0 &&
+    value.slice(separator + 1).trim().length > 0
+  );
+}
+
+/** 深拷贝 DTO 样本，避免 mock 内部写入污染调用方传入的 fixture。 */
+function cloneDto<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** 工作目录粗校验：非空且形如路径（真实存在性由后端校验，mock 不猜）。 */
+function looksLikeDirectory(path: string): boolean {
+  return path.includes("/") || path.includes("\\");
+}
+
 
 function orcTaskNotFound(taskId: string): never {
   throw {
     code: "orc.task_not_found",
     message: `任务不存在：${taskId}`,
+    retryable: false,
   };
 }
 
@@ -301,7 +395,14 @@ export function createMockHostBridge(
   const listeners = new Map<HostEvent, Set<(payload: unknown) => void>>();
   const channels = options.channels ?? [defaultChannel()];
   const agents = options.agents ?? [];
-  const orcTasks: OrcTaskDto[] = [...(options.orcTasks ?? [])];
+  // 深拷贝任务种子：mock 内部写入不应污染调用方 fixture（真实桥每次返回新对象）。
+  const orcTasks: OrcTaskDto[] = cloneDto(options.orcTasks ?? []);
+  const orcTemplates: OrcTemplateDto[] = cloneDto(
+    options.orcTemplates ?? defaultOrcTemplates(),
+  );
+  const opencodeProjects = cloneDto(
+    options.opencodeProjects ?? defaultOpencodeProjects(),
+  );
 
   async function applyDelay(command: BusinessCommand) {
     const delay = options.delays?.[command] ?? 0;
@@ -465,7 +566,42 @@ export function createMockHostBridge(
         break;
       case "create_orc_task": {
         const create = payload as CreateOrcTaskPayload;
-        const workflow = options.orcWorkflow ?? defaultOrcWorkflow();
+        const goal = create.goal.trim();
+        if (!goal) {
+          throw { code: "orc_goal_empty", message: "任务目标不能为空", retryable: false };
+        }
+        const template = orcTemplates.find(
+          (candidate) => candidate.id === create.templateId.trim(),
+        );
+        if (!template) {
+          orcTemplateUnknown(create.templateId);
+        }
+        const workingDir = create.workingDir.trim();
+        if (!workingDir) {
+          throw {
+            code: "orc_working_dir_invalid",
+            message: "工作目录不能为空：请选择 OpenCode 项目或手动输入目录",
+            retryable: false,
+          };
+        }
+        if (!looksLikeDirectory(workingDir)) {
+          throw {
+            code: "orc_working_dir_invalid",
+            message: `工作目录不存在：${workingDir}`,
+            retryable: false,
+          };
+        }
+        const workflow: OrcWorkflowDto = {
+          id: template.id,
+          name: template.name,
+          steps: template.steps.map((step) => ({
+            order: step.order,
+            role: step.role,
+            agentHint: step.agent,
+            model: step.model,
+            humanGate: false,
+          })),
+        };
         const task: OrcTaskDto = {
           id: `orc-${orcTasks.length + 1}`,
           workflowId: workflow.id,
@@ -474,25 +610,39 @@ export function createMockHostBridge(
           started: false,
           workflow,
           notifyMode: create.notifyMode ?? "final_only",
-          goal: create.goal,
+          goal,
+          workingDir,
           blockedStep: null,
           blockReason: null,
+          finalizing: false,
         } satisfies OrcTaskDto;
         orcTasks.push(task);
-        result = task;
+        result = cloneDto(task);
         break;
       }
       case "list_orc_tasks":
-        result = [...orcTasks];
+        result = cloneDto(orcTasks);
         break;
       case "start_orc_task": {
         const start = payload as unknown as OrcTaskIdPayload;
         const task = orcTasks.find((item) => item.id === start.taskId);
-        if (task) {
-          task.started = true;
-          task.state = "working";
+        if (!task) {
+          orcTaskNotFound(start.taskId);
         }
-        result = task ?? orcTaskNotFound(start.taskId);
+        // 预检：全部节点必须已配置 Agent（后端 §3 语义；缺任一节点即明确报错，任务保持待开始）。
+        const missing = task.workflow.steps.find(
+          (step) => (step.agentHint ?? "").trim().length === 0,
+        );
+        if (missing) {
+          throw {
+            code: "orc_step_agent_missing",
+            message: `第 ${missing.order} 步未选择 Agent：请先在设置 → 编排中配置`,
+            retryable: false,
+          };
+        }
+        task.started = true;
+        task.state = "working";
+        result = cloneDto(task);
         break;
       }
       case "get_current_orc_workflow":
@@ -500,15 +650,78 @@ export function createMockHostBridge(
           workflow: options.orcWorkflow ?? defaultOrcWorkflow(),
         } satisfies CurrentOrcWorkflowDto;
         break;
+      case "list_orc_templates":
+        result = cloneDto(orcTemplates);
+        break;
+      case "save_orc_template_config": {
+        const save = payload as SaveOrcTemplateConfigPayload;
+        const templateId = save.templateId.trim();
+        const template = orcTemplates.find((candidate) => candidate.id === templateId);
+        if (!template) {
+          orcTemplateUnknown(templateId);
+        }
+        if (save.steps.length !== template.steps.length) {
+          throw {
+            code: "orc_template_steps_invalid",
+            message: `模板 ${templateId} 共 ${String(template.steps.length)} 个节点，提交了 ${String(save.steps.length)} 个：请刷新后重试`,
+            retryable: false,
+          };
+        }
+        save.steps.forEach((step, index) => {
+          const expected = template.steps[index].order;
+          if (step.order !== expected) {
+            throw {
+              code: "orc_template_steps_invalid",
+              message: `模板 ${templateId} 第 ${String(index + 1)} 个节点序号应为 ${String(expected)}，实际为 ${String(step.order)}：请刷新后重试`,
+              retryable: false,
+            };
+          }
+          const agent = step.agent?.trim() ?? "";
+          const model = step.model?.trim() ?? "";
+          if (model) {
+            if (!isProviderModel(model)) {
+              orcModelInvalid(model);
+            }
+            if (agent !== "opencode") {
+              throw {
+                code: "orc_model_agent_unsupported",
+                message: "该 Agent 暂不支持指定模型",
+                retryable: false,
+              };
+            }
+          }
+          template.steps[index].agent = agent || null;
+          template.steps[index].model = model || null;
+        });
+        result = cloneDto(orcTemplates);
+        break;
+      }
+      case "list_opencode_projects":
+        result = cloneDto(opencodeProjects);
+        break;
       case "advance_orc_task": {
         const advance = payload as unknown as AdvanceOrcTaskPayload;
         const task = orcTasks.find((item) => item.id === advance.taskId);
-        if (task) {
-          task.currentStep =
-            task.currentStep < 3 ? task.currentStep + 1 : task.currentStep;
+        if (!task) {
+          advanceOrcTaskError(advance.taskId ?? "<unknown>");
+        }
+        if (task.finalizing) {
+          throw {
+            code: "orc_task_finalizing",
+            message: "任务正在等待项目经理汇总，无需手动推进",
+            retryable: false,
+          };
+        }
+        const lastOrder = task.workflow.steps.length;
+        if (task.currentStep < lastOrder) {
+          task.currentStep += 1;
+          task.state = "working";
+        } else {
+          // 最后一步完成不直接结束：进入项目经理汇总阶段（与后端 §4 一致）。
+          task.finalizing = true;
           task.state = "working";
         }
-        result = task ?? advanceOrcTaskError(advance.taskId ?? "<unknown>");
+        result = cloneDto(task);
         break;
       }
       case "mark_blocked_orc_task": {
@@ -519,7 +732,7 @@ export function createMockHostBridge(
           task.blockedStep = block.step;
           task.blockReason = block.reason ?? "投递失败";
         }
-        result = task ?? orcTaskNotFound(block.taskId);
+        result = task ? cloneDto(task) : orcTaskNotFound(block.taskId);
         break;
       }
       case "recover_blocked_orc_task": {
@@ -530,7 +743,7 @@ export function createMockHostBridge(
           task.blockedStep = null;
           task.blockReason = null;
         }
-        result = task ?? orcTaskNotFound(recover.taskId);
+        result = task ? cloneDto(task) : orcTaskNotFound(recover.taskId);
         break;
       }
       default: {

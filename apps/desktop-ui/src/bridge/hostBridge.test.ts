@@ -80,6 +80,8 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
 
     const created = await bridge.invoke("create_orc_task", {
       goal: "新任务",
+      templateId: "template-standard",
+      workingDir: "D:/Project/agent-notify",
       notifyMode: "verbose",
     });
     expect(created).toMatchObject({
@@ -88,6 +90,9 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
       currentStep: 1,
       notifyMode: "verbose",
       goal: "新任务",
+      workflowId: "template-standard",
+      workingDir: "D:/Project/agent-notify",
+      finalizing: false,
     });
 
     await expect(bridge.invoke("list_orc_tasks", {})).resolves.toHaveLength(2);
@@ -97,12 +102,78 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
     const bridge = createMockHostBridge();
     const created = await bridge.invoke("create_orc_task", {
       goal: "默认节奏",
+      templateId: "template-quickfix",
+      workingDir: "D:/Project/agent-notify",
       notifyMode: null,
     });
     expect(created.notifyMode).toBe("final_only");
   });
 
-  it("advance 写回推进 currentStep（上限 3）且列表同步", async () => {
+  it("create 校验模板与工作目录，错误码与后端一致", async () => {
+    const bridge = createMockHostBridge();
+
+    await expect(
+      bridge.invoke("create_orc_task", {
+        goal: "未知模板",
+        templateId: "template-missing",
+        workingDir: "D:/Project/agent-notify",
+        notifyMode: null,
+      }),
+    ).rejects.toMatchObject({ code: "orc_template_unknown" });
+
+    await expect(
+      bridge.invoke("create_orc_task", {
+        goal: "空目录",
+        templateId: "template-standard",
+        workingDir: "   ",
+        notifyMode: null,
+      }),
+    ).rejects.toMatchObject({
+      code: "orc_working_dir_invalid",
+      message: "工作目录不能为空：请选择 OpenCode 项目或手动输入目录",
+    });
+
+    await expect(
+      bridge.invoke("create_orc_task", {
+        goal: "非法目录",
+        templateId: "template-standard",
+        workingDir: "not-a-directory",
+        notifyMode: null,
+      }),
+    ).rejects.toMatchObject({
+      code: "orc_working_dir_invalid",
+      message: "工作目录不存在：not-a-directory",
+    });
+  });
+
+  it("start 预检：节点缺 Agent 时明确报错且任务保持待开始", async () => {
+    const task = orcTaskFixture("task-unconfigured", {
+      started: false,
+      currentStep: 1,
+      workflow: {
+        id: "template-standard",
+        name: "标准交付",
+        steps: [
+          { order: 1, role: "planner", agentHint: null, model: null, humanGate: false },
+          { order: 2, role: "executor", agentHint: "opencode", model: null, humanGate: false },
+        ],
+      },
+    });
+    const bridge = createMockHostBridge({ orcTasks: [task] });
+
+    await expect(
+      bridge.invoke("start_orc_task", { taskId: "task-unconfigured" }),
+    ).rejects.toMatchObject({
+      code: "orc_step_agent_missing",
+      message: "第 1 步未选择 Agent：请先在设置 → 编排中配置",
+    });
+
+    await expect(bridge.invoke("list_orc_tasks", {})).resolves.toMatchObject([
+      { id: "task-unconfigured", started: false },
+    ]);
+  });
+
+  it("advance 写回推进 currentStep；最后一步完成后转入汇总阶段（finalizing）", async () => {
     const seeded = orcTaskFixture("task-advance", { currentStep: 2 });
     const bridge = createMockHostBridge({ orcTasks: [seeded] });
 
@@ -116,14 +187,110 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
     await expect(bridge.invoke("list_orc_tasks", {})).resolves.toMatchObject([
       { id: "task-advance", currentStep: 3 },
     ]);
-    // 到顶后不再推进
-    await bridge.invoke("advance_orc_task", {
+
+    // 最后一步推进 → 汇总阶段（不直接完成，不增加 currentStep）
+    const finalizing = await bridge.invoke("advance_orc_task", {
       taskId: "task-advance",
       kind: "instruction",
     });
-    await expect(bridge.invoke("list_orc_tasks", {})).resolves.toMatchObject([
-      { id: "task-advance", currentStep: 3 },
+    expect(finalizing).toMatchObject({
+      currentStep: 3,
+      finalizing: true,
+      state: "working",
+    });
+
+    // 汇总阶段拒绝人工推进
+    await expect(
+      bridge.invoke("advance_orc_task", {
+        taskId: "task-advance",
+        kind: "instruction",
+      }),
+    ).rejects.toMatchObject({
+      code: "orc_task_finalizing",
+      message: "任务正在等待项目经理汇总，无需手动推进",
+    });
+  });
+
+  it("list_orc_templates 返回三档内置模板；save 合并节点并把校验错误暴露出来", async () => {
+    const bridge = createMockHostBridge();
+
+    const templates = await bridge.invoke("list_orc_templates", {});
+    expect(templates.map((template) => template.id)).toEqual([
+      "template-quickfix",
+      "template-standard",
+      "template-full",
     ]);
+    expect(templates[1].steps).toHaveLength(3);
+    expect(templates[1].steps[0].agent).toBeNull();
+
+    const saved = await bridge.invoke("save_orc_template_config", {
+      templateId: "template-standard",
+      steps: [
+        { order: 1, agent: "opencode", model: "anthropic/claude-sonnet-4-5" },
+        { order: 2, agent: "opencode", model: null },
+        { order: 3, agent: null, model: null },
+      ],
+    });
+    expect(saved[1]).toMatchObject({
+      id: "template-standard",
+      steps: [
+        { order: 1, agent: "opencode", model: "anthropic/claude-sonnet-4-5" },
+        { order: 2, agent: "opencode", model: null },
+        { order: 3, agent: null, model: null },
+      ],
+    });
+
+    await expect(
+      bridge.invoke("save_orc_template_config", {
+        templateId: "template-standard",
+        steps: [
+          { order: 1, agent: "opencode", model: "no-slash" },
+          { order: 2, agent: null, model: null },
+          { order: 3, agent: null, model: null },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "orc_model_invalid",
+      message: "模型格式应为 provider/model：no-slash",
+    });
+
+    await expect(
+      bridge.invoke("save_orc_template_config", {
+        templateId: "template-standard",
+        steps: [
+          { order: 1, agent: "codex", model: "anthropic/claude-sonnet-4-5" },
+          { order: 2, agent: null, model: null },
+          { order: 3, agent: null, model: null },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "orc_model_agent_unsupported",
+      message: "该 Agent 暂不支持指定模型",
+    });
+  });
+
+  it("list_opencode_projects 返回已知项目；注入错误时明确报错", async () => {
+    const bridge = createMockHostBridge();
+    const projects = await bridge.invoke("list_opencode_projects", {});
+    expect(projects[0]).toMatchObject({
+      directory: "D:/Project/agent-notify",
+      name: "agent-notify",
+    });
+
+    const failing = createMockHostBridge({
+      errors: {
+        list_opencode_projects: {
+          code: "opencode_db_not_found",
+          message: "未找到 OpenCode 项目数据库：xx（可直接手动输入工作目录）",
+          retryable: false,
+        },
+      },
+    });
+    await expect(failing.invoke("list_opencode_projects", {})).rejects.toMatchObject(
+      {
+        code: "opencode_db_not_found",
+      },
+    );
   });
 
   it("recover 清除阻塞态（blockedStep/blockReason），回到 working", async () => {

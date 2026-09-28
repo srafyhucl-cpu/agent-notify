@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use agentnotify_agent_opencode::{OpenCodeInboxState, OpenCodeReplyInbox};
-use agentnotify_agent_sdk::AgentError;
+use agentnotify_agent_sdk::{AgentError, DispatchOptions};
 use agentnotify_domain::AgentSessionId;
 
 async fn ready_inbox() -> (tempfile::TempDir, OpenCodeReplyInbox) {
@@ -213,6 +213,66 @@ async fn open_job_payload_writes_open_flag() {
         "open 任务必须写出 open=true"
     );
     assert!(object.get("text").is_some());
+    assert!(
+        object.get("model").is_none() && object.get("location").is_none(),
+        "未指定选项时不得写空字段：{value}"
+    );
+    assert_eq!(
+        object.get("unattended"),
+        Some(&serde_json::Value::Bool(true)),
+        "无人值守缺省 true（与插件契约一致）"
+    );
+}
+
+/// 派活透传（§4）：编排任务把模型/工作目录/无人值守随 job 写盘，字段名与插件契约一致。
+#[tokio::test]
+async fn dispatch_options_are_written_with_plugin_field_names() {
+    let (_temp, inbox) = ready_inbox().await;
+    let session_id = AgentSessionId::new("task-7-step-2").unwrap();
+    let adapter = agentnotify_agent_opencode::OpenCodeAgent::new(inbox.clone());
+    let reader = tokio::spawn({
+        let inbox = inbox.clone();
+        async move { capture_job_json(&inbox).await }
+    });
+
+    let options = DispatchOptions {
+        working_dir: Some("D:/Project/demo".to_string()),
+        model: Some("anthropic/claude-sonnet-4-5".to_string()),
+        unattended: false,
+    };
+    agentnotify_agent_sdk::AgentAdapter::dispatch_with_options(
+        &adapter,
+        &session_id,
+        "【task_7】Step 2 信封",
+        false,
+        &options,
+    )
+    .await
+    .expect("派活必须成功");
+
+    let raw = reader.await.unwrap();
+    let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let object = value.as_object().unwrap();
+    assert_eq!(
+        object.get("model").and_then(|value| value.as_str()),
+        Some("anthropic/claude-sonnet-4-5"),
+        "模型必须随派活透传：{value}"
+    );
+    assert_eq!(
+        object.get("location").and_then(|value| value.as_str()),
+        Some("D:/Project/demo"),
+        "工作目录必须随派活透传：{value}"
+    );
+    assert_eq!(
+        object.get("unattended"),
+        Some(&serde_json::Value::Bool(false)),
+        "无人值守标志必须随派活透传：{value}"
+    );
+    assert_eq!(
+        object.get("open"),
+        Some(&serde_json::Value::Bool(false)),
+        "续聊派活必须显式写出 open=false"
+    );
 }
 
 /// 发起新会话的成功结果同样返回已接受回执。

@@ -41,6 +41,9 @@ export function TaskList({ tasks, selectedTaskId, onSelect }: TaskListProps) {
                   <StatusBadge tone={ORC_TASK_STATE_TONES[task.state]}>
                     {ORC_TASK_STATE_LABELS[task.state]}
                   </StatusBadge>
+                  {task.finalizing ? (
+                    <StatusBadge tone="info">汇总中</StatusBadge>
+                  ) : null}
                   {blocked ? (
                     <StatusBadge tone="danger">阻塞</StatusBadge>
                   ) : null}

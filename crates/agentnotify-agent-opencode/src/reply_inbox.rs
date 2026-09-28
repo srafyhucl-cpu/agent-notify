@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use agentnotify_agent_sdk::{AgentError, AgentHealth};
+use agentnotify_agent_sdk::{AgentError, AgentHealth, DispatchOptions};
 use agentnotify_domain::{AgentSessionId, SafeError, Timestamp};
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +37,12 @@ pub struct OpenCodeReplyJob {
     /// 为 true 时插件以该 session_id 发起新会话开工（A2A“新任务 = 新会话”），
     /// false 时沿用既有会话续聊。旧任务没有该字段按 false 处理。
     pub open: bool,
+    /// 派活模型（`provider/model`）；None = 用宿主默认模型（仅 OpenCode 支持）。
+    pub model: Option<String>,
+    /// 派活工作目录（绝对路径）；None = 跟随宿主当前项目。
+    pub location: Option<String>,
+    /// 无人值守（权限 ask 自动放行）；缺省 true，显式 false 保留人工确认。
+    pub unattended: bool,
     pub created_at: Timestamp,
     pub expires_at: Timestamp,
 }
@@ -87,7 +93,14 @@ impl OpenCodeReplyInbox {
         text: &str,
         timeout: Duration,
     ) -> Result<(), AgentError> {
-        self.submit_job(session_id, text, false, timeout).await
+        self.submit_job(
+            session_id,
+            text,
+            false,
+            &DispatchOptions::default(),
+            timeout,
+        )
+        .await
     }
 
     /// 以新会话开工（open=true 语义）：编排层生成新 sessionID（如
@@ -104,7 +117,21 @@ impl OpenCodeReplyInbox {
         text: &str,
         timeout: Duration,
     ) -> Result<(), AgentError> {
-        self.submit_job(session_id, text, true, timeout).await
+        self.submit_job(session_id, text, true, &DispatchOptions::default(), timeout)
+            .await
+    }
+
+    /// 编排派活（§4 派活透传）：job 携带 `model`/`location`/`unattended`；
+    /// `open=true` 时插件按 location/model 创建新会话，否则续聊并按需 switchModel。
+    pub async fn dispatch_with_options(
+        &self,
+        session_id: &AgentSessionId,
+        text: &str,
+        open: bool,
+        options: &DispatchOptions,
+    ) -> Result<(), AgentError> {
+        self.submit_job(session_id, text, open, options, DEFAULT_RESULT_WAIT)
+            .await
     }
 
     async fn submit_job(
@@ -112,6 +139,7 @@ impl OpenCodeReplyInbox {
         session_id: &AgentSessionId,
         text: &str,
         open: bool,
+        options: &DispatchOptions,
         timeout: Duration,
     ) -> Result<(), AgentError> {
         let text = text.trim();
@@ -138,6 +166,9 @@ impl OpenCodeReplyInbox {
             session_id: session_id.clone(),
             text: text.to_owned(),
             open,
+            model: options.model.clone(),
+            location: options.working_dir.clone(),
+            unattended: options.unattended,
             created_at: now,
             expires_at,
         };
@@ -312,6 +343,14 @@ struct WireJob<'a> {
     text: &'a str,
     /// open=true 时插件以 sessionID 发起新会话；字段缺省时插件按 false（续聊）处理。
     open: bool,
+    /// 派活模型（`provider/model`）；缺省用宿主默认模型（插件契约字段名 `model`）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<&'a str>,
+    /// 派活工作目录（绝对路径）；缺省跟随宿主当前项目（插件契约字段名 `location`）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    location: Option<&'a str>,
+    /// 无人值守（权限 ask 自动放行）；缺省 true，显式 false 保留人工确认。
+    unattended: bool,
     created_at: String,
     expires_at: String,
 }
@@ -323,6 +362,9 @@ impl<'a> From<&'a OpenCodeReplyJob> for WireJob<'a> {
             session_id: job.session_id.as_str(),
             text: &job.text,
             open: job.open,
+            model: job.model.as_deref(),
+            location: job.location.as_deref(),
+            unattended: job.unattended,
             created_at: job.created_at.to_rfc3339(),
             expires_at: job.expires_at.to_rfc3339(),
         }

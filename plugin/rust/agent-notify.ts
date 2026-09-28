@@ -75,8 +75,20 @@ type PromptBinding =
       shape: "legacy" | "direct"
     }
 
+/** OpenCode 模型标识：`provider/model` 拆解结果。 */
+interface ModelSpec {
+  providerID: string
+  id: string
+}
+
 interface SessionApi {
-  create?(input: { title?: string }): Promise<unknown>
+  create?(input: {
+    title?: string
+    /** 会话工作目录；缺省跟随宿主当前项目。 */
+    location?: { directory: string }
+    /** 会话使用的模型；缺省跟随宿主默认模型。 */
+    model?: ModelSpec
+  }): Promise<unknown>
   context(input: { sessionID: string }): Promise<unknown>
   get(input: { sessionID: string }): Promise<unknown>
   prompt?(input: {
@@ -85,6 +97,8 @@ interface SessionApi {
     delivery: "steer"
   }): Promise<unknown>
   promptAsync?(input: unknown): Promise<unknown>
+  /** 续聊前切换会话模型；旧版宿主可能缺失，缺失时明确报错不静默降级。 */
+  switchModel?(input: { sessionID: string; model: ModelSpec }): Promise<unknown>
 }
 
 /** 权限 evaluate hook 事件（OpenCode v2；effect 可变，见设计文档 §6）。 */
@@ -131,6 +145,12 @@ interface ReplyJob {
   owner?: string
   /** true 时以 sessionID 作为新会话首个 prompt 发起开工；缺省按 false（续聊既有会话）。 */
   open?: boolean
+  /** 派活模型（`provider/model`）；缺省用宿主默认模型。 */
+  model?: string
+  /** 派活工作目录（绝对路径）；缺省用宿主当前项目目录。 */
+  location?: string
+  /** 是否无人值守（权限 ask 自动放行）；缺省 true，显式 false 时保留人工确认。 */
+  unattended?: boolean
 }
 
 let fsMod: FsModule | null = null
@@ -452,6 +472,8 @@ function withTimeout<T>(
 //   `ctx.session.create` 建真实会话，登记 合成→真实 映射后 prompt 真实 id；
 // - 合成 id 有映射 / 普通会话 id：按映射换真实 id 直通 prompt（微信引用回复不受影响）；
 // - 完成事件回传：真实 id 换回合成 id，桌面端才能把汇报归到对应任务/步骤。
+// 映射条目同时携带无人值守标志（unattended）：派活时按任务要求写入，权限 hook 据此
+// 决定是否自动放行 ask；旧格式（value 为纯字符串）读取兼容，视为 unattended=true。
 
 /** 编排合成会话 id 前缀（与 Rust 侧 ORC_DISPATCH_SESSION_PREFIX 一致）。 */
 const ORC_SESSION_PREFIX = "task-"
@@ -460,7 +482,13 @@ const SESSION_MAP_FILE = REPLY_DIR ? `${REPLY_DIR}/session-map.json` : ""
 /** 映射容量上限：超出后丢弃最旧条目（保序 Map）。 */
 const SESSION_MAP_LIMIT = 2048
 
-let sessionMapCache: Map<string, string> | null = null
+/** 映射条目：真实会话 id + 无人值守标志（false = 权限弹窗保留人工确认）。 */
+interface SessionMapEntry {
+  id: string
+  unattended: boolean
+}
+
+let sessionMapCache: Map<string, SessionMapEntry> | null = null
 /** 上次从磁盘强制刷新映射的时间（节流：避免每个未命中事件都读盘）。 */
 let sessionMapRefreshedAt = 0
 let sessionMapRefreshMinIntervalMs = 3 * MILLISECONDS_PER_SECOND
@@ -468,20 +496,29 @@ let sessionMapRefreshMinIntervalMs = 3 * MILLISECONDS_PER_SECOND
 /**
  * 读取会话映射（进程内缓存）。`refresh=true` 时强制从磁盘重读——
  * 多实例/热重载期间其他实例写入的映射需要及时可见，避免映射缺失误报原始 id。
+ * 兼容旧格式：value 为纯字符串（真实会话 id）时 unattended 视为 true。
  */
-function loadSessionMap(refresh = false): Map<string, string> {
+function loadSessionMap(refresh = false): Map<string, SessionMapEntry> {
   if (sessionMapCache && !refresh) {
     return sessionMapCache
   }
   sessionMapRefreshedAt = Date.now()
-  const map = new Map<string, string>()
+  const map = new Map<string, SessionMapEntry>()
   try {
     if (fsMod && SESSION_MAP_FILE && fsMod.existsSync(SESSION_MAP_FILE)) {
       const parsed = JSON.parse(fsMod.readFileSync(SESSION_MAP_FILE, "utf8"))
       if (isRecord(parsed)) {
         for (const [key, value] of Object.entries(parsed)) {
           if (typeof value === "string" && value) {
-            map.set(key, value)
+            map.set(key, { id: value, unattended: true })
+            continue
+          }
+          if (!isRecord(value)) {
+            continue
+          }
+          const id = stringField(value, "id")
+          if (id) {
+            map.set(key, { id, unattended: value.unattended !== false })
           }
         }
       }
@@ -514,10 +551,10 @@ function persistSessionMap(): void {
       return
     }
     const record: JsonRecord = {}
-    for (const [key, value] of [...sessionMapCache.entries()].slice(
+    for (const [key, entry] of [...sessionMapCache.entries()].slice(
       -SESSION_MAP_LIMIT,
     )) {
-      record[key] = value
+      record[key] = { id: entry.id, unattended: entry.unattended }
     }
     writeAtomic(SESSION_MAP_FILE, record)
   } catch (error) {
@@ -529,23 +566,33 @@ function isOrchestrationSessionID(sessionID: string): boolean {
   return sessionID.startsWith(ORC_SESSION_PREFIX)
 }
 
-/** 真实会话 id → 合成会话 id（无映射原样返回，普通会话不受影响）。 */
-function mappedSessionID(sessionID: string): string {
-  let map = loadSessionMap()
-  for (const [synthetic, real] of map) {
-    if (real === sessionID) {
-      return synthetic
+/** 真实会话 id → 映射条目；合成 id 一并返回，无映射返回 undefined。 */
+function findMappedSession(
+  sessionID: string,
+): { syntheticID: string; entry: SessionMapEntry } | undefined {
+  const lookup = (
+    map: Map<string, SessionMapEntry>,
+  ): { syntheticID: string; entry: SessionMapEntry } | undefined => {
+    for (const [syntheticID, entry] of map) {
+      if (entry.id === sessionID) {
+        return { syntheticID, entry }
+      }
     }
+    return undefined
+  }
+  let found = lookup(loadSessionMap())
+  if (found) {
+    return found
   }
   // 未命中：可能映射由其他（热重载前）实例写入，按节流从磁盘刷新一次再找。
   refreshSessionMapThrottled()
-  map = loadSessionMap()
-  for (const [synthetic, real] of map) {
-    if (real === sessionID) {
-      return synthetic
-    }
-  }
-  return sessionID
+  found = lookup(loadSessionMap())
+  return found
+}
+
+/** 真实会话 id → 合成会话 id（无映射原样返回，普通会话不受影响）。 */
+function mappedSessionID(sessionID: string): string {
+  return findMappedSession(sessionID)?.syntheticID ?? sessionID
 }
 
 function createdSessionID(response: unknown): string {
@@ -555,16 +602,57 @@ function createdSessionID(response: unknown): string {
   return typeof id === "string" && id.startsWith("ses") ? id.trim() : ""
 }
 
+/** 解析派活模型 `provider/model`；缺 `/` 或空段时抛错，不做猜测。 */
+function parseModelSpec(spec: string): ModelSpec {
+  const trimmed = spec.trim()
+  const separator = trimmed.indexOf("/")
+  const providerID = separator > 0 ? trimmed.slice(0, separator).trim() : ""
+  // 模型 id 本身可含 `/`（如 openrouter 的 anthropic/claude-...），只按第一个 `/` 拆。
+  const id = separator > 0 ? trimmed.slice(separator + 1).trim() : ""
+  if (!providerID || !id) {
+    throw new Error("模型格式应为 provider/model")
+  }
+  return { providerID, id }
+}
+
+/** 从任务读取派活模型；未指定返回 undefined，格式非法直接抛错。 */
+function jobModelSpec(job: ReplyJob): ModelSpec | undefined {
+  if (typeof job.model !== "string" || !job.model.trim()) {
+    return undefined
+  }
+  return parseModelSpec(job.model)
+}
+
+/** 新建真实会话的选项；缺省时跟随宿主当前项目与默认模型。 */
+interface CreateSessionOptions {
+  location?: string
+  model?: ModelSpec
+}
+
 async function createRealSession(
   ctx: PluginContext,
   syntheticID: string,
+  options: CreateSessionOptions = {},
 ): Promise<string> {
   const create = ctx.session?.create
   if (typeof create !== "function") {
     throw new Error("当前 OpenCode 版本不支持创建会话，请升级 OpenCode 后重试")
   }
+  const input: {
+    title: string
+    location?: { directory: string }
+    model?: ModelSpec
+  } = { title: `【集群】${syntheticID}` }
+  const location =
+    typeof options.location === "string" ? options.location.trim() : ""
+  if (location) {
+    input.location = { directory: location }
+  }
+  if (options.model) {
+    input.model = options.model
+  }
   const created = await withTimeout(
-    create.call(ctx.session, { title: `【集群】${syntheticID}` }),
+    create.call(ctx.session, input),
     SESSION_FETCH_TIMEOUT_MS,
     "创建会话超时",
   )
@@ -573,6 +661,40 @@ async function createRealSession(
     throw new Error("创建会话未返回有效会话 id（ses...）")
   }
   return real
+}
+
+/**
+ * 续聊既有映射时的派活选项：更新无人值守标志、按需切换模型。
+ * 先落标志再切模型：即使切换失败，权限行为也先与本次派活意图一致。
+ * 模型格式非法或宿主不支持 switchModel 时直接抛错，不静默沿用旧模型。
+ */
+async function applyResumeOptions(
+  ctx: PluginContext,
+  job: ReplyJob,
+  entry: SessionMapEntry,
+): Promise<void> {
+  if (
+    typeof job.unattended === "boolean" &&
+    job.unattended !== entry.unattended
+  ) {
+    entry.unattended = job.unattended
+    persistSessionMap()
+    dbg(`unattended updated sid=${entry.id} value=${job.unattended}`)
+  }
+  const model = jobModelSpec(job)
+  if (!model) {
+    return
+  }
+  const switchModel = ctx.session?.switchModel
+  if (typeof switchModel !== "function") {
+    throw new Error("当前 OpenCode 版本不支持切换模型")
+  }
+  await withTimeout(
+    switchModel.call(ctx.session, { sessionID: entry.id, model }),
+    SESSION_FETCH_TIMEOUT_MS,
+    "切换模型超时",
+  )
+  dbg(`switch model sid=${entry.id} model=${model.providerID}/${model.id}`)
 }
 
 /**
@@ -599,10 +721,17 @@ async function resolvePromptSessionID(
     existing = map.get(job.sessionID)
   }
   if (existing) {
-    return existing
+    await applyResumeOptions(ctx, job, existing)
+    return existing.id
   }
-  const real = await createRealSession(ctx, job.sessionID)
-  map.set(job.sessionID, real)
+  const real = await createRealSession(ctx, job.sessionID, {
+    location: job.location,
+    model: jobModelSpec(job),
+  })
+  map.set(job.sessionID, {
+    id: real,
+    unattended: job.unattended !== false,
+  })
   persistSessionMap()
   return real
 }
@@ -662,16 +791,21 @@ async function promptJob(ctx: PluginContext, job: ReplyJob): Promise<void> {
 // 编排会话权限无人值守（设计文档 §6）
 // ---------------------------------------------------------------------------
 // 编排流程无人应答，权限弹窗会把步骤卡死。OpenCode v2 的 evaluate hook 在
-// 允许/询问决策后、执行或弹窗前回调：仅对映射表内的编排真实会话把 ask 改成
-// allow；显式 deny 不会触发 hook，普通会话/未知会话保持原行为。
+// 允许/询问决策后、执行或弹窗前回调：仅对映射表内且要求无人值守
+// （unattended !== false，缺省 true）的编排真实会话把 ask 改成 allow；
+// 显式 deny 不会触发 hook，普通会话/未知会话/要求人工确认的编排会话保持原行为。
 
-/** evaluate 回调：编排会话的 ask 放行为 allow，其余原样。 */
+/** evaluate 回调：无人值守编排会话的 ask 放行为 allow，其余原样。 */
 function evaluatePermission(event: PermissionEvaluation): void {
   if (!isRecord(event) || event.effect !== "ask") {
     return
   }
   const sessionID = typeof event.sessionID === "string" ? event.sessionID : ""
-  if (!sessionID || mappedSessionID(sessionID) === sessionID) {
+  if (!sessionID) {
+    return
+  }
+  const mapped = findMappedSession(sessionID)
+  if (!mapped || mapped.entry.unattended === false) {
     return
   }
   event.effect = "allow"
@@ -959,8 +1093,9 @@ function completionEnvelope(
   body: string,
   event: unknown,
   identity = "",
+  failed = false,
 ): JsonRecord {
-  return {
+  const payload: JsonRecord = {
     protocolVersion: 1,
     kind: "agent.event",
     requestId: crypto.randomUUID(),
@@ -975,6 +1110,11 @@ function completionEnvelope(
       metadata: {},
     },
   }
+  // 失败回合显式标记：宿主据 payload.failed 走阻塞路径，不把失败当「汇报完成」推进。
+  if (failed) {
+    ;(payload.payload as JsonRecord).failed = true
+  }
+  return payload
 }
 
 function submitIngress(envelope: JsonRecord): Promise<void> {
@@ -1173,6 +1313,7 @@ async function dispatchTerminalEvent(
         body,
         event,
         identity,
+        failure !== "",
       ),
     )
     lastTerminalBySession.set(sessionID, identity)

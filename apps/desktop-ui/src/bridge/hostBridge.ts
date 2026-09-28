@@ -25,10 +25,13 @@ import type {
   NotificationFilterPayload,
   NotificationIdPayload,
   NotificationListDto,
+  OpencodeProjectDto,
   OrcTaskDto,
   OrcTaskIdPayload,
+  OrcTemplateDto,
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
+  SaveOrcTemplateConfigPayload,
   SendTestNotificationPayload,
   SetRuntimePausedPayload,
   SettingsDto,
@@ -70,6 +73,9 @@ export interface CommandPayloadMap {
   recover_blocked_orc_task: OrcTaskIdPayload;
   start_orc_task: OrcTaskIdPayload;
   get_current_orc_workflow: EmptyPayload;
+  list_orc_templates: EmptyPayload;
+  save_orc_template_config: SaveOrcTemplateConfigPayload;
+  list_opencode_projects: EmptyPayload;
 }
 
 export interface CommandResultMap {
@@ -101,6 +107,9 @@ export interface CommandResultMap {
   recover_blocked_orc_task: OrcTaskDto;
   start_orc_task: OrcTaskDto;
   get_current_orc_workflow: CurrentOrcWorkflowDto;
+  list_orc_templates: OrcTemplateDto[];
+  save_orc_template_config: OrcTemplateDto[];
+  list_opencode_projects: OpencodeProjectDto[];
 }
 
 export interface EventPayloadMap {

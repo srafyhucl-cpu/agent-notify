@@ -99,6 +99,24 @@ pub fn failure_body(step: u32, reason: &str) -> String {
     format!("Step {step} 失败：{reason}。任务已阻塞，需人工处理（不会自动重推）。")
 }
 
+/// 最终项目经理汇报正文上限（字符数；超出截断并标注，§4）。
+pub const FINAL_REPORT_LIMIT: usize = 1200;
+
+/// 截断最终汇报正文：超限只保留前 [`FINAL_REPORT_LIMIT`] 字并标注「…（已截断）」。
+pub fn truncate_final_report(body: &str) -> String {
+    let body = body.trim();
+    if body.chars().count() <= FINAL_REPORT_LIMIT {
+        return body.to_string();
+    }
+    let head: String = body.chars().take(FINAL_REPORT_LIMIT).collect();
+    format!("{head}\n…（已截断）")
+}
+
+/// 进入「项目经理汇总阶段」的进度正文（verbose 模式推送，§4）。
+pub fn finalizing_body(step: u32) -> String {
+    format!("Step {step} 汇报完成，项目经理汇总中")
+}
+
 /// 生产呈现实现：默认节奏读 settings；推送目标复用 `ProductionTargetProvider` 的账号解析。
 pub struct ProductionOrcPresenter {
     settings: ProductionSettingsStore,
@@ -349,5 +367,28 @@ mod tests {
             parse_global_notify_mode(Some("noisy")),
             NotifyMode::FinalOnly
         );
+    }
+
+    /// 最终汇报截断：上限内原样；超限截断并标注「…（已截断）」。
+    #[test]
+    fn final_report_is_truncated_at_limit() {
+        let short = "最终汇报：一切正常";
+        assert_eq!(truncate_final_report(short), short);
+
+        let long = "字".repeat(FINAL_REPORT_LIMIT + 50);
+        let truncated = truncate_final_report(&long);
+        assert!(
+            truncated.chars().count() <= FINAL_REPORT_LIMIT + 8,
+            "正文必须按上限截断"
+        );
+        assert!(truncated.ends_with("…（已截断）"), "必须标注截断");
+    }
+
+    /// 汇总中进度文案：写清哪一步完成、正在汇总。
+    #[test]
+    fn finalizing_body_states_step_and_summary() {
+        let text = finalizing_body(3);
+        assert!(text.contains("Step 3 汇报完成"), "{text}");
+        assert!(text.contains("项目经理汇总中"), "{text}");
     }
 }

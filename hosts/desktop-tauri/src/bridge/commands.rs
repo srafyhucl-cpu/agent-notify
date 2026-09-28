@@ -12,9 +12,10 @@ use super::dto::{
     CurrentOrcWorkflowDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto, EmptyPayload,
     InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto, LoginSessionDto,
     MarkBlockedOrcTaskPayload, MutationAcceptedDto, NotificationDetailDto,
-    NotificationFilterPayload, NotificationIdPayload, NotificationListDto, OrcTaskDto,
-    OrcTaskIdPayload, RuntimeSnapshotDto, RuntimeSummaryDto, SendTestNotificationPayload,
-    SetRuntimePausedPayload, SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
+    NotificationFilterPayload, NotificationIdPayload, NotificationListDto, OpencodeProjectDto,
+    OrcTaskDto, OrcTaskIdPayload, OrcTemplateDto, RuntimeSnapshotDto, RuntimeSummaryDto,
+    SaveOrcTemplateConfigPayload, SendTestNotificationPayload, SetRuntimePausedPayload,
+    SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
     UpdateAgentConfigPayload, UpdateStatusDto,
 };
 use super::error::CommandError;
@@ -170,6 +171,24 @@ pub trait HostCommandService:
         &self,
         payload: EmptyPayload,
     ) -> Result<CurrentOrcWorkflowDto, CommandError>;
+
+    /// 固定工作流模板列表（设置页节点配置与创建任务预览共用）：节点含合并后的 Agent/模型。
+    async fn list_orc_templates(
+        &self,
+        payload: EmptyPayload,
+    ) -> Result<Vec<OrcTemplateDto>, CommandError>;
+
+    /// 保存某模板的节点配置（覆盖式）：校验通过后返回保存后的全量模板列表。
+    async fn save_orc_template_config(
+        &self,
+        payload: SaveOrcTemplateConfigPayload,
+    ) -> Result<Vec<OrcTemplateDto>, CommandError>;
+
+    /// OpenCode 已知项目（工作目录下拉数据源，§3.1）：只读本地库；失败明确报错退回手动输入。
+    async fn list_opencode_projects(
+        &self,
+        payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeProjectDto>, CommandError>;
 }
 
 /// Tauri 管理的命令状态；后续宿主任务只负责注入新的服务实现。
@@ -520,6 +539,27 @@ impl HostCommandService for UnavailableHostCommandService {
     ) -> Result<CurrentOrcWorkflowDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+
+    async fn list_orc_templates(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OrcTemplateDto>, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn save_orc_template_config(
+        &self,
+        _payload: SaveOrcTemplateConfigPayload,
+    ) -> Result<Vec<OrcTemplateDto>, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn list_opencode_projects(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeProjectDto>, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
 }
 
 #[tauri::command]
@@ -800,4 +840,34 @@ pub async fn get_current_orc_workflow(
 ) -> Result<CurrentOrcWorkflowDto, CommandError> {
     let service = state.service.current().await;
     service.get_current_orc_workflow(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_orc_templates(
+    state: State<'_, BridgeState>,
+    payload: EmptyPayload,
+) -> Result<Vec<OrcTemplateDto>, CommandError> {
+    let service = state.service.current().await;
+    service.list_orc_templates(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn save_orc_template_config(
+    state: State<'_, BridgeState>,
+    payload: SaveOrcTemplateConfigPayload,
+) -> Result<Vec<OrcTemplateDto>, CommandError> {
+    let service = state.service.current().await;
+    service.save_orc_template_config(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_opencode_projects(
+    state: State<'_, BridgeState>,
+    payload: EmptyPayload,
+) -> Result<Vec<OpencodeProjectDto>, CommandError> {
+    let service = state.service.current().await;
+    service.list_opencode_projects(payload).await
 }

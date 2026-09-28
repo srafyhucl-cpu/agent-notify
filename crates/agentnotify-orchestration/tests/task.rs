@@ -170,3 +170,137 @@ fn orc_task_degrades_to_a2a_task() {
     assert_eq!(a2a.status.state, TaskState::Working);
     assert!(a2a.metadata.is_some());
 }
+
+/// 工作目录：创建默认空（旧任务兼容），set/clear 往返；旧 meta JSON 缺字段仍可解析。
+#[test]
+fn working_dir_roundtrip_and_legacy_compat() {
+    let wf = Workflow::preset(false).unwrap();
+    let mut task = OrcTask::new(&wf, "目标", NotifyMode::FinalOnly).unwrap();
+    assert_eq!(task.working_dir().unwrap(), None);
+
+    task.set_working_dir("D:/Project/demo").unwrap();
+    assert_eq!(
+        task.working_dir().unwrap().as_deref(),
+        Some("D:/Project/demo")
+    );
+
+    task.set_working_dir("   ").unwrap();
+    assert_eq!(task.working_dir().unwrap(), None, "空串清除工作目录");
+
+    // 旧任务 meta（无 workingDir/stepReports/finalReportPending 字段）仍可解析。
+    let mut legacy = task.a2a_task.clone();
+    let meta = legacy
+        .metadata
+        .as_mut()
+        .and_then(|value| value.get_mut("orc"))
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap();
+    meta.remove("workingDir");
+    meta.remove("stepReports");
+    meta.remove("finalReportPending");
+    let restored = OrcTask::from_a2a(legacy).unwrap();
+    assert_eq!(restored.working_dir().unwrap(), None);
+    assert!(restored.step_report(1).unwrap().is_none());
+    assert!(!restored.is_finalizing().unwrap());
+}
+
+/// 步骤产出：单步超限截断带标注、同一步覆盖、总量超限从最早步骤裁剪。
+#[test]
+fn step_reports_are_bounded() {
+    use agentnotify_orchestration::{ORC_STEP_REPORT_LIMIT, ORC_STEP_REPORTS_TOTAL_LIMIT};
+
+    let wf = Workflow::preset(true).unwrap(); // 4 步
+    let mut task = OrcTask::new(&wf, "目标", NotifyMode::FinalOnly).unwrap();
+
+    let long = "字".repeat(ORC_STEP_REPORT_LIMIT + 500);
+    task.record_step_report(1, &long).unwrap();
+    let body = task.step_report(1).unwrap().unwrap();
+    assert!(body.ends_with("…（已截断）"), "超限必须标注截断");
+    assert!(
+        body.chars().count() <= ORC_STEP_REPORT_LIMIT + 8,
+        "单步必须按上限截断"
+    );
+
+    task.record_step_report(1, "短产出").unwrap();
+    assert_eq!(
+        task.step_report(1).unwrap().as_deref(),
+        Some("短产出"),
+        "同一步覆盖旧值"
+    );
+
+    // 总量保护：每步都塞满上限，最终总量不超过总上限（允许标注带来的少量超出）。
+    for step in 2..=4 {
+        task.record_step_report(step, &long).unwrap();
+    }
+    let meta = task.meta().unwrap();
+    let total: usize = meta
+        .step_reports
+        .iter()
+        .map(|report| report.body.chars().count())
+        .sum();
+    assert!(
+        total <= ORC_STEP_REPORTS_TOTAL_LIMIT + 16,
+        "总量必须被裁剪：{total}"
+    );
+}
+
+/// 汇总阶段标记：默认 false；置位/复位往返。
+#[test]
+fn final_report_pending_roundtrip() {
+    let wf = Workflow::preset(false).unwrap();
+    let mut task = OrcTask::new(&wf, "目标", NotifyMode::FinalOnly).unwrap();
+    assert!(!task.is_finalizing().unwrap());
+    task.set_final_report_pending(true).unwrap();
+    assert!(task.is_finalizing().unwrap());
+    task.set_final_report_pending(false).unwrap();
+    assert!(!task.is_finalizing().unwrap());
+}
+
+/// 步骤配置快照：新建默认 None；写入/清除往返；旧 meta（无该字段）解析为 None。
+#[test]
+fn steps_snapshot_roundtrip_and_legacy_compat() {
+    use agentnotify_orchestration::StepConfigSnapshot;
+
+    let wf = Workflow::preset(false).unwrap();
+    let mut task = OrcTask::new(&wf, "目标", NotifyMode::FinalOnly).unwrap();
+    assert_eq!(task.steps_snapshot().unwrap(), None, "新建任务未锁定配置");
+
+    let snapshot = vec![
+        StepConfigSnapshot {
+            order: 1,
+            role: "orchestrator".to_string(),
+            agent: "opencode".to_string(),
+            model: Some("anthropic/claude-sonnet-4-5".to_string()),
+        },
+        StepConfigSnapshot {
+            order: 2,
+            role: "planner".to_string(),
+            agent: "codex".to_string(),
+            model: None,
+        },
+    ];
+    task.set_steps_snapshot(&snapshot).unwrap();
+    let restored = OrcTask::from_a2a(task.a2a_task.clone()).unwrap();
+    assert_eq!(restored.steps_snapshot().unwrap(), Some(snapshot.clone()));
+    let json = serde_json::to_string(&restored.a2a_task).unwrap();
+    assert!(json.contains("\"stepsSnapshot\""), "{json}");
+
+    // 空切片 = 清除快照（回退实时合并）。
+    let mut cleared = restored;
+    cleared.set_steps_snapshot(&[]).unwrap();
+    assert_eq!(cleared.steps_snapshot().unwrap(), None);
+    let json = serde_json::to_string(&cleared.a2a_task).unwrap();
+    assert!(!json.contains("stepsSnapshot"), "清除后不落盘：{json}");
+
+    // 旧任务 meta（无 stepsSnapshot 字段）仍可解析：None = 实时合并。
+    let mut legacy = task.a2a_task.clone();
+    let meta = legacy
+        .metadata
+        .as_mut()
+        .and_then(|value| value.get_mut("orc"))
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap();
+    meta.remove("stepsSnapshot");
+    let restored = OrcTask::from_a2a(legacy).unwrap();
+    assert_eq!(restored.steps_snapshot().unwrap(), None);
+}

@@ -9,8 +9,9 @@
 //! 会话语义取舍（与 adapter trait 现实对齐）：
 //! - `AgentAdapter` 只有 `resume`（续聊）；「新会话」是 OpenCode 特有增强：
 //!   `AgentAdapter::open` 的默认实现返回 `UnsupportedCapability`，OpenCode 覆写为真开新会话；
-//! - `dispatch(open=true)` 时先试 `open`：OpenCode 就绪 → 真开新会话；其他适配器不支持 →
-//!   降级为 `resume` 续聊同一个稳定 session_id 起步（先让真实 Agent 收到信封干活为验收目标）；
+//! - `dispatch(open=true)` 时走适配器 [`agentnotify_agent_sdk::AgentAdapter::dispatch_with_options`]：
+//!   OpenCode 就绪 → 真开新会话并透传工作目录/模型/无人值守；其他适配器默认实现丢弃选项、
+//!   在 open 不支持时降级为 `resume` 续聊同一个稳定 session_id 起步（先让真实 Agent 收到信封干活为验收目标）；
 //!   OpenCode 侧 open 失败（插件未连接等）→ 返回明确中文错误，走下游 blocked 路径。
 //!
 //! session_id 策略见 `OrcCommandHandler`：每 (task, step) 一个稳定会话 id（`task-<id>-step-<n>`），
@@ -24,6 +25,9 @@ use async_trait::async_trait;
 
 use crate::bridge::error::CommandError;
 
+/// 派活选项（§4 派活透传）：定义在 agent-sdk（适配器 trait 签名共用），此处透传导出。
+pub use agentnotify_agent_sdk::DispatchOptions;
+
 /// Agent 未注册（registry 里没有该 id）时的稳定错误码。
 pub const ORC_STEP_AGENT_UNREGISTERED: &str = "orc_step_agent_unregistered";
 /// 派活失败（resume/open 被适配器拒绝，含插件未连接）时的稳定错误码。
@@ -32,6 +36,7 @@ pub const ORC_STEP_DISPATCH_FAILED: &str = "orc_step_dispatch_failed";
 /// 编排派活边界：把一个任务信封交给指定 Agent 干活。
 ///
 /// `open=true` 表示新会话（任务首步 Step 1）；`false` 续聊同一 (task, step) 会话。
+/// `options` 携带该任务的工作目录、该步模型与无人值守标志（不支持者由适配器默认实现忽略）。
 /// 失败返回用户可读的中文错误（微信里看得懂），绝不猜测兜底。
 #[async_trait]
 pub trait AgentDriver: Send + Sync {
@@ -43,10 +48,12 @@ pub trait AgentDriver: Send + Sync {
         session_id: &AgentSessionId,
         envelope: &str,
         open: bool,
+        options: &DispatchOptions,
     ) -> Result<(), CommandError>;
 }
 
-/// 生产派活实现：从 [`AgentRegistry`] 拿适配器，调 `open`（新会话）/ `resume`（续聊）。
+/// 生产派活实现：从 [`AgentRegistry`] 拿适配器，按选项调
+/// [`agentnotify_agent_sdk::AgentAdapter::dispatch_with_options`]。
 pub struct ProductionAgentDriver {
     registry: Arc<AgentRegistry>,
 }
@@ -66,6 +73,7 @@ impl AgentDriver for ProductionAgentDriver {
         session_id: &AgentSessionId,
         envelope: &str,
         open: bool,
+        options: &DispatchOptions,
     ) -> Result<(), CommandError> {
         let adapter = self.registry.get(agent_id).ok_or_else(|| {
             CommandError::new(
@@ -76,20 +84,8 @@ impl AgentDriver for ProductionAgentDriver {
             )
         })?;
 
-        if open {
-            match adapter.open(session_id, envelope).await {
-                // OpenCode 等支持「新会话」的适配器：真开新会话（A2A 新任务语义）。
-                Ok(_) => return Ok(()),
-                // 其余适配器不支持新会话：按编排约定降级为续聊起步，先让 Agent 收到信封干活。
-                // 新会话是 OpenCode 特有增强；Step 1 对这类 Agent 仍会收到信封（resume 同一会话）。
-                Err(AgentError::UnsupportedCapability) => {}
-                // 其他失败（OpenCode 插件未连接 / 超时 / 写入失败等）：明确报错，走下游 blocked。
-                Err(error) => return Err(dispatch_error(task_id, agent_id, &error)),
-            }
-        }
-
         adapter
-            .resume(session_id, envelope)
+            .dispatch_with_options(session_id, envelope, open, options)
             .await
             .map(|_| ())
             .map_err(|error| dispatch_error(task_id, agent_id, &error))
@@ -222,11 +218,25 @@ mod tests {
         let agent = AgentId::new("opencode").expect("Agent id 必须合法");
 
         driver
-            .dispatch("t-1", &agent, &session(1), "信封1", true)
+            .dispatch(
+                "t-1",
+                &agent,
+                &session(1),
+                "信封1",
+                true,
+                &DispatchOptions::default(),
+            )
             .await
             .expect("open 必须成功");
         driver
-            .dispatch("t-1", &agent, &session(2), "信封2", false)
+            .dispatch(
+                "t-1",
+                &agent,
+                &session(2),
+                "信封2",
+                false,
+                &DispatchOptions::default(),
+            )
             .await
             .expect("resume 必须成功");
 
@@ -251,7 +261,14 @@ mod tests {
         let agent = AgentId::new("codex").expect("Agent id 必须合法");
 
         driver
-            .dispatch("t-1", &agent, &session(1), "信封1", true)
+            .dispatch(
+                "t-1",
+                &agent,
+                &session(1),
+                "信封1",
+                true,
+                &DispatchOptions::default(),
+            )
             .await
             .expect("open 不支持时必须降级 resume 成功");
 
@@ -281,7 +298,14 @@ mod tests {
         let agent = AgentId::new("opencode").expect("Agent id 必须合法");
 
         let error = driver
-            .dispatch("t-1", &agent, &session(1), "信封1", true)
+            .dispatch(
+                "t-1",
+                &agent,
+                &session(1),
+                "信封1",
+                true,
+                &DispatchOptions::default(),
+            )
             .await
             .expect_err("open 不可达必须报错");
         assert_eq!(error.code(), ORC_STEP_DISPATCH_FAILED);
@@ -307,7 +331,14 @@ mod tests {
         let agent = AgentId::new("codex").expect("Agent id 必须合法");
 
         let error = driver
-            .dispatch("t-1", &agent, &session(1), "信封1", false)
+            .dispatch(
+                "t-1",
+                &agent,
+                &session(1),
+                "信封1",
+                false,
+                &DispatchOptions::default(),
+            )
             .await
             .expect_err("resume 失败必须报错");
         assert_eq!(error.code(), ORC_STEP_DISPATCH_FAILED);
@@ -325,7 +356,14 @@ mod tests {
         let agent = AgentId::new("never-registered").expect("Agent id 必须合法");
 
         let error = driver
-            .dispatch("t-1", &agent, &session(1), "信封1", false)
+            .dispatch(
+                "t-1",
+                &agent,
+                &session(1),
+                "信封1",
+                false,
+                &DispatchOptions::default(),
+            )
             .await
             .expect_err("未注册 Agent 必须报错");
         assert_eq!(error.code(), ORC_STEP_AGENT_UNREGISTERED);
@@ -335,5 +373,83 @@ mod tests {
             error.message()
         );
         assert!(error.message().contains("t-1"), "{}", error.message());
+    }
+
+    /// 派活选项透传：覆写 `dispatch_with_options` 的适配器必须原样收到工作目录/模型/无人值守。
+    #[tokio::test]
+    async fn dispatch_passes_options_through_to_adapter() {
+        #[derive(Default)]
+        struct OptionRecording {
+            seen: std::sync::Mutex<Vec<DispatchOptions>>,
+        }
+
+        #[async_trait]
+        impl AgentAdapter for OptionRecording {
+            fn descriptor(&self) -> AgentDescriptor {
+                AgentDescriptor {
+                    id: AgentId::new("recording").expect("测试 Agent id 必须合法"),
+                    display_name: "recording".into(),
+                    description: "记录派活选项".into(),
+                    config_schema: Default::default(),
+                }
+            }
+
+            fn capabilities(&self) -> AgentCapabilities {
+                AgentCapabilities::default()
+            }
+
+            fn parse_event(
+                &self,
+                _envelope: AgentEventEnvelope,
+            ) -> Result<NormalizedAgentEvent, AgentError> {
+                Err(AgentError::InvalidEvent)
+            }
+
+            async fn resume(
+                &self,
+                session_id: &AgentSessionId,
+                _text: &str,
+            ) -> Result<ResumeReceipt, AgentError> {
+                Ok(ResumeReceipt {
+                    session_id: session_id.clone(),
+                })
+            }
+
+            async fn dispatch_with_options(
+                &self,
+                session_id: &AgentSessionId,
+                _text: &str,
+                _open: bool,
+                options: &DispatchOptions,
+            ) -> Result<ResumeReceipt, AgentError> {
+                self.seen.lock().expect("测试锁").push(options.clone());
+                Ok(ResumeReceipt {
+                    session_id: session_id.clone(),
+                })
+            }
+
+            async fn inspect(&self) -> AgentHealth {
+                AgentHealth::healthy()
+            }
+        }
+
+        let adapter = Arc::new(OptionRecording::default());
+        let mut registry = AgentRegistry::default();
+        registry.register(adapter.clone()).expect("注册必须成功");
+        let driver = ProductionAgentDriver::new(Arc::new(registry));
+        let agent = AgentId::new("recording").expect("Agent id 必须合法");
+        let options = DispatchOptions {
+            working_dir: Some("D:/Project/demo".into()),
+            model: Some("anthropic/claude-sonnet-4-5".into()),
+            unattended: false,
+        };
+
+        driver
+            .dispatch("t-1", &agent, &session(1), "信封", false, &options)
+            .await
+            .expect("派活必须成功");
+
+        let seen = adapter.seen.lock().expect("测试锁").clone();
+        assert_eq!(seen, vec![options], "选项必须原样透传");
     }
 }

@@ -1,8 +1,11 @@
 //! OrcStore 集成测试：create/get/list、消息驱动推进、human_gate、blocked 流转、错误路径。
 //! 全部内存态，不碰网络/文件系统。
 
+use std::sync::Arc;
+
 use agentnotify_orchestration::{
-    MessageKind, NotifyMode, OrcErrorCode, OrcStore, TaskState, TransitionAction, Workflow,
+    InMemoryOrcTaskRepository, MessageKind, NotifyMode, OrcErrorCode, OrcStore, OrcTaskRepository,
+    TaskState, TransitionAction, Workflow,
 };
 
 /// create → get：状态 Working、第 1 步、语境完整。
@@ -360,4 +363,112 @@ async fn store_instances_are_isolated() {
             .unwrap(),
         store_b.workflow().id
     );
+}
+
+/// 项目经理汇总阶段（§4）：进入汇总不改 A2A 状态（保持 Working），幂等；
+/// 完成汇总置 Completed 并清标记；非汇总阶段完成 → 明确报错（不猜测兜底）。
+#[tokio::test]
+async fn finalizing_stage_roundtrip() {
+    let store = OrcStore::new(Workflow::preset(false).unwrap());
+    let id = store
+        .create_task("汇总阶段", NotifyMode::FinalOnly)
+        .await
+        .unwrap()
+        .id()
+        .to_string();
+
+    // 非汇总阶段直接标记完成 → 明确报错，状态不变。
+    let err = store.complete_finalizing(&id).await.unwrap_err();
+    assert_eq!(err.code, OrcErrorCode::InvalidTransition);
+    assert_eq!(
+        store.get_task(&id).await.unwrap().state(),
+        TaskState::Working
+    );
+
+    // 进入汇总：状态保持 Working，标记置位；重复进入幂等。
+    let finalizing = store.enter_finalizing(&id).await.unwrap();
+    assert!(finalizing.is_finalizing().unwrap());
+    assert_eq!(
+        finalizing.state(),
+        TaskState::Working,
+        "汇总阶段不落 Completed"
+    );
+    store.enter_finalizing(&id).await.unwrap();
+
+    // 完成汇总：Completed + 标记清除。
+    let done = store.complete_finalizing(&id).await.unwrap();
+    assert_eq!(done.state(), TaskState::Completed);
+    assert!(!done.is_finalizing().unwrap());
+}
+
+/// 确认门通过后进入汇总：InputRequired → Working（「汇总中」仍属干活阶段，§4）。
+#[tokio::test]
+async fn enter_finalizing_from_input_required_returns_to_working() {
+    let store = OrcStore::new(Workflow::preset(true).unwrap());
+    let id = store
+        .create_task("确认门汇总", NotifyMode::FinalOnly)
+        .await
+        .unwrap()
+        .id()
+        .to_string();
+
+    // 模拟最后一步汇报后等待确认的落库状态。
+    let mut waiting = store.get_task(&id).await.unwrap();
+    waiting.set_state(TaskState::InputRequired);
+    store.save(waiting).await.unwrap();
+
+    let finalizing = store.enter_finalizing(&id).await.unwrap();
+    assert!(finalizing.is_finalizing().unwrap());
+    assert_eq!(
+        finalizing.state(),
+        TaskState::Working,
+        "进入汇总必须回到干活中（不是等待确认）"
+    );
+}
+
+/// 步骤产出落库：record_step_report 走仓储边界（单步覆盖 + 截断由 task 层负责）。
+#[tokio::test]
+async fn record_step_report_persists_through_repository() {
+    let repo = Arc::new(InMemoryOrcTaskRepository::default());
+    let store = OrcStore::with_repository(Workflow::preset(false).unwrap(), repo.clone());
+    let id = store
+        .create_task("产出记录", NotifyMode::FinalOnly)
+        .await
+        .unwrap()
+        .id()
+        .to_string();
+
+    store
+        .record_step_report(&id, 1, "第一步结论")
+        .await
+        .unwrap();
+    store
+        .record_step_report(&id, 1, "第一步结论（修正）")
+        .await
+        .unwrap();
+
+    let saved = repo.get_task(&id).await.unwrap().expect("必须已落库");
+    let task = agentnotify_orchestration::OrcTask::from_a2a(saved).unwrap();
+    assert_eq!(
+        task.step_report(1).unwrap().as_deref(),
+        Some("第一步结论（修正）"),
+        "同一步重复上报覆盖旧值"
+    );
+}
+
+/// fetch_task：不绑定工作流直接从仓储读任务；缺失 → TaskNotFound，仓储失败 → Repository。
+#[tokio::test]
+async fn fetch_task_reads_without_workflow_binding() {
+    let repo: Arc<dyn OrcTaskRepository> = Arc::new(InMemoryOrcTaskRepository::default());
+    let store = OrcStore::with_repository(Workflow::preset(false).unwrap(), repo.clone());
+    let created = store
+        .create_task("直接读取", NotifyMode::Verbose)
+        .await
+        .unwrap();
+
+    let fetched = OrcStore::fetch_task(&repo, created.id()).await.unwrap();
+    assert_eq!(fetched.goal().unwrap(), "直接读取");
+
+    let err = OrcStore::fetch_task(&repo, "missing").await.unwrap_err();
+    assert_eq!(err.code, OrcErrorCode::TaskNotFound);
 }

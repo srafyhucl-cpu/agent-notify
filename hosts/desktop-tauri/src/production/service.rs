@@ -336,4 +336,25 @@ impl HostCommandService for ProductionHostCommandService {
     ) -> Result<CurrentOrcWorkflowDto, CommandError> {
         self.orchestration.current_workflow().await
     }
+
+    async fn list_orc_templates(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OrcTemplateDto>, CommandError> {
+        self.orchestration.list_orc_templates().await
+    }
+
+    async fn save_orc_template_config(
+        &self,
+        payload: SaveOrcTemplateConfigPayload,
+    ) -> Result<Vec<OrcTemplateDto>, CommandError> {
+        self.orchestration.save_orc_template_config(payload).await
+    }
+
+    async fn list_opencode_projects(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeProjectDto>, CommandError> {
+        self.orchestration.list_opencode_projects().await
+    }
 }

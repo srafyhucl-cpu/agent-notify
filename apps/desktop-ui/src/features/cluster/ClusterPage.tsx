@@ -14,9 +14,10 @@ import {
   useRecoverBlockedOrcTaskMutation,
   useStartOrcTaskMutation,
 } from "../../data/mutations";
+import { useOpencodeProjects } from "../../data/useOpencodeProjects";
 import { useOrcTasks } from "../../data/useOrcTasks";
-import { useOrcWorkflow } from "../../data/useOrcWorkflow";
-import { CreateTaskForm } from "./CreateTaskForm";
+import { useOrcTemplates } from "../../data/useOrcTemplates";
+import { CreateTaskForm, type CreateOrcTaskInput } from "./CreateTaskForm";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList } from "./TaskList";
 
@@ -25,13 +26,14 @@ export interface ClusterPageProps {
 }
 
 /**
- * 集群页（P1，§6.2 桌面集群形态）：任务列表 + 详情/发指令 + 创建入口（含工作流节点预览）。
+ * 集群页（P1，§6.2 桌面集群形态）：任务列表 + 详情/发指令 + 创建入口（模板与节点预览、工作目录）。
  * 只消费现有编排 DTO/命令；进度命令经 HostBridge 调用 advance_orc_task / recover_blocked_orc_task /
- * start_orc_task。
+ * start_orc_task；创建必须显式选择模板（§3.1）。
  */
 export function ClusterPage({ bridge }: ClusterPageProps) {
   const tasksQuery = useOrcTasks(bridge);
-  const workflowQuery = useOrcWorkflow(bridge);
+  const templatesQuery = useOrcTemplates(bridge);
+  const projectsQuery = useOpencodeProjects(bridge);
   const createMutation = useCreateOrcTaskMutation(bridge);
   const advanceMutation = useAdvanceOrcTaskMutation(bridge);
   const recoverMutation = useRecoverBlockedOrcTaskMutation(bridge);
@@ -54,11 +56,17 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const loadError = tasksQuery.error ? toUserError(tasksQuery.error) : null;
   const createUserError = createError ? toUserError(createError) : null;
   const actionUserError = actionError ? toUserError(actionError) : null;
+  const templatesError = templatesQuery.error
+    ? toUserError(templatesQuery.error).message
+    : null;
+  const projectsError = projectsQuery.error
+    ? toUserError(projectsQuery.error).message
+    : null;
 
-  const handleCreate = async (goal: string, notifyMode: string): Promise<boolean> => {
+  const handleCreate = async (input: CreateOrcTaskInput): Promise<boolean> => {
     setCreateError(null);
     try {
-      const created = await createMutation.mutateAsync({ goal, notifyMode });
+      const created = await createMutation.mutateAsync(input);
       setSelectedTaskId(created.id);
       return true;
     } catch (error) {
@@ -149,7 +157,12 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
 
         <CreateTaskForm
           pending={createMutation.isPending}
-          workflow={workflowQuery.data?.workflow ?? null}
+          templates={templatesQuery.data ?? null}
+          templatesError={templatesError}
+          onRetryTemplates={() => void templatesQuery.refetch()}
+          projects={projectsQuery.data ?? null}
+          projectsError={projectsError}
+          onRetryProjects={() => void projectsQuery.refetch()}
           onSubmit={handleCreate}
         />
 

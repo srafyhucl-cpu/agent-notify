@@ -129,6 +129,16 @@ async function dispatchCommand(
       return commands.getCurrentOrcWorkflow(
         payload as CommandPayloadMap["get_current_orc_workflow"],
       );
+    case "list_orc_templates":
+      return commands.listOrcTemplates(payload as CommandPayloadMap["list_orc_templates"]);
+    case "save_orc_template_config":
+      return commands.saveOrcTemplateConfig(
+        payload as CommandPayloadMap["save_orc_template_config"],
+      );
+    case "list_opencode_projects":
+      return commands.listOpencodeProjects(
+        payload as CommandPayloadMap["list_opencode_projects"],
+      );
     default: {
       const neverCommand: never = command;
       throw new Error(`未处理命令: ${String(neverCommand)}`);

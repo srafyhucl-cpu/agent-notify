@@ -3,6 +3,12 @@
   /* 列表视口高度：与历史页同尺度，避免整页双滚动条 */
   --cluster-list-height: min(58vh, 560px);
   --cluster-scrollbar-size: var(--space-2);
+
+  /* 节点链动效（§7）：只做注意力引导，时长/幅度克制 */
+  --orc-node-pulse-duration: 2500ms;
+  --orc-node-settle-duration: 400ms;
+  --orc-node-fail-duration: 1500ms;
+  --orc-node-flow-duration: 1600ms;
 }
 
 .cluster-page-content {
@@ -31,13 +37,26 @@
   min-width: 0;
 }
 
-.cluster-create-fields label {
+/* 模板 + 工作目录：等宽两列，长目录/名称都能换行或省略。 */
+.cluster-create-fields--pair {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.cluster-create-fields label,
+.cluster-create-dir-field > label {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
 }
 
-.cluster-create-fields label > span:first-child {
+.cluster-create-dir-field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.cluster-create-fields label > span:first-child,
+.cluster-create-dir-field > label > span:first-child {
   color: var(--color-text-muted);
   font-size: var(--font-size-1);
   font-weight: 650;
@@ -52,6 +71,30 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   font: inherit;
+}
+
+.cluster-create-dir-field select,
+.cluster-create-dir-input {
+  width: 100%;
+  min-width: 0;
+  color: var(--color-text);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font: inherit;
+}
+
+.cluster-create-dir-input {
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+}
+
+.cluster-create-dir-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .cluster-create-fields textarea {
@@ -85,7 +128,8 @@
 }
 
 @media (max-width: 820px) {
-  .cluster-create-fields {
+  .cluster-create-fields,
+  .cluster-create-fields--pair {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -296,6 +340,14 @@
   font-weight: 400;
 }
 
+/* 工作目录：长路径可换行，事实区内不撑破卡片 */
+.cluster-task-fact-dir {
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-1);
+  font-weight: 400;
+}
+
 /* 阻塞提示卡：语义色柔和底 + 微光边，醒目但不压操作 */
 .cluster-blocked-card {
   display: grid;
@@ -355,7 +407,7 @@
   line-height: 1.5;
 }
 
-/* ===== 工作流节点（创建预览与任务详情共用） ===== */
+/* ===== 共用节点链（任务详情 / 创建预览 / 设置页，§7 动态可视化） ===== */
 .cluster-workflow-preview,
 .cluster-workflow {
   display: grid;
@@ -376,53 +428,298 @@
   font-weight: 650;
 }
 
-.cluster-workflow-step-list {
+.orc-node-chain {
   display: grid;
-  gap: var(--space-1);
+  gap: 0;
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.cluster-workflow-step {
-  display: flex;
-  align-items: center;
+.orc-node {
+  display: grid;
+  min-width: 0;
+}
+
+/* 连接线：推进方向 = 从前一节点流向当前节点（自上而下）；流光仅作注意力引导。 */
+.orc-node-flow {
+  position: relative;
+  display: block;
+  width: 2px;
+  height: var(--space-3);
+  margin-left: var(--space-3);
+  overflow: hidden;
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
+}
+
+.orc-node[data-state="current"] .orc-node-flow::after,
+.orc-node[data-state="finalizing"] .orc-node-flow::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 70%;
+  background: linear-gradient(180deg, transparent, var(--color-primary));
+  animation: orc-node-flow var(--orc-node-flow-duration) linear infinite;
+}
+
+.orc-node-card {
+  position: relative;
+  display: grid;
   gap: var(--space-2);
   min-width: 0;
   padding: var(--space-2) var(--space-3);
+  background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
-  background-color: var(--color-surface);
+}
+
+.orc-node-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
   font-size: var(--font-size-1);
 }
 
-.cluster-workflow-step--current {
-  border-color: var(--color-primary);
-}
-
-.cluster-workflow-step--done {
-  /* 完成态用弱底色区分，不用整体透明度：透明度会把次要文字压到对比度阈值以下（axe color-contrast）。 */
-  background-color: var(--color-surface-muted);
-}
-
-.cluster-workflow-step-order {
+.orc-node-order {
   flex: none;
   color: var(--color-text-muted);
 }
 
-.cluster-workflow-step-role {
+.orc-node-role {
   font-weight: 650;
 }
 
-.cluster-workflow-step-agent {
-  margin-left: auto;
-  color: var(--color-text-muted);
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-0);
+.orc-node-manager {
+  flex: none;
+  padding: 1px var(--space-2);
+  color: var(--color-info);
+  background: var(--color-info-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-small);
+  font-weight: 650;
 }
 
-.cluster-workflow-step-gate {
+.orc-node-state {
+  margin-left: auto;
+  font-size: var(--font-small);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.orc-node-gate {
   flex: none;
   color: var(--color-danger);
-  font-size: var(--font-size-0);
+  font-size: var(--font-small);
+}
+
+.orc-node-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+  margin: 0;
+}
+
+.orc-node-meta-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.orc-node-meta-item dt {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+}
+
+.orc-node-meta-item dd {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-caption);
+  overflow-wrap: anywhere;
+}
+
+.orc-node-details {
+  min-width: 0;
+}
+
+/* 状态语义：颜色 + 标签一起承载；动效只做引导（去掉动效不丢信息）。 */
+.orc-node[data-state="current"] .orc-node-card,
+.orc-node[data-state="finalizing"] .orc-node-card {
+  border-color: var(--color-primary);
+}
+
+.orc-node[data-state="current"] .orc-node-state,
+.orc-node[data-state="finalizing"] .orc-node-state {
+  color: var(--color-primary);
+}
+
+.orc-node[data-state="done"] .orc-node-card {
+  background-color: var(--color-surface-muted);
+  animation: orc-node-settle var(--orc-node-settle-duration) var(--ease-out) 1;
+}
+
+.orc-node[data-state="done"] .orc-node-state {
+  color: var(--color-success);
+}
+
+.orc-node[data-state="failed"] .orc-node-card {
+  border-color: var(--color-danger);
+  animation: orc-node-fail var(--orc-node-fail-duration) var(--ease-out) 1;
+}
+
+.orc-node[data-state="failed"] .orc-node-state {
+  color: var(--color-danger);
+}
+
+/* 当前/汇总节点：呼吸微光（暗色辉光、亮色极淡阴影），复用 patterns.css 的呼吸关键帧；
+   同源色取主色，与当前节点边框同调。 */
+.orc-node[data-state="current"] .orc-node-card::after,
+.orc-node[data-state="finalizing"] .orc-node-card::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  color: var(--color-primary);
+  opacity: 0;
+  pointer-events: none;
+}
+
+:root:not([data-theme="light"]) .orc-node[data-state="current"] .orc-node-card::after,
+:root:not([data-theme="light"]) .orc-node[data-state="finalizing"] .orc-node-card::after {
+  box-shadow: var(--pattern-breath-glow);
+  animation: pattern-breath-glow var(--orc-node-pulse-duration) var(--ease-out) infinite;
+}
+
+:root[data-theme="light"] .orc-node[data-state="current"] .orc-node-card::after,
+:root[data-theme="light"] .orc-node[data-state="finalizing"] .orc-node-card::after {
+  box-shadow: var(--pattern-breath-shadow);
+  animation: pattern-breath-shadow var(--orc-node-pulse-duration) var(--ease-out) infinite;
+}
+
+/* 推进流光：向下 = 推进方向（进入当前节点）。 */
+@keyframes orc-node-flow {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(160%);
+    opacity: 0;
+  }
+}
+
+/* 完成：光效收束定格（一次 ~400ms）。 */
+@keyframes orc-node-settle {
+  from {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 10px 0 var(--color-primary-soft);
+  }
+  to {
+    border-color: var(--color-border);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* 失败：红光提示（低幅度，一次 ~1.5s）。 */
+@keyframes orc-node-fail {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--color-danger-soft);
+  }
+  35% {
+    box-shadow: 0 0 12px 0 var(--color-danger-soft);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 与主题分支同选择器权重，确保覆盖生效（低权重会被上面的主题规则压回）。 */
+  :root:not([data-theme="light"]) .orc-node[data-state="current"] .orc-node-card::after,
+  :root:not([data-theme="light"]) .orc-node[data-state="finalizing"] .orc-node-card::after,
+  :root[data-theme="light"] .orc-node[data-state="current"] .orc-node-card::after,
+  :root[data-theme="light"] .orc-node[data-state="finalizing"] .orc-node-card::after,
+  .orc-node[data-state="current"] .orc-node-flow::after,
+  .orc-node[data-state="finalizing"] .orc-node-flow::after,
+  .orc-node[data-state="done"] .orc-node-card,
+  .orc-node[data-state="failed"] .orc-node-card {
+    animation: none;
+  }
+}
+
+/* 设置页节点配置：节点卡内的编辑控件。 */
+.orc-template-settings {
+  gap: var(--space-3);
+}
+
+.orc-template-picker {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  justify-items: start;
+}
+
+.orc-template-picker > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 600;
+}
+
+.orc-template-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.orc-node-fields {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.orc-node-field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.orc-node-field > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  font-weight: 600;
+}
+
+.orc-node-field select,
+.orc-node-field input {
+  width: 100%;
+}
+
+.orc-node-field-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.orc-template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.orc-template-dirty {
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
 }

@@ -3,7 +3,10 @@ mod agents;
 mod app_exit;
 pub mod events;
 mod mapping;
+pub mod opencode_projects;
+pub mod orc_event_filter;
 pub mod orc_handler;
+pub mod orc_node_config;
 pub mod orc_notify;
 pub mod orc_report_observer;
 pub mod orc_wechat_route;
@@ -28,6 +31,7 @@ use agent_driver::ProductionAgentDriver;
 use agents::{
     assemble_agents, legacy_installation_detected, load_agent_configs, seed_disabled_agent_configs,
 };
+use orc_event_filter::OrcEventFilter;
 use orc_handler::{OrcCommandHandler, load_harness_templates};
 
 pub use agent_driver::AgentDriver;
@@ -135,6 +139,11 @@ async fn bootstrap_internal(
         Arc::new(SqliteStore::open(&db_path).map_err(|e| {
             CommandError::new("database_open_failed", format!("打开数据库失败：{e}"))
         })?);
+
+    // §5 通知过滤：编排会话的原始完成事件不推微信（只走汇报回注与产出记录）。
+    // 过滤器只读访问同一数据库的任务表；不可读时放行并告警（不误伤普通会话）。
+    let orc_event_filter: Arc<dyn agentnotify_runtime::AgentEventFilter> =
+        Arc::new(OrcEventFilter::new(&db_path));
 
     let settings = ProductionSettingsStore::new(store.clone(), &paths.config_dir);
 
@@ -253,7 +262,8 @@ async fn bootstrap_internal(
             ingress_pipe_enabled,
         )
         .with_inbound_interceptor(Some(Arc::new(wechat_orc_router)))
-        .with_agent_event_observer(orc_report_observer),
+        .with_agent_event_observer(orc_report_observer)
+        .with_event_filter(Some(orc_event_filter)),
     );
 
     let service = Arc::new(

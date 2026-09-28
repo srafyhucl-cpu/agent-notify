@@ -27,7 +27,7 @@ const EVENT_SESSION_COMPLETED: &str = "session.completed";
 ///
 /// task_id 为 UUID（只含十六进制与连字符），`-step-` 中的字母不会是十六进制字符，
 /// 因此 `rsplit_once` 不会切错；step 必须是 >=1 的数字。
-fn parse_orc_session(session_id: &str) -> Option<(&str, u32)> {
+pub(crate) fn parse_orc_session(session_id: &str) -> Option<(&str, u32)> {
     let rest = session_id.strip_prefix(ORC_SESSION_PREFIX)?;
     let (task_id, step) = rest.rsplit_once(ORC_SESSION_STEP_MARKER)?;
     let step = step.parse::<u32>().ok()?;
@@ -65,7 +65,20 @@ impl AgentEventObserver for OrcReportObserver {
         let Some((task_id, step)) = parse_orc_session(session_id) else {
             return;
         };
-        match self.handler.report_from_agent(task_id, step).await {
+        // 事件正文与显式失败标记（产出记录 / 失败路径用；缺失按成功处理）。
+        let body = payload
+            .get("body")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let failed = payload
+            .get("failed")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        match self
+            .handler
+            .report_from_agent(task_id, step, body, failed)
+            .await
+        {
             Ok(true) => tracing::info!(task_id, step, "Agent 汇报已回注，任务自动推进"),
             Ok(false) => tracing::debug!(task_id, step, "Agent 汇报与任务当前状态不匹配，已忽略"),
             Err(error) => tracing::warn!(

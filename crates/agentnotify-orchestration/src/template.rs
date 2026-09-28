@@ -10,6 +10,7 @@
 //! {
 //!   "workflows": {
 //!     "preset-requirement-to-report": {
+//!       "summary": "【{goal}】汇总：{reports}",
 //!       "steps": [
 //!         { "order": 1, "harness_template": "【{goal}】…" }
 //!       ]
@@ -17,6 +18,7 @@
 //!   }
 //! }
 //! ```
+//! `summary` 为可选的「汇总信封」模板（§4 项目经理回流），缺省用内置默认。
 //!
 //! 错误语义（核心原则「坏模板不炸」）：
 //! - 文件缺失 = 正常未配置，回退内置默认（无告警）；
@@ -32,13 +34,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::envelope::{
-    DEFAULT_ENVELOPE_TEMPLATE, PH_AGENT_HINT, PH_GOAL, PH_NEXT_ROLE, PH_ROLE, PH_STEP_INDEX,
-    PH_STEP_TOTAL, PH_WORKFLOW_NAME, render_with_template,
+    DEFAULT_ENVELOPE_TEMPLATE, DEFAULT_SUMMARY_ENVELOPE_TEMPLATE, PH_AGENT_HINT, PH_GOAL,
+    PH_NEXT_ROLE, PH_REPORTS, PH_ROLE, PH_STEP_INDEX, PH_STEP_TOTAL, PH_WORKFLOW_NAME,
+    render_summary_with_template, render_with_template,
 };
 use crate::workflow::{Workflow, WorkflowStep};
 
 /// 全部已知占位符（命名常量聚合，供未知占位符校验，避免魔法字符串散落）。
-pub const KNOWN_PLACEHOLDERS: [&str; 7] = [
+pub const KNOWN_PLACEHOLDERS: [&str; 8] = [
     PH_GOAL,
     PH_WORKFLOW_NAME,
     PH_ROLE,
@@ -46,6 +49,7 @@ pub const KNOWN_PLACEHOLDERS: [&str; 7] = [
     PH_STEP_INDEX,
     PH_STEP_TOTAL,
     PH_NEXT_ROLE,
+    PH_REPORTS,
 ];
 
 /// 模板来源：用于日志/诊断，让用户看到自己的模板是否生效、回退到了哪一层。
@@ -144,6 +148,8 @@ pub struct TemplateLoadResult {
 pub struct TemplateResolver {
     /// 用户配置模板：workflow_id → step_order（从 1 起）→ 模板文本。
     user_templates: BTreeMap<String, BTreeMap<u32, String>>,
+    /// 用户配置的「汇总信封」模板：workflow_id → 模板文本（§4 项目经理回流）。
+    user_summary_templates: BTreeMap<String, String>,
 }
 
 /// 配置文件顶层结构。`workflows` 值保留为 raw JSON，以便逐工作流容错解析
@@ -154,10 +160,12 @@ struct HarnessConfigFile {
     workflows: BTreeMap<String, serde_json::Value>,
 }
 
-/// 单个工作流的模板配置。
+/// 单个工作流的模板配置：`steps` = 各步信封；`summary` = 汇总信封（缺省 = 内置默认）。
 #[derive(Debug, serde::Deserialize)]
 struct HarnessWorkflowConfig {
     steps: Vec<HarnessStepConfig>,
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 /// 单步模板配置：`order` = 步骤序号（1 起），`harness_template` 缺失/空白 = 未配置该步。
@@ -176,7 +184,21 @@ impl TemplateResolver {
 
     /// 直接注入用户模板映射（装配方已有解析好的配置时使用）。
     pub fn with_user_templates(user_templates: BTreeMap<String, BTreeMap<u32, String>>) -> Self {
-        Self { user_templates }
+        Self {
+            user_templates,
+            user_summary_templates: BTreeMap::new(),
+        }
+    }
+
+    /// 直接注入用户模板 + 用户汇总信封（装配/测试）。
+    pub fn with_user_templates_and_summary(
+        user_templates: BTreeMap<String, BTreeMap<u32, String>>,
+        user_summary_templates: BTreeMap<String, String>,
+    ) -> Self {
+        Self {
+            user_templates,
+            user_summary_templates,
+        }
     }
 
     /// 从配置文本（JSON）解析：整份损坏 → 一条告警 + 全默认；
@@ -197,6 +219,7 @@ impl TemplateResolver {
             }
         };
         let mut user_templates: BTreeMap<String, BTreeMap<u32, String>> = BTreeMap::new();
+        let mut user_summary_templates: BTreeMap<String, String> = BTreeMap::new();
         let mut warnings = Vec::new();
         for (workflow_id, raw) in root.workflows {
             let workflow_config: HarnessWorkflowConfig = match serde_json::from_value(raw) {
@@ -211,6 +234,11 @@ impl TemplateResolver {
                     continue;
                 }
             };
+            if let Some(summary) = workflow_config.summary {
+                if !summary.trim().is_empty() {
+                    user_summary_templates.insert(workflow_id.clone(), summary);
+                }
+            }
             let mut steps: BTreeMap<u32, String> = BTreeMap::new();
             for step in workflow_config.steps {
                 let template = step.harness_template.unwrap_or_default();
@@ -244,7 +272,7 @@ impl TemplateResolver {
             }
         }
         TemplateLoadResult {
-            resolver: Self::with_user_templates(user_templates),
+            resolver: Self::with_user_templates_and_summary(user_templates, user_summary_templates),
             warnings,
         }
     }
@@ -291,6 +319,18 @@ impl TemplateResolver {
         &self.user_templates
     }
 
+    /// 按工作流取用户配置的汇总信封模板；未配置返回 None。
+    pub fn user_summary_template(&self, workflow_id: &str) -> Option<&str> {
+        self.user_summary_templates
+            .get(workflow_id)
+            .map(String::as_str)
+    }
+
+    /// 用户汇总信封映射（只读，装配/诊断用）。
+    pub fn user_summary_templates(&self) -> &BTreeMap<String, String> {
+        &self.user_summary_templates
+    }
+
     /// 解析某工作流某步的模板（优先级：步骤自带 > 用户配置 > 内置默认，§4.3）。
     ///
     /// `step_harness_template` 传 `WorkflowStep.harness_template`；空/空白按未配置处理。
@@ -301,17 +341,18 @@ impl TemplateResolver {
         workflow_id: &str,
         step_order: u32,
     ) -> ResolvedTemplate {
+        let location = format!("第 {step_order} 步");
         match step_harness_template {
             Some(template) if !template.trim().is_empty() => ResolvedTemplate {
                 template: template.to_string(),
                 source: TemplateSource::StepOverride,
-                warning: unknown_placeholder_warning(template, workflow_id, step_order),
+                warning: unknown_placeholder_warning(template, workflow_id, &location),
             },
             _ => match self.user_template(workflow_id, step_order) {
                 Some(template) => ResolvedTemplate {
                     template: template.to_string(),
                     source: TemplateSource::UserConfig,
-                    warning: unknown_placeholder_warning(template, workflow_id, step_order),
+                    warning: unknown_placeholder_warning(template, workflow_id, &location),
                 },
                 None => ResolvedTemplate {
                     template: DEFAULT_ENVELOPE_TEMPLATE.to_string(),
@@ -340,14 +381,47 @@ impl TemplateResolver {
             warnings: resolved.warning.into_iter().collect(),
         }
     }
+
+    /// 解析某工作流的「汇总信封」模板（优先级：用户配置 > 内置默认；§4 项目经理回流）。
+    /// 未知占位符 → 告警 + 原样保留（坏模板不炸）。
+    pub fn resolve_summary(&self, workflow_id: &str) -> ResolvedTemplate {
+        match self.user_summary_template(workflow_id) {
+            Some(template) => ResolvedTemplate {
+                template: template.to_string(),
+                source: TemplateSource::UserConfig,
+                warning: unknown_placeholder_warning(template, workflow_id, "汇总信封"),
+            },
+            None => ResolvedTemplate {
+                template: DEFAULT_SUMMARY_ENVELOPE_TEMPLATE.to_string(),
+                source: TemplateSource::BuiltinDefault,
+                warning: None,
+            },
+        }
+    }
+
+    /// 渲染「汇总信封」：带各步产出（`reports` 块），发给首节点会话（项目经理）。
+    pub fn render_summary_envelope(
+        &self,
+        workflow: &Workflow,
+        goal: &str,
+        reports: &str,
+    ) -> RenderedEnvelope {
+        let resolved = self.resolve_summary(&workflow.id);
+        let text = render_summary_with_template(workflow, goal, reports, &resolved.template);
+        RenderedEnvelope {
+            text,
+            warnings: resolved.warning.into_iter().collect(),
+        }
+    }
 }
 
 /// 扫描模板中的未知 `{...}` 占位符；全部已知 → None，否则返回告警
 /// （未知占位符原样保留，不参与替换；仅告警，坏模板不炸）。
+/// `location` 用中文写清是哪一段模板（如「第 1 步」「汇总信封」）。
 fn unknown_placeholder_warning(
     template: &str,
     workflow_id: &str,
-    step_order: u32,
+    location: &str,
 ) -> Option<TemplateWarning> {
     let unknown = unknown_placeholders(template);
     if unknown.is_empty() {
@@ -356,7 +430,7 @@ fn unknown_placeholder_warning(
     Some(TemplateWarning::new(
         TemplateWarningKind::UnknownPlaceholder,
         format!(
-            "工作流 {workflow_id} 第 {step_order} 步的模板含未知占位符（{}）：将原样保留，不参与替换",
+            "工作流 {workflow_id} {location}的模板含未知占位符（{}）：将原样保留，不参与替换",
             unknown.join("、")
         ),
     ))

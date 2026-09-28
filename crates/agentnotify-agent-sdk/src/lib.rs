@@ -6,7 +6,8 @@ mod descriptor;
 mod registry;
 
 pub use adapter::{
-    AgentAdapter, AgentError, AgentEventEnvelope, NormalizedAgentEvent, ResumeReceipt,
+    AgentAdapter, AgentError, AgentEventEnvelope, DispatchOptions, NormalizedAgentEvent,
+    ResumeReceipt,
 };
 pub use contract::assert_agent_contract;
 pub use descriptor::{AgentCapabilities, AgentDescriptor, AgentHealth};

@@ -87,6 +87,9 @@ pub struct RuntimeConfig {
     /// Agent 事件观察者（默认无）：事件被接纳后回调（见 [`crate::AgentEventObserver`]），
     /// 编排层用它把「Agent 汇报到达」回注任务推进（§4.4）；失败只记日志、不影响消费。
     pub agent_event_observer: Option<crate::SharedAgentEventObserver>,
+    /// 通知过滤器（默认无）：不允许时跳过 ingest（不建通知/投递），但仍回调观察者（§5 通知规则）。
+    /// 只作用于管道摄入与 spool 重放两条路径。
+    pub event_filter: Option<crate::SharedAgentEventFilter>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -321,6 +324,7 @@ impl AppRuntime {
             config.ingress_spool_dir.as_deref(),
             ingest.clone(),
             config.agent_event_observer.clone(),
+            config.event_filter.clone(),
         )
         .await?;
 
@@ -372,6 +376,7 @@ impl AppRuntime {
                 crate::platform::run_ingress_server(
                     ingest.clone(),
                     config.agent_event_observer.clone(),
+                    config.event_filter.clone(),
                     ingress_cancel,
                 ),
             ));
@@ -386,6 +391,7 @@ impl AppRuntime {
                     config.ingress_spool_dir.clone(),
                     ingest.clone(),
                     config.agent_event_observer.clone(),
+                    config.event_filter.clone(),
                     replay_cancel,
                     config.spool_replay_interval(),
                 ),

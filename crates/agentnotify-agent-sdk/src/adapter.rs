@@ -32,6 +32,31 @@ pub struct ResumeReceipt {
     pub session_id: AgentSessionId,
 }
 
+/// 编排派活选项（§4「派活透传」）：工作目录、该步模型、无人值守标志。
+///
+/// 支持「开新会话带选项」的适配器（OpenCode）按需使用；其它适配器默认忽略
+/// （[`AgentAdapter::dispatch_with_options`] 的默认实现）。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DispatchOptions {
+    /// 会话工作目录（绝对路径）；None = 跟随宿主当前项目。
+    pub working_dir: Option<String>,
+    /// 该步模型（`provider/model`）；None = 用该 Agent 默认模型。
+    pub model: Option<String>,
+    /// 无人值守（编排会话权限 ask 自动放行）；默认 true。
+    pub unattended: bool,
+}
+
+impl Default for DispatchOptions {
+    /// 缺省 = 不指定目录/模型，无人值守开启（与 settings `orchestration.unattended` 默认一致）。
+    fn default() -> Self {
+        Self {
+            working_dir: None,
+            model: None,
+            unattended: true,
+        }
+    }
+}
+
 /// Agent 适配器的稳定失败分类。
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum AgentError {
@@ -104,6 +129,31 @@ pub trait AgentAdapter: Send + Sync {
         _text: &str,
     ) -> Result<ResumeReceipt, AgentError> {
         Err(AgentError::UnsupportedCapability)
+    }
+
+    /// 带派活选项的投递（§4 派活透传：工作目录/模型/无人值守）：
+    ///
+    /// - 默认实现**丢弃选项**，按 [`AgentAdapter::open`]（`open=true`，不支持新会话时降级
+    ///   [`AgentAdapter::resume`]）/ [`AgentAdapter::resume`] 的原语义投递——其它 Agent
+    ///   适配器不感知这些选项；
+    /// - OpenCode 等支持「新会话 + 指定模型/目录/无人值守」的适配器覆写本方法。
+    async fn dispatch_with_options(
+        &self,
+        session_id: &AgentSessionId,
+        text: &str,
+        open: bool,
+        options: &DispatchOptions,
+    ) -> Result<ResumeReceipt, AgentError> {
+        let _ = options;
+        if open {
+            match self.open(session_id, text).await {
+                Ok(receipt) => Ok(receipt),
+                Err(AgentError::UnsupportedCapability) => self.resume(session_id, text).await,
+                Err(error) => Err(error),
+            }
+        } else {
+            self.resume(session_id, text).await
+        }
     }
 
     async fn inspect(&self) -> AgentHealth;
