@@ -1,8 +1,11 @@
 //! OrcStore 集成测试：create/get/list、消息驱动推进、human_gate、blocked 流转、错误路径。
 //! 全部内存态，不碰网络/文件系统。
 
+use std::sync::Arc;
+
 use agentnotify_orchestration::{
-    MessageKind, NotifyMode, OrcErrorCode, OrcStore, TaskState, TransitionAction, Workflow,
+    InMemoryOrcTaskRepository, MessageKind, NotifyMode, OrcErrorCode, OrcStore, OrcTaskRepository,
+    TaskState, TransitionAction, Workflow,
 };
 
 /// create → get：状态 Working、第 1 步、语境完整。
@@ -360,4 +363,21 @@ async fn store_instances_are_isolated() {
             .unwrap(),
         store_b.workflow().id
     );
+}
+
+/// fetch_task：不绑定工作流直接从仓储读任务；缺失 → TaskNotFound，仓储失败 → Repository。
+#[tokio::test]
+async fn fetch_task_reads_without_workflow_binding() {
+    let repo: Arc<dyn OrcTaskRepository> = Arc::new(InMemoryOrcTaskRepository::default());
+    let store = OrcStore::with_repository(Workflow::preset(false).unwrap(), repo.clone());
+    let created = store
+        .create_task("直接读取", NotifyMode::Verbose)
+        .await
+        .unwrap();
+
+    let fetched = OrcStore::fetch_task(&repo, created.id()).await.unwrap();
+    assert_eq!(fetched.goal().unwrap(), "直接读取");
+
+    let err = OrcStore::fetch_task(&repo, "missing").await.unwrap_err();
+    assert_eq!(err.code, OrcErrorCode::TaskNotFound);
 }

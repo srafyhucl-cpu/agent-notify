@@ -1,6 +1,6 @@
 use agentnotify_agent_sdk::{
     AgentAdapter, AgentCapabilities, AgentDescriptor, AgentError, AgentEventEnvelope, AgentHealth,
-    NormalizedAgentEvent, ResumeReceipt,
+    DispatchOptions, NormalizedAgentEvent, ResumeReceipt,
 };
 use agentnotify_domain::AgentSessionId;
 
@@ -78,6 +78,23 @@ impl AgentAdapter for OpenCodeAgent {
         text: &str,
     ) -> Result<ResumeReceipt, AgentError> {
         self.inbox.open(session_id, text).await?;
+        Ok(ResumeReceipt {
+            session_id: session_id.clone(),
+        })
+    }
+
+    /// 派活透传（§4）：job 带 `model`/`location`/`unattended`，插件按会话映射落盘并按需
+    /// 创建会话（location/model）或续聊（unattended 更新 + switchModel）。
+    async fn dispatch_with_options(
+        &self,
+        session_id: &AgentSessionId,
+        text: &str,
+        open: bool,
+        options: &DispatchOptions,
+    ) -> Result<ResumeReceipt, AgentError> {
+        self.inbox
+            .dispatch_with_options(session_id, text, open, options)
+            .await?;
         Ok(ResumeReceipt {
             session_id: session_id.clone(),
         })

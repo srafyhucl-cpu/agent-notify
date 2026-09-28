@@ -1,27 +1,33 @@
 //! 编排「派活链路」端到端测试（P2）：create/advance 后真实驱动 Agent。
-//! 注入记录型假 driver，断言派活目标（Agent/会话/信封文本/open 语义）与
+//! 注入记录型假 driver，断言派活目标（Agent/会话/信封文本/open 语义/派活选项）与
 //! 失败 → blocked（§4.6 不自动重推）的自动落库；不经过真实 Agent 插件。
 
 use std::sync::{Arc, RwLock};
 
 use agentnotify_desktop::bridge::dto::{
     AdvanceOrcTaskPayload, CreateOrcTaskPayload, OrcMessageKindDto, OrcTaskIdPayload,
-    OrcTaskStateDto,
+    OrcTaskStateDto, OrcTemplateStepConfigDto, SaveOrcTemplateConfigPayload,
 };
 use agentnotify_desktop::bridge::error::CommandError;
-use agentnotify_desktop::production::agent_driver::AgentDriver;
+use agentnotify_desktop::production::agent_driver::{AgentDriver, DispatchOptions};
 use agentnotify_desktop::production::orc_handler::OrcCommandHandler;
+use agentnotify_desktop::production::settings::ProductionSettingsStore;
 use agentnotify_domain::{AgentId, AgentSessionId};
-use agentnotify_orchestration::{OrcStore, Workflow, WorkflowStep};
+use agentnotify_orchestration::{OrcStore, TemplateResolver, Workflow, WorkflowStep};
 use agentnotify_storage_sqlite::SqliteStore;
 
-/// 记录型假 driver：记下每次派活（任务/Agent/会话/信封/open），可配置失败。
+/// 旧预设 id：静态测试沿用该工作流（任务级解析时沿用装配工作流）。
+const PRESET_ID: &str = "preset-requirement-to-report";
+/// 固定模板「快速修复」：动态模式（模板 + 节点配置）测试用。
+const TEMPLATE_QUICKFIX: &str = "template-quickfix";
+
+/// 记录型假 driver：记下每次派活（任务/Agent/会话/信封/open/选项），可配置失败。
 struct FakeDriver {
     calls: Arc<RwLock<Vec<DispatchCall>>>,
     fail: Arc<RwLock<Option<String>>>,
 }
 
-/// 一次派活的完整观测（task/agent/session/envelope/open）。
+/// 一次派活的完整观测（task/agent/session/envelope/open/options）。
 #[derive(Clone, Debug, PartialEq)]
 struct DispatchCall {
     task_id: String,
@@ -29,6 +35,7 @@ struct DispatchCall {
     session_id: String,
     envelope: String,
     open: bool,
+    options: DispatchOptions,
 }
 
 impl FakeDriver {
@@ -58,6 +65,7 @@ impl AgentDriver for FakeDriver {
         session_id: &AgentSessionId,
         envelope: &str,
         open: bool,
+        options: &DispatchOptions,
     ) -> Result<(), CommandError> {
         self.calls.write().expect("测试锁").push(DispatchCall {
             task_id: task_id.to_string(),
@@ -65,6 +73,7 @@ impl AgentDriver for FakeDriver {
             session_id: session_id.to_string(),
             envelope: envelope.to_string(),
             open,
+            options: options.clone(),
         });
         if let Some(reason) = self.fail.read().expect("测试锁").clone() {
             return Err(CommandError::new("fake_driver_failed", reason));
@@ -94,24 +103,66 @@ fn dispatched_handler(store: &Arc<SqliteStore>, driver: Arc<FakeDriver>) -> OrcC
     )
 }
 
-/// 测试用工作目录：testkit 隔离根（必须已存在，创建任务时校验）。
-fn existing_dir() -> String {
-    agentnotify_testkit::test_temp_root()
-        .to_string_lossy()
-        .into_owned()
+/// 动态装配（生产形态）+ 假 driver：模板/节点配置按内置模板解析。
+fn dynamic_dispatched_handler(
+    store: &Arc<SqliteStore>,
+    config_dir: &std::path::Path,
+    driver: Arc<FakeDriver>,
+) -> OrcCommandHandler {
+    OrcCommandHandler::with_selector(
+        None,
+        store.clone(),
+        ProductionSettingsStore::new(store.clone(), config_dir),
+        TemplateResolver::new(),
+        None,
+        Some(driver),
+    )
 }
 
-async fn create_task(handler: &OrcCommandHandler) -> String {
+/// 测试用工作目录：必须是已存在的目录。
+fn working_dir(root: &tempfile::TempDir) -> String {
+    root.path().to_string_lossy().into_owned()
+}
+
+async fn create_task(handler: &OrcCommandHandler, dir: &str) -> String {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "做一个贪吃蛇游戏".into(),
-            template_id: "preset-requirement-to-report".into(),
-            working_dir: existing_dir(),
+            template_id: PRESET_ID.into(),
+            working_dir: dir.into(),
             notify_mode: None,
         })
         .await
         .expect("创建任务必须成功");
     created.id
+}
+
+/// 动态模式的模板节点配置：把模板全部节点配成同一 Agent。
+async fn configure_all_steps(handler: &OrcCommandHandler, template_id: &str, agent: &str) {
+    let templates = handler
+        .list_orc_templates()
+        .await
+        .expect("列出模板必须成功");
+    let template = templates
+        .iter()
+        .find(|template| template.id == template_id)
+        .expect("模板必须存在");
+    let steps = template
+        .steps
+        .iter()
+        .map(|step| OrcTemplateStepConfigDto {
+            order: step.order,
+            agent: Some(agent.into()),
+            model: None,
+        })
+        .collect();
+    handler
+        .save_orc_template_config(SaveOrcTemplateConfigPayload {
+            template_id: template_id.into(),
+            steps,
+        })
+        .await
+        .expect("保存节点配置必须成功");
 }
 
 /// start 派活第 1 步：agent_hint=codex、open=true（新会话）、会话 id 稳定、信封含目标与步数；
@@ -121,8 +172,9 @@ async fn start_dispatches_first_step_with_open_session() {
     let (_root, store) = open_sqlite("agentnotify-orc-dispatch-create-");
     let driver = Arc::new(FakeDriver::new());
     let handler = dispatched_handler(&store, driver.clone());
+    let dir = working_dir(&_root);
 
-    let task_id = create_task(&handler).await;
+    let task_id = create_task(&handler, &dir).await;
     assert!(
         driver.calls().is_empty(),
         "创建任务不得立即派活（需人工点「开始执行」）"
@@ -145,6 +197,14 @@ async fn start_dispatches_first_step_with_open_session() {
     assert!(call.envelope.contains("做一个贪吃蛇游戏"), "信封必须含目标");
     assert!(call.envelope.contains("Step 1/3"), "信封必须含步数");
     assert!(call.envelope.contains("判断"), "信封必须含该步角色");
+    // §4 派活透传：工作目录取任务级；预置工作流没有模型；无人值守默认 true。
+    assert_eq!(
+        call.options.working_dir.as_deref(),
+        Some(dir.as_str()),
+        "派活必须透传任务工作目录"
+    );
+    assert_eq!(call.options.model, None, "未配置模型时不得凭空指定");
+    assert!(call.options.unattended, "无人值守默认开启");
 }
 
 /// advance(报告) 后派活下一步：agent_hint=opencode、open=false（续聊）、同一 (task, step) 稳定会话。
@@ -153,8 +213,9 @@ async fn advance_dispatches_next_step_with_resume() {
     let (_root, store) = open_sqlite("agentnotify-orc-dispatch-advance-");
     let driver = Arc::new(FakeDriver::new());
     let handler = dispatched_handler(&store, driver.clone());
+    let dir = working_dir(&_root);
 
-    let task_id = create_task(&handler).await;
+    let task_id = create_task(&handler, &dir).await;
     handler
         .start(OrcTaskIdPayload {
             task_id: task_id.clone(),
@@ -179,12 +240,93 @@ async fn advance_dispatches_next_step_with_resume() {
     );
     assert_eq!(advanced.session_id, format!("task-{task_id}-step-2"));
     assert!(!advanced.open, "后续步必须续聊同一会话");
+    assert_eq!(
+        advanced.options.working_dir.as_deref(),
+        Some(dir.as_str()),
+        "后续步同样透传工作目录"
+    );
     assert!(
         advanced.envelope.contains("做一个贪吃蛇游戏"),
         "信封必须含目标"
     );
     assert!(advanced.envelope.contains("Step 2/3"), "信封必须含步数");
     assert!(advanced.envelope.contains("规划"), "信封必须含该步角色");
+}
+
+/// 节点配置的模型与无人值守随派活透传（§3/§4）：模型只对 OpenCode 生效，无人值守可显式关闭。
+#[tokio::test]
+async fn dispatch_options_carry_model_and_unattended_setting() {
+    let (_root, store) = open_sqlite("agentnotify-orc-dispatch-options-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+
+    // 全部节点配 opencode，第 1 步指定模型；显式关闭无人值守。
+    let templates = handler
+        .list_orc_templates()
+        .await
+        .expect("列出模板必须成功");
+    let quickfix = templates
+        .iter()
+        .find(|template| template.id == TEMPLATE_QUICKFIX)
+        .expect("快速修复模板必须存在");
+    let steps = quickfix
+        .steps
+        .iter()
+        .map(|step| OrcTemplateStepConfigDto {
+            order: step.order,
+            agent: Some("opencode".into()),
+            model: if step.order == 1 {
+                Some("anthropic/claude-sonnet-4-5".into())
+            } else {
+                None
+            },
+        })
+        .collect();
+    handler
+        .save_orc_template_config(SaveOrcTemplateConfigPayload {
+            template_id: TEMPLATE_QUICKFIX.into(),
+            steps,
+        })
+        .await
+        .expect("保存节点配置必须成功");
+    store
+        .write_settings_entries(std::collections::BTreeMap::from([(
+            "orchestration.unattended".to_string(),
+            serde_json::json!(false),
+        )]))
+        .await
+        .expect("写入无人值守设置必须成功");
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            goal: "透传选项".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+
+    let calls = driver.calls();
+    assert_eq!(calls.len(), 1, "开始执行必须派活一次");
+    let options = &calls[0].options;
+    assert_eq!(
+        options.model.as_deref(),
+        Some("anthropic/claude-sonnet-4-5"),
+        "模型必须随派活透传"
+    );
+    assert!(!options.unattended, "无人值守设置必须随派活透传");
+    assert_eq!(
+        options.working_dir.as_deref(),
+        Some(working_dir(&_root).as_str()),
+        "工作目录必须随派活透传"
+    );
 }
 
 /// driver 失败 → 自动 blocked：推进结果仍落库（返回推进态），但任务变 Failed、
@@ -196,7 +338,7 @@ async fn dispatch_failure_blocks_task_with_clear_reason() {
     let handler = dispatched_handler(&store, driver.clone());
 
     // 先开始执行成功（Step 1 派活正常），再让后续派活失败。
-    let task_id = create_task(&handler).await;
+    let task_id = create_task(&handler, &working_dir(&_root)).await;
     handler
         .start(OrcTaskIdPayload {
             task_id: task_id.clone(),
@@ -233,39 +375,52 @@ async fn dispatch_failure_blocks_task_with_clear_reason() {
     assert!(reason.contains("Step 2"), "必须写清哪一步失败：{reason}");
 }
 
-/// 该步没有配置 Agent（agent_hint 缺失）→ 明确错误 + blocked，原因写清「未配置 Agent」。
+/// 配置被清空后派活该步：明确错误 + blocked（dispatch 侧兜底，不猜测）。
 #[tokio::test]
-async fn missing_agent_hint_blocks_task_with_clear_reason() {
+async fn missing_agent_config_blocks_task_with_clear_reason() {
     let (_root, store) = open_sqlite("agentnotify-orc-dispatch-nohint-");
     let driver = Arc::new(FakeDriver::new());
-    // 自定义工作流：第 2 步未配置 Agent。
-    let workflow = Workflow::new(
-        "custom-no-hint",
-        "自定义（第 2 步缺 Agent）",
-        vec![
-            WorkflowStep::new(1, "orchestrator", Some("codex".to_string()), None, false),
-            WorkflowStep::new(2, "executor", None, None, false),
-            WorkflowStep::new(3, "reviewer", Some("opencode".to_string()), None, false),
-        ],
-    )
-    .expect("自定义工作流必须有效");
-    let handler = OrcCommandHandler::with_driver(
-        Some(OrcStore::with_repository(workflow, store.clone())),
-        agentnotify_orchestration::TemplateResolver::new(),
-        None,
-        Some(driver),
-    );
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+    configure_all_steps(&handler, TEMPLATE_QUICKFIX, "opencode").await;
 
-    let task_id = create_task(&handler).await;
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            goal: "缺配置的任务".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
     handler
         .start(OrcTaskIdPayload {
-            task_id: task_id.clone(),
+            task_id: created.id.clone(),
         })
         .await
         .expect("开始执行必须成功");
+
+    // 清空模板节点配置（模拟用户改配置）：第 2 步派活时兜底为明确 blocked。
+    handler
+        .save_orc_template_config(SaveOrcTemplateConfigPayload {
+            template_id: TEMPLATE_QUICKFIX.into(),
+            steps: vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: None,
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: None,
+                    model: None,
+                },
+            ],
+        })
+        .await
+        .expect("清空节点配置必须成功");
     handler
         .advance(AdvanceOrcTaskPayload {
-            task_id: task_id.clone(),
+            task_id: created.id.clone(),
             kind: OrcMessageKindDto::Report,
         })
         .await
@@ -274,7 +429,7 @@ async fn missing_agent_hint_blocks_task_with_clear_reason() {
     let tasks = handler.list().await.expect("列出任务必须成功");
     let task = tasks
         .iter()
-        .find(|task| task.id == task_id)
+        .find(|task| task.id == created.id)
         .expect("任务必须还在");
     assert_eq!(task.state, OrcTaskStateDto::Failed);
     assert_eq!(task.blocked_step, Some(2));
@@ -297,8 +452,8 @@ async fn no_driver_keeps_original_advance_behavior() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "不派活的目标".into(),
-            template_id: "preset-requirement-to-report".into(),
-            working_dir: existing_dir(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await
@@ -330,8 +485,9 @@ async fn back_to_work_re_dispatches_stable_session() {
     let (_root, store) = open_sqlite("agentnotify-orc-dispatch-rework-");
     let driver = Arc::new(FakeDriver::new());
     let handler = dispatched_handler(&store, driver.clone());
+    let dir = working_dir(&_root);
 
-    let task_id = create_task(&handler).await;
+    let task_id = create_task(&handler, &dir).await;
     handler
         .start(OrcTaskIdPayload {
             task_id: task_id.clone(),
@@ -393,8 +549,8 @@ async fn envelope_rendering_feeds_dispatch_text() {
     let task_id = handler
         .create(CreateOrcTaskPayload {
             goal: "信封衔接目标".into(),
-            template_id: "preset-requirement-to-report".into(),
-            working_dir: existing_dir(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await
@@ -423,4 +579,44 @@ async fn envelope_rendering_feeds_dispatch_text() {
         "未知占位符必须原样保留：{}",
         call.envelope
     );
+}
+
+/// 自定义工作流（静态装配）：任务级解析沿用装配工作流，行为与静态模式一致。
+#[tokio::test]
+async fn static_custom_workflow_is_resolved_from_binding() {
+    let (_root, store) = open_sqlite("agentnotify-orc-dispatch-custom-");
+    let driver = Arc::new(FakeDriver::new());
+    let workflow = Workflow::new(
+        "custom-static",
+        "自定义静态",
+        vec![
+            WorkflowStep::new(1, "orchestrator", Some("codex".to_string()), None, false),
+            WorkflowStep::new(2, "executor", Some("opencode".to_string()), None, false),
+        ],
+    )
+    .expect("自定义工作流必须有效");
+    let handler = OrcCommandHandler::with_driver(
+        Some(OrcStore::with_repository(workflow, store.clone())),
+        TemplateResolver::new(),
+        None,
+        Some(driver.clone()),
+    );
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            goal: "自定义工作流目标".into(),
+            template_id: "custom-static".into(),
+            working_dir: working_dir(&_root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
+    assert_eq!(created.workflow.id, "custom-static");
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    assert_eq!(driver.calls()[0].agent_id, "codex");
 }

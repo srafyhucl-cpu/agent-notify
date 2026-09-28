@@ -66,6 +66,34 @@ fn create_payload(goal: &str, template_id: &str, dir: &str) -> CreateOrcTaskPayl
     }
 }
 
+/// 把所有节点都配置成同一个 Agent（动态模式的模板节点配置）。
+async fn configure_all_steps(handler: &OrcCommandHandler, template_id: &str, agent: &str) {
+    let templates = handler
+        .list_orc_templates()
+        .await
+        .expect("列出模板必须成功");
+    let template = templates
+        .iter()
+        .find(|template| template.id == template_id)
+        .expect("模板必须存在");
+    let steps = template
+        .steps
+        .iter()
+        .map(|step| OrcTemplateStepConfigDto {
+            order: step.order,
+            agent: Some(agent.into()),
+            model: None,
+        })
+        .collect();
+    handler
+        .save_orc_template_config(SaveOrcTemplateConfigPayload {
+            template_id: template_id.into(),
+            steps,
+        })
+        .await
+        .expect("保存节点配置必须成功");
+}
+
 /// create → advance → mark_blocked → recover 全链路（SQLite 真实文件）。
 #[tokio::test]
 async fn orc_commands_full_chain_on_sqlite() {
@@ -266,6 +294,82 @@ async fn create_validates_template_and_working_dir() {
         handler.list().await.expect("列出任务必须成功").is_empty(),
         "校验失败不得落库任务"
     );
+}
+
+/// start 预检（§3）：缺任一节点 Agent → 明确报错且任务保持「待开始」；
+/// 工作目录已不存在 → 同样明确报错；两者都在派活之前拦下。
+#[tokio::test]
+async fn start_precheck_requires_agents_and_working_dir() {
+    let (_root, store) = open_sqlite("agentnotify-orc-start-precheck-");
+    let handler = dynamic_handler(&store, _root.path());
+    let dir = working_dir(&_root);
+
+    // 内置模板不预填 Agent：未配置时 start 必须报错且任务保持待开始。
+    let created = handler
+        .create(create_payload("预检目标", TEMPLATE_STANDARD, &dir))
+        .await
+        .expect("创建任务必须成功");
+    assert_eq!(created.workflow_id, TEMPLATE_STANDARD);
+    assert!(!created.started);
+    assert_eq!(
+        created.workflow.steps.len(),
+        3,
+        "标准交付模板必须是 3 个节点"
+    );
+
+    let err = handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect_err("缺 Agent 时开始执行必须报错");
+    assert_eq!(err.code, "orc_step_agent_missing");
+    assert!(
+        err.message.contains("第 1 步未选择 Agent"),
+        "错误必须写清哪一步：{}",
+        err.message
+    );
+    assert!(
+        err.message.contains("设置 → 编排"),
+        "错误必须给出配置入口：{}",
+        err.message
+    );
+    let tasks = handler.list().await.expect("列出任务必须成功");
+    let task = tasks.iter().find(|task| task.id == created.id).unwrap();
+    assert_eq!(task.state, OrcTaskStateDto::Working);
+    assert!(!task.started, "预检失败必须保持「待开始」");
+
+    // 配置全部节点后 start 成功（无 driver：只标记已开始）。
+    configure_all_steps(&handler, TEMPLATE_STANDARD, "opencode").await;
+    let started = handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("配置齐全后开始执行必须成功");
+    assert!(started.started);
+
+    // 工作目录在开始前被删除 → 明确报错（预检 2）。
+    configure_all_steps(&handler, TEMPLATE_QUICKFIX, "opencode").await;
+    let vanished = _root.path().join("vanished");
+    std::fs::create_dir_all(&vanished).expect("子目录必须可创建");
+    let created2 = handler
+        .create(create_payload(
+            "目录预检",
+            TEMPLATE_QUICKFIX,
+            &vanished.to_string_lossy(),
+        ))
+        .await
+        .expect("创建任务必须成功");
+    std::fs::remove_dir(&vanished).expect("子目录必须可删除");
+    let err = handler
+        .start(OrcTaskIdPayload {
+            task_id: created2.id.clone(),
+        })
+        .await
+        .expect_err("工作目录不存在时必须报错");
+    assert_eq!(err.code, "orc_working_dir_invalid");
+    assert!(err.message.contains("工作目录不存在"), "{}", err.message);
 }
 
 /// 输入校验：空目标 / 未知通知节奏 / 未启用之外的业务错误都要明确暴露。
@@ -529,6 +633,32 @@ async fn templates_and_node_config_round_trip() {
         standard.steps[1].agent.as_deref(),
         Some("opencode"),
         "校验失败不得清掉已保存配置"
+    );
+}
+
+/// 节点配置合并进任务：任务按模板解析时应用用户配置的 Agent/模型（§3）。
+#[tokio::test]
+async fn task_resolution_merges_node_config() {
+    let (_root, store) = open_sqlite("agentnotify-orc-node-merge-");
+    let handler = dynamic_handler(&store, _root.path());
+    configure_all_steps(&handler, TEMPLATE_QUICKFIX, "opencode").await;
+
+    let created = handler
+        .create(create_payload(
+            "合并目标",
+            TEMPLATE_QUICKFIX,
+            &working_dir(&_root),
+        ))
+        .await
+        .expect("创建任务必须成功");
+    assert_eq!(created.workflow.id, TEMPLATE_QUICKFIX);
+    assert_eq!(
+        created.workflow.steps[0].agent_hint.as_deref(),
+        Some("opencode")
+    );
+    assert_eq!(
+        created.workflow.steps[1].agent_hint.as_deref(),
+        Some("opencode")
     );
 }
 

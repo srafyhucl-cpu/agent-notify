@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use agentnotify_agent_sdk::AgentEventEnvelope;
 use agentnotify_desktop::bridge::dto::{CreateOrcTaskPayload, OrcTaskIdPayload, OrcTaskStateDto};
 use agentnotify_desktop::bridge::error::CommandError;
-use agentnotify_desktop::production::agent_driver::AgentDriver;
+use agentnotify_desktop::production::agent_driver::{AgentDriver, DispatchOptions};
 use agentnotify_desktop::production::orc_handler::OrcCommandHandler;
 use agentnotify_desktop::production::orc_report_observer::OrcReportObserver;
 use agentnotify_domain::{AgentId, AgentSessionId, RequestId};
@@ -50,6 +50,7 @@ impl AgentDriver for FakeDriver {
         session_id: &AgentSessionId,
         _envelope: &str,
         open: bool,
+        _options: &DispatchOptions,
     ) -> Result<(), CommandError> {
         self.calls.write().expect("测试锁").push(DispatchCall {
             task_id: task_id.to_string(),

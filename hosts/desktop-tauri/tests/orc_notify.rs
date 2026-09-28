@@ -25,7 +25,7 @@ use agentnotify_desktop::production::orc_handler::{
 use agentnotify_desktop::production::{
     OrcClusterPresenter, ProductionOrcPresenter, ProductionSettingsStore, ProductionTargetProvider,
 };
-use agentnotify_orchestration::{NotifyMode, OrcStore, TemplateResolver, Workflow};
+use agentnotify_orchestration::{NotifyMode, OrcStore, TemplateResolver, Workflow, WorkflowStep};
 use agentnotify_storage_sqlite::SqliteStore;
 use agentnotify_testkit::MemoryStore;
 
@@ -258,12 +258,23 @@ async fn verbose_pushes_every_step_progress() {
 async fn final_only_pushes_gate_wait_and_confirm() {
     let (_root, store) = open_sqlite("agentnotify-orc-notify-gate-");
     let (presenter, pushed) = FakePresenter::new(NotifyMode::FinalOnly);
-    // 预置工作流含第 4 步「复核/汇总」（human_gate=true）
-    let handler = handler_with(&store, Workflow::preset(true).unwrap(), presenter);
+    // 自定义 4 步工作流：第 4 步「复核」带人工确认门（内置模板无确认门；预检要求各步有 Agent）。
+    let workflow = Workflow::new(
+        "custom-gate",
+        "自定义确认门",
+        vec![
+            WorkflowStep::new(1, "orchestrator", Some("codex".to_string()), None, false),
+            WorkflowStep::new(2, "planner", Some("opencode".to_string()), None, false),
+            WorkflowStep::new(3, "executor", Some("commandcode".to_string()), None, false),
+            WorkflowStep::new(4, "reviewer", Some("opencode".to_string()), None, true),
+        ],
+    )
+    .expect("自定义工作流必须有效");
+    let handler = handler_with(&store, workflow, presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "带人工确认的任务".into(),
-            template_id: PRESET_ID.into(),
+            template_id: "custom-gate".into(),
             working_dir: working_dir(&_root),
             notify_mode: Some("final_only".into()),
         })

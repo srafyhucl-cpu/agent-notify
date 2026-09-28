@@ -91,6 +91,19 @@ impl OrcStore {
         self.tasks.clone()
     }
 
+    /// 直接按 id 从仓储读取任务（不绑定工作流；先取任务、再按 `workflow_id` 解析工作流）。
+    /// 任务不存在 → `OrcErrorCode::TaskNotFound`；仓储失败 → `OrcErrorCode::Repository`。
+    pub async fn fetch_task(
+        repository: &Arc<dyn OrcTaskRepository>,
+        task_id: &str,
+    ) -> Result<OrcTask, OrcError> {
+        let task = repository
+            .get_task(task_id)
+            .await?
+            .ok_or_else(|| OrcError::task_not_found(task_id))?;
+        OrcTask::from_a2a(task)
+    }
+
     /// 创建任务：工作流第 1 步开工（A2A 状态 Working，新会话语义，§3.3）。
     pub async fn create_task(
         &self,
