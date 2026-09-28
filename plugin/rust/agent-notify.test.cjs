@@ -313,10 +313,13 @@ test("open=true job creates a real session and maps the orchestration sessionID"
     },
   ])
 
-  // 映射必须落盘：续聊（open=false）与完成事件回传都依赖它。
+  // 映射必须落盘：续聊（open=false）与完成事件回传都依赖它；写入为新格式（带 unattended）。
   const mapFile = path.join(replyDir, "session-map.json")
   const map = JSON.parse(fs.readFileSync(mapFile, "utf8"))
-  assert.equal(map["task-9-step-1"], "ses_test_open_1")
+  assert.deepEqual(map["task-9-step-1"], {
+    id: "ses_test_open_1",
+    unattended: true,
+  })
 })
 
 test("open=false reuses the mapped real session for orchestration ids", async () => {
@@ -377,6 +380,163 @@ test("open=false without a mapping creates a session for the step", async () => 
       delivery: "steer",
     },
   ])
+})
+
+test("open=true passes location and model to session.create and stores unattended", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const created = []
+  const ctx = fakeContext(async () => {})
+  ctx.session.create = async (input) => {
+    created.push(input)
+    return { id: "ses_dispatch_options" }
+  }
+  writeJob("job-dispatch-options", "【task_opt】Step 1 开工信封", {
+    open: true,
+    sessionID: "task-dispatch-opt-step-1",
+    model: "anthropic/claude-sonnet-4-5",
+    location: "D:\\工作区\\项目",
+    unattended: false,
+  })
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  assert.deepEqual(readResult("job-dispatch-options"), { ok: true, error: "" })
+  assert.deepEqual(created, [
+    {
+      title: "【集群】task-dispatch-opt-step-1",
+      location: { directory: "D:\\工作区\\项目" },
+      model: { providerID: "anthropic", id: "claude-sonnet-4-5" },
+    },
+  ])
+  const map = JSON.parse(
+    fs.readFileSync(path.join(replyDir, "session-map.json"), "utf8"),
+  )
+  assert.deepEqual(map["task-dispatch-opt-step-1"], {
+    id: "ses_dispatch_options",
+    unattended: false,
+  })
+})
+
+test("invalid model spec fails the job before session.create", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const created = []
+  const ctx = fakeContext(async () => {})
+  ctx.session.create = async (input) => {
+    created.push(input)
+    return { id: "ses_invalid_model" }
+  }
+  writeJob("job-invalid-model", "开工信封", {
+    open: true,
+    sessionID: "task-bad-model-step-1",
+    model: "justmodel",
+  })
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  const result = readResult("job-invalid-model")
+  assert.equal(result.ok, false)
+  assert.match(result.error, /provider\/model/)
+  assert.deepEqual(created, [])
+})
+
+test("open=false switches the model only when the job requests one", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const promptCalls = []
+  const switchCalls = []
+  const ctx = fakeContext(async (input) => {
+    promptCalls.push(input)
+  })
+  ctx.session.create = async () => ({ id: "ses_resume_model" })
+  ctx.session.switchModel = async (input) => {
+    switchCalls.push(input)
+  }
+  await __test.resolvePromptSessionID(ctx, {
+    id: "seed-switch",
+    sessionID: "task-switch-model-step-1",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+  })
+  writeJob("job-switch-model", "继续处理", {
+    open: false,
+    sessionID: "task-switch-model-step-1",
+    model: "anthropic/claude-sonnet-4-5",
+  })
+  writeJob("job-switch-default", "继续处理", {
+    open: false,
+    sessionID: "task-switch-model-step-1",
+  })
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  assert.deepEqual(readResult("job-switch-model"), { ok: true, error: "" })
+  assert.deepEqual(readResult("job-switch-default"), { ok: true, error: "" })
+  assert.deepEqual(switchCalls, [
+    {
+      sessionID: "ses_resume_model",
+      model: { providerID: "anthropic", id: "claude-sonnet-4-5" },
+    },
+  ])
+  assert.equal(promptCalls.length, 2)
+})
+
+test("resume with model fails clearly when the host cannot switch models", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const ctx = fakeContext(async () => {})
+  ctx.session.create = async () => ({ id: "ses_no_switch" })
+  await __test.resolvePromptSessionID(ctx, {
+    id: "seed-no-switch",
+    sessionID: "task-no-switch-step-1",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+  })
+  writeJob("job-no-switch", "继续处理", {
+    open: false,
+    sessionID: "task-no-switch-step-1",
+    model: "anthropic/claude-sonnet-4-5",
+  })
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  const result = readResult("job-no-switch")
+  assert.equal(result.ok, false)
+  assert.match(result.error, /不支持切换模型/)
+})
+
+test("open=false updates the unattended flag in the session map", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const ctx = fakeContext(async () => {})
+  ctx.session.create = async () => ({ id: "ses_flag_update" })
+  await __test.resolvePromptSessionID(ctx, {
+    id: "seed-flag",
+    sessionID: "task-flag-step-1",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+  })
+  const mapFile = path.join(replyDir, "session-map.json")
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(mapFile, "utf8"))["task-flag-step-1"],
+    { id: "ses_flag_update", unattended: true },
+  )
+
+  writeJob("job-flag-update", "继续处理", {
+    open: false,
+    sessionID: "task-flag-step-1",
+    unattended: false,
+  })
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  assert.deepEqual(readResult("job-flag-update"), { ok: true, error: "" })
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(mapFile, "utf8"))["task-flag-step-1"],
+    { id: "ses_flag_update", unattended: false },
+  )
 })
 
 test("completion event carries the orchestration sessionID after mapping", async () => {
@@ -542,6 +702,73 @@ test("permission ask is auto-allowed for orchestration sessions", async () => {
     sessionID: "ses_perm_mapped",
     action: "edit",
     resources: ["src/app.ts"],
+    effect: "ask",
+  }
+  __test.evaluatePermission(event)
+  assert.equal(event.effect, "allow")
+})
+
+test("permission ask is kept for unattended=false orchestration sessions", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const ctx = fakeContext(async () => {})
+  ctx.session.create = async () => ({ id: "ses_perm_manual" })
+  await __test.resolvePromptSessionID(ctx, {
+    id: "seed-manual",
+    sessionID: "task-manual-step-1",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+    unattended: false,
+  })
+
+  const manual = {
+    sessionID: "ses_perm_manual",
+    action: "bash",
+    resources: ["rm -rf build"],
+    effect: "ask",
+  }
+  __test.evaluatePermission(manual)
+  assert.equal(manual.effect, "ask", "unattended=false 必须保留人工确认")
+
+  // unattended 缺省的编排会话仍自动放行。
+  ctx.session.create = async () => ({ id: "ses_perm_default" })
+  await __test.resolvePromptSessionID(ctx, {
+    id: "seed-default",
+    sessionID: "task-default-step-1",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+  })
+  const automatic = {
+    sessionID: "ses_perm_default",
+    action: "bash",
+    resources: [],
+    effect: "ask",
+  }
+  __test.evaluatePermission(automatic)
+  assert.equal(automatic.effect, "allow")
+})
+
+test("legacy string session map entries stay readable and unattended", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  fs.writeFileSync(
+    path.join(replyDir, "session-map.json"),
+    JSON.stringify({ "task-legacy-step-1": "ses_legacy_mapped" }),
+  )
+  __test.setSessionMapRefreshIntervalForTests(0)
+
+  assert.equal(
+    __test.mappedSessionID("ses_legacy_mapped"),
+    "task-legacy-step-1",
+  )
+  const event = {
+    sessionID: "ses_legacy_mapped",
+    action: "edit",
+    resources: [],
     effect: "ask",
   }
   __test.evaluatePermission(event)
