@@ -87,6 +87,29 @@ interface SessionApi {
   promptAsync?(input: unknown): Promise<unknown>
 }
 
+/** 权限 evaluate hook 事件（OpenCode v2；effect 可变，见设计文档 §6）。 */
+interface PermissionEvaluation {
+  sessionID: string
+  agent?: string
+  action: string
+  resources: readonly string[]
+  metadata?: Record<string, unknown>
+  source?: unknown
+  effect: "allow" | "ask" | "deny"
+  message?: string
+}
+
+interface PermissionHookRegistration {
+  dispose?(): void | Promise<void>
+}
+
+interface PermissionApi {
+  hook?(
+    name: "evaluate",
+    handler: (event: PermissionEvaluation) => void | Promise<void>,
+  ): unknown
+}
+
 interface PluginContext {
   event: {
     subscribe(options: { signal: AbortSignal }): AsyncIterable<unknown>
@@ -95,6 +118,8 @@ interface PluginContext {
   client?: {
     session?: SessionApi
   }
+  /** OpenCode v2 权限 API；旧版宿主可能缺失（缺失时权限无人值守降级）。 */
+  permission?: PermissionApi
 }
 
 interface ReplyJob {
@@ -633,6 +658,61 @@ async function promptJob(ctx: PluginContext, job: ReplyJob): Promise<void> {
   )
 }
 
+// ---------------------------------------------------------------------------
+// 编排会话权限无人值守（设计文档 §6）
+// ---------------------------------------------------------------------------
+// 编排流程无人应答，权限弹窗会把步骤卡死。OpenCode v2 的 evaluate hook 在
+// 允许/询问决策后、执行或弹窗前回调：仅对映射表内的编排真实会话把 ask 改成
+// allow；显式 deny 不会触发 hook，普通会话/未知会话保持原行为。
+
+/** evaluate 回调：编排会话的 ask 放行为 allow，其余原样。 */
+function evaluatePermission(event: PermissionEvaluation): void {
+  if (!isRecord(event) || event.effect !== "ask") {
+    return
+  }
+  const sessionID = typeof event.sessionID === "string" ? event.sessionID : ""
+  if (!sessionID || mappedSessionID(sessionID) === sessionID) {
+    return
+  }
+  event.effect = "allow"
+  dbg(
+    `permission auto-allow sid=${sessionID} action=${stringField(event, "action")}`,
+  )
+}
+
+/** 注册权限 evaluate hook；宿主不支持或注册失败时降级返回 undefined，不影响其它功能。 */
+async function registerPermissionAutopilot(
+  ctx: PluginContext,
+): Promise<(() => void) | undefined> {
+  const permission = ctx.permission
+  const hook = permission?.hook
+  if (typeof hook !== "function" || !permission) {
+    dbg("permission hook unavailable: 编排会话权限弹窗无法自动放行")
+    return undefined
+  }
+  try {
+    const registration = await hook.call(permission, "evaluate", (event) => {
+      evaluatePermission(event)
+    })
+    if (!isRecord(registration) || typeof registration.dispose !== "function") {
+      return undefined
+    }
+    const dispose = registration.dispose as () => void | Promise<void>
+    return () => {
+      try {
+        void Promise.resolve(dispose.call(registration)).catch((error) => {
+          dbg(`permission hook dispose fail: ${errorMessage(error)}`)
+        })
+      } catch (error) {
+        dbg(`permission hook dispose fail: ${errorMessage(error)}`)
+      }
+    }
+  } catch (error) {
+    dbg(`permission hook register fail: ${errorMessage(error)}`)
+    return undefined
+  }
+}
+
 function writeResult(jobID: string, ok: boolean, error = ""): void {
   try {
     if (!fsMod || !jobID) {
@@ -1164,6 +1244,7 @@ const __test = {
   mappedSessionID,
   instanceCreatedAt,
   supersededByNewerInstance,
+  evaluatePermission,
   completionEnvelope,
   eventIdentity,
   terminalEventType,
@@ -1192,6 +1273,7 @@ export default {
       }
     }
     ensureReplyDirs()
+    const disposePermissionHook = await registerPermissionAutopilot(ctx)
 
     const instanceID = newInstanceID()
     writeHeartbeat(ctx, instanceID)
@@ -1205,6 +1287,7 @@ export default {
       }
       controller.abort()
       clearHeartbeat(instanceID)
+      disposePermissionHook?.()
     }
 
     void processReplyJobs(ctx, instanceID)
