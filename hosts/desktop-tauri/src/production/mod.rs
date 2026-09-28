@@ -26,7 +26,7 @@ use agent_driver::ProductionAgentDriver;
 use agents::{
     assemble_agents, legacy_installation_detected, load_agent_configs, seed_disabled_agent_configs,
 };
-use service::{OrcCommandHandler, load_harness_templates, orchestration_store};
+use service::{OrcCommandHandler, load_harness_templates};
 
 pub use agent_driver::AgentDriver;
 pub use events::EventForwarder;
@@ -189,8 +189,10 @@ async fn bootstrap_internal(
     // P1-4 编排呈现：默认通知节奏读设置（`orchestration.notify_mode`），推送目标复用
     // ProductionTargetProvider 的账号解析（默认账号优先，其次最近会话）。
     let wechat_orc_router = WechatOrcRouter::new(
-        OrcCommandHandler::with_driver(
-            orchestration_store(&store, &settings).await,
+        OrcCommandHandler::with_selector(
+            None, // 动态模式：按 settings 实时解析 enabled（默认开启）+ workflow，无需重启。
+            store.clone(),
+            settings.clone(),
             load_harness_templates(&harness_config_dir),
             Some(Arc::new(ProductionOrcPresenter::new(
                 settings.clone(),
