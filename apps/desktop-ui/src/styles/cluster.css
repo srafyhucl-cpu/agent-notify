@@ -401,7 +401,8 @@
 }
 
 .cluster-workflow-step--done {
-  opacity: 0.6;
+  /* 完成态用弱底色区分，不用整体透明度：透明度会把次要文字压到对比度阈值以下（axe color-contrast）。 */
+  background-color: var(--color-surface-muted);
 }
 
 .cluster-workflow-step-order {
