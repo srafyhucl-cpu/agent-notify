@@ -53,6 +53,58 @@ pub struct OrcMeta {
     /// 旧任务（无此字段）默认 true——它们本就已在运行，保持向后兼容。
     #[serde(default = "started_default_true")]
     pub started: bool,
+    /// 任务工作目录（OpenCode 会话创建位置）。旧任务缺省 = 跟随宿主当前项目。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
+    /// 各步骤产出正文（回流汇总给首节点用，见 [`record_step_report`] 的双重截断）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub step_reports: Vec<StepReport>,
+    /// 「项目经理汇报阶段」：最后一步已完成，等待首节点汇总成最终汇报。
+    #[serde(default)]
+    pub final_report_pending: bool,
+}
+
+/// 单步产出记录（回流汇总用）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepReport {
+    /// 该产出所属步骤序号
+    pub step: u32,
+    /// 产出正文（已按上限截断）
+    pub body: String,
+}
+
+/// 单步产出记录上限（字符数；超出截断并标注「…（已截断）」）。
+pub const ORC_STEP_REPORT_LIMIT: usize = 4000;
+/// 全部产出记录总上限（字符数；超出从最早步骤开始裁剪）。
+pub const ORC_STEP_REPORTS_TOTAL_LIMIT: usize = 12000;
+
+/// 按字符截断正文；超限时追加标注（标注不计入上限，允许少量超出）。
+fn truncate_report(body: &str, limit: usize) -> String {
+    if body.chars().count() <= limit {
+        return body.to_string();
+    }
+    let head: String = body.chars().take(limit).collect();
+    format!("{head}\n…（已截断）")
+}
+
+/// 总量保护：从最早步骤开始裁剪，直到总字符数不超过 [`ORC_STEP_REPORTS_TOTAL_LIMIT`]。
+fn trim_total_step_reports(reports: &mut Vec<StepReport>) {
+    let mut total: usize = reports
+        .iter()
+        .map(|report| report.body.chars().count())
+        .sum();
+    while total > ORC_STEP_REPORTS_TOTAL_LIMIT && !reports.is_empty() {
+        let excess = total - ORC_STEP_REPORTS_TOTAL_LIMIT;
+        let first_len = reports[0].body.chars().count();
+        if first_len <= excess {
+            total -= first_len;
+            reports.remove(0);
+        } else {
+            reports[0].body = truncate_report(&reports[0].body, first_len - excess);
+            total = ORC_STEP_REPORTS_TOTAL_LIMIT;
+        }
+    }
 }
 
 /// `started` 的兼容默认值：旧任务视为已开始（保持历史行为）。
@@ -85,6 +137,9 @@ impl OrcTask {
             notify_mode,
             goal: goal.to_string(),
             started: false,
+            working_dir: None,
+            step_reports: Vec::new(),
+            final_report_pending: false,
         };
         let mut metadata = serde_json::Map::new();
         metadata.insert(
@@ -185,6 +240,66 @@ impl OrcTask {
             return Ok(());
         }
         meta.started = true;
+        self.put_meta(&meta)
+    }
+
+    /// 任务工作目录（None = 跟随宿主当前项目；旧任务缺省）。
+    pub fn working_dir(&self) -> Result<Option<String>, OrcError> {
+        Ok(self.meta()?.working_dir)
+    }
+
+    /// 设置任务工作目录（创建任务时由宿主写入；空串 = 清除）。
+    pub fn set_working_dir(&mut self, dir: &str) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        let trimmed = dir.trim();
+        meta.working_dir = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        self.put_meta(&meta)
+    }
+
+    /// 记录某步产出正文（回流汇总用）：单步与总量双重截断；同一步重复上报覆盖旧值。
+    pub fn record_step_report(&mut self, step: u32, body: &str) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        let truncated = truncate_report(body.trim(), ORC_STEP_REPORT_LIMIT);
+        if let Some(existing) = meta
+            .step_reports
+            .iter_mut()
+            .find(|report| report.step == step)
+        {
+            existing.body = truncated;
+        } else {
+            meta.step_reports.push(StepReport {
+                step,
+                body: truncated,
+            });
+            meta.step_reports.sort_by_key(|report| report.step);
+        }
+        trim_total_step_reports(&mut meta.step_reports);
+        self.put_meta(&meta)
+    }
+
+    /// 某步的产出正文（未记录为 None）。
+    pub fn step_report(&self, step: u32) -> Result<Option<String>, OrcError> {
+        Ok(self
+            .meta()?
+            .step_reports
+            .into_iter()
+            .find(|report| report.step == step)
+            .map(|report| report.body))
+    }
+
+    /// 是否处于「项目经理汇报阶段」（最后一步已完成，等待首节点汇总）。
+    pub fn is_finalizing(&self) -> Result<bool, OrcError> {
+        Ok(self.meta()?.final_report_pending)
+    }
+
+    /// 进入/退出「项目经理汇报阶段」。
+    pub fn set_final_report_pending(&mut self, pending: bool) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.final_report_pending = pending;
         self.put_meta(&meta)
     }
 
