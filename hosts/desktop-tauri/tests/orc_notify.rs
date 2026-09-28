@@ -19,9 +19,7 @@ use agentnotify_desktop::bridge::dto::{
     AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload, OrcMessageKindDto,
     OrcTaskIdPayload, OrcTaskStateDto,
 };
-use agentnotify_desktop::production::service::{
-    KEY_ORCHESTRATION_NOTIFY_MODE, OrcCommandHandler,
-};
+use agentnotify_desktop::production::service::{KEY_ORCHESTRATION_NOTIFY_MODE, OrcCommandHandler};
 use agentnotify_desktop::production::{
     OrcClusterPresenter, ProductionOrcPresenter, ProductionSettingsStore, ProductionTargetProvider,
 };
