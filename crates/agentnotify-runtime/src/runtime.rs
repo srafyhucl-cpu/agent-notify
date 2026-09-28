@@ -79,6 +79,9 @@ pub struct RuntimeConfig {
     pub channel_poll_interval: Duration,
     /// 入站消息拦截器（默认无）：有则先在引用回复路由前询问是否消费（见 [`InboundInterceptor`]）。
     pub inbound_interceptor: Option<Arc<dyn InboundInterceptor>>,
+    /// Agent 事件观察者（默认无）：事件被接纳后回调（见 [`crate::AgentEventObserver`]），
+    /// 编排层用它把「Agent 汇报到达」回注任务推进（§4.4）；失败只记日志、不影响消费。
+    pub agent_event_observer: Option<crate::SharedAgentEventObserver>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -301,8 +304,12 @@ impl AppRuntime {
             store.clone(),
         ));
 
-        crate::ingress::drain_before_start(config.ingress_spool_dir.as_deref(), ingest.clone())
-            .await?;
+        crate::ingress::drain_before_start(
+            config.ingress_spool_dir.as_deref(),
+            ingest.clone(),
+            config.agent_event_observer.clone(),
+        )
+        .await?;
 
         let accounts = enabled_accounts(store.clone(), config.channels.clone()).await?;
         let initial_overview = status.snapshot().await.map_err(map_status_error)?;
@@ -349,7 +356,11 @@ impl AppRuntime {
             let ingress_cancel = cancel_receiver.clone();
             tasks.push(supervisor.clone().spawn_component(
                 "ingress.pipe",
-                crate::platform::run_ingress_server(ingest.clone(), ingress_cancel),
+                crate::platform::run_ingress_server(
+                    ingest.clone(),
+                    config.agent_event_observer.clone(),
+                    ingress_cancel,
+                ),
             ));
         }
 
@@ -397,6 +408,7 @@ impl AppRuntime {
             status: status_receiver,
             store,
             ingest,
+            agent_event_observer: config.agent_event_observer.clone(),
             cancel_sender,
             outbox_pause: outbox_pause_sender,
             tasks,
@@ -467,6 +479,7 @@ pub async fn start_migration_diagnostics(
         status: status_receiver,
         store,
         ingest,
+        agent_event_observer: config.agent_event_observer.clone(),
         cancel_sender,
         outbox_pause,
         tasks: Vec::new(),
@@ -486,6 +499,8 @@ pub struct RuntimeHandle {
     status: watch::Receiver<RuntimeSnapshot>,
     store: Arc<SqliteStore>,
     ingest: Arc<IngestService>,
+    /// Agent 事件观察者（可选）：`ingest` 接纳后回调（编排汇报回注等）。
+    agent_event_observer: Option<crate::SharedAgentEventObserver>,
     cancel_sender: watch::Sender<bool>,
     outbox_pause: watch::Sender<bool>,
     tasks: Vec<JoinHandle<()>>,
@@ -536,7 +551,10 @@ impl RuntimeHandle {
                 snapshot: Box::new(self.snapshot().migration),
             })));
         }
-        Ok(self.ingest.ingest(envelope).await?)
+        let result = self.ingest.ingest(envelope.clone()).await?;
+        // 汇报回注等观察在接纳后进行；观察失败只记日志（notify_observer 已兜底）。
+        crate::observer::notify_observer(self.agent_event_observer.as_ref(), &envelope).await;
+        Ok(result)
     }
 
     pub async fn shutdown(&mut self) -> Result<(), RuntimeError> {

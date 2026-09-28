@@ -107,6 +107,12 @@ impl OrcStore {
         OrcTask::from_a2a(task)
     }
 
+    /// 直接保存任务（元数据变更后落库，如 [`OrcTask::mark_started`]）；幂等覆盖。
+    pub async fn save(&self, task: OrcTask) -> Result<(), OrcError> {
+        self.tasks.save_task(&task.a2a_task).await?;
+        Ok(())
+    }
+
     pub async fn list_tasks(&self) -> Result<Vec<OrcTask>, OrcError> {
         let tasks = self.tasks.list_tasks().await?;
         tasks.into_iter().map(OrcTask::from_a2a).collect()

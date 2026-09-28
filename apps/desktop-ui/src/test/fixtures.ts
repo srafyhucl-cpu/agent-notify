@@ -251,6 +251,16 @@ export function orcTaskFixture(
     workflowId: "workflow-preset",
     state: "working",
     currentStep: 2,
+    started: true,
+    workflow: {
+      id: "workflow-preset",
+      name: "需求→判断→规划→实施",
+      steps: [
+        { order: 1, role: "orchestrator", agentHint: "codex", humanGate: false },
+        { order: 2, role: "planner", agentHint: "opencode", humanGate: false },
+        { order: 3, role: "executor", agentHint: "commandcode", humanGate: false },
+      ],
+    },
     blockedStep: null,
     blockReason: null,
     notifyMode: "final_only",

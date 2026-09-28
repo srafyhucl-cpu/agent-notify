@@ -1048,6 +1048,17 @@ impl HostCommandService for ProductionHostCommandService {
     ) -> Result<OrcTaskDto, CommandError> {
         self.orchestration.recover_blocked(payload).await
     }
+
+    async fn start_orc_task(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.start(payload).await
+    }
+
+    async fn get_current_orc_workflow(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<CurrentOrcWorkflowDto, CommandError> {
+        self.orchestration.current_workflow().await
+    }
 }
 
 impl ProductionHostCommandService {
@@ -1291,12 +1302,32 @@ impl OrcCommandHandler {
             .create_task(goal, notify_mode)
             .await
             .map_err(orc_error)?;
-        let dto = orc_task_to_dto(&task)?;
-        // P2 派活：任务创建即唤醒第 1 步的 Agent（新会话开工，open=true）。
-        // 派活是附加动作：失败只标记 blocked（§4.6 不自动重推）+ 呈现层推失败提醒，
-        // 不影响已落库的创建结果与命令返回。
-        self.dispatch_step(&store, &task).await;
+        // 创建后**不自动派活**：任务先进入「待开始」（started=false），用户在界面上
+        // 看清工作流节点（每步角色与派给谁）后点「开始执行」再派活第 1 步。
+        // 这样避免"没看清节点就被派活"，也避免默认工作流与实际可用 Agent 不匹配时的意外阻塞。
+        let dto = orc_task_to_dto(&task, store.workflow())?;
         Ok(dto)
+    }
+
+    /// 开始执行（人工确认后）：把「待开始」任务标记为已开始，并派活第 1 步。
+    ///
+    /// 已开始的任务再调 → 明确错误；未启用/任务不存在 → 与其它命令一致的明确错误。
+    pub async fn start(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError> {
+        let store = self.resolve_store().await?;
+        let mut task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
+        if task.is_started().map_err(orc_error)? {
+            return Err(CommandError::new(
+                "orc_task_already_started",
+                "任务已开始执行，无需重复开始",
+            ));
+        }
+        task.mark_started().map_err(orc_error)?;
+        store.save(task.clone()).await.map_err(orc_error)?;
+        // 开始即派活第 1 步（新会话开工，open=true）：失败只标记 blocked（§4.6 不自动重推）
+        // + 呈现层推失败提醒，不影响已落库的开始结果与命令返回。
+        self.dispatch_step(&store, &task).await;
+        let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
+        orc_task_to_dto(&task, store.workflow())
     }
 
     /// 全局默认通知节奏：已装配呈现层时读设置（缺失/非法回退 final_only 并告警）；
@@ -1311,7 +1342,19 @@ impl OrcCommandHandler {
     pub async fn list(&self) -> Result<Vec<OrcTaskDto>, CommandError> {
         let store = self.resolve_store().await?;
         let tasks = store.list_tasks().await.map_err(orc_error)?;
-        tasks.iter().map(orc_task_to_dto).collect()
+        let workflow = store.workflow();
+        tasks
+            .iter()
+            .map(|task| orc_task_to_dto(task, workflow))
+            .collect()
+    }
+
+    /// 当前编排工作流（预置选择与节点列表）：供创建任务前预览「每步做什么、派给谁」。
+    pub async fn current_workflow(&self) -> Result<CurrentOrcWorkflowDto, CommandError> {
+        let store = self.resolve_store().await?;
+        Ok(CurrentOrcWorkflowDto {
+            workflow: orc_workflow_to_dto(store.workflow()),
+        })
     }
 
     pub async fn advance(
@@ -1319,13 +1362,21 @@ impl OrcCommandHandler {
         payload: AdvanceOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError> {
         let store = self.resolve_store().await?;
+        // 未开始的任务不接受推进（先点「开始执行」；也覆盖微信侧对未开始任务的指令）。
+        let current = store.get_task(&payload.task_id).await.map_err(orc_error)?;
+        if !current.is_started().map_err(orc_error)? {
+            return Err(CommandError::new(
+                "orc_task_not_started",
+                "任务尚未开始执行：请先在集群页点「开始执行」",
+            ));
+        }
         let kind = parse_message_kind(payload.kind);
         let outcome = store
             .on_message(&payload.task_id, kind)
             .await
             .map_err(orc_error)?;
         let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
-        let dto = orc_task_to_dto(&task)?;
+        let dto = orc_task_to_dto(&task, store.workflow())?;
         // P1-4 呈现层单一入口：推进后按任务通知节奏决定是否外发微信（失败不阻塞命令结果）。
         if let Some(presenter) = &self.presenter {
             self.present_advance(presenter, &store, &task, &dto, kind, &outcome)
@@ -1335,6 +1386,33 @@ impl OrcCommandHandler {
         // 交给该步配置的 Agent（失败只标记 blocked，不改变已落库的推进结果）。
         self.dispatch_current_step(&store, &task, &outcome).await;
         Ok(dto)
+    }
+
+    /// Agent 汇报自动回注（§4.4「该 Step 的 Agent 汇报到达」）：
+    /// 由 [`OrcReportObserver`] 在 session 完成事件匹配 `task-<id>-step-<n>` 时调用——
+    /// 校验任务正处于第 n 步且干活中，然后复用 [`Self::advance`]（Report）完成推进
+    /// （含通知节奏呈现与下一步派活），保证与人工推进同一条链路。
+    ///
+    /// 返回 `Ok(false)` = 过期/无关事件（任务不存在、步不一致、任务非干活中），静默忽略；
+    /// 错误 = 回注自身失败（由调用方记日志，不影响事件消费）。
+    pub async fn report_from_agent(&self, task_id: &str, step: u32) -> Result<bool, CommandError> {
+        let store = self.resolve_store().await?;
+        let task = match store.get_task(task_id).await {
+            Ok(task) => task,
+            Err(_) => return Ok(false),
+        };
+        if task.current_step().ok() != Some(step)
+            || task.state() != TaskState::Working
+            || !task.is_started().unwrap_or(false)
+        {
+            return Ok(false);
+        }
+        self.advance(AdvanceOrcTaskPayload {
+            task_id: task_id.to_owned(),
+            kind: OrcMessageKindDto::Report,
+        })
+        .await?;
+        Ok(true)
     }
 
     /// P1-4 推进后呈现：按 `should_notify` 规则决定是否外发微信集群消息（§4.6）。
@@ -1391,7 +1469,7 @@ impl OrcCommandHandler {
             .mark_blocked(&payload.task_id, payload.step, reason)
             .await
             .map_err(orc_error)?;
-        let dto = orc_task_to_dto(&task)?;
+        let dto = orc_task_to_dto(&task, store.workflow())?;
         // P1-4 失败提醒不受 notify_mode 限制：一律外发（§4.6：写清失败 Step/原因，不自动重推）。
         if let Some(presenter) = &self.presenter {
             self.present_blocked(presenter, &store, task.id(), payload.step, reason)
@@ -1563,7 +1641,7 @@ impl OrcCommandHandler {
             .recover_blocked(&payload.task_id)
             .await
             .map_err(orc_error)?;
-        orc_task_to_dto(&task)
+        orc_task_to_dto(&task, store.workflow())
     }
 }
 
@@ -1629,18 +1707,38 @@ fn dispatch_targets(
 }
 
 /// 脱敏后的任务视图：只暴露任务上下文，不暴露内部元数据细节。
-fn orc_task_to_dto(task: &OrcTask) -> Result<OrcTaskDto, CommandError> {
+fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, CommandError> {
     let meta = task.meta().map_err(orc_error)?;
     Ok(OrcTaskDto {
         id: task.id().to_string(),
         workflow_id: meta.workflow_id,
         state: orc_task_state_dto(task.state()),
         current_step: meta.current_step,
+        started: meta.started,
+        workflow: orc_workflow_to_dto(workflow),
         blocked_step: meta.blocked_step,
         block_reason: meta.block_reason,
         notify_mode: meta.notify_mode.as_str().to_string(),
         goal: meta.goal,
     })
+}
+
+/// 工作流视图：节点列表（角色/建议 Agent/人工确认门）供 UI 预览「每步做什么、派给谁」。
+fn orc_workflow_to_dto(workflow: &Workflow) -> OrcWorkflowDto {
+    OrcWorkflowDto {
+        id: workflow.id.clone(),
+        name: workflow.name.clone(),
+        steps: workflow
+            .steps
+            .iter()
+            .map(|step| OrcWorkflowStepDto {
+                order: step.order,
+                role: step.role.clone(),
+                agent_hint: step.agent_hint.clone(),
+                human_gate: step.human_gate,
+            })
+            .collect(),
+    }
 }
 
 /// A2A `TaskState` → 稳定 DTO 字符串（§8.3 映射表的桌面呈现侧）。

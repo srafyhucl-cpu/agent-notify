@@ -208,6 +208,7 @@ async fn fixture() -> Fixture {
             status_refresh_interval: Duration::from_millis(5),
             channel_poll_interval: Duration::from_millis(5),
             inbound_interceptor: None,
+            agent_event_observer: None,
         },
         healthy,
         failing,

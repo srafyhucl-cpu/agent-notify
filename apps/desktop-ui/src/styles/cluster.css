@@ -346,3 +346,82 @@
   gap: var(--space-2);
   min-width: 0;
 }
+
+/* 任务待开始：说明文案（开始执行前的确认提示） */
+.cluster-actions-note {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-1);
+  line-height: 1.5;
+}
+
+/* ===== 工作流节点（创建预览与任务详情共用） ===== */
+.cluster-workflow-preview,
+.cluster-workflow {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cluster-workflow-preview {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cluster-workflow-preview-title,
+.cluster-workflow-title {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-1);
+  font-weight: 650;
+}
+
+.cluster-workflow-step-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cluster-workflow-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background-color: var(--color-surface);
+  font-size: var(--font-size-1);
+}
+
+.cluster-workflow-step--current {
+  border-color: var(--color-primary);
+}
+
+.cluster-workflow-step--done {
+  opacity: 0.6;
+}
+
+.cluster-workflow-step-order {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.cluster-workflow-step-role {
+  font-weight: 650;
+}
+
+.cluster-workflow-step-agent {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-0);
+}
+
+.cluster-workflow-step-gate {
+  flex: none;
+  color: var(--color-danger);
+  font-size: var(--font-size-0);
+}

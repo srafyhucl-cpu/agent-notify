@@ -33,6 +33,8 @@ export const commands = {
 	advanceOrcTask: (payload: AdvanceOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("advance_orc_task", { payload }),
 	markBlockedOrcTask: (payload: MarkBlockedOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("mark_blocked_orc_task", { payload }),
 	recoverBlockedOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("recover_blocked_orc_task", { payload }),
+	startOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("start_orc_task", { payload }),
+	getCurrentOrcWorkflow: (payload: EmptyPayload) => __TAURI_INVOKE<CurrentOrcWorkflowDto>("get_current_orc_workflow", { payload }),
 };
 
 /** Events */
@@ -83,7 +85,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow";
 
 export type ChannelAccountDto = {
 	id: string,
@@ -167,6 +169,11 @@ export type ComponentStateDto = "Starting" | "Running" | "Paused" | "Stopped" | 
 export type CreateOrcTaskPayload = {
 	goal: string,
 	notifyMode: string | null,
+};
+
+/**  当前编排工作流（供创建任务前预览节点）。 */
+export type CurrentOrcWorkflowDto = {
+	workflow: OrcWorkflowDto,
 };
 
 export type DeliveryChangedEvent = {
@@ -348,6 +355,10 @@ export type OrcTaskDto = {
 	workflowId: string,
 	state: OrcTaskStateDto,
 	currentStep: number,
+	/**  是否已开始执行（创建后默认 false；人工确认「开始执行」后置 true 并派活第 1 步）。 */
+	started: boolean,
+	/**  该任务所属工作流的节点列表（供详情页展示每步角色与派给谁）。 */
+	workflow: OrcWorkflowDto,
 	/**  被卡住的步骤（未阻塞为 None） */
 	blockedStep: number | null,
 	/**  阻塞原因（未阻塞为 None；写清哪步失败/谁不可用/未送达） */
@@ -363,6 +374,24 @@ export type OrcTaskIdPayload = {
 
 /**  编排任务状态（稳定字符串，与 A2A `TaskState` 一一对应，§8.3 映射表）。 */
 export type OrcTaskStateDto = "unspecified" | "submitted" | "working" | "completed" | "failed" | "canceled" | "input_required" | "rejected" | "auth_required";
+
+/**  编排工作流视图（预置工作流或其用户配置）：节点列表供 UI 预览「每步做什么、派给谁」。 */
+export type OrcWorkflowDto = {
+	id: string,
+	name: string,
+	steps: OrcWorkflowStepDto[],
+};
+
+/**  工作流单个节点：角色、建议 Agent 与人工确认门。 */
+export type OrcWorkflowStepDto = {
+	order: number,
+	/**  角色（orchestrator / planner / executor / reviewer）——中文说明由前端映射。 */
+	role: string,
+	/**  建议 Agent（可为空：留空时该步不派活，仅等待人工推进）。 */
+	agentHint: string | null,
+	/**  是否需人确认才进入下一步。 */
+	humanGate: boolean,
+};
 
 export type QuietHoursDto = {
 	enabled: boolean,

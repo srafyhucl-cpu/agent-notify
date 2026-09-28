@@ -3,6 +3,7 @@
 mod event_bus;
 mod ingress;
 mod migration;
+mod observer;
 mod platform;
 mod runtime;
 mod supervisor;
@@ -31,6 +32,7 @@ pub use migration::{
     MigrationConfig, MigrationFailure, MigrationIssue, MigrationReportSummary, MigrationSnapshot,
     MigrationState, MigrationWarning,
 };
+pub use observer::{AgentEventObserver, SharedAgentEventObserver};
 pub use runtime::{
     AppRuntime, DiagnosticItem, DiagnosticLevel, InboundInterceptor, ResolvedRuntimeTargets,
     RuntimeConfig, RuntimeError, RuntimeHandle, RuntimeSnapshot, RuntimeTargetError,

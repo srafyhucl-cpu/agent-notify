@@ -1480,6 +1480,10 @@ async fn orchestration_commands_enabled_by_default_on_host() {
         .await
         .expect("默认开启时创建任务必须成功");
     assert_eq!(created.state, OrcTaskStateDto::Working);
+    assert!(
+        !created.started,
+        "新建任务必须是「待开始」（人工确认后才派活）"
+    );
 
     let _ = service.quit_app(EmptyPayload {}).await;
 }
@@ -1540,6 +1544,15 @@ async fn orchestration_commands_full_chain_via_host_service() {
     assert_eq!(created.state, OrcTaskStateDto::Working);
     assert_eq!(created.current_step, 1);
     let task_id = created.id.clone();
+    assert!(!created.started, "新建任务必须是「待开始」");
+
+    let started = service
+        .start_orc_task(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    assert!(started.started);
 
     let advanced = service
         .advance_orc_task(AdvanceOrcTaskPayload {

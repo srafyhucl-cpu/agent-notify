@@ -8,6 +8,7 @@ import type {
   ChannelDto,
   CommandError,
   CreateOrcTaskPayload,
+  CurrentOrcWorkflowDto,
   DeliveryDto,
   DiagnosticsDto,
   HostEvent,
@@ -22,6 +23,7 @@ import type {
   NotificationSummaryDto,
   OrcTaskDto,
   OrcTaskIdPayload,
+  OrcWorkflowDto,
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
   SettingsDto,
@@ -57,6 +59,8 @@ export interface MockHostBridgeOptions {
   sendTestDelivery?: DeliveryDto;
   /** 预置的编排任务（集群页测试用）。 */
   orcTasks?: OrcTaskDto[];
+  /** 当前工作流节点（创建表单预览测试用）；缺省 = 多 Agent 委托预置。 */
+  orcWorkflow?: OrcWorkflowDto;
 }
 
 export interface MockHostBridge extends HostBridge {
@@ -222,6 +226,19 @@ function accepted(id?: string): MutationAcceptedDto {
   return {
     accepted: true,
     id: id ?? null,
+  };
+}
+
+/** 测试默认预置工作流：多 Agent 委托（判断→规划→实施），与后端 `Workflow::preset(false)` 同构。 */
+function defaultOrcWorkflow(): OrcWorkflowDto {
+  return {
+    id: "preset-requirement-to-report",
+    name: "需求→判断→规划→实施",
+    steps: [
+      { order: 1, role: "orchestrator", agentHint: "codex", humanGate: false },
+      { order: 2, role: "planner", agentHint: "opencode", humanGate: false },
+      { order: 3, role: "executor", agentHint: "commandcode", humanGate: false },
+    ],
   };
 }
 
@@ -448,11 +465,14 @@ export function createMockHostBridge(
         break;
       case "create_orc_task": {
         const create = payload as CreateOrcTaskPayload;
+        const workflow = options.orcWorkflow ?? defaultOrcWorkflow();
         const task: OrcTaskDto = {
           id: `orc-${orcTasks.length + 1}`,
-          workflowId: "preset-judge-plan-execute",
+          workflowId: workflow.id,
           state: "working",
           currentStep: 1,
+          started: false,
+          workflow,
           notifyMode: create.notifyMode ?? "final_only",
           goal: create.goal,
           blockedStep: null,
@@ -464,6 +484,21 @@ export function createMockHostBridge(
       }
       case "list_orc_tasks":
         result = [...orcTasks];
+        break;
+      case "start_orc_task": {
+        const start = payload as unknown as OrcTaskIdPayload;
+        const task = orcTasks.find((item) => item.id === start.taskId);
+        if (task) {
+          task.started = true;
+          task.state = "working";
+        }
+        result = task ?? orcTaskNotFound(start.taskId);
+        break;
+      }
+      case "get_current_orc_workflow":
+        result = {
+          workflow: options.orcWorkflow ?? defaultOrcWorkflow(),
+        } satisfies CurrentOrcWorkflowDto;
         break;
       case "advance_orc_task": {
         const advance = payload as unknown as AdvanceOrcTaskPayload;
