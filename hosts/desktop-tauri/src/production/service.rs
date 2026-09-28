@@ -1295,7 +1295,7 @@ impl OrcCommandHandler {
         // P2 派活：任务创建即唤醒第 1 步的 Agent（新会话开工，open=true）。
         // 派活是附加动作：失败只标记 blocked（§4.6 不自动重推）+ 呈现层推失败提醒，
         // 不影响已落库的创建结果与命令返回。
-        self.dispatch_step(store, &task).await;
+        self.dispatch_step(&store, &task).await;
         Ok(dto)
     }
 
@@ -1328,12 +1328,12 @@ impl OrcCommandHandler {
         let dto = orc_task_to_dto(&task)?;
         // P1-4 呈现层单一入口：推进后按任务通知节奏决定是否外发微信（失败不阻塞命令结果）。
         if let Some(presenter) = &self.presenter {
-            self.present_advance(presenter, store, &task, &dto, kind, &outcome)
+            self.present_advance(presenter, &store, &task, &dto, kind, &outcome)
                 .await;
         }
         // P2 派活：Advance/BackToWork/Recover 且任务未完成 → 把当前目标 Step 的信封
         // 交给该步配置的 Agent（失败只标记 blocked，不改变已落库的推进结果）。
-        self.dispatch_current_step(store, &task, &outcome).await;
+        self.dispatch_current_step(&store, &task, &outcome).await;
         Ok(dto)
     }
 
@@ -1394,7 +1394,7 @@ impl OrcCommandHandler {
         let dto = orc_task_to_dto(&task)?;
         // P1-4 失败提醒不受 notify_mode 限制：一律外发（§4.6：写清失败 Step/原因，不自动重推）。
         if let Some(presenter) = &self.presenter {
-            self.present_blocked(presenter, store, task.id(), payload.step, reason)
+            self.present_blocked(presenter, &store, task.id(), payload.step, reason)
                 .await;
         }
         Ok(dto)
