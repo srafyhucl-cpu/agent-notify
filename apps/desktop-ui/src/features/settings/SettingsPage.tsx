@@ -26,6 +26,7 @@ import { useAgents } from "../../data/useAgents";
 import { useChannels } from "../../data/useChannels";
 import { useSettings } from "../../data/useSettings";
 import { QuietHoursForm } from "./QuietHoursForm";
+import { OrcTemplateSettings } from "./OrcTemplateSettings";
 import { ReplySettingsForm } from "./ReplySettingsForm";
 import { UpdateSettings } from "./UpdateSettings";
 
@@ -391,7 +392,7 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
                 <div id="settings-orchestration" className="settings-anchor">
                   <SectionCard
                     title="编排（集群）"
-                    description="多 Agent 协同编排：开启后可在「集群」页创建任务，编排层按工作流逐步唤醒 Agent。"
+                    description="多 Agent 协同编排：开启后可在「集群」页创建任务，编排层按固定模板逐步唤醒 Agent。"
                   >
                     <div className="settings-fields">
                       <FieldRow
@@ -412,6 +413,28 @@ export function SettingsPage({ bridge }: SettingsPageProps) {
                           />
                         }
                       />
+
+                      <FieldRow
+                        label="无人值守"
+                        description="自动同意编排会话的工具权限弹窗（默认开启）；未开启时编排任务可能卡在等待授权。"
+                        control={
+                          <input
+                            type="checkbox"
+                            role="switch"
+                            aria-label="无人值守：自动同意工具权限"
+                            checked={draft.orchestrationUnattended ?? true}
+                            disabled={updateSettingsMutation.isPending}
+                            onChange={(event) =>
+                              patchDraft({
+                                orchestrationUnattended:
+                                  event.currentTarget.checked,
+                              })
+                            }
+                          />
+                        }
+                      />
+
+                      <OrcTemplateSettings bridge={bridge} agents={agents} />
                     </div>
                   </SectionCard>
                 </div>

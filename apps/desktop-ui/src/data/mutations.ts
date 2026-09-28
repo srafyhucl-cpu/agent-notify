@@ -168,6 +168,18 @@ export function useCreateOrcTaskMutation(bridge: HostBridge) {
   });
 }
 
+export function useSaveOrcTemplateConfigMutation(bridge: HostBridge) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CommandPayloadMap["save_orc_template_config"]) =>
+      bridge.invoke("save_orc_template_config", payload),
+    // 未开始的任务按实时合并结果展示节点，保存节点配置后任务列表也要刷新。
+    onSuccess: () =>
+      invalidate(queryClient, [queryKeys.orcTemplates(), queryKeys.orcTasks()]),
+  });
+}
+
 export function useAdvanceOrcTaskMutation(bridge: HostBridge) {
   const queryClient = useQueryClient();
 
