@@ -376,7 +376,7 @@ mod tests {
         )
         .expect("合法配置必须通过");
         assert_eq!(ok.len(), 2, "空值节点不落配置");
-        assert!(ok.get(&3).is_none());
+        assert!(!ok.contains_key(&3));
 
         let wrong_count = validate_template_steps(
             &workflow,

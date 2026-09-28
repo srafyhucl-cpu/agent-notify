@@ -22,7 +22,7 @@ pub mod wechat_command;
 pub mod workflow;
 
 pub use a2a_rs_core::{Message, Part, Role, Task, TaskState, TaskStatus};
-pub use envelope::render_envelope;
+pub use envelope::{SUMMARY_REPORT_MISSING, render_envelope, render_step_reports};
 pub use error::{OrcError, OrcErrorCode, OrcRepositoryError};
 pub use step_machine::{MessageKind, StepOutcome, StepState, TransitionAction, transition};
 pub use store::{InMemoryOrcTaskRepository, OrcStore, OrcTaskRepository};

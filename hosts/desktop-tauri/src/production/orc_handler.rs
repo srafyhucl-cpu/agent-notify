@@ -3,11 +3,13 @@
 //! 与 `service.rs`（桥接命令门面）解耦：本模块只做编排业务；桌面命令经
 //! `HostCommandService` 实现转发到 [`OrcCommandHandler`]。
 //!
-//! 「集群功能 v1」职责（定稿设计 §2–§3、§4 派活透传）：
+//! 「集群功能 v1」职责（定稿设计 §2–§5）：
 //! - 任务创建锁定模板（`template_id`）与工作目录（`working_dir`，必填且必须是已存在目录）；
 //! - 任务相关命令按 `task.workflow_id` → 内置模板解析工作流（旧预设 id 兼容），
 //!   再按 settings `orchestration.node_config` 合并节点 Agent/模型；
-//! - `start` 预检全部节点 Agent 已配置、工作目录仍存在；派活透传工作目录/该步模型/无人值守标志。
+//! - 派活透传工作目录/该步模型/无人值守标志（`DispatchOptions`）；
+//! - 最后一步完成不直接 Completed：进入「项目经理汇总阶段」，派汇总信封回首节点，
+//!   首节点汇总产出到达后完成任务并推最终汇报。
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -16,7 +18,7 @@ use std::sync::Arc;
 use agentnotify_domain::{AgentId, AgentSessionId};
 use agentnotify_orchestration::{
     MessageKind, NotifyMode, OrcError, OrcRepositoryError, OrcStore, OrcTask, OrcTaskRepository,
-    StepOutcome, TaskState, TemplateResolver, TransitionAction, Workflow,
+    StepOutcome, TaskState, TemplateResolver, TransitionAction, Workflow, render_step_reports,
 };
 use agentnotify_storage_sqlite::SqliteStore;
 
@@ -25,7 +27,8 @@ use super::orc_node_config::{
     NodeConfig, missing_agent_step, template_dtos, validate_template_steps,
 };
 use super::orc_notify::{
-    OrcClusterPresenter, failure_body, progress_body, render_cluster_message, should_notify,
+    OrcClusterPresenter, failure_body, finalizing_body, progress_body, render_cluster_message,
+    should_notify, truncate_final_report,
 };
 use super::orc_wechat_route::state_cn;
 use super::settings::{
@@ -78,12 +81,20 @@ const ORC_TEMPLATE_UNKNOWN: &str = "orc_template_unknown";
 const ORC_WORKFLOW_UNKNOWN: &str = "orc_workflow_unknown";
 /// 工作目录为空或不是已存在目录。
 const ORC_WORKING_DIR_INVALID: &str = "orc_working_dir_invalid";
+/// 任务处于「项目经理汇总阶段」：不接受人工推进（等待首节点汇总）。
+const ORC_TASK_FINALIZING: &str = "orc_task_finalizing";
 /// 编排设置存储不可用（静态装配/初始化未完成）时保存节点配置的错误码。
 const ORC_SETTINGS_UNAVAILABLE: &str = "orchestration_settings_unavailable";
 /// `OrcError::task_not_found` 的稳定错误码（回注路径按它静默忽略缺失任务）。
 const ORC_TASK_NOT_FOUND_CODE: &str = "orc.task_not_found";
 /// 派活信封会话 id 前缀：`task-<task_id>-step-<n>`（每个 (task, step) 一个稳定会话）。
 const ORC_DISPATCH_SESSION_PREFIX: &str = "task";
+/// 插件把失败终态也上报为 `session.completed`，失败正文以该前缀开头（失败回合识别）。
+const AGENT_FAILURE_BODY_PREFIX: &str = "任务执行失败：";
+/// 汇总派活失败的阻塞原因前缀（§4 失败语义）。
+const SUMMARY_DISPATCH_FAILED_PREFIX: &str = "汇总汇报派活失败：";
+/// 首节点汇总回合失败的阻塞原因前缀（§4 失败语义）。
+const SUMMARY_ROUND_FAILED_PREFIX: &str = "首节点汇总回合失败：";
 
 impl OrcCommandHandler {
     /// 默认装配：仅内置默认信封模板（向后兼容）。
@@ -495,8 +506,35 @@ impl OrcCommandHandler {
                 "任务尚未开始执行：请先在集群页点「开始执行」",
             ));
         }
+        // 汇总阶段只等首节点会话上报（report_from_agent）；人工推进明确拒绝（不猜测）。
+        if current.is_finalizing().map_err(orc_error)? {
+            return Err(CommandError::new(
+                ORC_TASK_FINALIZING,
+                "任务正在等待项目经理汇总，无需手动推进",
+            ));
+        }
         let kind = parse_message_kind(payload.kind);
+        let order = current.current_step().map_err(orc_error)?;
+        let step = store
+            .workflow()
+            .step(order)
+            .ok_or_else(|| orc_error(OrcError::step_not_found(order)))?
+            .clone();
         let workflow = store.workflow().clone();
+        // 最后一步完成（无门 Report / 通过确认门）→ 进入「项目经理汇总阶段」而非直接完成（§4）。
+        if completes_last_step(kind, current.state(), &step, &workflow) {
+            let task = store
+                .enter_finalizing(&payload.task_id)
+                .await
+                .map_err(orc_error)?;
+            let dto = orc_task_to_dto(&task, &workflow)?;
+            if let Some(presenter) = &self.presenter {
+                self.present_finalizing(presenter, &workflow, &task, order)
+                    .await;
+            }
+            self.dispatch_summary(&store, &task).await;
+            return Ok(dto);
+        }
         let outcome = store
             .on_message(&payload.task_id, kind)
             .await
@@ -516,14 +554,22 @@ impl OrcCommandHandler {
 
     /// Agent 汇报自动回注（§4.4「该 Step 的 Agent 汇报到达」）：
     /// 由 [`super::orc_report_observer::OrcReportObserver`] 在 session 完成事件匹配
-    /// `task-<id>-step-<n>` 时调用——校验任务正处于第 n 步且干活中，然后复用
-    /// [`Self::advance`]（Report）完成推进（含通知节奏呈现与下一步派活），
+    /// `task-<id>-step-<n>` 时调用——校验任务正处于第 n 步且干活中，记录产出（`body`）
+    /// 后复用 [`Self::advance`]（Report）完成推进（含通知节奏呈现与下一步派活），
     /// 保证与人工推进同一条链路。
+    ///
+    /// 汇总阶段（§4）：首节点（step=1）会话的上报 = 最终汇报 → 任务 Completed 并推送呈现层；
+    /// 失败正文（插件对失败回合上报 `任务执行失败：…`）→ blocked 写清原因。
     ///
     /// 返回 `Ok(false)` = 过期/无关事件（任务不存在、步不一致、任务非干活中），静默忽略；
     /// 错误 = 回注自身失败（由调用方记日志，不影响事件消费）。
-    pub async fn report_from_agent(&self, task_id: &str, step: u32) -> Result<bool, CommandError> {
-        let (_store, task) = match self.task_store(task_id).await {
+    pub async fn report_from_agent(
+        &self,
+        task_id: &str,
+        step: u32,
+        body: &str,
+    ) -> Result<bool, CommandError> {
+        let (store, task) = match self.task_store(task_id).await {
             Ok(resolved) => resolved,
             Err(error) if error.code() == ORC_TASK_NOT_FOUND_CODE => return Ok(false),
             Err(error) => return Err(error),
@@ -531,9 +577,39 @@ impl OrcCommandHandler {
         if !task.is_started().unwrap_or(false) {
             return Ok(false);
         }
+        if task.is_finalizing().unwrap_or(false) {
+            // 汇总阶段只认干活中的首节点会话；其它步/阻塞中的迟到事件忽略。
+            if step != 1 || task.state() != TaskState::Working {
+                return Ok(false);
+            }
+            if let Some(reason) = agent_failure_reason(body) {
+                self.auto_blocked(
+                    &store,
+                    task_id,
+                    1,
+                    format!("{SUMMARY_ROUND_FAILED_PREFIX}{reason}"),
+                )
+                .await;
+                return Ok(true);
+            }
+            let task = store
+                .complete_finalizing(task_id)
+                .await
+                .map_err(orc_error)?;
+            if let Some(presenter) = &self.presenter {
+                self.present_final(presenter, store.workflow(), &task, body)
+                    .await;
+            }
+            return Ok(true);
+        }
         if task.current_step().ok() != Some(step) || task.state() != TaskState::Working {
             return Ok(false);
         }
+        // 推进前记录该步产出（回流汇总用，单步/总量截断由 orchestration 负责）。
+        store
+            .record_step_report(task_id, step, body)
+            .await
+            .map_err(orc_error)?;
         self.advance(AdvanceOrcTaskPayload {
             task_id: task_id.to_owned(),
             kind: OrcMessageKindDto::Report,
@@ -577,6 +653,59 @@ impl OrcCommandHandler {
         };
         let body = progress_body(kind, outcome.action, reported_step);
         let text = render_cluster_message(task.id(), step, total, state_cn(&dto.state), &body);
+        presenter.push(task.id(), text).await;
+    }
+
+    /// 「进入项目经理汇总」呈现（§4）：verbose 推进度；final_only 不推（只推最终汇报）。
+    async fn present_finalizing(
+        &self,
+        presenter: &Arc<dyn OrcClusterPresenter>,
+        workflow: &Workflow,
+        task: &OrcTask,
+        order: u32,
+    ) {
+        let mode = match task.notify_mode() {
+            Ok(mode) => mode,
+            Err(error) => {
+                tracing::warn!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务通知节奏失败，跳过汇总进度推送"
+                );
+                return;
+            }
+        };
+        if mode != NotifyMode::Verbose {
+            return;
+        }
+        let text = render_cluster_message(
+            task.id(),
+            order,
+            workflow.max_order(),
+            state_cn(&OrcTaskStateDto::Working),
+            &finalizing_body(order),
+        );
+        presenter.push(task.id(), text).await;
+    }
+
+    /// 最终项目经理汇报呈现（§4）：正文 = 首节点产出截断（1200 字），
+    /// final_only/verbose 都要推这一条（失败提醒不受限的既有语义不变）。
+    async fn present_final(
+        &self,
+        presenter: &Arc<dyn OrcClusterPresenter>,
+        workflow: &Workflow,
+        task: &OrcTask,
+        body: &str,
+    ) {
+        let total = workflow.max_order();
+        let step = task.current_step().unwrap_or(total).min(total.max(1));
+        let text = render_cluster_message(
+            task.id(),
+            step,
+            total,
+            state_cn(&OrcTaskStateDto::Completed),
+            &truncate_final_report(body),
+        );
         presenter.push(task.id(), text).await;
     }
 
@@ -762,6 +891,111 @@ impl OrcCommandHandler {
         }
     }
 
+    /// 派活「汇总信封」到首节点会话（resume，§4）：任务处于 finalizing 时使用，
+    /// 也用于 blocked 后自动重派（v2 修订：不再需要再点一次「发指令」）。
+    ///
+    /// 失败 → blocked（blocked_step = 1，原因「汇总汇报派活失败：…」）+ 失败提醒。
+    async fn dispatch_summary(&self, store: &OrcStore, task: &OrcTask) {
+        let Some(driver) = self.driver.as_ref() else {
+            return;
+        };
+        let workflow = store.workflow();
+        let Some(first) = workflow.step(1).cloned() else {
+            tracing::error!(task_id = %task.id(), "工作流缺少首节点，跳过汇总派活");
+            return;
+        };
+        let Some(agent_hint) = first.agent_hint.as_deref() else {
+            let reason = "第 1 步（项目经理）未配置 Agent，无法派活汇总汇报".to_string();
+            tracing::warn!(task_id = %task.id(), code = ORC_STEP_AGENT_MISSING, "{reason}");
+            self.auto_blocked(store, task.id(), 1, reason).await;
+            return;
+        };
+        let goal = match task.goal() {
+            Ok(goal) => goal,
+            Err(error) => {
+                tracing::error!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务目标失败，跳过汇总派活"
+                );
+                return;
+            }
+        };
+        let working_dir = match task.working_dir() {
+            Ok(dir) => dir,
+            Err(error) => {
+                tracing::error!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务工作目录失败，跳过汇总派活"
+                );
+                return;
+            }
+        };
+        let reports = match task.meta() {
+            Ok(meta) => render_step_reports(workflow, &meta.step_reports),
+            Err(error) => {
+                tracing::error!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务产出失败，跳过汇总派活"
+                );
+                return;
+            }
+        };
+        let rendered = self
+            .templates
+            .render_summary_envelope(workflow, &goal, &reports);
+        for warning in &rendered.warnings {
+            tracing::warn!(
+                task_id = %task.id(),
+                kind = %warning.kind.as_str(),
+                "{}",
+                warning.message
+            );
+        }
+        let targets = match dispatch_targets(task.id(), agent_hint, 1) {
+            Ok(targets) => targets,
+            Err(reason) => {
+                tracing::warn!(task_id = %task.id(), "{reason}");
+                self.auto_blocked(store, task.id(), 1, reason).await;
+                return;
+            }
+        };
+        let (agent_id, session_id) = targets;
+        let options = DispatchOptions {
+            working_dir,
+            model: first.model.clone(),
+            unattended: self.unattended().await,
+        };
+        if let Err(error) = driver
+            .dispatch(
+                task.id(),
+                &agent_id,
+                &session_id,
+                &rendered.text,
+                false,
+                &options,
+            )
+            .await
+        {
+            tracing::warn!(
+                task_id = %task.id(),
+                step = 1,
+                code = error.code(),
+                "汇总汇报派活失败：{}",
+                error.message()
+            );
+            self.auto_blocked(
+                store,
+                task.id(),
+                1,
+                format!("{SUMMARY_DISPATCH_FAILED_PREFIX}{}", error.message()),
+            )
+            .await;
+        }
+    }
+
     /// P2 派活失败 → 自动 blocked（§4.6：不自动重推，等人工处理）并推微信失败提醒。
     /// 落库失败（如任务已终止）只记日志，不再改变推进结果。
     async fn auto_blocked(&self, store: &OrcStore, task_id: &str, step: u32, reason: String) {
@@ -784,7 +1018,8 @@ impl OrcCommandHandler {
         }
     }
 
-    /// blocked → 用户重新发起（桌面端/微信）：清阻塞后**自动重新派活**当前步骤（v2 修订）。
+    /// blocked → 用户重新发起（桌面端/微信）：清阻塞后**自动重新派活**（v2 修订）。
+    /// 处于汇总阶段时重派「汇总信封」，否则重派当前步骤普通信封。
     pub async fn recover_blocked(
         &self,
         payload: OrcTaskIdPayload,
@@ -795,7 +1030,11 @@ impl OrcCommandHandler {
             .await
             .map_err(orc_error)?;
         let dto = orc_task_to_dto(&task, store.workflow())?;
-        self.dispatch_step(&store, &task).await;
+        if task.is_finalizing().unwrap_or(false) {
+            self.dispatch_summary(&store, &task).await;
+        } else {
+            self.dispatch_step(&store, &task).await;
+        }
         Ok(dto)
     }
 }
@@ -847,6 +1086,40 @@ fn orc_error(error: OrcError) -> CommandError {
 /// 仓储错误 → 命令错误：保留仓储层稳定错误码与中文消息。
 fn repository_error(error: OrcRepositoryError) -> CommandError {
     CommandError::new(error.code(), error.message())
+}
+
+/// 本次消息是否「完成最后一步」（§4：完成不直接落 Completed，先进入汇总阶段）：
+/// - 无确认门步骤收到汇报 → 完成；
+/// - 有确认门步骤在等待确认时收到确认 → 完成（Confirm 通过确认门）。
+fn completes_last_step(
+    kind: MessageKind,
+    state: TaskState,
+    step: &agentnotify_orchestration::WorkflowStep,
+    workflow: &Workflow,
+) -> bool {
+    if !workflow.is_last(step.order) {
+        return false;
+    }
+    match kind {
+        MessageKind::Report => !step.human_gate,
+        MessageKind::Confirm => step.human_gate && state == TaskState::InputRequired,
+        _ => false,
+    }
+}
+
+/// 失败回合识别（插件契约）：失败终态同样上报为 `session.completed`，
+/// 正文以 `任务执行失败：` 开头；命中返回失败详情（可能为空，表示插件未给细节）。
+fn agent_failure_reason(body: &str) -> Option<String> {
+    body.trim()
+        .strip_prefix(AGENT_FAILURE_BODY_PREFIX)
+        .map(|reason| {
+            let reason = reason.trim();
+            if reason.is_empty() {
+                "OpenCode 未返回具体错误信息".to_string()
+            } else {
+                reason.to_string()
+            }
+        })
 }
 
 /// P2 派活目标：由 `agent_hint` 解析 Agent id，并为 (task, step) 生成稳定会话 id

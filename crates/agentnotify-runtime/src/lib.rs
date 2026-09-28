@@ -1,6 +1,7 @@
 //! 运行时装配层，负责组件生命周期、监督和事件分发。
 
 mod event_bus;
+mod filter;
 mod ingress;
 mod migration;
 mod observer;
@@ -28,6 +29,7 @@ pub trait RuntimeComponent: Send + Sync {
 }
 
 pub use event_bus::{EventBus, RuntimeEvent};
+pub use filter::{AgentEventFilter, SharedAgentEventFilter};
 pub use migration::{
     MigrationConfig, MigrationFailure, MigrationIssue, MigrationReportSummary, MigrationSnapshot,
     MigrationState, MigrationWarning,

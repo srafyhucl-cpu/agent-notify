@@ -29,9 +29,6 @@ use agentnotify_orchestration::{NotifyMode, OrcStore, TemplateResolver, Workflow
 use agentnotify_storage_sqlite::SqliteStore;
 use agentnotify_testkit::MemoryStore;
 
-/// 旧预设 id：静态测试沿用该工作流（任务级解析时沿用装配工作流）。
-const PRESET_ID: &str = "preset-requirement-to-report";
-
 /// 推送记录：每次 push 的（task_id, 文本）。
 type PushedRecords = Arc<Mutex<Vec<(String, String)>>>;
 
@@ -79,7 +76,10 @@ fn open_sqlite(prefix: &str) -> (tempfile::TempDir, Arc<SqliteStore>) {
     (root, store)
 }
 
-/// 测试用工作目录：必须是已存在的目录（创建任务时校验）。
+/// 旧预设 id：静态测试沿用该工作流（任务级解析时沿用装配工作流）。
+const PRESET_ID: &str = "preset-requirement-to-report";
+
+/// 测试用工作目录：必须是已存在的目录（创建时校验）。
 fn working_dir(root: &tempfile::TempDir) -> String {
     root.path().to_string_lossy().into_owned()
 }
@@ -117,7 +117,7 @@ async fn write_mode(store: &Arc<SqliteStore>, value: &str) {
         .expect("写设置必须成功");
 }
 
-/// final_only：中间 Step 推进不推（仅落库），只有最顶层最终汇报才推。
+/// final_only：中间 Step 推进不推（仅落库），进入汇总也不推；只有最终项目经理汇报才推。
 #[tokio::test]
 async fn final_only_pushes_only_the_final_report() {
     let (_root, store) = open_sqlite("agentnotify-orc-notify-final-");
@@ -157,11 +157,29 @@ async fn final_only_pushes_only_the_final_report() {
         pushed.lock().unwrap()
     );
 
-    // 第 3 步（最后一步）汇报 → 任务完成，推最终汇报
+    // 第 3 步（最后一步）汇报 → 进入「项目经理汇总」，final_only 也不推（等最终汇报）
     handler
         .advance(report(&task_id))
         .await
         .expect("推进必须成功");
+    assert!(
+        pushed.lock().unwrap().is_empty(),
+        "汇总阶段不推：final_only 只推最终汇报"
+    );
+    let finalizing = handler
+        .list()
+        .await
+        .expect("列出任务必须成功")
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .expect("任务必须存在");
+    assert!(finalizing.finalizing, "最后一步完成必须进入汇总阶段");
+
+    // 首节点汇总产出回注 → 任务完成，推最终汇报（正文 = 首节点产出）
+    handler
+        .report_from_agent(&task_id, 1, "项目经理最终汇报：贪吃蛇已完成并自测通过。")
+        .await
+        .expect("汇总回注必须成功");
     let records = pushed.lock().unwrap();
     assert_eq!(records.len(), 1, "final_only 全程只推一条：{:?}", records);
     let (pushed_task, text) = &records[0];
@@ -171,8 +189,8 @@ async fn final_only_pushes_only_the_final_report() {
         "缺少前缀：{text}"
     );
     assert!(
-        text.contains("最终汇报已收到，任务已完成"),
-        "缺少正文：{text}"
+        text.contains("项目经理最终汇报：贪吃蛇已完成并自测通过。"),
+        "缺少最终汇报正文：{text}"
     );
     assert!(
         text.contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
@@ -180,7 +198,8 @@ async fn final_only_pushes_only_the_final_report() {
     );
 }
 
-/// verbose：每个 Step 的推进/汇报都推（带前后缀，Step 数随推进变化）。
+/// verbose：每个 Step 的推进/汇报都推（带前后缀，Step 数随推进变化），
+/// 最后一步完成推「汇总中」，最终汇报再由首节点回注推送。
 #[tokio::test]
 async fn verbose_pushes_every_step_progress() {
     let (_root, store) = open_sqlite("agentnotify-orc-notify-verbose-");
@@ -212,53 +231,83 @@ async fn verbose_pushes_every_step_progress() {
             .expect("推进必须成功");
     }
 
-    let records = pushed.lock().unwrap();
-    assert_eq!(records.len(), 3, "verbose 每步都推：{:?}", records);
-    assert_eq!(records[0].0, task_id);
-    assert!(
-        records[0].1.contains("Step 1 汇报完成，任务推进到下一步"),
-        "{}",
-        records[0].1
-    );
-    assert!(
-        records[0]
-            .1
-            .contains(&format!("【{task_id} · Step 2/3 · 干活中】")),
-        "{}",
-        records[0].1
-    );
-    assert!(
-        records[1].1.contains("Step 2 汇报完成，任务推进到下一步"),
-        "{}",
-        records[1].1
-    );
-    assert!(
-        records[1]
-            .1
-            .contains(&format!("【{task_id} · Step 3/3 · 干活中】")),
-        "{}",
-        records[1].1
-    );
-    assert!(
-        records[2].1.contains("最终汇报已收到，任务已完成"),
-        "{}",
-        records[2].1
-    );
-    assert!(
-        records[2]
-            .1
-            .contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
-        "{}",
-        records[2].1
-    );
+    {
+        let records = pushed.lock().unwrap();
+        assert_eq!(records.len(), 3, "verbose 每步都推：{:?}", records);
+        assert_eq!(records[0].0, task_id);
+        assert!(
+            records[0].1.contains("Step 1 汇报完成，任务推进到下一步"),
+            "{}",
+            records[0].1
+        );
+        assert!(
+            records[0]
+                .1
+                .contains(&format!("【{task_id} · Step 2/3 · 干活中】")),
+            "{}",
+            records[0].1
+        );
+        assert!(
+            records[1].1.contains("Step 2 汇报完成，任务推进到下一步"),
+            "{}",
+            records[1].1
+        );
+        assert!(
+            records[1]
+                .1
+                .contains(&format!("【{task_id} · Step 3/3 · 干活中】")),
+            "{}",
+            records[1].1
+        );
+        assert!(
+            records[2].1.contains("Step 3 汇报完成，项目经理汇总中"),
+            "最后一步必须提示进入汇总：{}",
+            records[2].1
+        );
+        assert!(
+            records[2]
+                .1
+                .contains(&format!("【{task_id} · Step 3/3 · 干活中】")),
+            "{}",
+            records[2].1
+        );
+    }
+
+    // 首节点汇总产出回注 → 任务完成，推最终汇报（verbose 也有这一条）。
+    handler
+        .report_from_agent(&task_id, 1, "项目经理最终汇报")
+        .await
+        .expect("汇总回注必须成功");
+    {
+        let records = pushed.lock().unwrap();
+        assert_eq!(
+            records.len(),
+            4,
+            "verbose：3 步进度 + 最终汇报：{:?}",
+            records
+        );
+        assert!(
+            records[3].1.contains("项目经理最终汇报"),
+            "{}",
+            records[3].1
+        );
+        assert!(
+            records[3]
+                .1
+                .contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
+            "{}",
+            records[3].1
+        );
+    }
 }
 
-/// human_gate：final_only 下人工确认门（等待确认）与确认通过都推；中间步仍不推。
+/// human_gate：final_only 下人工确认门（等待确认）推；确认通过进入「汇总中」不推，
+/// 首节点最终汇报才推。
 #[tokio::test]
-async fn final_only_pushes_gate_wait_and_confirm() {
+async fn final_only_pushes_gate_wait_and_final_report() {
     let (_root, store) = open_sqlite("agentnotify-orc-notify-gate-");
     let (presenter, pushed) = FakePresenter::new(NotifyMode::FinalOnly);
-    // 自定义 4 步工作流：第 4 步「复核」带人工确认门（内置模板无确认门；预检要求各步有 Agent）。
+    // 自定义 4 步工作流：第 4 步「复核」带人工确认门（内置模板无确认门）。
     let workflow = Workflow::new(
         "custom-gate",
         "自定义确认门",
@@ -322,18 +371,31 @@ async fn final_only_pushes_gate_wait_and_confirm() {
         );
     }
 
-    // 人确认 → 任务完成：推「确认通过」
-    handler
+    // 人确认 → 进入「项目经理汇总」而非直接完成：final_only 不推
+    let finalized = handler
         .advance(AdvanceOrcTaskPayload {
             task_id: task_id.clone(),
             kind: OrcMessageKindDto::Confirm,
         })
         .await
         .expect("确认必须成功");
+    assert_eq!(finalized.state, OrcTaskStateDto::Working);
+    assert!(finalized.finalizing, "确认通过后必须进入汇总阶段");
+    assert_eq!(
+        pushed.lock().unwrap().len(),
+        1,
+        "进入汇总不得额外推送（final_only 只推最终汇报）"
+    );
+
+    // 首节点汇总产出回注 → 完成并推最终汇报
+    handler
+        .report_from_agent(&task_id, 1, "复核结论：通过，可以交付。")
+        .await
+        .expect("汇总回注必须成功");
     let records = pushed.lock().unwrap();
-    assert_eq!(records.len(), 2, "确认通过必须推：{:?}", records);
+    assert_eq!(records.len(), 2, "最终汇报必须推：{:?}", records);
     assert!(
-        records[1].1.contains("确认通过，任务已完成"),
+        records[1].1.contains("复核结论：通过，可以交付。"),
         "{}",
         records[1].1
     );

@@ -420,7 +420,8 @@ async fn orc_commands_validate_inputs_and_expose_business_errors() {
         .expect_err("未开始任务推进必须报错");
     assert_eq!(err.code, "orc_task_not_started");
 
-    // 已完成任务不允许标记阻塞（序号 1→2→3→完成）。
+    // 最后一步完成 → 进入「项目经理汇总」而非直接完成；首节点汇总到达后才 Completed，
+    // 此时不允许再标记阻塞（序号 1→2→3→汇总→完成）。
     let created = handler
         .create(create_payload("不要阻塞", PRESET_ID, &dir))
         .await
@@ -440,6 +441,20 @@ async fn orc_commands_validate_inputs_and_expose_business_errors() {
             .await
             .expect("推进必须成功");
     }
+    let finalizing = handler
+        .list()
+        .await
+        .expect("列出任务必须成功")
+        .into_iter()
+        .find(|task| task.id == created.id)
+        .expect("任务必须存在");
+    assert!(finalizing.finalizing, "最后一步完成必须进入汇总阶段");
+    assert_eq!(finalizing.state, OrcTaskStateDto::Working);
+
+    handler
+        .report_from_agent(&created.id, 1, "项目经理最终汇报")
+        .await
+        .expect("首节点汇总回注必须成功");
     let err = handler
         .mark_blocked(MarkBlockedOrcTaskPayload {
             task_id: created.id.clone(),

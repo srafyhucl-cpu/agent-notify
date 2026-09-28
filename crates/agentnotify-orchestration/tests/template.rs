@@ -310,5 +310,143 @@ fn empty_config_is_noop() {
         let result = TemplateResolver::from_config_str(json);
         assert!(result.warnings.is_empty(), "{json}: {:?}", result.warnings);
         assert_eq!(result.resolver.user_templates(), &Default::default());
+        assert_eq!(
+            result.resolver.user_summary_templates(),
+            &Default::default()
+        );
     }
+}
+
+/// 汇总信封（§4 项目经理回流）：内置默认模板带各步产出块与项目经理指令，
+/// `{reports}` 只在汇总信封填充（步骤信封不替换，保持 P0 行为）。
+#[test]
+fn summary_envelope_includes_reports_and_pm_instruction() {
+    let resolver = TemplateResolver::new();
+    let wf = preset();
+    let reports = "【第 1 步 · orchestrator 产出】\n结论可行";
+    let rendered = resolver.render_summary_envelope(&wf, "贪吃蛇", reports);
+
+    assert!(
+        rendered.text.contains("【任务：贪吃蛇】"),
+        "必须带目标：{}",
+        rendered.text
+    );
+    assert!(
+        rendered.text.contains("项目经理"),
+        "必须含项目经理指令：{}",
+        rendered.text
+    );
+    assert!(
+        rendered.text.contains("最终汇报"),
+        "必须要求最终汇报：{}",
+        rendered.text
+    );
+    assert!(
+        rendered.text.contains("结论可行"),
+        "必须带各步产出：{}",
+        rendered.text
+    );
+    assert!(
+        !rendered.text.contains("{reports}"),
+        "占位符必须被替换：{}",
+        rendered.text
+    );
+    assert!(rendered.warnings.is_empty(), "{:?}", rendered.warnings);
+
+    // 步骤信封不含 {reports} 内容（已知但仅在汇总信封填充）。
+    let step_rendered = resolver.render_envelope(&wf, wf.step(1).unwrap(), "贪吃蛇", None);
+    assert!(!step_rendered.text.contains("结论可行"));
+}
+
+/// 用户可在 harness-templates.json 覆盖汇总信封（`workflows.<id>.summary`）。
+#[test]
+fn user_summary_template_overrides_default() {
+    let json = r#"{"workflows":{"preset-requirement-to-report":{
+        "summary":"【{goal}】自定义汇总：{reports}",
+        "steps":[{"order":1,"harness_template":"步骤模板"}]
+    }}}"#;
+    let result = TemplateResolver::from_config_str(json);
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    assert_eq!(
+        result.resolver.user_summary_template(PRESET_ID),
+        Some("【{goal}】自定义汇总：{reports}")
+    );
+
+    let wf = preset();
+    let rendered = result
+        .resolver
+        .render_summary_envelope(&wf, "贪吃蛇", "第 1 步产出");
+    assert_eq!(rendered.text, "【贪吃蛇】自定义汇总：第 1 步产出");
+    assert_eq!(
+        result.resolver.resolve_summary(PRESET_ID).source,
+        TemplateSource::UserConfig
+    );
+
+    // 未配置的工作流：回退内置默认。
+    assert_eq!(
+        result.resolver.resolve_summary("another-workflow").source,
+        TemplateSource::BuiltinDefault
+    );
+}
+
+/// 各步产出汇总块：按步骤顺序输出角色标题；无正文的步骤标注「（该步无正文汇报）」。
+#[test]
+fn step_reports_block_marks_missing_bodies() {
+    use agentnotify_orchestration::{SUMMARY_REPORT_MISSING, StepReport, render_step_reports};
+
+    let wf = preset(); // 3 步：orchestrator / planner / executor
+    let block = render_step_reports(
+        &wf,
+        &[
+            StepReport {
+                step: 1,
+                body: "判断结论：可行".to_string(),
+            },
+            StepReport {
+                step: 3,
+                body: "已实现并自测".to_string(),
+            },
+        ],
+    );
+    assert!(
+        block.contains("【第 1 步 · orchestrator 产出】\n判断结论：可行"),
+        "{block}"
+    );
+    assert!(block.contains("【第 2 步 · planner 产出】"), "{block}");
+    assert!(block.contains(SUMMARY_REPORT_MISSING), "{block}");
+    assert!(
+        block.contains("【第 3 步 · executor 产出】\n已实现并自测"),
+        "{block}"
+    );
+    // 顺序 = 工作流步骤顺序（1 在前，3 在后）。
+    let first = block.find("第 1 步").expect("必须有第 1 步");
+    let last = block.find("第 3 步").expect("必须有第 3 步");
+    assert!(first < last, "汇总块必须按步骤顺序：{block}");
+}
+
+/// 汇总信封的未知占位符：告警 + 原样保留（坏模板不炸）。
+#[test]
+fn user_summary_unknown_placeholder_warns() {
+    let json = r#"{"workflows":{"preset-requirement-to-report":{
+        "summary":"汇总 {goal} {bogus}",
+        "steps":[]
+    }}}"#;
+    let result = TemplateResolver::from_config_str(json);
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+
+    let wf = preset();
+    let rendered = result
+        .resolver
+        .render_summary_envelope(&wf, "贪吃蛇", "产出");
+    assert_eq!(rendered.text, "汇总 贪吃蛇 {bogus}");
+    assert_eq!(rendered.warnings.len(), 1, "{:?}", rendered.warnings);
+    assert_eq!(
+        rendered.warnings[0].kind,
+        TemplateWarningKind::UnknownPlaceholder
+    );
+    assert!(
+        rendered.warnings[0].message.contains("汇总信封"),
+        "告警必须写清是汇总信封：{}",
+        rendered.warnings[0].message
+    );
 }

@@ -213,6 +213,7 @@ async fn fixture() -> Fixture {
             spool_replay_interval: Duration::from_millis(5),
             inbound_interceptor: None,
             agent_event_observer: None,
+            event_filter: None,
         },
         healthy,
         failing,
@@ -520,4 +521,84 @@ async fn spool_replay_worker_delivers_events_without_restart() {
     assert_eq!(spool.queued_count().unwrap(), 0, "重放成功后 spool 应清空");
 
     handle.shutdown().await.unwrap();
+}
+
+/// 拒绝一切通知的过滤器（测试用）。
+struct DenyAllFilter;
+
+impl agentnotify_runtime::AgentEventFilter for DenyAllFilter {
+    fn allow_notification(&self, _envelope: &AgentEventEnvelope) -> bool {
+        false
+    }
+}
+
+/// 通知过滤（§5）：过滤器不允许的事件跳过 ingest（不建通知），但仍回调观察者；
+/// spool 条目照常 ack（不重复投递）。对照组：未注入过滤器时照常建通知。
+#[tokio::test]
+async fn event_filter_skips_ingest_but_still_replays_observer() {
+    async fn run(filter: Option<agentnotify_runtime::SharedAgentEventFilter>) -> (usize, usize) {
+        let Fixture {
+            _temp, mut config, ..
+        } = fixture().await;
+        let spool_dir = _temp.path().join("spool-filter");
+        std::fs::create_dir_all(&spool_dir).unwrap();
+        config.ingress_spool_dir = Some(spool_dir.clone());
+
+        let agent_id = AgentId::new("opencode").unwrap();
+        let mut agents = AgentRegistry::default();
+        agents
+            .register(Arc::new(ReplayAgent {
+                id: agent_id.clone(),
+            }))
+            .unwrap();
+        config.agents = Arc::new(agents);
+        config.notification_policy = NotificationPolicy::default()
+            .with_agent(agent_id.clone(), AgentNotificationConfig::default());
+
+        let observer = Arc::new(RecordingObserver::default());
+        config.agent_event_observer = Some(observer.clone());
+        config.event_filter = filter;
+
+        let mut handle = AppRuntime::start(config).await.unwrap();
+        let spool = agentnotify_ingress::Spool::open(
+            &spool_dir,
+            agentnotify_ingress::SpoolLimits::default(),
+        )
+        .unwrap();
+        let envelope = AgentEventEnvelope {
+            request_id: RequestId::new("5d2c8e0f-1111-4222-8333-444455556666").unwrap(),
+            agent_id: agent_id.clone(),
+            payload: serde_json::json!({
+                "eventType": "session.completed",
+                "sessionId": "task-orc-filter-step-1",
+                "title": "过滤测试",
+                "body": "事件正文",
+                "occurredAt": "2026-09-28T06:00:00Z",
+            }),
+        };
+        spool.write_event(&envelope).unwrap();
+
+        let delivered = tokio::time::timeout(Duration::from_secs(2), async {
+            while observer.seen.lock().expect("观察者锁").is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok();
+        assert!(delivered, "事件必须送达观察者（过滤不阻断观察）");
+
+        let overview = agentnotify_application::StatusStore::snapshot(&*handle.store())
+            .await
+            .unwrap();
+        let queued = spool.queued_count().unwrap();
+        handle.shutdown().await.unwrap();
+        (overview.notification_count as usize, queued)
+    }
+
+    let (filtered, queued) = run(Some(Arc::new(DenyAllFilter))).await;
+    assert_eq!(filtered, 0, "过滤掉的事件不得创建通知");
+    assert_eq!(queued, 0, "过滤掉的事件也必须 ack（不重复投递）");
+
+    let (allowed, _) = run(None).await;
+    assert_eq!(allowed, 1, "未注入过滤器时照常创建通知（对照）");
 }

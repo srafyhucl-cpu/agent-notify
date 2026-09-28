@@ -185,6 +185,7 @@ pub fn runtime_config(database_path: std::path::PathBuf, shared: &SharedAdapters
         spool_replay_interval: std::time::Duration::from_millis(5),
         inbound_interceptor: None,
         agent_event_observer: None,
+        event_filter: None,
     }
 }
 

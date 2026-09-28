@@ -256,6 +256,7 @@ impl Fixture {
             spool_replay_interval: Duration::from_millis(5),
             inbound_interceptor: None,
             agent_event_observer: None,
+            event_filter: None,
         }
     }
 
