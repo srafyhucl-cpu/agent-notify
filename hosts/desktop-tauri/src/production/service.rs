@@ -67,8 +67,10 @@ impl ProductionHostCommandService {
         // 是否装配派活链路（AgentDriver）：生产 true 用信封唤醒真实 Agent；headless/测试 false（纯状态推进）。
         enable_agent_driver: bool,
     ) -> Self {
-        let orchestration = OrcCommandHandler::with_driver(
-            orchestration_store(&store, &settings).await,
+        let orchestration = OrcCommandHandler::with_selector(
+            None, // 动态模式：按 settings 实时解析 enabled（默认开启）+ workflow，无需重启。
+            store.clone(),
+            settings.clone(),
             load_harness_templates(config_dir),
             Some(Arc::new(ProductionOrcPresenter::new(
                 settings.clone(),
@@ -1108,10 +1110,17 @@ impl ProductionHostCommandService {
 
 /// 编排命令处理器（P1-1，B 方案接线）。
 ///
-/// 持有可选的 [`OrcStore`]：`orchestration.enabled` 开启时才装配 SQLite 仓储（§8.5 默认关闭）；
-/// 未启用时所有编排命令返回明确错误（`orchestration_disabled`），对既有功能零影响。
+/// 两种装配模式：
+/// - **静态（测试/向后兼容）**：`store: Option<OrcStore>` 启动时一次性定（`new`/`with_templates`
+///   /`with_presenter`/`with_driver`），`orchestration.enabled` 由启动装配决定，改设置需重启；
+/// - **动态（生产，P1-1 体验修正）**：`with_selector` 注入 `Arc<SqliteStore>` + settings——
+///   每次命令时按 `orchestration.enabled`（**默认开启**）与 `orchestration.workflow` 实时解析，
+///   **改设置立即生效，无需重启**。
 pub struct OrcCommandHandler {
     store: Option<OrcStore>,
+    /// 动态模式：命令时按 settings 解析 enabled/workflow 构建 OrcStore（`orchestration_store_for`）。
+    sqlite: Option<Arc<SqliteStore>>,
+    settings: Option<ProductionSettingsStore>,
     /// harness 模板解析器（P1-5）：用户模板优先、内置默认兜底；派活时由此生成任务信封。
     templates: TemplateResolver,
     /// 集群消息呈现（P1-4）：缺省不呈现（行为与 P1-3 一致）；注入后 advance/mark_blocked 按通知节奏外发。
@@ -1121,7 +1130,8 @@ pub struct OrcCommandHandler {
     driver: Option<Arc<dyn AgentDriver>>,
 }
 
-/// 编排开关设置键（settings 表），默认关闭。
+/// 编排开关设置键（settings 表）。**默认开启**（缺失 = true，P1-1 体验修正：
+/// 编排是桌面端核心能力，不应默认关掉让用户困惑）；显式 false 才关闭。
 pub const KEY_ORCHESTRATION_ENABLED: &str = "orchestration.enabled";
 /// 编排工作流选择设置键（settings 表）：`opencode-only` 只用 OpenCode 单 Agent；其它/缺失 = 默认多 Agent 委托。
 pub const KEY_ORCHESTRATION_WORKFLOW: &str = "orchestration.workflow";
@@ -1147,6 +1157,8 @@ impl OrcCommandHandler {
     pub fn with_templates(store: Option<OrcStore>, templates: TemplateResolver) -> Self {
         Self {
             store,
+            sqlite: None,
+            settings: None,
             templates,
             presenter: None,
             driver: None,
@@ -1162,13 +1174,15 @@ impl OrcCommandHandler {
     ) -> Self {
         Self {
             store,
+            sqlite: None,
+            settings: None,
             templates,
             presenter: Some(presenter),
             driver: None,
         }
     }
 
-    /// 完整装配（P2 派活链路）：呈现层 + 派活驱动器。
+    /// 完整装配（P2 派活链路）：呈现层 + 派活驱动器（静态模式，测试/向后兼容）。
     ///
     /// - `presenter=None` → 不推微信（与 P1-3 一致）；
     /// - `driver=None` → 只推进 + 呈现，不派活（与 P1-4 一致，向后兼容）。
@@ -1180,6 +1194,30 @@ impl OrcCommandHandler {
     ) -> Self {
         Self {
             store,
+            sqlite: None,
+            settings: None,
+            templates,
+            presenter,
+            driver,
+        }
+    }
+
+    /// 动态装配（生产，P1-1 体验修正）：每次命令时按 settings 实时解析
+    /// `orchestration.enabled`（**默认开启**）与 `orchestration.workflow`，改设置立即生效无需重启。
+    ///
+    /// `store` 传入的 Option 仅用于静态测试路径（动态模式忽略）；生产传 `None`。
+    pub fn with_selector(
+        store: Option<OrcStore>,
+        sqlite: Arc<SqliteStore>,
+        settings: ProductionSettingsStore,
+        templates: TemplateResolver,
+        presenter: Option<Arc<dyn OrcClusterPresenter>>,
+        driver: Option<Arc<dyn AgentDriver>>,
+    ) -> Self {
+        Self {
+            store,
+            sqlite: Some(sqlite),
+            settings: Some(settings),
             templates,
             presenter,
             driver,
@@ -1191,14 +1229,54 @@ impl OrcCommandHandler {
         &self.templates
     }
 
-    fn require_store(&self) -> Result<&OrcStore, CommandError> {
-        self.store.as_ref().ok_or_else(|| {
-            CommandError::new(ORCHESTRATION_DISABLED_CODE, ORCHESTRATION_DISABLED_MESSAGE)
-        })
+    /// 解析当前可用的 [`OrcStore`]（克隆，代价可忽略；调用方法都 await）。
+    ///
+    /// - 静态模式（测试/向后兼容）：启动时装配的 `store` 原样返回（改设置需重启，语义不变）；
+    /// - 动态模式（生产，P1-1 体验修正）：每次命令时按 settings 实时解析——
+    ///   `orchestration.enabled` **默认开启**（缺失/异常按 true，显式 false 才关闭），
+    ///   `orchestration.workflow` 决定预置工作流（`opencode-only` 单 Agent / 默认多 Agent 委托）；
+    ///   **改设置立即生效，无需重启**。未启用返回名明确错误 `orchestration_disabled`。
+    async fn resolve_store(&self) -> Result<OrcStore, CommandError> {
+        let disabled =
+            || CommandError::new(ORCHESTRATION_DISABLED_CODE, ORCHESTRATION_DISABLED_MESSAGE);
+        if let Some(store) = &self.store {
+            return Ok(store.clone());
+        }
+        let (Some(sqlite), Some(settings)) = (&self.sqlite, &self.settings) else {
+            return Err(disabled());
+        };
+        let (enabled, workflow_name) = match settings.store().settings_entries().await {
+            Ok(entries) => {
+                let enabled = entries
+                    .get(KEY_ORCHESTRATION_ENABLED)
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true); // 默认开启（体验修正）。
+                let workflow = entries
+                    .get(KEY_ORCHESTRATION_WORKFLOW)
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("")
+                    .to_owned();
+                (enabled, workflow)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "读取编排设置失败，按默认开启 + 默认工作流处理");
+                (true, String::new())
+            }
+        };
+        if !enabled {
+            return Err(disabled());
+        }
+        let workflow = match workflow_name.as_str() {
+            "opencode-only" => Workflow::preset_opencode_only(),
+            _ => Workflow::preset(false),
+        }
+        .expect("预置工作流必须有效");
+        Ok(OrcStore::with_repository(workflow, sqlite.clone()))
     }
 
     pub async fn create(&self, payload: CreateOrcTaskPayload) -> Result<OrcTaskDto, CommandError> {
-        let store = self.require_store()?;
+        let store = self.resolve_store().await?;
         let goal = payload.goal.trim();
         if goal.is_empty() {
             return Err(CommandError::new("orc_goal_empty", "任务目标不能为空"));
@@ -1217,7 +1295,7 @@ impl OrcCommandHandler {
         // P2 派活：任务创建即唤醒第 1 步的 Agent（新会话开工，open=true）。
         // 派活是附加动作：失败只标记 blocked（§4.6 不自动重推）+ 呈现层推失败提醒，
         // 不影响已落库的创建结果与命令返回。
-        self.dispatch_step(store, &task).await;
+        self.dispatch_step(&store, &task).await;
         Ok(dto)
     }
 
@@ -1231,7 +1309,7 @@ impl OrcCommandHandler {
     }
 
     pub async fn list(&self) -> Result<Vec<OrcTaskDto>, CommandError> {
-        let store = self.require_store()?;
+        let store = self.resolve_store().await?;
         let tasks = store.list_tasks().await.map_err(orc_error)?;
         tasks.iter().map(orc_task_to_dto).collect()
     }
@@ -1240,7 +1318,7 @@ impl OrcCommandHandler {
         &self,
         payload: AdvanceOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError> {
-        let store = self.require_store()?;
+        let store = self.resolve_store().await?;
         let kind = parse_message_kind(payload.kind);
         let outcome = store
             .on_message(&payload.task_id, kind)
@@ -1250,12 +1328,12 @@ impl OrcCommandHandler {
         let dto = orc_task_to_dto(&task)?;
         // P1-4 呈现层单一入口：推进后按任务通知节奏决定是否外发微信（失败不阻塞命令结果）。
         if let Some(presenter) = &self.presenter {
-            self.present_advance(presenter, store, &task, &dto, kind, &outcome)
+            self.present_advance(presenter, &store, &task, &dto, kind, &outcome)
                 .await;
         }
         // P2 派活：Advance/BackToWork/Recover 且任务未完成 → 把当前目标 Step 的信封
         // 交给该步配置的 Agent（失败只标记 blocked，不改变已落库的推进结果）。
-        self.dispatch_current_step(store, &task, &outcome).await;
+        self.dispatch_current_step(&store, &task, &outcome).await;
         Ok(dto)
     }
 
@@ -1301,7 +1379,7 @@ impl OrcCommandHandler {
         &self,
         payload: MarkBlockedOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError> {
-        let store = self.require_store()?;
+        let store = self.resolve_store().await?;
         let reason = payload.reason.trim();
         if reason.is_empty() {
             return Err(CommandError::new(
@@ -1316,7 +1394,7 @@ impl OrcCommandHandler {
         let dto = orc_task_to_dto(&task)?;
         // P1-4 失败提醒不受 notify_mode 限制：一律外发（§4.6：写清失败 Step/原因，不自动重推）。
         if let Some(presenter) = &self.presenter {
-            self.present_blocked(presenter, store, task.id(), payload.step, reason)
+            self.present_blocked(presenter, &store, task.id(), payload.step, reason)
                 .await;
         }
         Ok(dto)
@@ -1480,52 +1558,13 @@ impl OrcCommandHandler {
         &self,
         payload: OrcTaskIdPayload,
     ) -> Result<OrcTaskDto, CommandError> {
-        let store = self.require_store()?;
+        let store = self.resolve_store().await?;
         let task = store
             .recover_blocked(&payload.task_id)
             .await
             .map_err(orc_error)?;
         orc_task_to_dto(&task)
     }
-}
-
-/// 读取 `orchestration.enabled`（默认关闭，§8.5）；开启时装配绑定预置工作流的 SQLite 仓储。
-/// 设置读取失败按默认关闭处理（保守：编排是可选功能，不阻塞应用启动）。
-pub async fn orchestration_store(
-    store: &Arc<SqliteStore>,
-    settings: &ProductionSettingsStore,
-) -> Option<OrcStore> {
-    let enabled = match settings.store().settings_entries().await {
-        Ok(entries) => entries
-            .get(KEY_ORCHESTRATION_ENABLED)
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
-        Err(error) => {
-            tracing::warn!(%error, "读取编排开关失败，按默认关闭（orchestration.enabled=false）处理");
-            false
-        }
-    };
-    if !enabled {
-        return None;
-    }
-    // 工作流选择（`orchestration.workflow`）：`opencode-only` = 只用 OpenCode 单 Agent 三步流转
-    //（用户只开 OpenCode 即可体验完整编排）；默认/其它取值 = 「需求→判断→规划→实施」多 Agent 委托。
-    let workflow = match settings.store().settings_entries().await {
-        Ok(entries) => match entries
-            .get(KEY_ORCHESTRATION_WORKFLOW)
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-        {
-            Some("opencode-only") => Workflow::preset_opencode_only(),
-            _ => Workflow::preset(false),
-        },
-        Err(error) => {
-            tracing::warn!(%error, "读取编排工作流配置失败，按默认多 Agent 委托处理");
-            Workflow::preset(false)
-        }
-    }
-    .expect("预置工作流必须有效");
-    Some(OrcStore::with_repository(workflow, store.clone()))
 }
 
 /// 装配编排时加载用户 harness 模板配置（§4.3 / P1-5）。

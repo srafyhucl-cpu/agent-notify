@@ -417,7 +417,7 @@ stateDiagram-v2
 
 ### 4.8 编排启用与工作流选择（真机验收前置）
 
-- **启用开关**：设置页「编排（集群）」区开关（`orchestration.enabled`，默认 false）；开启后重启应用生效。
+- **启用开关**：设置页「编排（集群）」区开关（`orchestration.enabled`，**默认开启**——缺失按 true，显式 false 才关闭）；**动态解析：改设置立即生效，无需重启**（`OrcCommandHandler::with_selector` 每次命令时按 settings 实时读取 enabled + workflow）。
 - **工作流选择**：settings `orchestration.workflow`——
   - `opencode-only`：只用 OpenCode 的单 Agent 三步流转（判断→规划→实施，全部 opencode 承担，`Workflow::preset_opencode_only`）；用户只开 OpenCode 即可体验完整编排闭环。
   - 默认/其它：`需求→Codex 判断→OpenCode 规划→CommandCode 实施`多 Agent 委托（`Workflow::preset(false)`）。
