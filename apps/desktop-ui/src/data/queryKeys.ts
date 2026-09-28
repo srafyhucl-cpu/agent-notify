@@ -25,5 +25,6 @@ export const queryKeys = {
   diagnostics: () => ["diagnostics"] as const,
   settings: () => ["settings"] as const,
   orcTasks: () => ["orc-tasks"] as const,
-  orcWorkflow: () => ["orc-workflow"] as const,
+  orcTemplates: () => ["orc-templates"] as const,
+  opencodeProjects: () => ["opencode-projects"] as const,
 } as const;

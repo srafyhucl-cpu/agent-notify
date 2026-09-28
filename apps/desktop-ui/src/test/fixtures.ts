@@ -8,7 +8,9 @@ import type {
   LegacyMigrationDto,
   NotificationDetailDto,
   NotificationSummaryDto,
+  OpencodeProjectDto,
   OrcTaskDto,
+  OrcTemplateDto,
   SettingsDto,
 } from "../bridge/types";
 
@@ -256,15 +258,139 @@ export function orcTaskFixture(
       id: "workflow-preset",
       name: "需求→判断→规划→实施",
       steps: [
-        { order: 1, role: "orchestrator", agentHint: "codex", humanGate: false },
-        { order: 2, role: "planner", agentHint: "opencode", humanGate: false },
-        { order: 3, role: "executor", agentHint: "commandcode", humanGate: false },
+        {
+          order: 1,
+          role: "orchestrator",
+          agentHint: "codex",
+          model: null,
+          humanGate: false,
+        },
+        {
+          order: 2,
+          role: "planner",
+          agentHint: "opencode",
+          model: "anthropic/claude-sonnet-4-5",
+          humanGate: false,
+        },
+        {
+          order: 3,
+          role: "executor",
+          agentHint: "commandcode",
+          model: null,
+          humanGate: false,
+        },
       ],
     },
     blockedStep: null,
     blockReason: null,
     notifyMode: "final_only",
     goal: `集群任务 ${id}`,
+    workingDir: "D:/Project/agent-notify",
+    finalizing: false,
     ...overrides,
   };
+}
+
+/** 未配置 Agent 的任务（开始执行预检报错用；首步缺 Agent，且尚未开始）。 */
+export function unconfiguredOrcTaskFixture(id: string): OrcTaskDto {
+  const task = orcTaskFixture(id, { currentStep: 1, started: false });
+  return {
+    ...task,
+    workflow: {
+      ...task.workflow,
+      steps: task.workflow.steps.map((step) => ({
+        ...step,
+        agentHint: null,
+        model: null,
+      })),
+    },
+  };
+}
+
+/** 编排模板样本（§2 三档内置模板；默认不预填 Agent/模型）。 */
+export function orcTemplateFixture(
+  id: string,
+  overrides: Partial<OrcTemplateDto> = {},
+): OrcTemplateDto {
+  return {
+    id,
+    name: `模板 ${id}`,
+    steps: [{ order: 1, role: "executor", agent: null, model: null }],
+    ...overrides,
+  };
+}
+
+/** 三档内置模板（与后端 `Workflow::builtin` 同构，节点未配置）。 */
+export function orcTemplatesFixture(): OrcTemplateDto[] {
+  return [
+    {
+      id: "template-quickfix",
+      name: "快速修复",
+      steps: [
+        { order: 1, role: "executor", agent: null, model: null },
+        { order: 2, role: "reviewer", agent: null, model: null },
+      ],
+    },
+    {
+      id: "template-standard",
+      name: "标准交付",
+      steps: [
+        { order: 1, role: "planner", agent: null, model: null },
+        { order: 2, role: "executor", agent: null, model: null },
+        { order: 3, role: "reviewer", agent: null, model: null },
+      ],
+    },
+    {
+      id: "template-full",
+      name: "完整评估",
+      steps: [
+        { order: 1, role: "orchestrator", agent: null, model: null },
+        { order: 2, role: "planner", agent: null, model: null },
+        { order: 3, role: "executor", agent: null, model: null },
+        { order: 4, role: "reviewer", agent: null, model: null },
+      ],
+    },
+  ];
+}
+
+/** 已配置 Agent/模型的模板（创建预览展示用）。 */
+export function configuredTemplateFixture(): OrcTemplateDto {
+  return {
+    id: "template-standard",
+    name: "标准交付",
+    steps: [
+      { order: 1, role: "planner", agent: "opencode", model: null },
+      {
+        order: 2,
+        role: "executor",
+        agent: "opencode",
+        model: "anthropic/claude-sonnet-4-5",
+      },
+      { order: 3, role: "reviewer", agent: "codex", model: null },
+    ],
+  };
+}
+
+/** OpenCode 项目样本（工作目录下拉）。 */
+export function opencodeProjectFixture(
+  directory: string,
+  overrides: Partial<OpencodeProjectDto> = {},
+): OpencodeProjectDto {
+  return {
+    directory,
+    name: null,
+    lastActiveAt: 1_760_000_000,
+    ...overrides,
+  };
+}
+
+/** 两个已知项目：按最近活跃倒序（与后端读取顺序一致）。 */
+export function opencodeProjectsFixture(): OpencodeProjectDto[] {
+  return [
+    opencodeProjectFixture("D:/Project/agent-notify", {
+      name: "agent-notify",
+      lastActiveAt: 1_760_000_000,
+    }),
+    opencodeProjectFixture("D:/Project/legacy-demo", { lastActiveAt: 1_750_000_000 }),
+  ];
 }

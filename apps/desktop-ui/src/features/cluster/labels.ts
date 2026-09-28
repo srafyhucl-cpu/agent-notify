@@ -1,5 +1,6 @@
 import type {
   OrcMessageKindDto,
+  OrcTaskDto,
   OrcTaskStateDto,
 } from "../../bridge/types";
 import type { StatusBadgeTone } from "../../components/patterns";
@@ -56,6 +57,76 @@ export const ORC_ROLE_LABELS: Record<string, string> = {
 export function orcAgentLabel(agentHint: string | null | undefined): string {
   const hint = agentHint?.trim();
   return hint ? hint : "（未指定，人工推进）";
+}
+
+/** 首节点 = 项目经理：负责汇总各步产出并向人做最终汇报（§2/§4）。 */
+export const ORC_PROJECT_MANAGER_LABEL = "项目经理";
+
+/** 节点 Agent 显示（配置/预览）：未选择时明确提示「未配置」，不猜默认值。 */
+export function orcStepAgentLabel(agent: string | null | undefined): string {
+  const value = agent?.trim();
+  return value ? value : "未配置";
+}
+
+/** 节点模型显示（预览/详情）：空 = 用该 Agent 默认模型（透明语义，非隐藏默认）。 */
+export function orcStepModelLabel(model: string | null | undefined): string {
+  const value = model?.trim();
+  return value ? value : "默认模型";
+}
+
+/**
+ * 节点链状态（可视化 §7）：动效只做注意力引导，语义由「颜色 + 简短中文标签」承载。
+ * `idle` = 预览/配置态（无进度语义），`pending` = 未执行。
+ */
+export type OrcNodeState =
+  | "idle"
+  | "pending"
+  | "current"
+  | "done"
+  | "failed"
+  | "finalizing";
+
+/** 节点状态 → 中文标签；无进度语义的状态不显示标签。 */
+export const ORC_NODE_STATE_LABELS: Record<OrcNodeState, string | null> = {
+  idle: null,
+  pending: null,
+  current: "当前节点",
+  done: "已完成",
+  failed: "执行失败",
+  finalizing: "项目经理汇总中",
+};
+
+/**
+ * 任务 → 各节点状态（§7）：当前节点脉冲、完成收束、失败红光；
+ * `finalizing` 时首节点回到脉冲态（等项目经理汇总），其余节点已完成。
+ */
+export function orcNodeStatesOfTask(
+  task: OrcTaskDto,
+): Record<number, OrcNodeState> {
+  const states: Record<number, OrcNodeState> = {};
+  const terminal = ORC_TERMINAL_STATES.has(task.state);
+
+  for (const step of task.workflow.steps) {
+    if (terminal && task.state === "completed") {
+      states[step.order] = "done";
+      continue;
+    }
+    if (task.blockedStep !== null && step.order === task.blockedStep) {
+      states[step.order] = "failed";
+      continue;
+    }
+    if (task.finalizing) {
+      states[step.order] = step.order === 1 ? "finalizing" : "done";
+      continue;
+    }
+    if (!terminal && step.order === task.currentStep) {
+      states[step.order] = "current";
+      continue;
+    }
+    states[step.order] = step.order < task.currentStep ? "done" : "pending";
+  }
+
+  return states;
 }
 
 /** 创建任务表单的通知节奏选项。 */

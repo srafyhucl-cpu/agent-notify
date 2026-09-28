@@ -7,7 +7,10 @@ import type { MockHostBridge } from "../../bridge";
 import { createMockHostBridge } from "../../bridge";
 import type { OrcTaskDto } from "../../bridge/types";
 import { createQueryClient } from "../../data/queryClient";
-import { orcTaskFixture } from "../../test/fixtures";
+import {
+  opencodeProjectsFixture,
+  orcTaskFixture,
+} from "../../test/fixtures";
 import { ClusterPage } from "./ClusterPage";
 
 function renderWithQuery(bridge: MockHostBridge) {
@@ -21,6 +24,25 @@ function renderWithQuery(bridge: MockHostBridge) {
 
 function fixturedBridge(tasks: OrcTaskDto[] = []) {
   return createMockHostBridge({ orcTasks: tasks });
+}
+
+/** 选择模板 + 工作目录，让创建按钮可用（多数创建用例的公共前置）。 */
+async function fillRequiredFields(
+  user: ReturnType<typeof userEvent.setup>,
+  options: { goal: string; directory?: string },
+) {
+  // 模板与项目列表是异步查询：先等到选项就绪再选择。
+  await screen.findByRole("option", { name: "标准交付（3 步）" });
+  await screen.findByRole("option", { name: /agent-notify/ });
+  await user.type(screen.getByLabelText("目标"), options.goal);
+  await user.selectOptions(
+    screen.getByLabelText("工作流模板"),
+    "template-standard",
+  );
+  await user.selectOptions(
+    screen.getByLabelText("工作目录"),
+    options.directory ?? "D:/Project/agent-notify",
+  );
 }
 
 const workingTask = orcTaskFixture("task-working", {
@@ -241,8 +263,15 @@ describe("ClusterPage 任务详情与发指令", () => {
   });
 });
 
+const pendingTask = orcTaskFixture("task-pending", {
+  goal: "待开始的贪吃蛇",
+  state: "working",
+  currentStep: 1,
+  started: false,
+});
+
 describe("ClusterPage 创建任务", () => {
-  it("目标为空时禁用提交；填写后按所选通知节奏创建并清空表单", async () => {
+  it("目标/模板/工作目录齐全后才能提交；提交后清空表单并刷新列表", async () => {
     const user = userEvent.setup();
     const bridge = fixturedBridge();
     renderWithQuery(bridge);
@@ -250,9 +279,27 @@ describe("ClusterPage 创建任务", () => {
     const submit = screen.getByRole("button", { name: "创建任务" });
     expect(submit).toBeDisabled();
 
+    // 模板与项目列表就绪后再交互
+    await screen.findByRole("option", { name: "标准交付（3 步）" });
+    await screen.findByRole("option", { name: /agent-notify/ });
+
     const goal = screen.getByLabelText("目标");
     await user.type(goal, "把登录流程加入重试机制");
+    expect(submit).toBeDisabled();
+
+    // 模板必选（无默认）
+    await user.selectOptions(
+      screen.getByLabelText("工作流模板"),
+      "template-standard",
+    );
+    expect(submit).toBeDisabled();
+
+    // 工作目录必填
     await user.selectOptions(screen.getByLabelText("通知节奏"), "verbose");
+    await user.selectOptions(
+      screen.getByLabelText("工作目录"),
+      "D:/Project/agent-notify",
+    );
     expect(submit).toBeEnabled();
 
     await user.click(submit);
@@ -262,12 +309,16 @@ describe("ClusterPage 创建任务", () => {
     expect(bridge.calls("create_orc_task")[0]?.payload).toEqual({
       goal: "把登录流程加入重试机制",
       notifyMode: "verbose",
+      templateId: "template-standard",
+      workingDir: "D:/Project/agent-notify",
     });
 
     // 列表刷新后新任务可见，表单已清空
     const list = await screen.findByRole("list", { name: "任务列表" });
     expect(within(list).getByText("把登录流程加入重试机制")).toBeVisible();
     expect(goal).toHaveValue("");
+    expect(screen.getByLabelText("工作流模板")).toHaveValue("");
+    expect(screen.getByLabelText("工作目录")).toHaveValue("");
   });
 
   it("默认通知节奏为 final_only，仅推最终汇报", async () => {
@@ -275,7 +326,7 @@ describe("ClusterPage 创建任务", () => {
     const bridge = fixturedBridge();
     renderWithQuery(bridge);
 
-    await user.type(screen.getByLabelText("目标"), "默认节奏任务");
+    await fillRequiredFields(user, { goal: "默认节奏任务" });
     await user.click(screen.getByRole("button", { name: "创建任务" }));
 
     await waitFor(() => {
@@ -284,16 +335,97 @@ describe("ClusterPage 创建任务", () => {
     expect(bridge.calls("create_orc_task")[0]?.payload).toEqual({
       goal: "默认节奏任务",
       notifyMode: "final_only",
+      templateId: "template-standard",
+      workingDir: "D:/Project/agent-notify",
     });
   });
 
-  it("创建失败时展示错误并保留已输入的目标", async () => {
+  it("工作目录下拉按最近活跃倒序展示「名称（目录）」，无名称只显示目录", async () => {
+    renderWithQuery(fixturedBridge());
+
+    await screen.findByRole("option", { name: /agent-notify/ });
+    const select = screen.getByLabelText("工作目录");
+    const options = within(select)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(options).toEqual([
+      "请选择工作目录",
+      "agent-notify（D:/Project/agent-notify）",
+      "D:/Project/legacy-demo",
+      "手动输入",
+    ]);
+  });
+
+  it("选择「手动输入」后展示文本框，提交使用手填目录", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge();
+    renderWithQuery(bridge);
+
+    expect(
+      screen.queryByLabelText("工作目录（手动输入）"),
+    ).not.toBeInTheDocument();
+
+    await fillRequiredFields(user, { goal: "手动目录任务" });
+    await user.selectOptions(screen.getByLabelText("工作目录"), "__manual__");
+    const manual = await screen.findByLabelText("工作目录（手动输入）");
+    await user.type(manual, "D:/Project/manual-app");
+    await user.click(screen.getByRole("button", { name: "创建任务" }));
+
+    await waitFor(() => {
+      expect(bridge.calls("create_orc_task")).toHaveLength(1);
+    });
+    expect(bridge.calls("create_orc_task")[0]?.payload).toMatchObject({
+      workingDir: "D:/Project/manual-app",
+    });
+  });
+
+  it("项目列表读取失败：明确报错并退回手动输入（不静默）", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      errors: {
+        list_opencode_projects: {
+          code: "opencode_db_not_found",
+          message:
+            "未找到 OpenCode 项目数据库：C:/Users/demo/.local/share/opencode/opencode.db（可直接手动输入工作目录）",
+          retryable: false,
+        },
+      },
+    });
+    renderWithQuery(bridge);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "无法读取 OpenCode 项目",
+    );
+    expect(
+      screen.getByText(/未找到 OpenCode 项目数据库/),
+    ).toBeVisible();
+    // 自动退回手动输入，且校验仍要求填写目录
+    expect(screen.getByLabelText("工作目录（手动输入）")).toBeVisible();
+    expect(screen.getByRole("button", { name: "创建任务" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "重新读取" }));
+    await waitFor(() => {
+      expect(bridge.calls("list_opencode_projects")).toHaveLength(2);
+    });
+  });
+
+  it("未读取到项目时提示手动输入（不静默使用空下拉）", async () => {
+    const bridge = createMockHostBridge({ opencodeProjects: [] });
+    renderWithQuery(bridge);
+
+    expect(
+      await screen.findByText("未读取到 OpenCode 项目，请手动输入工作目录。"),
+    ).toBeVisible();
+    expect(screen.getByLabelText("工作目录（手动输入）")).toBeVisible();
+  });
+
+  it("创建失败时展示后端中文错误并保留已输入的目标", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
       errors: {
         create_orc_task: {
-          code: "orc_create_failed",
-          message: "任务创建失败：预置工作流不可用。",
+          code: "orc_working_dir_invalid",
+          message: "工作目录不存在：D:/Project/gone",
           retryable: false,
         },
       },
@@ -302,37 +434,75 @@ describe("ClusterPage 创建任务", () => {
 
     const goal = screen.getByLabelText("目标");
     await user.type(goal, "会失败的任务");
+    await user.selectOptions(
+      screen.getByLabelText("工作流模板"),
+      "template-standard",
+    );
+    await user.selectOptions(screen.getByLabelText("工作目录"), "__manual__");
+    await user.type(
+      screen.getByLabelText("工作目录（手动输入）"),
+      "D:/Project/gone",
+    );
     await user.click(screen.getByRole("button", { name: "创建任务" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "任务创建失败：预置工作流不可用。",
+      "工作目录不存在：D:/Project/gone",
     );
     expect(screen.getByLabelText("目标")).toHaveValue("会失败的任务");
   });
 });
 
-const pendingTask = orcTaskFixture("task-pending", {
-  goal: "待开始的贪吃蛇",
-  state: "working",
-  currentStep: 1,
-  started: false,
-});
-
 describe("ClusterPage 工作流预览与开始执行", () => {
-  it("创建表单展示工作流节点（每步角色与派给谁）", async () => {
+  it("选中模板后展示节点链（用途/项目经理/未配置/默认模型）", async () => {
+    const user = userEvent.setup();
     const bridge = fixturedBridge();
     renderWithQuery(bridge);
 
-    const preview = await screen.findByLabelText("工作流节点预览");
-    expect(
-      within(preview).getByText("需求→判断→规划→实施（3 步）"),
-    ).toBeVisible();
-    expect(within(preview).getByText("初步判断")).toBeVisible();
+    await screen.findByRole("option", { name: "标准交付（3 步）" });
+    await user.selectOptions(
+      screen.getByLabelText("工作流模板"),
+      "template-standard",
+    );
+
+    const preview = await screen.findByRole("list", {
+      name: "工作流节点预览",
+    });
+    // 标题与节点链同属预览区（下拉选项同名，用预览容器断言）
+    expect(preview.closest(".cluster-workflow-preview")).toHaveTextContent(
+      "标准交付（3 步）",
+    );
     expect(within(preview).getByText("规划整理")).toBeVisible();
     expect(within(preview).getByText("实施")).toBeVisible();
-    expect(within(preview).getByText("codex")).toBeVisible();
-    expect(within(preview).getByText("opencode")).toBeVisible();
-    expect(within(preview).getByText("commandcode")).toBeVisible();
+    expect(within(preview).getByText("复核汇总")).toBeVisible();
+    expect(within(preview).getByText("项目经理")).toBeVisible();
+    expect(within(preview).getAllByText("未配置").length).toBe(3);
+    expect(within(preview).getAllByText("默认模型").length).toBe(3);
+  });
+
+  it("模板读取失败时展示错误并禁用模板选择", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      errors: {
+        list_orc_templates: {
+          code: "orc_templates_unavailable",
+          message: "模板列表暂时不可用。",
+          retryable: true,
+        },
+      },
+    });
+    renderWithQuery(bridge);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "无法读取工作流模板",
+    );
+    expect(screen.getByText("模板列表暂时不可用。")).toBeVisible();
+    expect(screen.getByLabelText("工作流模板")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "创建任务" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "重新读取" }));
+    await waitFor(() => {
+      expect(bridge.calls("list_orc_templates")).toHaveLength(2);
+    });
   });
 
   it("待开始任务显示「开始执行」并调用 start_orc_task；开始后转入推进操作", async () => {
@@ -353,5 +523,11 @@ describe("ClusterPage 工作流预览与开始执行", () => {
       expect(within(detail).getByText("推进任务")).toBeVisible();
     });
     expect(within(detail).queryByText("任务待开始")).toBeNull();
+  });
+
+  it("已配置项目样本按最近活跃倒序（fixture 契约）", () => {
+    const projects = opencodeProjectsFixture();
+    expect(projects[0]?.name).toBe("agent-notify");
+    expect(projects[1]?.name).toBeNull();
   });
 });
