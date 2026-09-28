@@ -27,6 +27,20 @@ pub const PRESET_ORDER_REVIEW: u32 = 4;
 /// 预置工作流标识与名称。
 pub const PRESET_WORKFLOW_ID: &str = "preset-requirement-to-report";
 pub const PRESET_WORKFLOW_NAME: &str = "需求→判断→规划→实施";
+/// 旧版「只用 OpenCode」预设 id（仅兼容已存在任务，新任务不再开放）。
+pub const PRESET_OPENCODE_ONLY_ID: &str = "preset-opencode-only";
+
+/// 固定模板「快速修复」标识与名称（P3：新任务只开放三档模板，节点 Agent/模型由用户配置）。
+pub const TEMPLATE_QUICKFIX_ID: &str = "template-quickfix";
+pub const TEMPLATE_QUICKFIX_NAME: &str = "快速修复";
+/// 固定模板「标准交付」标识与名称（推荐默认）。
+pub const TEMPLATE_STANDARD_ID: &str = "template-standard";
+pub const TEMPLATE_STANDARD_NAME: &str = "标准交付";
+/// 固定模板「完整评估」标识与名称。
+pub const TEMPLATE_FULL_ID: &str = "template-full";
+pub const TEMPLATE_FULL_NAME: &str = "完整评估";
+/// 新任务可选的内置模板 id（顺序即 UI 展示顺序）。
+pub const TEMPLATE_IDS: [&str; 3] = [TEMPLATE_QUICKFIX_ID, TEMPLATE_STANDARD_ID, TEMPLATE_FULL_ID];
 
 /// 单个工作流步骤（§3.2 WORKFLOW_STEP）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +51,9 @@ pub struct WorkflowStep {
     pub role: String,
     /// 建议 Agent（可为空；同一 Agent 被多个 Step 选中时，编排层按 Step 隔离会话）
     pub agent_hint: Option<String>,
+    /// 该步使用的模型（形如 `provider/model`；空 = 用该 Agent 的默认模型）。
+    /// P3 起由用户按节点配置（settings `orchestration.node_config`），内置模板不预置。
+    pub model: Option<String>,
     /// 该步的任务信封模板（空 = 用内置默认模板兜底，§4.3）
     pub harness_template: Option<String>,
     /// 是否需人确认才可推进下一步（human_gate）
@@ -45,6 +62,7 @@ pub struct WorkflowStep {
 
 impl WorkflowStep {
     /// 构造单步。`harness_template` 空 = 内置默认信封；`human_gate=true` 需人确认进下一步。
+    /// `model` 默认空（用该 Agent 默认模型），需要时用 [`WorkflowStep::with_model`] 设置。
     pub fn new(
         order: u32,
         role: impl Into<String>,
@@ -56,9 +74,16 @@ impl WorkflowStep {
             order,
             role: role.into(),
             agent_hint,
+            model: None,
             harness_template,
             human_gate,
         }
+    }
+
+    /// 设置该步模型（`provider/model`），链式构造用。
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
     }
 }
 
@@ -163,10 +188,57 @@ impl Workflow {
             ),
         ];
         Self::new(
-            "preset-opencode-only",
+            PRESET_OPENCODE_ONLY_ID,
             "OpenCode 三步流转（判断→规划→实施）",
             steps,
         )
+    }
+
+    /// 固定模板「快速修复」（2 步）：实施 → 复核。
+    pub fn template_quickfix() -> Result<Self, OrcError> {
+        let steps = vec![
+            WorkflowStep::new(1, ROLE_EXECUTOR, None, None, false),
+            WorkflowStep::new(2, ROLE_REVIEWER, None, None, false),
+        ];
+        Self::new(TEMPLATE_QUICKFIX_ID, TEMPLATE_QUICKFIX_NAME, steps)
+    }
+
+    /// 固定模板「标准交付」（3 步，推荐默认）：规划 → 实施 → 复核。
+    pub fn template_standard() -> Result<Self, OrcError> {
+        let steps = vec![
+            WorkflowStep::new(1, ROLE_PLANNER, None, None, false),
+            WorkflowStep::new(2, ROLE_EXECUTOR, None, None, false),
+            WorkflowStep::new(3, ROLE_REVIEWER, None, None, false),
+        ];
+        Self::new(TEMPLATE_STANDARD_ID, TEMPLATE_STANDARD_NAME, steps)
+    }
+
+    /// 固定模板「完整评估」（4 步）：判断 → 规划 → 实施 → 复核。
+    pub fn template_full() -> Result<Self, OrcError> {
+        let steps = vec![
+            WorkflowStep::new(1, ROLE_ORCHESTRATOR, None, None, false),
+            WorkflowStep::new(2, ROLE_PLANNER, None, None, false),
+            WorkflowStep::new(3, ROLE_EXECUTOR, None, None, false),
+            WorkflowStep::new(4, ROLE_REVIEWER, None, None, false),
+        ];
+        Self::new(TEMPLATE_FULL_ID, TEMPLATE_FULL_NAME, steps)
+    }
+
+    /// 按 id 解析内置工作流（三档固定模板 + 旧预设兼容）；未知 id 返回 None。
+    ///
+    /// 注：`preset-requirement-to-report` 恒解析为不带复核的 3 步版本（生产装配形态；
+    /// 带复核的 4 步变体仅测试使用，历史上无持久化任务依赖它）。
+    pub fn builtin(id: &str) -> Option<Self> {
+        let built = match id {
+            TEMPLATE_QUICKFIX_ID => Self::template_quickfix(),
+            TEMPLATE_STANDARD_ID => Self::template_standard(),
+            TEMPLATE_FULL_ID => Self::template_full(),
+            PRESET_WORKFLOW_ID => Self::preset(false),
+            PRESET_OPENCODE_ONLY_ID => Self::preset_opencode_only(),
+            _ => return None,
+        };
+        // 内置模板是静态常量组合，构造失败属于代码缺陷；测试逐一覆盖。
+        built.ok()
     }
 
     /// 最后一步的序号（= 步骤数）。
