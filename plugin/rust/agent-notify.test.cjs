@@ -473,3 +473,53 @@ test("ingress failure is swallowed and does not reject OpenCode", async () => {
     __test.dispatchCompletion(ctx, "session-1", { id: "event-10" }),
   )
 })
+
+test("stale instance retires when a newer heartbeat exists", async () => {
+  const { __test } = await pluginModule
+  const hbDir = path.join(replyDir, "heartbeats")
+  fs.mkdirSync(hbDir, { recursive: true })
+  for (const name of fs.readdirSync(hbDir)) {
+    fs.rmSync(path.join(hbDir, name), { force: true })
+  }
+  const now = Date.now()
+  const older = `9001-${(now - 60_000).toString(36)}-aaaa`
+  const newer = `9001-${now.toString(36)}-bbbb`
+  fs.writeFileSync(path.join(hbDir, `${older}.json`), "{}")
+  fs.writeFileSync(path.join(hbDir, `${newer}.json`), "{}")
+
+  assert.ok(
+    __test.instanceCreatedAt(newer) > __test.instanceCreatedAt(older),
+    "实例创建时间应可比较",
+  )
+  assert.equal(__test.supersededByNewerInstance(older), true, "旧实例应退休");
+  assert.equal(__test.supersededByNewerInstance(newer), false, "新实例不应退休")
+
+  // 更新的心跳过期后不再触发退休（避免误退与陈旧文件互锁）。
+  const past = new Date(now - 60_000)
+  fs.utimesSync(path.join(hbDir, `${newer}.json`), past, past)
+  assert.equal(__test.supersededByNewerInstance(older), false, "过期心跳不触发退休")
+
+  for (const name of fs.readdirSync(hbDir)) {
+    fs.rmSync(path.join(hbDir, name), { force: true })
+  }
+})
+
+test("session map refresh picks up mappings written after first load", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  __test.setSessionMapRefreshIntervalForTests(0)
+  const mapFile = path.join(replyDir, "session-map.json")
+  fs.writeFileSync(mapFile, JSON.stringify({}))
+  // 首次查询建立缓存（空映射）。
+  assert.equal(__test.mappedSessionID("ses_missing"), "ses_missing")
+  // 模拟其他（热重载前）实例写入映射：本实例未命中时应刷新磁盘一次再找。
+  fs.writeFileSync(
+    mapFile,
+    JSON.stringify({ "task-refresh-step-1": "ses_refresh_1" }),
+  )
+  assert.equal(
+    __test.mappedSessionID("ses_refresh_1"),
+    "task-refresh-step-1",
+    "未命中时应刷新磁盘映射",
+  )
+})

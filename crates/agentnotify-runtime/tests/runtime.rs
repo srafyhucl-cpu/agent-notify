@@ -1,15 +1,18 @@
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
-use agentnotify_agent_sdk::AgentRegistry;
+use agentnotify_agent_sdk::{
+    AgentAdapter, AgentCapabilities, AgentDescriptor, AgentError, AgentEventEnvelope, AgentHealth,
+    AgentRegistry, NormalizedAgentEvent, ResumeReceipt,
+};
 use agentnotify_application::{
-    ChannelAccountStore, Clock, DeliveryTarget, IdGenerator, IngestStore, NotificationPolicy,
-    OutboxItem, ReplyConfig,
+    AgentNotificationConfig, ChannelAccountStore, Clock, DeliveryTarget, IdGenerator, IngestStore,
+    NotificationPolicy, OutboxItem, ReplyConfig,
 };
 use agentnotify_channel_sdk::{
     ChannelAccount, ChannelAdapter, ChannelCapabilities, ChannelDescriptor, ChannelError,
@@ -17,10 +20,10 @@ use agentnotify_channel_sdk::{
     OutboundMessage,
 };
 use agentnotify_domain::{
-    AgentId, ChannelAccountId, ChannelId, DeliveryState, ExternalMessageId, Notification,
-    NotificationId, NotificationMetadata, SafeError, Timestamp,
+    AgentId, AgentSessionId, ChannelAccountId, ChannelId, DeliveryState, ExternalMessageId,
+    Notification, NotificationId, NotificationMetadata, RequestId, SafeError, Timestamp,
 };
-use agentnotify_runtime::{AppRuntime, RuntimeConfig};
+use agentnotify_runtime::{AgentEventObserver, AppRuntime, RuntimeConfig};
 use agentnotify_storage_sqlite::SqliteStore;
 use tempfile::TempDir;
 use tokio::sync::{Notify, watch};
@@ -207,6 +210,7 @@ async fn fixture() -> Fixture {
             worker_idle_delay: Duration::from_millis(5),
             status_refresh_interval: Duration::from_millis(5),
             channel_poll_interval: Duration::from_millis(5),
+            spool_replay_interval: Duration::from_millis(5),
             inbound_interceptor: None,
             agent_event_observer: None,
         },
@@ -316,6 +320,204 @@ async fn outbox_pause_holds_pending_delivery_until_resumed() {
     .await
     .expect("恢复后必须继续投递");
     assert_eq!(healthy.sent_count(), 1);
+
+    handle.shutdown().await.unwrap();
+}
+
+/// 最小 Agent 适配器：接受 `session.completed` 事件（spool 周期重放测试用）。
+struct ReplayAgent {
+    id: AgentId,
+}
+
+#[async_trait::async_trait]
+impl AgentAdapter for ReplayAgent {
+    fn descriptor(&self) -> AgentDescriptor {
+        AgentDescriptor {
+            id: self.id.clone(),
+            display_name: "Replay Agent".into(),
+            description: "spool 重放测试 Agent".into(),
+            config_schema: serde_json::json!({"type": "object"}),
+        }
+    }
+
+    fn capabilities(&self) -> AgentCapabilities {
+        AgentCapabilities {
+            notify: true,
+            resume: true,
+            ..Default::default()
+        }
+    }
+
+    fn parse_event(
+        &self,
+        envelope: AgentEventEnvelope,
+    ) -> Result<NormalizedAgentEvent, AgentError> {
+        if envelope.agent_id != self.id {
+            return Err(AgentError::InvalidEvent);
+        }
+        let payload = &envelope.payload;
+        let event_type = payload
+            .get("eventType")
+            .and_then(serde_json::Value::as_str)
+            .ok_or(AgentError::InvalidEvent)?;
+        if event_type != "session.completed" {
+            return Err(AgentError::InvalidEvent);
+        }
+        let session_id = payload
+            .get("sessionId")
+            .and_then(serde_json::Value::as_str)
+            .map(AgentSessionId::new)
+            .transpose()
+            .map_err(|_| AgentError::InvalidEvent)?;
+        Ok(NormalizedAgentEvent {
+            idempotency_key: payload
+                .get("idempotencyKey")
+                .and_then(serde_json::Value::as_str)
+                .map(ToOwned::to_owned),
+            occurred_at: payload
+                .get("occurredAt")
+                .and_then(serde_json::Value::as_str)
+                .map(Timestamp::parse_rfc3339)
+                .transpose()
+                .map_err(|_| AgentError::InvalidEvent)?
+                .ok_or(AgentError::InvalidEvent)?,
+            session_id,
+            session_title: None,
+            title: payload
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .ok_or(AgentError::InvalidEvent)?
+                .into(),
+            body: payload
+                .get("body")
+                .and_then(serde_json::Value::as_str)
+                .ok_or(AgentError::InvalidEvent)?
+                .into(),
+            metadata: NotificationMetadata::default(),
+        })
+    }
+
+    async fn resume(
+        &self,
+        session_id: &AgentSessionId,
+        _text: &str,
+    ) -> Result<ResumeReceipt, AgentError> {
+        Ok(ResumeReceipt {
+            session_id: session_id.clone(),
+        })
+    }
+
+    async fn inspect(&self) -> AgentHealth {
+        AgentHealth::healthy()
+    }
+}
+
+/// 记录观察者：断言 spool 重放事件确实送达回调。
+#[derive(Default)]
+struct RecordingObserver {
+    seen: Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl AgentEventObserver for RecordingObserver {
+    async fn observe(&self, envelope: &AgentEventEnvelope) {
+        self.seen
+            .lock()
+            .expect("观察者记录锁")
+            .push(envelope.request_id.to_string());
+    }
+}
+
+/// 管道即时投递失败的事件会落盘在 spool；周期重放保证运行期就能补送（不必等下次启动）。
+#[tokio::test]
+async fn spool_replay_worker_delivers_events_without_restart() {
+    let Fixture {
+        _temp, mut config, ..
+    } = fixture().await;
+    let spool_dir = _temp.path().join("spool");
+    std::fs::create_dir_all(&spool_dir).unwrap();
+    config.ingress_spool_dir = Some(spool_dir.clone());
+
+    let agent_id = AgentId::new("opencode").unwrap();
+    let mut agents = AgentRegistry::default();
+    agents
+        .register(Arc::new(ReplayAgent {
+            id: agent_id.clone(),
+        }))
+        .unwrap();
+    config.agents = Arc::new(agents);
+    config.notification_policy = NotificationPolicy::default()
+        .with_agent(agent_id.clone(), AgentNotificationConfig::default());
+
+    let observer = Arc::new(RecordingObserver::default());
+    config.agent_event_observer = Some(observer.clone());
+
+    let mut handle = AppRuntime::start(config).await.unwrap();
+
+    // 运行期写入 spool，模拟 ingress 管道投递失败后的落盘事件。
+    let spool =
+        agentnotify_ingress::Spool::open(&spool_dir, agentnotify_ingress::SpoolLimits::default())
+            .unwrap();
+    let envelope = AgentEventEnvelope {
+        request_id: RequestId::new("3f7c2b1a-9d4e-4f6a-8b5c-1e2d3f4a5b6c").unwrap(),
+        agent_id: agent_id.clone(),
+        payload: serde_json::json!({
+            "eventType": "session.completed",
+            "sessionId": "ses_spool_replay",
+            "title": "重放测试",
+            "body": "事件正文",
+            "occurredAt": "2026-09-28T06:00:00Z",
+        }),
+    };
+    spool.write_event(&envelope).unwrap();
+
+    // fixture 的 spool_replay_interval = 5ms：等待周期重放送达观察者。
+    let delivered = tokio::time::timeout(Duration::from_secs(2), async {
+        while observer.seen.lock().expect("观察者锁").is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .is_ok();
+    if !delivered {
+        // 诊断输出：spool 里还剩什么（隔离目录 / 待重放文件）。
+        eprintln!(
+            "DEBUG spool queued={:?}",
+            spool.queued_count().map_err(|e| format!("{e:?}"))
+        );
+        if let Ok(read_dir) = std::fs::read_dir(&spool_dir) {
+            for entry in read_dir.flatten() {
+                eprintln!("DEBUG spool entry: {:?}", entry.path());
+            }
+        }
+        for sub in ["quarantine", "quarantined", "error"] {
+            let dir = spool_dir.join(sub);
+            if !dir.is_dir() {
+                continue;
+            }
+            if let Ok(read_dir) = std::fs::read_dir(&dir) {
+                for entry in read_dir.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(std::ffi::OsStr::to_str) == Some("error") {
+                        eprintln!(
+                            "DEBUG {}: {} => {}",
+                            sub,
+                            path.display(),
+                            std::fs::read_to_string(&path).unwrap_or_default()
+                        );
+                    } else {
+                        eprintln!("DEBUG {}: {}", sub, path.display());
+                    }
+                }
+            }
+        }
+    }
+    assert!(delivered, "spool 周期重放应在超时前送达事件");
+    assert_eq!(
+        observer.seen.lock().expect("观察者锁").as_slice(),
+        ["3f7c2b1a-9d4e-4f6a-8b5c-1e2d3f4a5b6c"]
+    );
+    assert_eq!(spool.queued_count().unwrap(), 0, "重放成功后 spool 应清空");
 
     handle.shutdown().await.unwrap();
 }
