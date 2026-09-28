@@ -15,9 +15,18 @@ use agentnotify_orchestration::{OrcStore, TemplateResolver, Workflow};
 use agentnotify_runtime::AgentEventObserver;
 use agentnotify_storage_sqlite::SqliteStore;
 
-/// 记录型假 driver：记下每次派活（任务/Agent/会话/open），恒成功。
+/// 一次派活的观测（task/agent/session/open），与 orchestration_dispatch.rs 保持同一写法。
+#[derive(Clone, Debug, PartialEq)]
+struct DispatchCall {
+    task_id: String,
+    agent_id: String,
+    session_id: String,
+    open: bool,
+}
+
+/// 记录型假 driver：记下每次派活，恒成功。
 struct FakeDriver {
-    calls: Arc<RwLock<Vec<(String, String, String, bool)>>>,
+    calls: Arc<RwLock<Vec<DispatchCall>>>,
 }
 
 impl FakeDriver {
@@ -27,7 +36,7 @@ impl FakeDriver {
         }
     }
 
-    fn calls(&self) -> Vec<(String, String, String, bool)> {
+    fn calls(&self) -> Vec<DispatchCall> {
         self.calls.read().expect("测试锁").clone()
     }
 }
@@ -42,12 +51,12 @@ impl AgentDriver for FakeDriver {
         _envelope: &str,
         open: bool,
     ) -> Result<(), CommandError> {
-        self.calls.write().expect("测试锁").push((
-            task_id.to_string(),
-            agent_id.to_string(),
-            session_id.to_string(),
+        self.calls.write().expect("测试锁").push(DispatchCall {
+            task_id: task_id.to_string(),
+            agent_id: agent_id.to_string(),
+            session_id: session_id.to_string(),
             open,
-        ));
+        });
         Ok(())
     }
 }
@@ -126,9 +135,12 @@ async fn completed_session_advances_task_and_dispatches_next_step() {
 
     let calls = driver.calls();
     assert_eq!(calls.len(), 2, "开始 + 汇报推进各派活一次：{calls:?}");
-    assert_eq!(calls[1].1, "opencode", "第 2 步建议 Agent 必须是 opencode");
-    assert_eq!(calls[1].2, format!("task-{}-step-2", created.id));
-    assert!(!calls[1].3, "后续步必须续聊同一会话");
+    assert_eq!(
+        calls[1].agent_id, "opencode",
+        "第 2 步建议 Agent 必须是 opencode"
+    );
+    assert_eq!(calls[1].session_id, format!("task-{}-step-2", created.id));
+    assert!(!calls[1].open, "后续步必须续聊同一会话");
 }
 
 /// 非编排会话（普通 OpenCode 会话）完成 → 任务不受影响。
