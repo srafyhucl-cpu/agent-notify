@@ -182,6 +182,7 @@ pub fn runtime_config(database_path: std::path::PathBuf, shared: &SharedAdapters
         worker_idle_delay: std::time::Duration::from_millis(5),
         status_refresh_interval: std::time::Duration::from_millis(5),
         channel_poll_interval: std::time::Duration::from_millis(5),
+        spool_replay_interval: std::time::Duration::from_millis(5),
         inbound_interceptor: None,
         agent_event_observer: None,
     }

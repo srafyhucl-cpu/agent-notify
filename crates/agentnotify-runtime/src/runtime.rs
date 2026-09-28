@@ -32,6 +32,9 @@ const DEFAULT_INBOUND_CAPACITY: usize = 256;
 const DEFAULT_WORKER_IDLE_DELAY: Duration = Duration::from_millis(250);
 const DEFAULT_STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 const DEFAULT_CHANNEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// spool 周期重放间隔：管道即时投递失败的事件会落盘在 spool，仅启动时重放会拖到下次
+/// 重启才补送；周期重放保证运行期也能补（15 秒足够跟上汇报节奏，又不至于空转刷盘）。
+const DEFAULT_SPOOL_REPLAY_INTERVAL: Duration = Duration::from_secs(15);
 const DEFAULT_REPLY_ROUTE_TTL_SECONDS: i64 = 24 * 60 * 60;
 
 struct SnapshotMetadata {
@@ -77,6 +80,8 @@ pub struct RuntimeConfig {
     pub worker_idle_delay: Duration,
     pub status_refresh_interval: Duration,
     pub channel_poll_interval: Duration,
+    /// spool 周期重放间隔（0 表示用默认值；见 [`RuntimeConfig::spool_replay_interval`]）。
+    pub spool_replay_interval: Duration,
     /// 入站消息拦截器（默认无）：有则先在引用回复路由前询问是否消费（见 [`InboundInterceptor`]）。
     pub inbound_interceptor: Option<Arc<dyn InboundInterceptor>>,
     /// Agent 事件观察者（默认无）：事件被接纳后回调（见 [`crate::AgentEventObserver`]），
@@ -160,6 +165,14 @@ impl RuntimeConfig {
             DEFAULT_CHANNEL_POLL_INTERVAL
         } else {
             self.channel_poll_interval
+        }
+    }
+
+    fn spool_replay_interval(&self) -> Duration {
+        if self.spool_replay_interval.is_zero() {
+            DEFAULT_SPOOL_REPLAY_INTERVAL
+        } else {
+            self.spool_replay_interval
         }
     }
 }
@@ -360,6 +373,21 @@ impl AppRuntime {
                     ingest.clone(),
                     config.agent_event_observer.clone(),
                     ingress_cancel,
+                ),
+            ));
+        }
+
+        // spool 周期重放：管道即时投递失败的事件落盘后可被运行期补送（不必等下次启动）。
+        if config.ingress_spool_dir.is_some() {
+            let replay_cancel = cancel_receiver.clone();
+            tasks.push(supervisor.clone().spawn_component(
+                "ingress.spool_replay",
+                crate::ingress::run_spool_replay(
+                    config.ingress_spool_dir.clone(),
+                    ingest.clone(),
+                    config.agent_event_observer.clone(),
+                    replay_cancel,
+                    config.spool_replay_interval(),
                 ),
             ));
         }
