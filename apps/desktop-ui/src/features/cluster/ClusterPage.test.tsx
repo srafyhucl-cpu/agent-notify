@@ -122,8 +122,9 @@ describe("ClusterPage 任务详情与发指令", () => {
       screen.getByRole("heading", { name: "把登录流程加入重试机制" }),
     ).toBeVisible();
     expect(within(detail).getByText("当前步骤")).toBeVisible();
-    expect(within(detail).getByText("第 2 步")).toBeVisible();
+    expect(within(detail).getAllByText("第 2 步").length).toBeGreaterThan(0);
     expect(within(detail).getByText("只推最终汇报")).toBeVisible();
+    expect(within(detail).getByText("工作流节点")).toBeVisible();
     expect(within(detail).getByText("推进任务")).toBeVisible();
 
     for (const label of ["发指令", "确认完成", "汇报", "提问", "补充信息"]) {
@@ -307,5 +308,50 @@ describe("ClusterPage 创建任务", () => {
       "任务创建失败：预置工作流不可用。",
     );
     expect(screen.getByLabelText("目标")).toHaveValue("会失败的任务");
+  });
+});
+
+const pendingTask = orcTaskFixture("task-pending", {
+  goal: "待开始的贪吃蛇",
+  state: "working",
+  currentStep: 1,
+  started: false,
+});
+
+describe("ClusterPage 工作流预览与开始执行", () => {
+  it("创建表单展示工作流节点（每步角色与派给谁）", async () => {
+    const bridge = fixturedBridge();
+    renderWithQuery(bridge);
+
+    const preview = await screen.findByLabelText("工作流节点预览");
+    expect(
+      within(preview).getByText("需求→判断→规划→实施（3 步）"),
+    ).toBeVisible();
+    expect(within(preview).getByText("初步判断")).toBeVisible();
+    expect(within(preview).getByText("规划整理")).toBeVisible();
+    expect(within(preview).getByText("实施")).toBeVisible();
+    expect(within(preview).getByText("codex")).toBeVisible();
+    expect(within(preview).getByText("opencode")).toBeVisible();
+    expect(within(preview).getByText("commandcode")).toBeVisible();
+  });
+
+  it("待开始任务显示「开始执行」并调用 start_orc_task；开始后转入推进操作", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge([pendingTask]);
+    renderWithQuery(bridge);
+
+    const detail = await screen.findByRole("article", { name: "任务详情" });
+    expect(within(detail).getByText("任务待开始")).toBeVisible();
+
+    await user.click(within(detail).getByRole("button", { name: "开始执行" }));
+
+    await waitFor(() => {
+      expect(bridge.calls("start_orc_task")).toHaveLength(1);
+    });
+    // mock 将 started 置 true，mutation 失效重查后转为推进操作。
+    await waitFor(() => {
+      expect(within(detail).getByText("推进任务")).toBeVisible();
+    });
+    expect(within(detail).queryByText("任务待开始")).toBeNull();
   });
 });

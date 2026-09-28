@@ -14,7 +14,7 @@ use agentnotify_channel_sdk::{
 };
 use agentnotify_desktop::bridge::dto::{
     AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload, OrcMessageKindDto,
-    OrcTaskStateDto,
+    OrcTaskIdPayload, OrcTaskStateDto,
 };
 use agentnotify_desktop::production::WechatOrcRouter;
 use agentnotify_desktop::production::service::OrcCommandHandler;
@@ -159,14 +159,21 @@ fn inbound(text: &str) -> InboundMessage {
 }
 
 async fn create_task(creator: &OrcCommandHandler) -> String {
-    creator
+    let created = creator
         .create(CreateOrcTaskPayload {
             goal: "做一个贪吃蛇游戏".into(),
             notify_mode: None,
         })
         .await
-        .expect("创建任务必须成功")
-        .id
+        .expect("创建任务必须成功");
+    // 本文件验证微信指令路由：任务先经「开始执行」（模拟用户在 UI 确认）再接受指令。
+    creator
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    created.id
 }
 
 fn sent_texts(sent: &Arc<Mutex<Vec<OutboundMessage>>>) -> Vec<String> {

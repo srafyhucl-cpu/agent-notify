@@ -122,6 +122,14 @@ async fn final_only_pushes_only_the_final_report() {
         .expect("创建任务必须成功");
     let task_id = created.id.clone();
 
+    // 人工确认开始（「待开始」任务不接受推进；本测试关注呈现，未注入 driver 不派活）。
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+
     // 第 1/2 步推进：final_only 不推（仅落库）
     handler
         .advance(report(&task_id))
@@ -174,6 +182,14 @@ async fn verbose_pushes_every_step_progress() {
         .await
         .expect("创建任务必须成功");
     let task_id = created.id.clone();
+
+    // 人工确认开始（「待开始」任务不接受推进；本测试关注呈现，未注入 driver 不派活）。
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
 
     for _ in 0..3 {
         handler
@@ -238,6 +254,14 @@ async fn final_only_pushes_gate_wait_and_confirm() {
         .await
         .expect("创建任务必须成功");
     let task_id = created.id.clone();
+
+    // 人工确认开始（「待开始」任务不接受推进；本测试关注呈现，未注入 driver 不派活）。
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
 
     // 前 3 步无确认门：final_only 不推
     for _ in 0..3 {

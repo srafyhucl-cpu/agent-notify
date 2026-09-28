@@ -44,6 +44,20 @@ export const ORC_NOTIFY_MODE_LABELS: Record<string, string> = {
   verbose: "逐步流转",
 };
 
+/** 工作流节点角色 → 中文说明（§3.1.1：每步做什么，便于创建前预览）。 */
+export const ORC_ROLE_LABELS: Record<string, string> = {
+  orchestrator: "初步判断",
+  planner: "规划整理",
+  executor: "实施",
+  reviewer: "复核汇总",
+};
+
+/** 节点 Agent 显示名（空 = 不派活，仅人工推进）。 */
+export function orcAgentLabel(agentHint: string | null | undefined): string {
+  const hint = agentHint?.trim();
+  return hint ? hint : "（未指定，人工推进）";
+}
+
 /** 创建任务表单的通知节奏选项。 */
 export const ORC_NOTIFY_MODE_OPTIONS: ReadonlyArray<{
   value: string;

@@ -32,6 +32,8 @@ pub enum BusinessCommand {
     AdvanceOrcTask,
     MarkBlockedOrcTask,
     RecoverBlockedOrcTask,
+    StartOrcTask,
+    GetCurrentOrcWorkflow,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -153,6 +155,10 @@ pub struct OrcTaskDto {
     pub workflow_id: String,
     pub state: OrcTaskStateDto,
     pub current_step: u32,
+    /// 是否已开始执行（创建后默认 false；人工确认「开始执行」后置 true 并派活第 1 步）。
+    pub started: bool,
+    /// 该任务所属工作流的节点列表（供详情页展示每步角色与派给谁）。
+    pub workflow: OrcWorkflowDto,
     /// 被卡住的步骤（未阻塞为 None）
     pub blocked_step: Option<u32>,
     /// 阻塞原因（未阻塞为 None；写清哪步失败/谁不可用/未送达）
@@ -160,6 +166,35 @@ pub struct OrcTaskDto {
     /// 通知节奏：final_only / verbose（§4.6）
     pub notify_mode: String,
     pub goal: String,
+}
+
+/// 编排工作流视图（预置工作流或其用户配置）：节点列表供 UI 预览「每步做什么、派给谁」。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcWorkflowDto {
+    pub id: String,
+    pub name: String,
+    pub steps: Vec<OrcWorkflowStepDto>,
+}
+
+/// 工作流单个节点：角色、建议 Agent 与人工确认门。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcWorkflowStepDto {
+    pub order: u32,
+    /// 角色（orchestrator / planner / executor / reviewer）——中文说明由前端映射。
+    pub role: String,
+    /// 建议 Agent（可为空：留空时该步不派活，仅等待人工推进）。
+    pub agent_hint: Option<String>,
+    /// 是否需人确认才进入下一步。
+    pub human_gate: bool,
+}
+
+/// 当前编排工作流（供创建任务前预览节点）。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentOrcWorkflowDto {
+    pub workflow: OrcWorkflowDto,
 }
 
 /// 创建编排任务：`notify_mode` 缺省为 final_only（只推最终汇报，默认）。

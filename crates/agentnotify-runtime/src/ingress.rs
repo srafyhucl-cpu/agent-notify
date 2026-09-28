@@ -3,7 +3,7 @@ use std::{path::Path, sync::Arc, time::Duration};
 use agentnotify_application::{IngestError, IngestService};
 use agentnotify_ingress::{Spool, SpoolLimits};
 
-use crate::RuntimeError;
+use crate::{RuntimeError, SharedAgentEventObserver, observer::notify_observer};
 
 const DRAIN_BATCH_SIZE: usize = 100;
 const SPOOL_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -11,6 +11,7 @@ const SPOOL_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 pub(crate) async fn drain_before_start(
     spool_dir: Option<&Path>,
     ingest: Arc<IngestService>,
+    observer: Option<SharedAgentEventObserver>,
 ) -> Result<(), RuntimeError> {
     let Some(spool_dir) = spool_dir else {
         return Ok(());
@@ -38,6 +39,7 @@ pub(crate) async fn drain_before_start(
                 }
                 Ok(envelope) => match ingest.ingest(envelope.clone()).await {
                     Ok(_) => {
+                        notify_observer(observer.as_ref(), envelope).await;
                         spool.ack(&entry).map_err(RuntimeError::from)?;
                     }
                     Err(error) if permanent_ingest_error(&error) => {

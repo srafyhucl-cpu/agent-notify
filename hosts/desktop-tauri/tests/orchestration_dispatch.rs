@@ -5,7 +5,8 @@
 use std::sync::{Arc, RwLock};
 
 use agentnotify_desktop::bridge::dto::{
-    AdvanceOrcTaskPayload, CreateOrcTaskPayload, OrcMessageKindDto, OrcTaskStateDto,
+    AdvanceOrcTaskPayload, CreateOrcTaskPayload, OrcMessageKindDto, OrcTaskIdPayload,
+    OrcTaskStateDto,
 };
 use agentnotify_desktop::bridge::error::CommandError;
 use agentnotify_desktop::production::agent_driver::AgentDriver;
@@ -104,17 +105,29 @@ async fn create_task(handler: &OrcCommandHandler) -> String {
     created.id
 }
 
-/// create 即派活第 1 步：agent_hint=codex、open=true（新会话）、会话 id 稳定、信封含目标与步数。
+/// start 派活第 1 步：agent_hint=codex、open=true（新会话）、会话 id 稳定、信封含目标与步数；
+/// 创建任务本身不派活（先「待开始」，人工确认后 start）。
 #[tokio::test]
-async fn create_dispatches_first_step_with_open_session() {
+async fn start_dispatches_first_step_with_open_session() {
     let (_root, store) = open_sqlite("agentnotify-orc-dispatch-create-");
     let driver = Arc::new(FakeDriver::new());
     let handler = dispatched_handler(&store, driver.clone());
 
     let task_id = create_task(&handler).await;
+    assert!(
+        driver.calls().is_empty(),
+        "创建任务不得立即派活（需人工点「开始执行」）"
+    );
+
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
 
     let calls = driver.calls();
-    assert_eq!(calls.len(), 1, "创建任务必须派活一次：{calls:?}");
+    assert_eq!(calls.len(), 1, "开始执行必须派活一次：{calls:?}");
     let call = &calls[0];
     assert_eq!(call.task_id, task_id);
     assert_eq!(call.agent_id, "codex", "第 1 步建议 Agent 必须是 codex");
@@ -134,6 +147,12 @@ async fn advance_dispatches_next_step_with_resume() {
 
     let task_id = create_task(&handler).await;
     handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    handler
         .advance(AdvanceOrcTaskPayload {
             task_id: task_id.clone(),
             kind: OrcMessageKindDto::Report,
@@ -142,7 +161,7 @@ async fn advance_dispatches_next_step_with_resume() {
         .expect("推进任务必须成功");
 
     let calls = driver.calls();
-    assert_eq!(calls.len(), 2, "创建 + 推进各派活一次：{calls:?}");
+    assert_eq!(calls.len(), 2, "开始 + 推进各派活一次：{calls:?}");
     let advanced = &calls[1];
     assert_eq!(advanced.task_id, task_id);
     assert_eq!(
@@ -167,9 +186,15 @@ async fn dispatch_failure_blocks_task_with_clear_reason() {
     let driver = Arc::new(FakeDriver::new());
     let handler = dispatched_handler(&store, driver.clone());
 
-    // 先创建成功（Step 1 派活正常），再让后续派活失败。
+    // 先开始执行成功（Step 1 派活正常），再让后续派活失败。
     let task_id = create_task(&handler).await;
-    assert_eq!(driver.calls().len(), 1, "创建任务必须已派活 Step 1");
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    assert_eq!(driver.calls().len(), 1, "开始执行必须已派活 Step 1");
     driver.fail_with("OpenCode 插件未连接，请启动 OpenCode 后重试");
 
     // 推进本身成功（派活失败不改变已落库的推进结果）：第 1 步汇报 → 第 2 步。
@@ -224,6 +249,12 @@ async fn missing_agent_hint_blocks_task_with_clear_reason() {
 
     let task_id = create_task(&handler).await;
     handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    handler
         .advance(AdvanceOrcTaskPayload {
             task_id: task_id.clone(),
             kind: OrcMessageKindDto::Report,
@@ -262,7 +293,14 @@ async fn no_driver_keeps_original_advance_behavior() {
         .await
         .expect("创建任务必须成功");
     assert_eq!(created.state, OrcTaskStateDto::Working);
+    assert!(!created.started, "新建任务必须是「待开始」");
 
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
     let advanced = handler
         .advance(AdvanceOrcTaskPayload {
             task_id: created.id,
@@ -284,6 +322,12 @@ async fn back_to_work_re_dispatches_stable_session() {
 
     let task_id = create_task(&handler).await;
     handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    handler
         .advance(AdvanceOrcTaskPayload {
             task_id: task_id.clone(),
             kind: OrcMessageKindDto::Report,
@@ -302,7 +346,7 @@ async fn back_to_work_re_dispatches_stable_session() {
     assert_eq!(
         calls.len(),
         3,
-        "创建 + 推进 + 回到本步各派活一次：{calls:?}"
+        "开始 + 推进 + 回到本步各派活一次：{calls:?}"
     );
     let first_step2 = calls[1].clone();
     let reworked = &calls[2];
@@ -344,8 +388,16 @@ async fn envelope_rendering_feeds_dispatch_text() {
         .expect("创建任务必须成功")
         .id;
 
+    assert!(driver.calls().is_empty(), "创建任务不得立即派活");
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+
     let calls = driver.calls();
-    assert_eq!(calls.len(), 1, "创建任务必须派活一次");
+    assert_eq!(calls.len(), 1, "开始执行必须派活一次");
     let call = &calls[0];
     assert_eq!(call.task_id, task_id);
     assert!(
