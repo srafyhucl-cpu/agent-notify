@@ -13,7 +13,9 @@ use agentnotify_desktop::production::agent_driver::{AgentDriver, DispatchOptions
 use agentnotify_desktop::production::orc_handler::OrcCommandHandler;
 use agentnotify_desktop::production::settings::ProductionSettingsStore;
 use agentnotify_domain::{AgentId, AgentSessionId};
-use agentnotify_orchestration::{OrcStore, TemplateResolver, Workflow, WorkflowStep};
+use agentnotify_orchestration::{
+    OrcStore, OrcTaskRepository, TemplateResolver, Workflow, WorkflowStep,
+};
 use agentnotify_storage_sqlite::SqliteStore;
 
 /// 旧预设 id：静态测试沿用该工作流（任务级解析时沿用装配工作流）。
@@ -137,32 +139,39 @@ async fn create_task(handler: &OrcCommandHandler, dir: &str) -> String {
     created.id
 }
 
-/// 动态模式的模板节点配置：把模板全部节点配成同一 Agent。
-async fn configure_all_steps(handler: &OrcCommandHandler, template_id: &str, agent: &str) {
-    let templates = handler
-        .list_orc_templates()
-        .await
-        .expect("列出模板必须成功");
-    let template = templates
+/// 覆盖「快速修复」模板的节点配置（order/agent/model 逐项指定，覆盖全部步骤）。
+async fn save_quickfix_config(
+    handler: &OrcCommandHandler,
+    steps_config: &[(u32, Option<&str>, Option<&str>)],
+) {
+    let steps = steps_config
         .iter()
-        .find(|template| template.id == template_id)
-        .expect("模板必须存在");
-    let steps = template
-        .steps
-        .iter()
-        .map(|step| OrcTemplateStepConfigDto {
-            order: step.order,
-            agent: Some(agent.into()),
-            model: None,
+        .map(|(order, agent, model)| OrcTemplateStepConfigDto {
+            order: *order,
+            agent: agent.map(str::to_string),
+            model: model.map(str::to_string),
         })
         .collect();
     handler
         .save_orc_template_config(SaveOrcTemplateConfigPayload {
-            template_id: template_id.into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
             steps,
         })
         .await
         .expect("保存节点配置必须成功");
+}
+
+/// 清掉任务步骤快照（模拟升级前的旧任务，走实时合并路径）。
+async fn clear_task_snapshot(store: &Arc<SqliteStore>, task_id: &str) {
+    let repository: Arc<dyn OrcTaskRepository> = store.clone();
+    let mut task = OrcStore::fetch_task(&repository, task_id)
+        .await
+        .expect("任务必须存在");
+    task.set_steps_snapshot(&[]).expect("清除快照必须成功");
+    repository
+        .save_task(&task.a2a_task)
+        .await
+        .expect("保存任务必须成功");
 }
 
 /// start 派活第 1 步：agent_hint=codex、open=true（新会话）、会话 id 稳定、信封含目标与步数；
@@ -375,17 +384,25 @@ async fn dispatch_failure_blocks_task_with_clear_reason() {
     assert!(reason.contains("Step 2"), "必须写清哪一步失败：{reason}");
 }
 
-/// 配置被清空后派活该步：明确错误 + blocked（dispatch 侧兜底，不猜测）。
+/// start 时锁定节点配置（§3）：start 后清空/修改 node_config，后续派活仍用快照的 agent/model，
+/// 且配置变化不再拦截已开始任务的推进。
 #[tokio::test]
-async fn missing_agent_config_blocks_task_with_clear_reason() {
-    let (_root, store) = open_sqlite("agentnotify-orc-dispatch-nohint-");
+async fn start_snapshots_config_and_ignores_later_changes() {
+    let (_root, store) = open_sqlite("agentnotify-orc-dispatch-snapshot-");
     let driver = Arc::new(FakeDriver::new());
     let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
-    configure_all_steps(&handler, TEMPLATE_QUICKFIX, "opencode").await;
+    save_quickfix_config(
+        &handler,
+        &[
+            (1, Some("opencode"), Some("anthropic/claude-sonnet-4-5")),
+            (2, Some("codex"), None),
+        ],
+    )
+    .await;
 
     let created = handler
         .create(CreateOrcTaskPayload {
-            goal: "缺配置的任务".into(),
+            goal: "快照任务".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
             working_dir: working_dir(&_root),
             notify_mode: None,
@@ -399,7 +416,7 @@ async fn missing_agent_config_blocks_task_with_clear_reason() {
         .await
         .expect("开始执行必须成功");
 
-    // 清空模板节点配置（模拟用户改配置）：第 2 步派活时兜底为明确 blocked。
+    // start 后清空节点配置（模拟用户在设置页改配置）：快照必须仍然生效。
     handler
         .save_orc_template_config(SaveOrcTemplateConfigPayload {
             template_id: TEMPLATE_QUICKFIX.into(),
@@ -418,6 +435,181 @@ async fn missing_agent_config_blocks_task_with_clear_reason() {
         })
         .await
         .expect("清空节点配置必须成功");
+
+    handler
+        .advance(AdvanceOrcTaskPayload {
+            task_id: created.id.clone(),
+            kind: OrcMessageKindDto::Report,
+        })
+        .await
+        .expect("推进必须成功");
+
+    let calls = driver.calls();
+    assert_eq!(calls.len(), 2, "开始 + 推进各派活一次：{calls:?}");
+    assert_eq!(
+        calls[0].agent_id, "opencode",
+        "第 1 步必须用 start 时快照的 Agent"
+    );
+    assert_eq!(
+        calls[0].options.model.as_deref(),
+        Some("anthropic/claude-sonnet-4-5"),
+        "第 1 步必须用 start 时快照的模型"
+    );
+    assert_eq!(
+        calls[1].agent_id, "codex",
+        "第 2 步必须用快照 Agent，而不是被清空的实时配置"
+    );
+    assert_eq!(calls[1].options.model, None, "快照未配置模型 = 默认模型");
+
+    let tasks = handler.list().await.expect("列出任务必须成功");
+    let task = tasks.iter().find(|task| task.id == created.id).unwrap();
+    assert_eq!(
+        task.state,
+        OrcTaskStateDto::Working,
+        "配置清空不得阻塞已开始任务"
+    );
+    assert_eq!(task.current_step, 2);
+    assert_eq!(
+        task.workflow.steps[1].agent_hint.as_deref(),
+        Some("codex"),
+        "DTO 节点展示必须用快照"
+    );
+}
+
+/// start 之前改配置仍生效：快照发生在 start 时刻，取当时的合并结果。
+#[tokio::test]
+async fn config_change_before_start_applies_to_snapshot() {
+    let (_root, store) = open_sqlite("agentnotify-orc-dispatch-presnapshot-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+    save_quickfix_config(
+        &handler,
+        &[(1, Some("codex"), None), (2, Some("codex"), None)],
+    )
+    .await;
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            goal: "start 前改配置".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
+
+    // start 前改成 opencode + 模型：start 后的派活必须用新配置。
+    save_quickfix_config(
+        &handler,
+        &[
+            (1, Some("opencode"), Some("anthropic/claude-sonnet-4-5")),
+            (2, Some("opencode"), None),
+        ],
+    )
+    .await;
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+
+    let calls = driver.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].agent_id, "opencode", "快照必须取 start 时刻的配置");
+    assert_eq!(
+        calls[0].options.model.as_deref(),
+        Some("anthropic/claude-sonnet-4-5")
+    );
+}
+
+/// 无快照（旧任务）继续走实时合并：清掉快照后运行期配置变化照旧生效。
+#[tokio::test]
+async fn task_without_snapshot_uses_live_node_config() {
+    let (_root, store) = open_sqlite("agentnotify-orc-dispatch-live-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+    save_quickfix_config(
+        &handler,
+        &[(1, Some("opencode"), None), (2, Some("codex"), None)],
+    )
+    .await;
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            goal: "旧任务实时合并".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+
+    // 模拟旧任务（升级前已开始）：清掉步骤快照。
+    clear_task_snapshot(&store, &created.id).await;
+
+    // 实时配置改为 opencode + 模型：无快照任务必须采用它。
+    save_quickfix_config(
+        &handler,
+        &[
+            (1, Some("opencode"), None),
+            (2, Some("opencode"), Some("anthropic/claude-sonnet-4-5")),
+        ],
+    )
+    .await;
+    handler
+        .advance(AdvanceOrcTaskPayload {
+            task_id: created.id.clone(),
+            kind: OrcMessageKindDto::Report,
+        })
+        .await
+        .expect("推进必须成功");
+
+    let calls = driver.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[1].agent_id, "opencode", "无快照任务必须实时合并");
+    assert_eq!(
+        calls[1].options.model.as_deref(),
+        Some("anthropic/claude-sonnet-4-5")
+    );
+}
+
+/// 无快照 + 实时配置也没 Agent：dispatch 侧兜底明确 blocked（防御路径，不猜测）。
+#[tokio::test]
+async fn task_without_snapshot_and_cleared_config_blocks_on_dispatch() {
+    let (_root, store) = open_sqlite("agentnotify-orc-dispatch-live-missing-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+    save_quickfix_config(
+        &handler,
+        &[(1, Some("opencode"), None), (2, Some("codex"), None)],
+    )
+    .await;
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            goal: "无快照缺配置".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    clear_task_snapshot(&store, &created.id).await;
+    save_quickfix_config(&handler, &[(1, None, None), (2, None, None)]).await;
+
     handler
         .advance(AdvanceOrcTaskPayload {
             task_id: created.id.clone(),
@@ -427,18 +619,12 @@ async fn missing_agent_config_blocks_task_with_clear_reason() {
         .expect("推进必须成功");
 
     let tasks = handler.list().await.expect("列出任务必须成功");
-    let task = tasks
-        .iter()
-        .find(|task| task.id == created.id)
-        .expect("任务必须还在");
+    let task = tasks.iter().find(|task| task.id == created.id).unwrap();
     assert_eq!(task.state, OrcTaskStateDto::Failed);
     assert_eq!(task.blocked_step, Some(2));
     let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
-    assert!(
-        reason.contains("未配置 Agent"),
-        "必须写清未配置 Agent：{reason}"
-    );
-    assert!(reason.contains("Step 2"), "必须写清哪一步：{reason}");
+    assert!(reason.contains("未配置 Agent"), "{reason}");
+    assert!(reason.contains("Step 2"), "{reason}");
 }
 
 /// 不注入 driver（new / with_presenter）：原有行为零变化——推进 + 呈现，不派活。

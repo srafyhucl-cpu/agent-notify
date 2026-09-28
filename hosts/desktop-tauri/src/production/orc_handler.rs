@@ -24,7 +24,8 @@ use agentnotify_storage_sqlite::SqliteStore;
 
 use super::agent_driver::{AgentDriver, DispatchOptions};
 use super::orc_node_config::{
-    NodeConfig, missing_agent_step, template_dtos, validate_template_steps,
+    NodeConfig, apply_steps_snapshot, missing_agent_step, steps_snapshot_of, template_dtos,
+    validate_template_steps,
 };
 use super::orc_notify::{
     OrcClusterPresenter, failure_body, finalizing_body, progress_body, render_cluster_message,
@@ -209,16 +210,33 @@ impl OrcCommandHandler {
         Ok(sqlite.clone())
     }
 
-    /// 任务级解析（§2/§3）：取任务 → 按 `workflow_id` 解析工作流 → 合并节点配置 → 绑定仓储。
+    /// 任务级解析（§2/§3）：取任务 → 按 `workflow_id` 解析工作流 →（优先）任务快照 /
+    /// （无快照）实时合并节点配置 → 绑定仓储。
+    ///
+    /// 快照锁定（§3「改配置不影响已创建任务」）：`start` 已快照的任务此后一律用快照，
+    /// 运行期改 `orchestration.node_config` 不再影响它；未开始/旧任务无快照 = 实时合并（兼容）。
     async fn task_store(&self, task_id: &str) -> Result<(OrcStore, OrcTask), CommandError> {
         let repository = self.repository().await?;
         let task = OrcStore::fetch_task(&repository, task_id)
             .await
             .map_err(orc_error)?;
         let workflow = self.resolve_task_workflow(&task.workflow_id().map_err(orc_error)?)?;
-        let node_config = self.node_config().await;
-        let merged = node_config.merge_workflow(&workflow);
-        Ok((OrcStore::with_repository(merged, repository), task))
+        let effective = self.effective_workflow(&task, &workflow).await?;
+        Ok((OrcStore::with_repository(effective, repository), task))
+    }
+
+    /// 任务生效工作流：有步骤快照（start 已锁定）→ 快照覆盖；否则实时合并节点配置。
+    async fn effective_workflow(
+        &self,
+        task: &OrcTask,
+        workflow: &Workflow,
+    ) -> Result<Workflow, CommandError> {
+        if let Some(snapshot) = task.steps_snapshot().map_err(orc_error)? {
+            if !snapshot.is_empty() {
+                return Ok(apply_steps_snapshot(workflow, &snapshot));
+            }
+        }
+        Ok(self.node_config().await.merge_workflow(workflow))
     }
 
     /// 按任务记录的工作流 id 解析工作流（旧预设 id 兼容）：
@@ -337,9 +355,9 @@ impl OrcCommandHandler {
     }
 
     /// 开始执行（人工确认后）：预检全部节点 Agent 已配置、工作目录仍存在，
-    /// 然后标记为已开始并派活第 1 步（§3.1）。
+    /// **把合并后的步骤配置快照进任务**（此后改设置不影响该任务），然后标记已开始并派活第 1 步（§3.1）。
     ///
-    /// 预检失败 → 明确报错且任务保持「待开始」；已开始的任务再调 → 明确错误。
+    /// 预检失败 → 明确报错且任务保持「待开始」（不写快照）；已开始的任务再调 → 明确错误。
     pub async fn start(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError> {
         let (store, mut task) = self.task_store(&payload.task_id).await?;
         if task.is_started().map_err(orc_error)? {
@@ -364,6 +382,10 @@ impl OrcCommandHandler {
                 ));
             }
         }
+        // 锁定运行期配置（§3）：快照 = 此刻实时合并后的步骤 Agent/模型；
+        // 此后 dispatch/校验/DTO 展示优先用快照，设置页改动不再影响本任务。
+        let snapshot = steps_snapshot_of(store.workflow());
+        task.set_steps_snapshot(&snapshot).map_err(orc_error)?;
         task.mark_started().map_err(orc_error)?;
         store.save(task.clone()).await.map_err(orc_error)?;
         // 开始即派活第 1 步（新会话开工，open=true）：失败只标记 blocked（§4.6 不自动重推）
@@ -390,8 +412,14 @@ impl OrcCommandHandler {
         for raw in tasks {
             let task = OrcTask::from_a2a(raw).map_err(orc_error)?;
             let workflow = self.resolve_task_workflow(&task.workflow_id().map_err(orc_error)?)?;
-            let merged = node_config.merge_workflow(&workflow);
-            result.push(orc_task_to_dto(&task, &merged)?);
+            // 有快照（start 已锁定）→ 快照；无快照（未开始/旧任务）→ 实时合并。
+            let effective = match task.steps_snapshot().map_err(orc_error)? {
+                Some(snapshot) if !snapshot.is_empty() => {
+                    apply_steps_snapshot(&workflow, &snapshot)
+                }
+                _ => node_config.merge_workflow(&workflow),
+            };
+            result.push(orc_task_to_dto(&task, &effective)?);
         }
         Ok(result)
     }

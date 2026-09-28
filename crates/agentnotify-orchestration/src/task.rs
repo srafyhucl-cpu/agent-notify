@@ -56,6 +56,11 @@ pub struct OrcMeta {
     /// 任务工作目录（OpenCode 会话创建位置）。旧任务缺省 = 跟随宿主当前项目。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+    /// 任务开始执行时的步骤配置快照（§3「改配置不影响已创建任务」）：
+    /// `start` 预检通过后写入；此后派活/校验/DTO 节点展示优先用快照。
+    /// 旧任务/未开始任务缺省 None = 实时合并节点配置（向后兼容）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps_snapshot: Option<Vec<StepConfigSnapshot>>,
     /// 各步骤产出正文（回流汇总给首节点用，见 [`record_step_report`] 的双重截断）。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub step_reports: Vec<StepReport>,
@@ -72,6 +77,23 @@ pub struct StepReport {
     pub step: u32,
     /// 产出正文（已按上限截断）
     pub body: String,
+}
+
+/// 步骤配置快照（`start` 时锁定，§3「改配置不影响已创建任务」）。
+///
+/// `agent` 必为已配置的非空 Agent id（`start` 预检保证）；`model` 可选（None = 该 Agent 默认模型）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepConfigSnapshot {
+    /// 步骤序号（与工作流步骤一一对应）
+    pub order: u32,
+    /// 任务内角色（展示/校验用；模板固定角色的副本）
+    pub role: String,
+    /// 该步 Agent（非空）
+    pub agent: String,
+    /// 该步模型（`provider/model`；None = 该 Agent 默认模型）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// 单步产出记录上限（字符数；超出截断并标注「…（已截断）」）。
@@ -138,6 +160,7 @@ impl OrcTask {
             goal: goal.to_string(),
             started: false,
             working_dir: None,
+            steps_snapshot: None,
             step_reports: Vec::new(),
             final_report_pending: false,
         };
@@ -256,6 +279,22 @@ impl OrcTask {
             None
         } else {
             Some(trimmed.to_string())
+        };
+        self.put_meta(&meta)
+    }
+
+    /// 步骤配置快照（start 时锁定；未快照的旧任务/未开始任务为 None = 实时合并）。
+    pub fn steps_snapshot(&self) -> Result<Option<Vec<StepConfigSnapshot>>, OrcError> {
+        Ok(self.meta()?.steps_snapshot)
+    }
+
+    /// 写入步骤配置快照（start 预检通过后写入）；空切片 = 清除快照（回退实时合并）。
+    pub fn set_steps_snapshot(&mut self, snapshot: &[StepConfigSnapshot]) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.steps_snapshot = if snapshot.is_empty() {
+            None
+        } else {
+            Some(snapshot.to_vec())
         };
         self.put_meta(&meta)
     }

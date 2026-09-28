@@ -27,8 +27,8 @@ pub use error::{OrcError, OrcErrorCode, OrcRepositoryError};
 pub use step_machine::{MessageKind, StepOutcome, StepState, TransitionAction, transition};
 pub use store::{InMemoryOrcTaskRepository, OrcStore, OrcTaskRepository};
 pub use task::{
-    NotifyMode, ORC_STEP_REPORT_LIMIT, ORC_STEP_REPORTS_TOTAL_LIMIT, OrcMeta, OrcTask, StepReport,
-    continue_message, new_session_message,
+    NotifyMode, ORC_STEP_REPORT_LIMIT, ORC_STEP_REPORTS_TOTAL_LIMIT, OrcMeta, OrcTask,
+    StepConfigSnapshot, StepReport, continue_message, new_session_message,
 };
 pub use template::{
     KNOWN_PLACEHOLDERS, RenderedEnvelope, ResolvedTemplate, TemplateLoadResult, TemplateResolver,

@@ -255,3 +255,52 @@ fn final_report_pending_roundtrip() {
     task.set_final_report_pending(false).unwrap();
     assert!(!task.is_finalizing().unwrap());
 }
+
+/// 步骤配置快照：新建默认 None；写入/清除往返；旧 meta（无该字段）解析为 None。
+#[test]
+fn steps_snapshot_roundtrip_and_legacy_compat() {
+    use agentnotify_orchestration::StepConfigSnapshot;
+
+    let wf = Workflow::preset(false).unwrap();
+    let mut task = OrcTask::new(&wf, "目标", NotifyMode::FinalOnly).unwrap();
+    assert_eq!(task.steps_snapshot().unwrap(), None, "新建任务未锁定配置");
+
+    let snapshot = vec![
+        StepConfigSnapshot {
+            order: 1,
+            role: "orchestrator".to_string(),
+            agent: "opencode".to_string(),
+            model: Some("anthropic/claude-sonnet-4-5".to_string()),
+        },
+        StepConfigSnapshot {
+            order: 2,
+            role: "planner".to_string(),
+            agent: "codex".to_string(),
+            model: None,
+        },
+    ];
+    task.set_steps_snapshot(&snapshot).unwrap();
+    let restored = OrcTask::from_a2a(task.a2a_task.clone()).unwrap();
+    assert_eq!(restored.steps_snapshot().unwrap(), Some(snapshot.clone()));
+    let json = serde_json::to_string(&restored.a2a_task).unwrap();
+    assert!(json.contains("\"stepsSnapshot\""), "{json}");
+
+    // 空切片 = 清除快照（回退实时合并）。
+    let mut cleared = restored;
+    cleared.set_steps_snapshot(&[]).unwrap();
+    assert_eq!(cleared.steps_snapshot().unwrap(), None);
+    let json = serde_json::to_string(&cleared.a2a_task).unwrap();
+    assert!(!json.contains("stepsSnapshot"), "清除后不落盘：{json}");
+
+    // 旧任务 meta（无 stepsSnapshot 字段）仍可解析：None = 实时合并。
+    let mut legacy = task.a2a_task.clone();
+    let meta = legacy
+        .metadata
+        .as_mut()
+        .and_then(|value| value.get_mut("orc"))
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap();
+    meta.remove("stepsSnapshot");
+    let restored = OrcTask::from_a2a(legacy).unwrap();
+    assert_eq!(restored.steps_snapshot().unwrap(), None);
+}

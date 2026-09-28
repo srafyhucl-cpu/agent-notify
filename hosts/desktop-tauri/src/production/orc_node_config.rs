@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use agentnotify_orchestration::{TEMPLATE_IDS, Workflow};
+use agentnotify_orchestration::{StepConfigSnapshot, TEMPLATE_IDS, Workflow};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -219,6 +219,47 @@ pub fn missing_agent_step(workflow: &Workflow) -> Option<u32> {
         .map(|step| step.order)
 }
 
+/// 任务开始时的步骤配置快照（§3）：`agent` 必为预检后的非空 Agent；空 model = 默认模型。
+pub fn steps_snapshot_of(workflow: &Workflow) -> Vec<StepConfigSnapshot> {
+    workflow
+        .steps
+        .iter()
+        .map(|step| StepConfigSnapshot {
+            order: step.order,
+            role: step.role.clone(),
+            agent: trimmed_nonempty(step.agent_hint.as_deref()).unwrap_or_default(),
+            model: trimmed_nonempty(step.model.as_deref()),
+        })
+        .collect()
+}
+
+/// 用任务快照覆盖工作流步骤（按 order 匹配；快照缺该步时保留模板值）：
+/// `start` 之后改 settings 节点配置不影响该任务（§3）。
+pub fn apply_steps_snapshot(workflow: &Workflow, snapshot: &[StepConfigSnapshot]) -> Workflow {
+    let steps = workflow
+        .steps
+        .iter()
+        .map(|step| {
+            let Some(entry) = snapshot.iter().find(|entry| entry.order == step.order) else {
+                return step.clone();
+            };
+            let mut merged = step.clone();
+            if !entry.role.trim().is_empty() {
+                merged.role = entry.role.clone();
+            }
+            merged.agent_hint = trimmed_nonempty(Some(entry.agent.as_str()));
+            merged.model = trimmed_nonempty(entry.model.as_deref());
+            merged
+        })
+        .collect();
+    // 步骤来自经校验的工作流，直接复用（顺序/序号不变）。
+    Workflow {
+        id: workflow.id.clone(),
+        name: workflow.name.clone(),
+        steps,
+    }
+}
+
 /// `provider/model` 校验：第一个 `/` 前后都必须非空（模型 id 本身可含 `/`）。
 pub fn is_provider_model(value: &str) -> bool {
     value
@@ -242,6 +283,10 @@ mod tests {
 
     fn standard() -> Workflow {
         Workflow::builtin("template-standard").expect("内置模板必须可解析")
+    }
+
+    fn standard_quickfix() -> Workflow {
+        Workflow::builtin("template-quickfix").expect("内置模板必须可解析")
     }
 
     /// 合并：用户配置覆盖 agent_hint/model；未配置保留模板值；空值清除。
@@ -542,5 +587,61 @@ mod tests {
             None,
             "预置工作流各步都有 hint"
         );
+    }
+
+    /// 快照：从合并后工作流生成（agent 非空、model 可选），并可覆盖模板步骤。
+    #[test]
+    fn steps_snapshot_locks_effective_config() {
+        let mut node_config = NodeConfig::default();
+        node_config.set_template(
+            "template-quickfix",
+            BTreeMap::from([(
+                2,
+                NodeConfigEntry {
+                    agent: Some("opencode".into()),
+                    model: Some("anthropic/claude-sonnet-4-5".into()),
+                },
+            )]),
+        );
+        let merged = node_config.merge_workflow(&standard_quickfix());
+        let snapshot = steps_snapshot_of(&merged);
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot[0].order, 1);
+        assert_eq!(
+            snapshot[0].agent, "",
+            "未配置节点在预检前为空（start 预检会拦下）"
+        );
+        assert_eq!(snapshot[1].agent, "opencode");
+        assert_eq!(
+            snapshot[1].model.as_deref(),
+            Some("anthropic/claude-sonnet-4-5")
+        );
+
+        // 快照覆盖模板（模拟 start 后清空节点配置仍按快照运行）。
+        let reapplied = apply_steps_snapshot(&standard_quickfix(), &snapshot);
+        assert_eq!(
+            reapplied.step(2).unwrap().agent_hint.as_deref(),
+            Some("opencode")
+        );
+        assert_eq!(
+            reapplied.step(2).unwrap().model.as_deref(),
+            Some("anthropic/claude-sonnet-4-5")
+        );
+
+        // 快照缺某步时保留模板值。
+        let partial = apply_steps_snapshot(
+            &standard_quickfix(),
+            &[StepConfigSnapshot {
+                order: 1,
+                role: "executor".into(),
+                agent: "codex".into(),
+                model: None,
+            }],
+        );
+        assert_eq!(
+            partial.step(1).unwrap().agent_hint.as_deref(),
+            Some("codex")
+        );
+        assert_eq!(partial.step(2).unwrap().agent_hint, None, "缺步保留模板值");
     }
 }
