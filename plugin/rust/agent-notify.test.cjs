@@ -284,12 +284,18 @@ test("heartbeat, at-most-once claim, timeout and dispose are bounded", async () 
   assert.equal(fs.readdirSync(heartbeatDir).length, 0)
 })
 
-test("open=true job starts a new session with the orchestration sessionID", async () => {
+test("open=true job creates a real session and maps the orchestration sessionID", async () => {
   const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const created = []
   const promptCalls = []
   const ctx = fakeContext(async (input) => {
     promptCalls.push(input)
   })
+  ctx.session.create = async (input) => {
+    created.push(input)
+    return { id: "ses_test_open_1" }
+  }
   writeJob("job-open", "【task_9】Step 1 开工信封", {
     open: true,
     sessionID: "task-9-step-1",
@@ -297,12 +303,123 @@ test("open=true job starts a new session with the orchestration sessionID", asyn
   await __test.processReplyJobs(ctx, "test-instance")
 
   assert.deepEqual(readResult("job-open"), { ok: true, error: "" })
-  assert.equal(promptCalls.length, 1)
-  assert.deepEqual(promptCalls[0], {
-    sessionID: "task-9-step-1",
-    text: "【task_9】Step 1 开工信封",
-    delivery: "steer",
+  assert.equal(created.length, 1)
+  assert.match(created[0].title, /task-9-step-1/)
+  assert.deepEqual(promptCalls, [
+    {
+      sessionID: "ses_test_open_1",
+      text: "【task_9】Step 1 开工信封",
+      delivery: "steer",
+    },
+  ])
+
+  // 映射必须落盘：续聊（open=false）与完成事件回传都依赖它。
+  const mapFile = path.join(replyDir, "session-map.json")
+  const map = JSON.parse(fs.readFileSync(mapFile, "utf8"))
+  assert.equal(map["task-9-step-1"], "ses_test_open_1")
+})
+
+test("open=false reuses the mapped real session for orchestration ids", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const promptCalls = []
+  const ctx = fakeContext(async (input) => {
+    promptCalls.push(input)
   })
+  ctx.session.create = async () => ({ id: "ses_resume_mapped" })
+  const real = await __test.resolvePromptSessionID(ctx, {
+    id: "seed",
+    sessionID: "task-map-step-1",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+  })
+  assert.equal(real, "ses_resume_mapped")
+
+  writeJob("job-resume-mapped", "继续处理", {
+    open: false,
+    sessionID: "task-map-step-1",
+  })
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  assert.deepEqual(readResult("job-resume-mapped"), { ok: true, error: "" })
+  assert.deepEqual(promptCalls, [
+    { sessionID: "ses_resume_mapped", text: "继续处理", delivery: "steer" },
+  ])
+})
+
+test("open=false without a mapping creates a session for the step", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const created = []
+  const promptCalls = []
+  const ctx = fakeContext(async (input) => {
+    promptCalls.push(input)
+  })
+  ctx.session.create = async (input) => {
+    created.push(input)
+    return { id: "ses_step2_created" }
+  }
+  writeJob("job-resume-unmapped", "Step 2 规划信封", {
+    open: false,
+    sessionID: "task-unmapped-step-2",
+  })
+  await __test.processReplyJobs(ctx, "test-instance")
+
+  assert.deepEqual(readResult("job-resume-unmapped"), { ok: true, error: "" })
+  assert.equal(created.length, 1)
+  assert.match(created[0].title, /task-unmapped-step-2/)
+  assert.deepEqual(promptCalls, [
+    {
+      sessionID: "ses_step2_created",
+      text: "Step 2 规划信封",
+      delivery: "steer",
+    },
+  ])
+})
+
+test("completion event carries the orchestration sessionID after mapping", async () => {
+  const { __test } = await pluginModule
+  __test.resetTerminalStateForTests()
+  __test.resetSessionMapForTests()
+  const ctx = fakeContext(undefined, async () => ({
+    data: [
+      {
+        info: {
+          id: "msg-orc-1",
+          role: "assistant",
+          time: { completed: 1789897203000 },
+        },
+        parts: [{ type: "text", text: "第 1 步完成" }],
+      },
+    ],
+  }))
+  ctx.session.create = async () => ({ id: "ses_event_mapped" })
+  await __test.resolvePromptSessionID(ctx, {
+    id: "seed",
+    sessionID: "task-ev-step-3",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+  })
+
+  const submitted = []
+  const event = {
+    type: "session.idle",
+    properties: { sessionID: "ses_event_mapped" },
+  }
+  await __test.dispatchTerminalEvent(
+    ctx,
+    "ses_event_mapped",
+    event,
+    async (envelope) => submitted.push(envelope),
+  )
+
+  assert.equal(submitted.length, 1)
+  assert.equal(submitted[0].payload.sessionId, "task-ev-step-3")
+  assert.match(submitted[0].payload.idempotencyKey, /^opencode:task-ev-step-3:/)
 })
 
 test("open=false or missing open resumes the existing session unchanged", async () => {
@@ -323,8 +440,9 @@ test("open=false or missing open resumes the existing session unchanged", async 
   ])
 })
 
-test("open=true on legacy promptAsync shape fails with a clear message", async () => {
+test("open=true without session.create fails with a clear message", async () => {
   const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
   const legacyCtx = {
     session: {
       get: async () => ({ data: { title: "插件测试" } }),
@@ -337,12 +455,15 @@ test("open=true on legacy promptAsync shape fails with a clear message", async (
       },
     },
   }
-  writeJob("job-open-legacy", "开工信封", { open: true })
+  writeJob("job-open-legacy", "开工信封", {
+    open: true,
+    sessionID: "task-legacy-step-1",
+  })
   await __test.processReplyJobs(legacyCtx, "test-instance")
 
   const result = readResult("job-open-legacy")
   assert.equal(result.ok, false)
-  assert.match(result.error, /不支持发起新会话/)
+  assert.match(result.error, /不支持创建会话/)
 })
 
 test("ingress failure is swallowed and does not reject OpenCode", async () => {
