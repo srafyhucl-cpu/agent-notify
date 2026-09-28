@@ -76,6 +76,7 @@ type PromptBinding =
     }
 
 interface SessionApi {
+  create?(input: { title?: string }): Promise<unknown>
   context(input: { sessionID: string }): Promise<unknown>
   get(input: { sessionID: string }): Promise<unknown>
   prompt?(input: {
@@ -369,66 +370,178 @@ function withTimeout<T>(
   })
 }
 
-async function promptExistingSession(
+// ---------------------------------------------------------------------------
+// 编排会话映射（open=true 必须创建真实 OpenCode 会话，见 opencode.ai/v2 插件文档）
+// ---------------------------------------------------------------------------
+// 编排层用合成会话 id（`task-<task_id>-step-<n>`）标识每步会话；OpenCode 只认自己
+// 的真实会话 id（`ses...`，服务端校验）。因此：
+// - open=true：`ctx.session.create` 建真实会话，登记 合成→真实 映射后 prompt 真实 id；
+// - open=false / 微信引用回复：按映射换成真实 id 再 prompt（普通会话 id 直通）；
+// - 完成事件回传：真实 id 换回合成 id，桌面端才能把汇报归到对应任务/步骤。
+
+/** 编排合成会话 id 前缀（与 Rust 侧 ORC_DISPATCH_SESSION_PREFIX 一致）。 */
+const ORC_SESSION_PREFIX = "task-"
+/** 会话映射文件（与回复收件箱同目录；原子写）。 */
+const SESSION_MAP_FILE = REPLY_DIR ? `${REPLY_DIR}/session-map.json` : ""
+/** 映射容量上限：超出后丢弃最旧条目（保序 Map）。 */
+const SESSION_MAP_LIMIT = 2048
+
+let sessionMapCache: Map<string, string> | null = null
+
+function loadSessionMap(): Map<string, string> {
+  if (sessionMapCache) {
+    return sessionMapCache
+  }
+  const map = new Map<string, string>()
+  try {
+    if (fsMod && SESSION_MAP_FILE && fsMod.existsSync(SESSION_MAP_FILE)) {
+      const parsed = JSON.parse(fsMod.readFileSync(SESSION_MAP_FILE, "utf8"))
+      if (isRecord(parsed)) {
+        for (const [key, value] of Object.entries(parsed)) {
+          if (typeof value === "string" && value) {
+            map.set(key, value)
+          }
+        }
+      }
+    }
+  } catch (error) {
+    dbg(`session map read fail: ${errorMessage(error)}`)
+  }
+  sessionMapCache = map
+  return map
+}
+
+function persistSessionMap(): void {
+  try {
+    if (!fsMod || !SESSION_MAP_FILE || !sessionMapCache) {
+      return
+    }
+    const record: JsonRecord = {}
+    for (const [key, value] of [...sessionMapCache.entries()].slice(
+      -SESSION_MAP_LIMIT,
+    )) {
+      record[key] = value
+    }
+    writeAtomic(SESSION_MAP_FILE, record)
+  } catch (error) {
+    dbg(`session map write fail: ${errorMessage(error)}`)
+  }
+}
+
+function isOrchestrationSessionID(sessionID: string): boolean {
+  return sessionID.startsWith(ORC_SESSION_PREFIX)
+}
+
+/** 真实会话 id → 合成会话 id（无映射原样返回，普通会话不受影响）。 */
+function mappedSessionID(sessionID: string): string {
+  for (const [synthetic, real] of loadSessionMap()) {
+    if (real === sessionID) {
+      return synthetic
+    }
+  }
+  return sessionID
+}
+
+function createdSessionID(response: unknown): string {
+  const data =
+    isRecord(response) && isRecord(response.data) ? response.data : response
+  const id = isRecord(data) ? data.id : undefined
+  return typeof id === "string" && id.startsWith("ses") ? id.trim() : ""
+}
+
+async function createRealSession(
+  ctx: PluginContext,
+  syntheticID: string,
+): Promise<string> {
+  const create = ctx.session?.create
+  if (typeof create !== "function") {
+    throw new Error("当前 OpenCode 版本不支持创建会话，请升级 OpenCode 后重试")
+  }
+  const created = await withTimeout(
+    create.call(ctx.session, { title: `【集群】${syntheticID}` }),
+    SESSION_FETCH_TIMEOUT_MS,
+    "创建会话超时",
+  )
+  const real = createdSessionID(created)
+  if (!real) {
+    throw new Error("创建会话未返回有效会话 id（ses...）")
+  }
+  return real
+}
+
+/**
+ * 解析 prompt 目标会话 id：合成 id 换成真实 id（open=true 且无映射时按需创建并登记）。
+ * 非合成 id 直通（普通会话 / 微信引用回复保持原语义）。
+ */
+async function resolvePromptSessionID(
   ctx: PluginContext,
   job: ReplyJob,
+): Promise<string> {
+  if (!isOrchestrationSessionID(job.sessionID)) {
+    return job.sessionID
+  }
+  const map = loadSessionMap()
+  const existing = map.get(job.sessionID)
+  if (existing) {
+    return existing
+  }
+  if (job.open !== true) {
+    throw new Error(`编排会话尚未建立映射（${job.sessionID}）：请重新发起该任务`)
+  }
+  const real = await createRealSession(ctx, job.sessionID)
+  map.set(job.sessionID, real)
+  persistSessionMap()
+  return real
+}
+
+async function promptSessionText(
+  ctx: PluginContext,
+  sessionID: string,
+  text: string,
+  timeoutMessage: string,
 ): Promise<void> {
   const binding = replyPrompt(ctx)
   if (!binding) {
     throw new Error("当前 OpenCode 版本不支持会话 prompt")
   }
   if ("shape" in binding) {
-    const parts = [{ type: "text", text: job.text }]
+    const parts = [{ type: "text", text }]
     const request =
       binding.shape === "legacy"
         ? {
-            path: { id: job.sessionID },
+            path: { id: sessionID },
             body: { parts },
             throwOnError: true,
           }
-        : { sessionID: job.sessionID, parts, throwOnError: true }
+        : { sessionID, parts, throwOnError: true }
     await withTimeout(
       binding.send.call(binding.session, request),
       promptTimeoutMs(),
-      "引用回复提交超时，未自动重试以避免重复执行",
+      timeoutMessage,
     )
     return
   }
   await withTimeout(
     binding.send.call(binding.session, {
-      sessionID: job.sessionID,
-      text: job.text,
+      sessionID,
+      text,
       delivery: "steer",
     }),
     promptTimeoutMs(),
-    "引用回复提交超时，未自动重试以避免重复执行",
+    timeoutMessage,
   )
 }
 
-/**
- * 以新会话开工（open=true）：job.sessionID 由编排层生成（如 task-<id>-step-<n>），
- * 作为首个 prompt 发起，OpenCode 对不存在的 sessionID 会自动创建会话。
- * 仅支持 delivery:"steer" 绑定；旧版 promptAsync 形状无法可靠新建会话，明确报错不猜测。
- */
-async function promptNewSession(
-  ctx: PluginContext,
-  job: ReplyJob,
-): Promise<void> {
-  const binding = replyPrompt(ctx)
-  if (!binding) {
-    throw new Error("当前 OpenCode 版本不支持会话 prompt")
-  }
-  if ("shape" in binding) {
-    throw new Error("当前 OpenCode 版本不支持发起新会话，请升级 OpenCode 后重试")
-  }
-  await withTimeout(
-    binding.send.call(binding.session, {
-      sessionID: job.sessionID,
-      text: job.text,
-      delivery: "steer",
-    }),
-    promptTimeoutMs(),
-    "发起新会话超时，未自动重试以避免重复执行",
+/** 处理一条回复任务：合成 id 先解析为真实会话 id（open=true 时创建），再 prompt。 */
+async function promptJob(ctx: PluginContext, job: ReplyJob): Promise<void> {
+  const sessionID = await resolvePromptSessionID(ctx, job)
+  await promptSessionText(
+    ctx,
+    sessionID,
+    job.text,
+    job.open === true
+      ? "发起新会话超时，未自动重试以避免重复执行"
+      : "引用回复提交超时，未自动重试以避免重复执行",
   )
 }
 
@@ -553,11 +666,7 @@ async function processReplyJobs(
           continue
         }
         try {
-          if (job.open === true) {
-            await promptNewSession(ctx, job)
-          } else {
-            await promptExistingSession(ctx, job)
-          }
+          await promptJob(ctx, job)
           writeResult(jobID, true)
         } catch (error) {
           writeResult(jobID, false, safeJobError(error, job.text))
@@ -890,7 +999,13 @@ async function dispatchTerminalEvent(
 
     const displayTitle = failure ? `${title}（任务失败）` : title
     await submit(
-      completionEnvelope(sessionID, displayTitle, body, event, identity),
+      completionEnvelope(
+        mappedSessionID(sessionID),
+        displayTitle,
+        body,
+        event,
+        identity,
+      ),
     )
     lastTerminalBySession.set(sessionID, identity)
     if (failure) {
@@ -932,6 +1047,17 @@ function resetTerminalStateForTests(): void {
   terminalQueues.clear()
 }
 
+function resetSessionMapForTests(): void {
+  sessionMapCache = new Map()
+  try {
+    if (fsMod && SESSION_MAP_FILE && fsMod.existsSync(SESSION_MAP_FILE)) {
+      fsMod.unlinkSync(SESSION_MAP_FILE)
+    }
+  } catch (error) {
+    dbg(`session map reset fail: ${errorMessage(error)}`)
+  }
+}
+
 async function dispatchCompletion(
   ctx: PluginContext,
   sessionID: string,
@@ -944,13 +1070,15 @@ const __test = {
   dispatchTerminalEvent,
   dispatchCompletion,
   processReplyJobs,
-  promptExistingSession,
-  promptNewSession,
+  promptJob,
+  resolvePromptSessionID,
+  mappedSessionID,
   completionEnvelope,
   eventIdentity,
   terminalEventType,
   eventSessionID,
   resetTerminalStateForTests,
+  resetSessionMapForTests,
   replyPrompt,
 }
 
