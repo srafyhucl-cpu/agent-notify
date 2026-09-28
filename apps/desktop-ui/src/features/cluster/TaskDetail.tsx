@@ -3,15 +3,18 @@ import { SectionCard, StatusBadge } from "../../components/patterns";
 import {
   ORC_MESSAGE_KIND_ACTIONS,
   ORC_NOTIFY_MODE_LABELS,
+  ORC_ROLE_LABELS,
   ORC_TASK_STATE_LABELS,
   ORC_TASK_STATE_TONES,
   ORC_TERMINAL_STATES,
+  orcAgentLabel,
 } from "./labels";
 
 export interface TaskDetailProps {
   task: OrcTaskDto | null;
   /** 任一操作进行中：统一禁用操作按钮，防止重复提交。 */
   busy: boolean;
+  onStart: () => void;
   onAdvance: (kind: OrcMessageKindDto) => void;
   onRecover: () => void;
 }
@@ -36,6 +39,7 @@ function EmptyDetail() {
 export function TaskDetail({
   task,
   busy,
+  onStart,
   onAdvance,
   onRecover,
 }: TaskDetailProps) {
@@ -45,6 +49,7 @@ export function TaskDetail({
 
   const blocked = task.blockedStep !== null;
   const terminal = ORC_TERMINAL_STATES.has(task.state);
+  const pendingStart = !task.started && !terminal;
   const stepLabel = blocked
     ? `阻塞在第 ${task.blockedStep ?? task.currentStep} 步`
     : `第 ${task.currentStep} 步`;
@@ -77,6 +82,39 @@ export function TaskDetail({
           </div>
         </dl>
 
+        <div className="cluster-workflow" aria-label="工作流节点">
+          <p className="cluster-workflow-title">工作流节点</p>
+          <ol className="cluster-workflow-step-list">
+            {task.workflow.steps.map((step) => {
+              const done = step.order < task.currentStep;
+              const current = step.order === task.currentStep && !terminal;
+              const stepClass = [
+                "cluster-workflow-step",
+                current ? "cluster-workflow-step--current" : "",
+                done ? "cluster-workflow-step--done" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              return (
+                <li className={stepClass} key={step.order}>
+                  <span className="cluster-workflow-step-order">
+                    第 {step.order} 步
+                  </span>
+                  <span className="cluster-workflow-step-role">
+                    {ORC_ROLE_LABELS[step.role] ?? step.role}
+                  </span>
+                  <span className="cluster-workflow-step-agent">
+                    {orcAgentLabel(step.agentHint)}
+                  </span>
+                  {step.humanGate ? (
+                    <span className="cluster-workflow-step-gate">需人工确认</span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+
         {blocked ? (
           <div className="cluster-blocked-card" role="alert">
             <strong className="cluster-blocked-title">任务阻塞</strong>
@@ -94,6 +132,24 @@ export function TaskDetail({
           </div>
         ) : terminal ? (
           <p className="cluster-terminal-note">任务已结束，无待办操作。</p>
+        ) : pendingStart ? (
+          <div className="cluster-actions">
+            <p className="cluster-actions-label">任务待开始</p>
+            <p className="cluster-actions-note">
+              确认上方节点（每步做什么、派给谁）后点「开始执行」，才会派活第 1
+              步；中途不想跑可先不开始。
+            </p>
+            <div className="cluster-actions-buttons">
+              <button
+                className="button"
+                type="button"
+                disabled={busy}
+                onClick={onStart}
+              >
+                {busy ? "启动中…" : "开始执行"}
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="cluster-actions">
             <p className="cluster-actions-label">推进任务</p>

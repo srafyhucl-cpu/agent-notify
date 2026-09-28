@@ -187,3 +187,13 @@ export function useRecoverBlockedOrcTaskMutation(bridge: HostBridge) {
     onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
   });
 }
+
+export function useStartOrcTaskMutation(bridge: HostBridge) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CommandPayloadMap["start_orc_task"]) =>
+      bridge.invoke("start_orc_task", payload),
+    onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
+  });
+}

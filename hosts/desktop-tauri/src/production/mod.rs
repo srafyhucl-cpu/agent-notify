@@ -4,6 +4,7 @@ mod app_exit;
 pub mod events;
 mod mapping;
 pub mod orc_notify;
+pub mod orc_report_observer;
 pub mod orc_wechat_route;
 pub mod runtime;
 pub mod service;
@@ -212,6 +213,30 @@ async fn bootstrap_internal(
         store.clone(),
         Some(store.clone()),
     );
+    // 汇报自动回注（§4.4）：监听 agent 事件（`session.completed` 且 sessionId 为
+    // `task-<id>-step-<n>`）→ 自动推进任务（含呈现 + 派活下一步），与人工推进同链路。
+    // 只在生产（enable_agent_driver）装配：headless/测试不派活，也无编排会话事件。
+    let orc_report_observer = if enable_agent_driver {
+        Some(
+            Arc::new(orc_report_observer::OrcReportObserver::new(Arc::new(
+                OrcCommandHandler::with_selector(
+                    None,
+                    store.clone(),
+                    settings.clone(),
+                    load_harness_templates(&harness_config_dir),
+                    Some(Arc::new(ProductionOrcPresenter::new(
+                        settings.clone(),
+                        target_provider.clone(),
+                        channel_registry.clone(),
+                        Some(store.clone()),
+                    ))),
+                    Some(Arc::new(ProductionAgentDriver::new(agent_registry.clone()))),
+                ),
+            ))) as Arc<dyn agentnotify_runtime::AgentEventObserver>,
+        )
+    } else {
+        None
+    };
     let coordinator = Arc::new(
         ProductionRuntimeCoordinator::with_ingress_pipe(
             paths,
@@ -226,7 +251,8 @@ async fn bootstrap_internal(
             "windows",
             ingress_pipe_enabled,
         )
-        .with_inbound_interceptor(Some(Arc::new(wechat_orc_router))),
+        .with_inbound_interceptor(Some(Arc::new(wechat_orc_router)))
+        .with_agent_event_observer(orc_report_observer),
     );
 
     let service = Arc::new(

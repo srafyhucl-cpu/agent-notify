@@ -49,6 +49,15 @@ pub struct OrcMeta {
     pub notify_mode: NotifyMode,
     /// 任务目标（用户原话）
     pub goal: String,
+    /// 是否已开始执行（人工确认后开始；创建后默认 false，避免"没看清节点就被派活"）。
+    /// 旧任务（无此字段）默认 true——它们本就已在运行，保持向后兼容。
+    #[serde(default = "started_default_true")]
+    pub started: bool,
+}
+
+/// `started` 的兼容默认值：旧任务视为已开始（保持历史行为）。
+fn started_default_true() -> bool {
+    true
 }
 
 /// A2A Task.metadata 中编排语境所在的键。
@@ -64,7 +73,7 @@ pub struct OrcTask {
 }
 
 impl OrcTask {
-    /// 新建编排任务：当前步骤 = 第 1 步，A2A 状态 = Working（开工）。
+    /// 新建编排任务：当前步骤 = 第 1 步，A2A 状态 = Working，**未开始**（等人工确认后 `start`）。
     /// context_id 取任务自身 id：一个编排任务即一个逻辑会话（§3.3/§8.4）。
     pub fn new(workflow: &Workflow, goal: &str, notify_mode: NotifyMode) -> Result<Self, OrcError> {
         let id = Uuid::new_v4().to_string();
@@ -75,6 +84,7 @@ impl OrcTask {
             block_reason: None,
             notify_mode,
             goal: goal.to_string(),
+            started: false,
         };
         let mut metadata = serde_json::Map::new();
         metadata.insert(
@@ -160,6 +170,21 @@ impl OrcTask {
         let mut meta = self.meta()?;
         meta.blocked_step = None;
         meta.block_reason = None;
+        self.put_meta(&meta)
+    }
+
+    /// 是否已开始执行（创建后需人工确认 `start` 才派活；旧任务视为已开始）。
+    pub fn is_started(&self) -> Result<bool, OrcError> {
+        Ok(self.meta()?.started)
+    }
+
+    /// 标记为已开始执行（幂等；`start` 命令在派活前调用）。
+    pub fn mark_started(&mut self) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        if meta.started {
+            return Ok(());
+        }
+        meta.started = true;
         self.put_meta(&meta)
     }
 

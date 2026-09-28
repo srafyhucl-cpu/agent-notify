@@ -123,6 +123,12 @@ async function dispatchCommand(
       return commands.recoverBlockedOrcTask(
         payload as CommandPayloadMap["recover_blocked_orc_task"],
       );
+    case "start_orc_task":
+      return commands.startOrcTask(payload as CommandPayloadMap["start_orc_task"]);
+    case "get_current_orc_workflow":
+      return commands.getCurrentOrcWorkflow(
+        payload as CommandPayloadMap["get_current_orc_workflow"],
+      );
     default: {
       const neverCommand: never = command;
       throw new Error(`未处理命令: ${String(neverCommand)}`);

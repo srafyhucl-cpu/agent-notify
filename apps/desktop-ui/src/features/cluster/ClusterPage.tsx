@@ -12,8 +12,10 @@ import {
   useAdvanceOrcTaskMutation,
   useCreateOrcTaskMutation,
   useRecoverBlockedOrcTaskMutation,
+  useStartOrcTaskMutation,
 } from "../../data/mutations";
 import { useOrcTasks } from "../../data/useOrcTasks";
+import { useOrcWorkflow } from "../../data/useOrcWorkflow";
 import { CreateTaskForm } from "./CreateTaskForm";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList } from "./TaskList";
@@ -23,20 +25,23 @@ export interface ClusterPageProps {
 }
 
 /**
- * 集群页（P1，§6.2 桌面集群形态）：任务列表 + 详情/发指令 + 创建入口。
- * 只消费现有编排 DTO/命令；推进命令经 HostBridge 调用 advance_orc_task / recover_blocked_orc_task。
+ * 集群页（P1，§6.2 桌面集群形态）：任务列表 + 详情/发指令 + 创建入口（含工作流节点预览）。
+ * 只消费现有编排 DTO/命令；进度命令经 HostBridge 调用 advance_orc_task / recover_blocked_orc_task /
+ * start_orc_task。
  */
 export function ClusterPage({ bridge }: ClusterPageProps) {
   const tasksQuery = useOrcTasks(bridge);
+  const workflowQuery = useOrcWorkflow(bridge);
   const createMutation = useCreateOrcTaskMutation(bridge);
   const advanceMutation = useAdvanceOrcTaskMutation(bridge);
   const recoverMutation = useRecoverBlockedOrcTaskMutation(bridge);
+  const startMutation = useStartOrcTaskMutation(bridge);
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [createError, setCreateError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [pendingAction, setPendingAction] = useState<
-    "advance" | "recover" | null
+    "advance" | "recover" | "start" | null
   >(null);
 
   const tasks = tasksQuery.data ?? [];
@@ -89,6 +94,18 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
     }
   };
 
+  const handleStart = async (taskId: string) => {
+    setActionError(null);
+    setPendingAction("start");
+    try {
+      await startMutation.mutateAsync({ taskId });
+    } catch (error) {
+      setActionError(error);
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
   return (
     <section className="workbench-page cluster-page" aria-label="集群">
       <PageHeader
@@ -132,6 +149,7 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
 
         <CreateTaskForm
           pending={createMutation.isPending}
+          workflow={workflowQuery.data?.workflow ?? null}
           onSubmit={handleCreate}
         />
 
@@ -156,6 +174,11 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
             <TaskDetail
               task={selectedTask}
               busy={pendingAction !== null}
+              onStart={() => {
+                if (selectedTask) {
+                  void handleStart(selectedTask.id);
+                }
+              }}
               onAdvance={(kind) => {
                 if (selectedTask) {
                   void handleAdvance(selectedTask.id, kind);

@@ -9,6 +9,7 @@ import type {
   ChannelListDto,
   CommandError,
   CreateOrcTaskPayload,
+  CurrentOrcWorkflowDto,
   DeliveryDto,
   DeliveryIdPayload,
   DiagnosticsDto,
@@ -67,6 +68,8 @@ export interface CommandPayloadMap {
   advance_orc_task: AdvanceOrcTaskPayload;
   mark_blocked_orc_task: MarkBlockedOrcTaskPayload;
   recover_blocked_orc_task: OrcTaskIdPayload;
+  start_orc_task: OrcTaskIdPayload;
+  get_current_orc_workflow: EmptyPayload;
 }
 
 export interface CommandResultMap {
@@ -96,6 +99,8 @@ export interface CommandResultMap {
   advance_orc_task: OrcTaskDto;
   mark_blocked_orc_task: OrcTaskDto;
   recover_blocked_orc_task: OrcTaskDto;
+  start_orc_task: OrcTaskDto;
+  get_current_orc_workflow: CurrentOrcWorkflowDto;
 }
 
 export interface EventPayloadMap {

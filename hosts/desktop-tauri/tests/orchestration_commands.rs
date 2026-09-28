@@ -49,8 +49,18 @@ async fn orc_commands_full_chain_on_sqlite() {
     assert_eq!(created.goal, "做一个贪吃蛇游戏");
     assert!(!created.workflow_id.is_empty());
     let task_id = created.id.clone();
+    assert!(!created.started, "新建任务必须是「待开始」");
 
-    // 2. advance（汇报）→ 第 2 步
+    // 2. start（人工确认开始）→ 派活第 1 步（无 driver 时仅标记已开始）
+    let started = handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
+    assert!(started.started, "开始后必须标记为已开始");
+
+    // 3. advance（汇报）→ 第 2 步
     let advanced = handler
         .advance(AdvanceOrcTaskPayload {
             task_id: task_id.clone(),
@@ -109,6 +119,12 @@ async fn orc_commands_persist_across_reopen() {
             .await
             .expect("创建任务必须成功");
         task_id = created.id;
+        handler
+            .start(OrcTaskIdPayload {
+                task_id: task_id.clone(),
+            })
+            .await
+            .expect("开始执行必须成功");
         handler
             .advance(AdvanceOrcTaskPayload {
                 task_id: task_id.clone(),
@@ -197,6 +213,23 @@ async fn orc_commands_validate_inputs_and_expose_business_errors() {
         .expect_err("推进不存在的任务必须报错");
     assert_eq!(err.code, "orc.task_not_found");
 
+    // 未开始的任务不接受推进：必须先「开始执行」。
+    let pending = handler
+        .create(CreateOrcTaskPayload {
+            goal: "未开始的任务".into(),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
+    let err = handler
+        .advance(AdvanceOrcTaskPayload {
+            task_id: pending.id.clone(),
+            kind: OrcMessageKindDto::Report,
+        })
+        .await
+        .expect_err("未开始任务推进必须报错");
+    assert_eq!(err.code, "orc_task_not_started");
+
     // 已完成任务不允许标记阻塞（序号 1→2→3→完成）。
     let created = handler
         .create(CreateOrcTaskPayload {
@@ -205,6 +238,12 @@ async fn orc_commands_validate_inputs_and_expose_business_errors() {
         })
         .await
         .expect("创建任务必须成功");
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: created.id.clone(),
+        })
+        .await
+        .expect("开始执行必须成功");
     for _ in 0..3 {
         handler
             .advance(AdvanceOrcTaskPayload {

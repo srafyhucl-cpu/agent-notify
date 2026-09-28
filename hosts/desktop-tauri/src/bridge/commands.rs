@@ -8,14 +8,14 @@ use tauri::State;
 
 use super::dto::{
     AdvanceOrcTaskPayload, AgentDto, BeginChannelLoginPayload, BeginChannelLoginResultDto,
-    ChannelAccountDto, ChannelAccountIdPayload, ChannelListDto, CreateOrcTaskPayload, DeliveryDto,
-    DeliveryIdPayload, DiagnosticsDto, EmptyPayload, InstallUpdatePayload, InstallUpdateResultDto,
-    LegacyMigrationDto, LoginSessionDto, MarkBlockedOrcTaskPayload, MutationAcceptedDto,
-    NotificationDetailDto, NotificationFilterPayload, NotificationIdPayload, NotificationListDto,
-    OrcTaskDto, OrcTaskIdPayload, RuntimeSnapshotDto, RuntimeSummaryDto,
-    SendTestNotificationPayload, SetRuntimePausedPayload, SettingsDto,
-    SubmitChannelLoginCodePayload, TestNotificationResultDto, UpdateAgentConfigPayload,
-    UpdateStatusDto,
+    ChannelAccountDto, ChannelAccountIdPayload, ChannelListDto, CreateOrcTaskPayload,
+    CurrentOrcWorkflowDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto, EmptyPayload,
+    InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto, LoginSessionDto,
+    MarkBlockedOrcTaskPayload, MutationAcceptedDto, NotificationDetailDto,
+    NotificationFilterPayload, NotificationIdPayload, NotificationListDto, OrcTaskDto,
+    OrcTaskIdPayload, RuntimeSnapshotDto, RuntimeSummaryDto, SendTestNotificationPayload,
+    SetRuntimePausedPayload, SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
+    UpdateAgentConfigPayload, UpdateStatusDto,
 };
 use super::error::CommandError;
 
@@ -129,6 +129,15 @@ pub trait HostCommandService: Send + Sync {
         &self,
         payload: OrcTaskIdPayload,
     ) -> Result<OrcTaskDto, CommandError>;
+
+    /// 开始执行（人工确认）：创建后的任务先「待开始」，此命令标记已开始并派活第 1 步。
+    async fn start_orc_task(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError>;
+
+    /// 当前编排工作流（节点列表）：创建任务前预览「每步做什么、派给谁」。
+    async fn get_current_orc_workflow(
+        &self,
+        payload: EmptyPayload,
+    ) -> Result<CurrentOrcWorkflowDto, CommandError>;
 }
 
 /// Tauri 管理的命令状态；后续宿主任务只负责注入新的服务实现。
@@ -454,6 +463,17 @@ impl HostCommandService for UnavailableHostCommandService {
     ) -> Result<OrcTaskDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+
+    async fn start_orc_task(&self, _payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn get_current_orc_workflow(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<CurrentOrcWorkflowDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
 }
 
 #[tauri::command]
@@ -714,4 +734,24 @@ pub async fn recover_blocked_orc_task(
 ) -> Result<OrcTaskDto, CommandError> {
     let service = state.service.current().await;
     service.recover_blocked_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn start_orc_task(
+    state: State<'_, BridgeState>,
+    payload: OrcTaskIdPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.start_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_current_orc_workflow(
+    state: State<'_, BridgeState>,
+    payload: EmptyPayload,
+) -> Result<CurrentOrcWorkflowDto, CommandError> {
+    let service = state.service.current().await;
+    service.get_current_orc_workflow(payload).await
 }
