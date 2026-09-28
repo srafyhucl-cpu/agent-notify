@@ -1463,10 +1463,38 @@ fn make_clawbot_account(
     account
 }
 
-/// 完整宿主装配下编排默认关闭：命令必须返回"编排未启用"的明确错误（§8.5 默认关闭）。
+/// 完整宿主装配下编排**默认开启**（未显式配置时命令可用；P1-1 体验修正：默认打开，显式 false 才关）。
 #[tokio::test]
-async fn orchestration_commands_disabled_by_default_on_host() {
-    let (_root, paths, _store, secret_store) = create_test_env("agentnotify-orc-host-off-test-");
+async fn orchestration_commands_enabled_by_default_on_host() {
+    let (_root, paths, _store, secret_store) = create_test_env("agentnotify-orc-host-def-on-test-");
+
+    let (_coordinator, service) = bootstrap_headless(paths, secret_store)
+        .await
+        .expect("Headless 装配与启动必须成功");
+
+    let created = service
+        .create_orc_task(CreateOrcTaskPayload {
+            goal: "目标".into(),
+            notify_mode: None,
+        })
+        .await
+        .expect("默认开启时创建任务必须成功");
+    assert_eq!(created.state, OrcTaskStateDto::Working);
+
+    let _ = service.quit_app(EmptyPayload {}).await;
+}
+
+/// 完整宿主装配下显式关闭编排（写 `orchestration.enabled=false`）：命令返回"编排未启用"明确错误。
+#[tokio::test]
+async fn orchestration_commands_disabled_explicitly_on_host() {
+    let (_root, paths, store, secret_store) = create_test_env("agentnotify-orc-host-off-test-");
+    store
+        .write_settings_entries(BTreeMap::from([(
+            "orchestration.enabled".to_string(),
+            serde_json::json!(false),
+        )]))
+        .await
+        .expect("写入编排开关必须成功");
 
     let (_coordinator, service) = bootstrap_headless(paths, secret_store)
         .await
@@ -1478,7 +1506,7 @@ async fn orchestration_commands_disabled_by_default_on_host() {
             notify_mode: None,
         })
         .await
-        .expect_err("默认关闭时命令必须报错");
+        .expect_err("显式关闭时命令必须报错");
     assert_eq!(error.code(), "orchestration_disabled");
     assert!(error.message().contains("编排未启用"));
 
