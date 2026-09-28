@@ -38,6 +38,7 @@ export const commands = {
 	listOrcTemplates: (payload: EmptyPayload) => __TAURI_INVOKE<OrcTemplateDto[]>("list_orc_templates", { payload }),
 	saveOrcTemplateConfig: (payload: SaveOrcTemplateConfigPayload) => __TAURI_INVOKE<OrcTemplateDto[]>("save_orc_template_config", { payload }),
 	listOpencodeProjects: (payload: EmptyPayload) => __TAURI_INVOKE<OpencodeProjectDto[]>("list_opencode_projects", { payload }),
+	listOpencodeModels: (payload: EmptyPayload) => __TAURI_INVOKE<OpencodeModelDto[]>("list_opencode_models", { payload }),
 };
 
 /** Events */
@@ -88,7 +89,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow" | "list_orc_templates" | "save_orc_template_config" | "list_opencode_projects";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow" | "list_orc_templates" | "save_orc_template_config" | "list_opencode_projects" | "list_opencode_models";
 
 export type ChannelAccountDto = {
 	id: string,
@@ -360,6 +361,16 @@ export type NotificationSummaryDto = {
 	preview: string,
 	occurredAt: string,
 	deliveryStates: DeliveryStateDto[],
+};
+
+/**  OpenCode 可用模型（模型下拉数据源）：`provider_id`/`model_id` 拼成 `provider/model`。 */
+export type OpencodeModelDto = {
+	/**  提供方 id（如 `opencode-go`）。 */
+	providerId: string,
+	/**  模型 id（如 `deepseek-v4.1-flash`）。 */
+	modelId: string,
+	/**  显示名（OpenCode 界面里的模型名，如 `DeepSeek V4.1 Flash`）。 */
+	name: string,
 };
 
 /**  OpenCode 已知项目（工作目录下拉数据源，§3.1）：只读本地库的 project 表。 */

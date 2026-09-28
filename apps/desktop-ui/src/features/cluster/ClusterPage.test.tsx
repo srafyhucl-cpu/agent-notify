@@ -573,7 +573,7 @@ describe("ClusterPage 创建任务弹窗", () => {
     });
   });
 
-  it("OpenCode 节点可手填模型（任务级提交），切到其他 Agent 时清空", async () => {
+  it("OpenCode 节点从下拉选模型（显示名 + provider/model），切到其他 Agent 时清空", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
       agents: [
@@ -601,7 +601,13 @@ describe("ClusterPage 创建任务弹窗", () => {
     );
     const model = within(dialog).getByLabelText("第 1 步 模型");
     expect(model).toBeEnabled();
-    await user.type(model, "anthropic/claude-sonnet-4-5");
+    // 选项 = 显示名 + provider/model：按名字选就不会拼错格式
+    expect(
+      within(model).getByRole("option", {
+        name: /Space Bunny Free（opencode-go\/space-bunny-free）/,
+      }),
+    ).toBeInTheDocument();
+    await user.selectOptions(model, "opencode-go/space-bunny-free");
 
     await user.selectOptions(
       within(dialog).getByLabelText("第 2 步 Agent"),
@@ -618,9 +624,97 @@ describe("ClusterPage 创建任务弹窗", () => {
     expect(bridge.calls("create_orc_task")[0]?.payload).toMatchObject({
       templateId: "template-quickfix",
       steps: [
-        { order: 1, agent: "opencode", model: "anthropic/claude-sonnet-4-5" },
+        { order: 1, agent: "opencode", model: "opencode-go/space-bunny-free" },
         { order: 2, agent: "alpha", model: null },
       ],
+    });
+  });
+
+  it("模型列表读取失败：区块顶部明确报错并退回手动输入", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      agents: [agentFixture("opencode", { displayName: "OpenCode" })],
+      errors: {
+        list_opencode_models: {
+          code: "opencode_models_unavailable",
+          message:
+            "读取 OpenCode 模型列表失败：连接 OpenCode 服务失败（请确认 OpenCode 桌面端已打开）",
+          retryable: true,
+        },
+      },
+    });
+    renderWithQuery(bridge);
+
+    const dialog = await openCreateDialog(user);
+    await user.type(within(dialog).getByLabelText("目标"), "模型读不到也要能建");
+    await user.selectOptions(
+      within(dialog).getByLabelText("工作流模板"),
+      "template-quickfix",
+    );
+    await within(dialog).findAllByRole("option", { name: /OpenCode/ });
+    await user.selectOptions(
+      within(dialog).getByLabelText("第 1 步 Agent"),
+      "opencode",
+    );
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent("无法读取 OpenCode 模型列表");
+    expect(alert).toHaveTextContent(/请确认 OpenCode 桌面端已打开/);
+    // 退回手动输入（不是死路）
+    const manual = within(dialog).getByLabelText("第 1 步 模型");
+    expect(manual).toBeEnabled();
+    await user.type(manual, "opencode-go/space-bunny-free");
+
+    await user.selectOptions(
+      within(dialog).getByLabelText("第 2 步 Agent"),
+      "opencode",
+    );
+    await user.selectOptions(
+      within(dialog).getByLabelText("工作目录"),
+      "D:/Project/agent-notify",
+    );
+    // 手动输入兜底也参与校验/提交
+    await user.click(within(dialog).getByRole("button", { name: "仅创建" }));
+    await waitFor(() => {
+      expect(bridge.calls("create_orc_task")).toHaveLength(1);
+    });
+    expect(bridge.calls("create_orc_task")[0]?.payload).toMatchObject({
+      steps: [
+        { order: 1, agent: "opencode", model: "opencode-go/space-bunny-free" },
+        { order: 2, agent: "opencode", model: null },
+      ],
+    });
+  });
+
+  it("模型列表读取失败后点击「重新读取」会重试请求", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      agents: [agentFixture("opencode", { displayName: "OpenCode" })],
+      errors: {
+        list_opencode_models: {
+          code: "opencode_models_unavailable",
+          message: "读取 OpenCode 模型列表失败：连接 OpenCode 服务失败",
+          retryable: true,
+        },
+      },
+    });
+    renderWithQuery(bridge);
+
+    const dialog = await openCreateDialog(user);
+    await user.selectOptions(
+      within(dialog).getByLabelText("工作流模板"),
+      "template-quickfix",
+    );
+    await within(dialog).findAllByRole("option", { name: /OpenCode/ });
+    await user.selectOptions(
+      within(dialog).getByLabelText("第 1 步 Agent"),
+      "opencode",
+    );
+    await within(dialog).findByRole("alert");
+
+    await user.click(within(dialog).getByRole("button", { name: "重新读取" }));
+    await waitFor(() => {
+      expect(bridge.calls("list_opencode_models")).toHaveLength(2);
     });
   });
 

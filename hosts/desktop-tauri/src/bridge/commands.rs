@@ -12,10 +12,10 @@ use super::dto::{
     CurrentOrcWorkflowDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto, EmptyPayload,
     InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto, LoginSessionDto,
     MarkBlockedOrcTaskPayload, MutationAcceptedDto, NotificationDetailDto,
-    NotificationFilterPayload, NotificationIdPayload, NotificationListDto, OpencodeProjectDto,
-    OrcTaskDto, OrcTaskIdPayload, OrcTemplateDto, RuntimeSnapshotDto, RuntimeSummaryDto,
-    SaveOrcTemplateConfigPayload, SendTestNotificationPayload, SetRuntimePausedPayload,
-    SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
+    NotificationFilterPayload, NotificationIdPayload, NotificationListDto, OpencodeModelDto,
+    OpencodeProjectDto, OrcTaskDto, OrcTaskIdPayload, OrcTemplateDto, RuntimeSnapshotDto,
+    RuntimeSummaryDto, SaveOrcTemplateConfigPayload, SendTestNotificationPayload,
+    SetRuntimePausedPayload, SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
     UpdateAgentConfigPayload, UpdateStatusDto,
 };
 use super::error::CommandError;
@@ -189,6 +189,12 @@ pub trait HostCommandService:
         &self,
         payload: EmptyPayload,
     ) -> Result<Vec<OpencodeProjectDto>, CommandError>;
+
+    /// OpenCode 可用模型（模型下拉数据源）：只读本地服务；失败明确报错退回手动输入。
+    async fn list_opencode_models(
+        &self,
+        payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeModelDto>, CommandError>;
 }
 
 /// Tauri 管理的命令状态；后续宿主任务只负责注入新的服务实现。
@@ -560,6 +566,13 @@ impl HostCommandService for UnavailableHostCommandService {
     ) -> Result<Vec<OpencodeProjectDto>, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+
+    async fn list_opencode_models(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
 }
 
 #[tauri::command]
@@ -870,4 +883,14 @@ pub async fn list_opencode_projects(
 ) -> Result<Vec<OpencodeProjectDto>, CommandError> {
     let service = state.service.current().await;
     service.list_opencode_projects(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_opencode_models(
+    state: State<'_, BridgeState>,
+    payload: EmptyPayload,
+) -> Result<Vec<OpencodeModelDto>, CommandError> {
+    let service = state.service.current().await;
+    service.list_opencode_models(payload).await
 }

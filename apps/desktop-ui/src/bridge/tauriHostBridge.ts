@@ -139,6 +139,10 @@ async function dispatchCommand(
       return commands.listOpencodeProjects(
         payload as CommandPayloadMap["list_opencode_projects"],
       );
+    case "list_opencode_models":
+      return commands.listOpencodeModels(
+        payload as CommandPayloadMap["list_opencode_models"],
+      );
     default: {
       const neverCommand: never = command;
       throw new Error(`未处理命令: ${String(neverCommand)}`);

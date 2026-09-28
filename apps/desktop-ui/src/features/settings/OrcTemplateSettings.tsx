@@ -13,8 +13,10 @@ import { LoadingRows } from "../../components/LoadingRows";
 import { Toast } from "../../components/Toast";
 import { toUserError } from "../../data/errors";
 import { useSaveOrcTemplateConfigMutation } from "../../data/mutations";
+import { useOpencodeModels } from "../../data/useOpencodeModels";
 import { useOrcTemplates } from "../../data/useOrcTemplates";
 import { ORC_MODEL_CAPABLE_AGENT } from "../cluster/labels";
+import { OrcModelSelect } from "../cluster/OrcModelSelect";
 import { OrcNodeChain, type OrcNodeChainStep } from "../cluster/OrcNodeChain";
 
 /** 保存成功提示停留时长：浮层只做结果确认，不长期挂在窗口上。 */
@@ -60,6 +62,7 @@ export function OrcTemplateSettings({
   agents,
 }: OrcTemplateSettingsProps) {
   const templatesQuery = useOrcTemplates(bridge);
+  const modelsQuery = useOpencodeModels(bridge);
   const saveMutation = useSaveOrcTemplateConfigMutation(bridge);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [drafts, setDrafts] = useState<Record<string, StepDraft[]>>({});
@@ -170,6 +173,9 @@ export function OrcTemplateSettings({
   const templatesError = templatesQuery.error
     ? toUserError(templatesQuery.error)
     : null;
+  const modelsError = modelsQuery.error
+    ? toUserError(modelsQuery.error).message
+    : null;
 
   return (
     <div className="settings-subsection orc-template-settings">
@@ -238,6 +244,22 @@ export function OrcTemplateSettings({
             </p>
           ) : null}
 
+          {modelsError ? (
+            <InlineError
+              title="无法读取 OpenCode 模型列表"
+              message={modelsError}
+              action={
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => void modelsQuery.refetch()}
+                >
+                  重新读取
+                </button>
+              }
+            />
+          ) : null}
+
           <OrcNodeChain
             label={`${selectedTemplate.name} 节点配置`}
             steps={chainStepsOf(selectedTemplate)}
@@ -280,19 +302,17 @@ export function OrcTemplateSettings({
 
                   <label className="orc-node-field">
                     <span>模型</span>
-                    <input
-                      className="settings-control"
-                      aria-label={`第 ${step.order} 步 模型`}
-                      type="text"
-                      inputMode="text"
-                      placeholder="provider/model"
+                    <OrcModelSelect
+                      ariaLabel={`第 ${step.order} 步 模型`}
                       value={model}
-                      disabled={modelDisabled || saveMutation.isPending}
-                      onChange={(event) =>
-                        updateStep(step.order, {
-                          model: event.currentTarget.value,
-                        })
+                      onChange={(next) =>
+                        updateStep(step.order, { model: next })
                       }
+                      editable={!modelDisabled}
+                      disabled={saveMutation.isPending}
+                      models={modelsQuery.data ?? null}
+                      error={modelsError}
+                      controlClassName="settings-control"
                     />
                   </label>
 

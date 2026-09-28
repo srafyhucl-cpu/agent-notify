@@ -8,6 +8,7 @@ import type {
   LegacyMigrationDto,
   NotificationDetailDto,
   NotificationSummaryDto,
+  OpencodeModelDto,
   OpencodeProjectDto,
   OrcTaskDto,
   OrcTemplateDto,
@@ -392,5 +393,23 @@ export function opencodeProjectsFixture(): OpencodeProjectDto[] {
       lastActiveAt: 1_760_000_000,
     }),
     opencodeProjectFixture("D:/Project/legacy-demo", { lastActiveAt: 1_750_000_000 }),
+  ];
+}
+
+/** 单条 OpenCode 可用模型样本（`provider/model` 与显示名）。 */
+export function opencodeModelFixture(
+  providerId: string,
+  modelId: string,
+  name: string,
+): OpencodeModelDto {
+  return { providerId, modelId, name };
+}
+
+/** OpenCode 可用模型样本（模型下拉数据源；跨 provider 同名可从显示名区分）。 */
+export function opencodeModelsFixture(): OpencodeModelDto[] {
+  return [
+    opencodeModelFixture("opencode-go", "deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
+    opencodeModelFixture("opencode-go", "space-bunny-free", "Space Bunny Free"),
+    opencodeModelFixture("opencode", "mimo-v2.6-flash", "MiMo-V2.6-Flash"),
   ];
 }

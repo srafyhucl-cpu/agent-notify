@@ -494,6 +494,11 @@ impl OrcCommandHandler {
         super::opencode_projects::list_projects().await
     }
 
+    /// OpenCode 可用模型（模型下拉数据源）：只读本地服务 API；失败明确报错退回手动输入。
+    pub async fn list_opencode_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        super::opencode_models::list_models().await
+    }
+
     /// 旧 `get_current_orc_workflow` 的装配解析（动态模式沿用 `orchestration.workflow` 设置）。
     async fn resolve_legacy_store(&self) -> Result<OrcStore, CommandError> {
         let disabled =

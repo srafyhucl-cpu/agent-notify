@@ -357,4 +357,11 @@ impl HostCommandService for ProductionHostCommandService {
     ) -> Result<Vec<OpencodeProjectDto>, CommandError> {
         self.orchestration.list_opencode_projects().await
     }
+
+    async fn list_opencode_models(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        self.orchestration.list_opencode_models().await
+    }
 }

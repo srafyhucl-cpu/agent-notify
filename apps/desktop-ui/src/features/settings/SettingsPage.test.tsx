@@ -528,18 +528,21 @@ describe("SettingsPage 编排（集群）节点配置", () => {
     renderSettings(bridge);
 
     const agentSelect = await screen.findByLabelText("第 1 步 Agent");
-    const modelInput = screen.getByLabelText("第 1 步 模型");
 
     await user.selectOptions(agentSelect, "opencode");
-    expect(modelInput).toBeEnabled();
+    const modelSelect = screen.getByLabelText("第 1 步 模型");
+    expect(modelSelect).toBeEnabled();
     expect(
       screen.getByText("留空 = 不指定，由 OpenCode 用其当前默认模型"),
     ).toBeVisible();
 
-    await user.type(modelInput, "anthropic/claude-sonnet-4-5");
+    // 下拉直接选（显示名 + provider/model），不用手拼格式
+    await screen.findByRole("option", { name: /Space Bunny Free/ });
+    await user.selectOptions(modelSelect, "opencode-go/space-bunny-free");
+
     await user.selectOptions(agentSelect, "agent-alpha");
-    expect(modelInput).toBeDisabled();
-    expect(modelInput).toHaveValue("");
+    expect(screen.getByLabelText("第 1 步 模型")).toBeDisabled();
+    expect(screen.getByLabelText("第 1 步 模型")).toHaveValue("");
     expect(screen.getByText("该 Agent 暂不支持指定模型")).toBeVisible();
   });
 
@@ -553,9 +556,10 @@ describe("SettingsPage 编排（集群）节点配置", () => {
 
     const agentSelect = await screen.findByLabelText("第 1 步 Agent");
     await user.selectOptions(agentSelect, "opencode");
-    await user.type(
+    await screen.findByRole("option", { name: /Space Bunny Free/ });
+    await user.selectOptions(
       screen.getByLabelText("第 1 步 模型"),
-      "anthropic/claude-sonnet-4-5",
+      "opencode-go/space-bunny-free",
     );
     await user.selectOptions(screen.getByLabelText("第 2 步 Agent"), "opencode");
 
@@ -573,7 +577,7 @@ describe("SettingsPage 编排（集群）节点配置", () => {
               {
                 order: 1,
                 agent: "opencode",
-                model: "anthropic/claude-sonnet-4-5",
+                model: "opencode-go/space-bunny-free",
               },
               { order: 2, agent: "opencode", model: null },
             ],

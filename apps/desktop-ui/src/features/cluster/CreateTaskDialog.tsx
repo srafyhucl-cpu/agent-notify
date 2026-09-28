@@ -10,7 +10,9 @@ import type {
 import { InlineError } from "../../components/InlineError";
 import { toUserError } from "../../data/errors";
 import { useAgents } from "../../data/useAgents";
+import { useOpencodeModels } from "../../data/useOpencodeModels";
 import { ORC_MODEL_CAPABLE_AGENT, ORC_NOTIFY_MODE_OPTIONS } from "./labels";
+import { OrcModelSelect } from "./OrcModelSelect";
 import { OrcNodeChain, type OrcNodeChainStep } from "./OrcNodeChain";
 
 /** 工作目录下拉里的「手动输入」哨兵值（目录不会与它同名）。 */
@@ -86,6 +88,10 @@ export function CreateTaskDialog({
 }: CreateTaskDialogProps) {
   const agentsQuery = useAgents(bridge);
   const agents = agentsQuery.data ?? [];
+  const modelsQuery = useOpencodeModels(bridge);
+  const modelsError = modelsQuery.error
+    ? toUserError(modelsQuery.error).message
+    : null;
   const [goal, setGoal] = useState("");
   const [notifyMode, setNotifyMode] = useState("final_only");
   const [templateId, setTemplateId] = useState("");
@@ -196,7 +202,7 @@ export function CreateTaskDialog({
           <div>
             <h2 id="cluster-create-title">新建编排任务</h2>
             <p className="dialog-subtitle">
-              选定模板后为每个节点选择 Agent（模型可手填）；创建即锁定，之后改设置不影响它。
+              选定模板后为每个节点选择 Agent 与模型；创建即锁定，之后改设置不影响它。
             </p>
           </div>
           <button
@@ -348,6 +354,21 @@ export function CreateTaskDialog({
               <p className="cluster-workflow-preview-title">
                 {selectedTemplate.name} · 工作流节点（第 1 步是项目经理，负责汇总汇报）
               </p>
+              {modelsError ? (
+                <InlineError
+                  title="无法读取 OpenCode 模型列表"
+                  message={modelsError}
+                  action={
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() => void modelsQuery.refetch()}
+                    >
+                      重新读取
+                    </button>
+                  }
+                />
+              ) : null}
               <OrcNodeChain
                 label={`${selectedTemplate.name} 节点配置`}
                 steps={chainStepsOf(selectedTemplate)}
@@ -389,18 +410,16 @@ export function CreateTaskDialog({
 
                       <label className="orc-node-field">
                         <span>模型</span>
-                        <input
-                          aria-label={`第 ${step.order} 步 模型`}
-                          type="text"
-                          inputMode="text"
-                          placeholder="provider/model"
+                        <OrcModelSelect
+                          ariaLabel={`第 ${step.order} 步 模型`}
                           value={model}
-                          disabled={modelDisabled || pending}
-                          onChange={(event) =>
-                            updateStep(step.order, {
-                              model: event.currentTarget.value,
-                            })
+                          onChange={(next) =>
+                            updateStep(step.order, { model: next })
                           }
+                          editable={!modelDisabled}
+                          disabled={pending}
+                          models={modelsQuery.data ?? null}
+                          error={modelsError}
                         />
                       </label>
 

@@ -25,6 +25,7 @@ import type {
   NotificationFilterPayload,
   NotificationIdPayload,
   NotificationListDto,
+  OpencodeModelDto,
   OpencodeProjectDto,
   OrcTaskDto,
   OrcTaskIdPayload,
@@ -76,6 +77,7 @@ export interface CommandPayloadMap {
   list_orc_templates: EmptyPayload;
   save_orc_template_config: SaveOrcTemplateConfigPayload;
   list_opencode_projects: EmptyPayload;
+  list_opencode_models: EmptyPayload;
 }
 
 export interface CommandResultMap {
@@ -110,6 +112,7 @@ export interface CommandResultMap {
   list_orc_templates: OrcTemplateDto[];
   save_orc_template_config: OrcTemplateDto[];
   list_opencode_projects: OpencodeProjectDto[];
+  list_opencode_models: OpencodeModelDto[];
 }
 
 export interface EventPayloadMap {

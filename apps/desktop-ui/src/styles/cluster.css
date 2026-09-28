@@ -726,6 +726,17 @@
   width: 100%;
 }
 
+/* 模型选择（下拉 +「手动输入」兜底，设置页与创建弹窗共用） */
+.orc-model-fields {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.orc-model-control {
+  min-width: 0;
+}
+
 .orc-node-field-hint {
   margin: 0;
   color: var(--color-text-muted);

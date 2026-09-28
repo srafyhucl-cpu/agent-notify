@@ -3,6 +3,7 @@ mod agents;
 mod app_exit;
 pub mod events;
 mod mapping;
+pub mod opencode_models;
 pub mod opencode_projects;
 pub mod orc_event_filter;
 pub mod orc_handler;

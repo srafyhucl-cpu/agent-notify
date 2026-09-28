@@ -21,6 +21,7 @@ import type {
   NotificationFilterPayload,
   NotificationListDto,
   NotificationSummaryDto,
+  OpencodeModelDto,
   OpencodeProjectDto,
   OrcTaskDto,
   OrcTaskIdPayload,
@@ -68,6 +69,8 @@ export interface MockHostBridgeOptions {
   orcTemplates?: OrcTemplateDto[];
   /** OpenCode 已知项目（工作目录下拉，按最近活跃倒序）；缺省 = 两条固定样本。 */
   opencodeProjects?: OpencodeProjectDto[];
+  /** OpenCode 可用模型（模型下拉）；缺省 = 三条固定样本。 */
+  opencodeModels?: OpencodeModelDto[];
 }
 
 export interface MockHostBridge extends HostBridge {
@@ -293,6 +296,15 @@ function defaultOpencodeProjects(): OpencodeProjectDto[] {
   ];
 }
 
+/** 测试默认 OpenCode 可用模型（模型下拉数据源）。 */
+function defaultOpencodeModels(): OpencodeModelDto[] {
+  return [
+    { providerId: "opencode-go", modelId: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" },
+    { providerId: "opencode-go", modelId: "space-bunny-free", name: "Space Bunny Free" },
+    { providerId: "opencode", modelId: "mimo-v2.6-flash", name: "MiMo-V2.6-Flash" },
+  ];
+}
+
 /** 模板 id → 展示名（错误文案与后端保持一致）。 */
 const TEMPLATE_NAME_HINTS = "快速修复 / 标准交付 / 完整评估";
 
@@ -402,6 +414,9 @@ export function createMockHostBridge(
   );
   const opencodeProjects = cloneDto(
     options.opencodeProjects ?? defaultOpencodeProjects(),
+  );
+  const opencodeModels = cloneDto(
+    options.opencodeModels ?? defaultOpencodeModels(),
   );
 
   async function applyDelay(command: BusinessCommand) {
@@ -750,6 +765,9 @@ export function createMockHostBridge(
       }
       case "list_opencode_projects":
         result = cloneDto(opencodeProjects);
+        break;
+      case "list_opencode_models":
+        result = cloneDto(opencodeModels);
         break;
       case "advance_orc_task": {
         const advance = payload as unknown as AdvanceOrcTaskPayload;

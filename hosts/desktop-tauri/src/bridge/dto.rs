@@ -37,6 +37,7 @@ pub enum BusinessCommand {
     ListOrcTemplates,
     SaveOrcTemplateConfig,
     ListOpencodeProjects,
+    ListOpencodeModels,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -245,6 +246,18 @@ pub struct OpencodeProjectDto {
     pub name: Option<String>,
     /// 最近活跃时间（库中原始整数时间戳；缺失为 None）。
     pub last_active_at: Option<i64>,
+}
+
+/// OpenCode 可用模型（模型下拉数据源）：`provider_id`/`model_id` 拼成 `provider/model`。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpencodeModelDto {
+    /// 提供方 id（如 `opencode-go`）。
+    pub provider_id: String,
+    /// 模型 id（如 `deepseek-v4.1-flash`）。
+    pub model_id: String,
+    /// 显示名（OpenCode 界面里的模型名，如 `DeepSeek V4.1 Flash`）。
+    pub name: String,
 }
 
 /// 当前编排工作流（供创建任务前预览节点）。
