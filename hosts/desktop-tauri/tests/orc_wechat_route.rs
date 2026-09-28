@@ -158,10 +158,19 @@ fn inbound(text: &str) -> InboundMessage {
     .expect("入站消息必须可构造")
 }
 
+/// 测试用工作目录：testkit 隔离根（必须已存在，创建任务时校验）。
+fn existing_dir() -> String {
+    agentnotify_testkit::test_temp_root()
+        .to_string_lossy()
+        .into_owned()
+}
+
 async fn create_task(creator: &OrcCommandHandler) -> String {
     let created = creator
         .create(CreateOrcTaskPayload {
             goal: "做一个贪吃蛇游戏".into(),
+            template_id: "preset-requirement-to-report".into(),
+            working_dir: existing_dir(),
             notify_mode: None,
         })
         .await

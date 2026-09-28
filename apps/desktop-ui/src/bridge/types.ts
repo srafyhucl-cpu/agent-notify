@@ -35,6 +35,9 @@ export const commands = {
 	recoverBlockedOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("recover_blocked_orc_task", { payload }),
 	startOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("start_orc_task", { payload }),
 	getCurrentOrcWorkflow: (payload: EmptyPayload) => __TAURI_INVOKE<CurrentOrcWorkflowDto>("get_current_orc_workflow", { payload }),
+	listOrcTemplates: (payload: EmptyPayload) => __TAURI_INVOKE<OrcTemplateDto[]>("list_orc_templates", { payload }),
+	saveOrcTemplateConfig: (payload: SaveOrcTemplateConfigPayload) => __TAURI_INVOKE<OrcTemplateDto[]>("save_orc_template_config", { payload }),
+	listOpencodeProjects: (payload: EmptyPayload) => __TAURI_INVOKE<OpencodeProjectDto[]>("list_opencode_projects", { payload }),
 };
 
 /** Events */
@@ -85,7 +88,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow" | "list_orc_templates" | "save_orc_template_config" | "list_opencode_projects";
 
 export type ChannelAccountDto = {
 	id: string,
@@ -165,9 +168,16 @@ export type ComponentDto = {
 
 export type ComponentStateDto = "Starting" | "Running" | "Paused" | "Stopped" | "Failed";
 
-/**  创建编排任务：`notify_mode` 缺省为 final_only（只推最终汇报，默认）。 */
+/**
+ *  创建编排任务（§3.1）：`template_id` 必选（任务锁定模板）；`working_dir` 必填（必须是已存在目录）；
+ *  `notify_mode` 缺省为 final_only（只推最终汇报，默认）。
+ */
 export type CreateOrcTaskPayload = {
 	goal: string,
+	/**  工作流模板 id（内置三档模板之一；旧预设仅兼容已存在任务，不再对新任务开放）。 */
+	templateId: string,
+	/**  任务工作目录（OpenCode 会话创建位置；必须是已存在的目录）。 */
+	workingDir: string,
 	notifyMode: string | null,
 };
 
@@ -346,6 +356,16 @@ export type NotificationSummaryDto = {
 	deliveryStates: DeliveryStateDto[],
 };
 
+/**  OpenCode 已知项目（工作目录下拉数据源，§3.1）：只读本地库的 project 表。 */
+export type OpencodeProjectDto = {
+	/**  项目工作目录（绝对路径）。 */
+	directory: string,
+	/**  项目名（库中为空则为 None）。 */
+	name: string | null,
+	/**  最近活跃时间（库中原始整数时间戳；缺失为 None）。 */
+	lastActiveAt: number | null,
+};
+
 /**  编排消息 kind（推进命令用，§4 消息总线）。 */
 export type OrcMessageKindDto = "report" | "instruction" | "confirm" | "question" | "info";
 
@@ -366,6 +386,10 @@ export type OrcTaskDto = {
 	/**  通知节奏：final_only / verbose（§4.6） */
 	notifyMode: string,
 	goal: string,
+	/**  任务工作目录（OpenCode 会话创建位置）；None = 旧任务，跟随宿主当前项目。 */
+	workingDir: string | null,
+	/**  是否处于「项目经理汇总阶段」（最后一步完成、等待首节点汇总，§4）。 */
+	finalizing: boolean,
 };
 
 export type OrcTaskIdPayload = {
@@ -374,6 +398,28 @@ export type OrcTaskIdPayload = {
 
 /**  编排任务状态（稳定字符串，与 A2A `TaskState` 一一对应，§8.3 映射表）。 */
 export type OrcTaskStateDto = "unspecified" | "submitted" | "working" | "completed" | "failed" | "canceled" | "input_required" | "rejected" | "auth_required";
+
+/**  固定工作流模板视图（设置页节点配置与创建任务预览共用）：节点含合并后的 Agent/模型。 */
+export type OrcTemplateDto = {
+	id: string,
+	name: string,
+	steps: OrcTemplateStepDto[],
+};
+
+/**  单节点配置输入：`order` 必须与模板一致；agent/model 均可空。 */
+export type OrcTemplateStepConfigDto = {
+	order: number,
+	agent: string | null,
+	model: string | null,
+};
+
+/**  模板单个节点：角色 + 合并后的 Agent/模型（未配置为 None）。 */
+export type OrcTemplateStepDto = {
+	order: number,
+	role: string,
+	agent: string | null,
+	model: string | null,
+};
 
 /**  编排工作流视图（预置工作流或其用户配置）：节点列表供 UI 预览「每步做什么、派给谁」。 */
 export type OrcWorkflowDto = {
@@ -389,6 +435,8 @@ export type OrcWorkflowStepDto = {
 	role: string,
 	/**  建议 Agent（可为空：留空时该步不派活，仅等待人工推进）。 */
 	agentHint: string | null,
+	/**  该步使用的模型（`provider/model`；None = 用该 Agent 默认模型）。 */
+	model: string | null,
 	/**  是否需人确认才进入下一步。 */
 	humanGate: boolean,
 };
@@ -421,6 +469,12 @@ export type SafeErrorDto = {
 	message: string,
 };
 
+/**  保存某模板的节点配置（覆盖式：提交全量节点，空 Agent/模型 = 清除该节点覆盖）。 */
+export type SaveOrcTemplateConfigPayload = {
+	templateId: string,
+	steps: OrcTemplateStepConfigDto[],
+};
+
 export type SendTestNotificationPayload = {
 	accountId: string,
 	title: string,
@@ -444,6 +498,8 @@ export type SettingsDto = {
 	updateChannel: UpdateChannelDto,
 	/**  编排功能开关（`orchestration.enabled`，默认关闭；开启后重启用）。 */
 	orchestrationEnabled?: boolean,
+	/**  编排会话无人值守（`orchestration.unattended`，默认 true）：编排会话权限 ask 自动放行。 */
+	orchestrationUnattended?: boolean,
 };
 
 export type SnapshotChangedEvent = {

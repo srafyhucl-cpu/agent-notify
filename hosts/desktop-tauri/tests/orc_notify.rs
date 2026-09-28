@@ -29,6 +29,9 @@ use agentnotify_orchestration::{NotifyMode, OrcStore, TemplateResolver, Workflow
 use agentnotify_storage_sqlite::SqliteStore;
 use agentnotify_testkit::MemoryStore;
 
+/// 旧预设 id：静态测试沿用该工作流（任务级解析时沿用装配工作流）。
+const PRESET_ID: &str = "preset-requirement-to-report";
+
 /// 推送记录：每次 push 的（task_id, 文本）。
 type PushedRecords = Arc<Mutex<Vec<(String, String)>>>;
 
@@ -76,6 +79,11 @@ fn open_sqlite(prefix: &str) -> (tempfile::TempDir, Arc<SqliteStore>) {
     (root, store)
 }
 
+/// 测试用工作目录：必须是已存在的目录（创建任务时校验）。
+fn working_dir(root: &tempfile::TempDir) -> String {
+    root.path().to_string_lossy().into_owned()
+}
+
 /// 装配编排处理器 + 假呈现；返回 (处理器, 推送记录, 任务创建用句柄可自行使用)。
 fn handler_with(
     store: &Arc<SqliteStore>,
@@ -118,6 +126,8 @@ async fn final_only_pushes_only_the_final_report() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "做一个贪吃蛇游戏".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: Some("final_only".into()),
         })
         .await
@@ -179,6 +189,8 @@ async fn verbose_pushes_every_step_progress() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "做一个贪吃蛇游戏".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: Some("verbose".into()),
         })
         .await
@@ -251,6 +263,8 @@ async fn final_only_pushes_gate_wait_and_confirm() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "带人工确认的任务".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: Some("final_only".into()),
         })
         .await
@@ -332,6 +346,8 @@ async fn failure_reminder_always_pushes_regardless_of_mode() {
         let created = handler
             .create(CreateOrcTaskPayload {
                 goal: "失败提醒测试".into(),
+                template_id: PRESET_ID.into(),
+                working_dir: working_dir(&_root),
                 notify_mode: Some(mode.into()),
             })
             .await
@@ -390,6 +406,8 @@ async fn recover_blocked_does_not_add_push() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "恢复不重复推".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: Some("final_only".into()),
         })
         .await
@@ -427,6 +445,8 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     let inherited = handler
         .create(CreateOrcTaskPayload {
             goal: "继承全局默认".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await
@@ -437,6 +457,8 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     let overridden = handler
         .create(CreateOrcTaskPayload {
             goal: "显式覆盖".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: Some("final_only".into()),
         })
         .await
@@ -447,6 +469,8 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     let err = handler
         .create(CreateOrcTaskPayload {
             goal: "非法节奏".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: Some("noisy".into()),
         })
         .await
@@ -502,6 +526,8 @@ async fn global_default_reads_real_settings_and_falls_back() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "settings 继承".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await
@@ -512,6 +538,8 @@ async fn global_default_reads_real_settings_and_falls_back() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "settings 回退".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await

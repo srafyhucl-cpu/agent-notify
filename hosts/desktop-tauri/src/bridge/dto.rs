@@ -34,6 +34,9 @@ pub enum BusinessCommand {
     RecoverBlockedOrcTask,
     StartOrcTask,
     GetCurrentOrcWorkflow,
+    ListOrcTemplates,
+    SaveOrcTemplateConfig,
+    ListOpencodeProjects,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -166,6 +169,10 @@ pub struct OrcTaskDto {
     /// 通知节奏：final_only / verbose（§4.6）
     pub notify_mode: String,
     pub goal: String,
+    /// 任务工作目录（OpenCode 会话创建位置）；None = 旧任务，跟随宿主当前项目。
+    pub working_dir: Option<String>,
+    /// 是否处于「项目经理汇总阶段」（最后一步完成、等待首节点汇总，§4）。
+    pub finalizing: bool,
 }
 
 /// 编排工作流视图（预置工作流或其用户配置）：节点列表供 UI 预览「每步做什么、派给谁」。
@@ -186,8 +193,58 @@ pub struct OrcWorkflowStepDto {
     pub role: String,
     /// 建议 Agent（可为空：留空时该步不派活，仅等待人工推进）。
     pub agent_hint: Option<String>,
+    /// 该步使用的模型（`provider/model`；None = 用该 Agent 默认模型）。
+    pub model: Option<String>,
     /// 是否需人确认才进入下一步。
     pub human_gate: bool,
+}
+
+/// 固定工作流模板视图（设置页节点配置与创建任务预览共用）：节点含合并后的 Agent/模型。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcTemplateDto {
+    pub id: String,
+    pub name: String,
+    pub steps: Vec<OrcTemplateStepDto>,
+}
+
+/// 模板单个节点：角色 + 合并后的 Agent/模型（未配置为 None）。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcTemplateStepDto {
+    pub order: u32,
+    pub role: String,
+    pub agent: Option<String>,
+    pub model: Option<String>,
+}
+
+/// 保存某模板的节点配置（覆盖式：提交全量节点，空 Agent/模型 = 清除该节点覆盖）。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveOrcTemplateConfigPayload {
+    pub template_id: String,
+    pub steps: Vec<OrcTemplateStepConfigDto>,
+}
+
+/// 单节点配置输入：`order` 必须与模板一致；agent/model 均可空。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcTemplateStepConfigDto {
+    pub order: u32,
+    pub agent: Option<String>,
+    pub model: Option<String>,
+}
+
+/// OpenCode 已知项目（工作目录下拉数据源，§3.1）：只读本地库的 project 表。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpencodeProjectDto {
+    /// 项目工作目录（绝对路径）。
+    pub directory: String,
+    /// 项目名（库中为空则为 None）。
+    pub name: Option<String>,
+    /// 最近活跃时间（库中原始整数时间戳；缺失为 None）。
+    pub last_active_at: Option<i64>,
 }
 
 /// 当前编排工作流（供创建任务前预览节点）。
@@ -197,11 +254,16 @@ pub struct CurrentOrcWorkflowDto {
     pub workflow: OrcWorkflowDto,
 }
 
-/// 创建编排任务：`notify_mode` 缺省为 final_only（只推最终汇报，默认）。
+/// 创建编排任务（§3.1）：`template_id` 必选（任务锁定模板）；`working_dir` 必填（必须是已存在目录）；
+/// `notify_mode` 缺省为 final_only（只推最终汇报，默认）。
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateOrcTaskPayload {
     pub goal: String,
+    /// 工作流模板 id（内置三档模板之一；旧预设仅兼容已存在任务，不再对新任务开放）。
+    pub template_id: String,
+    /// 任务工作目录（OpenCode 会话创建位置；必须是已存在的目录）。
+    pub working_dir: String,
     pub notify_mode: Option<String>,
 }
 
@@ -522,6 +584,14 @@ pub struct SettingsDto {
     /// 编排功能开关（`orchestration.enabled`，默认关闭；开启后重启用）。
     #[serde(default)]
     pub orchestration_enabled: bool,
+    /// 编排会话无人值守（`orchestration.unattended`，默认 true）：编排会话权限 ask 自动放行。
+    #[serde(default = "default_orchestration_unattended")]
+    pub orchestration_unattended: bool,
+}
+
+/// `orchestration_unattended` 的默认值：缺失 = 无人值守开启（§6）。
+fn default_orchestration_unattended() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]

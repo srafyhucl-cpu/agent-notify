@@ -23,6 +23,10 @@ pub const KEY_AUTO_START: &str = "autoStart";
 pub const KEY_START_HIDDEN: &str = "startHidden";
 pub const KEY_UPDATE_CHANNEL: &str = "updateChannel";
 pub const KEY_ORCHESTRATION_ENABLED: &str = "orchestration.enabled";
+/// 编排会话无人值守开关（§6；缺失 = true，权限 ask 自动放行）。
+pub const KEY_ORCHESTRATION_UNATTENDED: &str = "orchestration.unattended";
+/// 编排节点配置（§3）：模板 id → 步骤序号 → { agent, model } 的 JSON。
+pub const KEY_ORCHESTRATION_NODE_CONFIG: &str = "orchestration.node_config";
 
 const DEFAULT_ROUTE_TTL_SECONDS: u32 = 86400;
 
@@ -198,6 +202,12 @@ pub fn entries_to_dto(entries: &BTreeMap<String, Value>) -> SettingsDto {
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
+    // 无人值守默认 true（§6）：显式 false 才关闭。
+    let orchestration_unattended = entries
+        .get(KEY_ORCHESTRATION_UNATTENDED)
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
     SettingsDto {
         notifications_paused,
         quiet_hours,
@@ -210,6 +220,7 @@ pub fn entries_to_dto(entries: &BTreeMap<String, Value>) -> SettingsDto {
         start_hidden,
         update_channel,
         orchestration_enabled,
+        orchestration_unattended,
     }
 }
 
@@ -264,6 +275,10 @@ pub fn dto_to_entries(dto: &SettingsDto) -> BTreeMap<String, Value> {
     entries.insert(
         KEY_ORCHESTRATION_ENABLED.into(),
         Value::Bool(dto.orchestration_enabled),
+    );
+    entries.insert(
+        KEY_ORCHESTRATION_UNATTENDED.into(),
+        Value::Bool(dto.orchestration_unattended),
     );
 
     entries

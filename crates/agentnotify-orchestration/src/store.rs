@@ -86,6 +86,11 @@ impl OrcStore {
         &self.workflow
     }
 
+    /// 任务仓储句柄：任务级解析/模板绑定需要复用同一仓储。
+    pub fn repository(&self) -> Arc<dyn OrcTaskRepository> {
+        self.tasks.clone()
+    }
+
     /// 创建任务：工作流第 1 步开工（A2A 状态 Working，新会话语义，§3.3）。
     pub async fn create_task(
         &self,

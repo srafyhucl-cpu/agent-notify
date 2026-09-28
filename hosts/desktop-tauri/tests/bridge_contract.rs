@@ -37,6 +37,9 @@ fn stable_command_names_are_exact_and_append_only() {
             "recover_blocked_orc_task",
             "start_orc_task",
             "get_current_orc_workflow",
+            "list_orc_templates",
+            "save_orc_template_config",
+            "list_opencode_projects",
         ]
     );
 }

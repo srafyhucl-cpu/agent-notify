@@ -71,6 +71,14 @@ fn open_sqlite(prefix: &str) -> (tempfile::TempDir, Arc<SqliteStore>) {
     (root, store)
 }
 
+/// 旧预设 id：静态测试沿用该工作流（任务级解析时沿用装配工作流）。
+const PRESET_ID: &str = "preset-requirement-to-report";
+
+/// 测试用工作目录：必须是已存在的目录（创建任务时校验）。
+fn working_dir(root: &tempfile::TempDir) -> String {
+    root.path().to_string_lossy().into_owned()
+}
+
 /// 启用编排 + 注入假 driver 的处理器（预置工作流：codex → opencode → commandcode）。
 fn report_handler(store: &Arc<SqliteStore>, driver: Arc<FakeDriver>) -> Arc<OrcCommandHandler> {
     let workflow = Workflow::preset(false).expect("预置工作流必须有效");
@@ -106,6 +114,8 @@ async fn completed_session_advances_task_and_dispatches_next_step() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "做一个贪吃蛇游戏".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await
@@ -154,6 +164,8 @@ async fn foreign_session_is_ignored() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "目标".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await
@@ -182,6 +194,8 @@ async fn stale_step_session_is_ignored() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "目标".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await
@@ -211,6 +225,8 @@ async fn non_completed_event_is_ignored() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "目标".into(),
+            template_id: PRESET_ID.into(),
+            working_dir: working_dir(&_root),
             notify_mode: None,
         })
         .await

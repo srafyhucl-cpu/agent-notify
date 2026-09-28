@@ -14,11 +14,12 @@ use agentnotify_orchestration::{
 use agentnotify_storage_sqlite::SqliteStore;
 
 use super::agent_driver::AgentDriver;
+use super::orc_node_config::{NodeConfig, template_dtos, validate_template_steps};
 use super::orc_notify::{
     OrcClusterPresenter, failure_body, progress_body, render_cluster_message, should_notify,
 };
 use super::orc_wechat_route::state_cn;
-use super::settings::ProductionSettingsStore;
+use super::settings::{KEY_ORCHESTRATION_NODE_CONFIG, ProductionSettingsStore};
 use crate::bridge::dto::*;
 use crate::bridge::error::CommandError;
 
@@ -58,6 +59,12 @@ const ORCHESTRATION_DISABLED_MESSAGE: &str =
     "编排未启用：请在设置中启用 orchestration.enabled 后重启应用";
 /// 当前步骤未配置 Agent（agent_hint 缺失）时的稳定错误码（P2 派活，写进 blocked 原因）。
 const ORC_STEP_AGENT_MISSING: &str = "orc_step_agent_missing";
+/// 创建任务的模板不存在（新任务只开放内置三档模板）。
+const ORC_TEMPLATE_UNKNOWN: &str = "orc_template_unknown";
+/// 工作目录为空或不是已存在目录。
+const ORC_WORKING_DIR_INVALID: &str = "orc_working_dir_invalid";
+/// 编排设置存储不可用（静态装配/初始化未完成）时保存节点配置的错误码。
+const ORC_SETTINGS_UNAVAILABLE: &str = "orchestration_settings_unavailable";
 /// 派活信封会话 id 前缀：`task-<task_id>-step-<n>`（每个 (task, step) 一个稳定会话）。
 const ORC_DISPATCH_SESSION_PREFIX: &str = "task";
 
@@ -190,10 +197,25 @@ impl OrcCommandHandler {
     }
 
     pub async fn create(&self, payload: CreateOrcTaskPayload) -> Result<OrcTaskDto, CommandError> {
-        let store = self.resolve_store().await?;
+        let base_store = self.resolve_store().await?;
         let goal = payload.goal.trim();
         if goal.is_empty() {
             return Err(CommandError::new("orc_goal_empty", "任务目标不能为空"));
+        }
+        // 任务锁定模板（§3.1）：只接受内置三档模板（或静态装配的工作流）。
+        let workflow = self.resolve_create_workflow(payload.template_id.trim())?;
+        let working_dir = payload.working_dir.trim();
+        if working_dir.is_empty() {
+            return Err(CommandError::new(
+                ORC_WORKING_DIR_INVALID,
+                "工作目录不能为空：请选择 OpenCode 项目或手动输入目录",
+            ));
+        }
+        if !Path::new(working_dir).is_dir() {
+            return Err(CommandError::new(
+                ORC_WORKING_DIR_INVALID,
+                format!("工作目录不存在：{working_dir}"),
+            ));
         }
         // P1-4：显式指定 → 任务级覆盖（校验失败明确报错）；未指定 → 继承全局默认
         // `orchestration.notify_mode`（缺失/非法回退 final_only 并告警，§4.6）。
@@ -201,10 +223,14 @@ impl OrcCommandHandler {
             Some(raw) => parse_notify_mode(Some(raw))?,
             None => self.global_default_notify_mode().await,
         };
-        let task = store
+        let merged = self.node_config().await.merge_workflow(&workflow);
+        let store = OrcStore::with_repository(merged, base_store.repository());
+        let mut task = store
             .create_task(goal, notify_mode)
             .await
             .map_err(orc_error)?;
+        task.set_working_dir(working_dir).map_err(orc_error)?;
+        store.save(task.clone()).await.map_err(orc_error)?;
         // 创建后**不自动派活**：任务先进入「待开始」（started=false），用户在界面上
         // 看清工作流节点（每步角色与派给谁）后点「开始执行」再派活第 1 步。
         // 这样避免"没看清节点就被派活"，也避免默认工作流与实际可用 Agent 不匹配时的意外阻塞。
@@ -258,6 +284,96 @@ impl OrcCommandHandler {
         Ok(CurrentOrcWorkflowDto {
             workflow: orc_workflow_to_dto(store.workflow()),
         })
+    }
+
+    /// 创建任务时解析模板：静态装配的工作流 id 一致时沿用装配工作流（测试/自定义），
+    /// 否则必须是内置三档模板；未知 → `orc_template_unknown`。
+    fn resolve_create_workflow(&self, template_id: &str) -> Result<Workflow, CommandError> {
+        if let Some(store) = &self.store {
+            if store.workflow().id == template_id {
+                return Ok(store.workflow().clone());
+            }
+        }
+        Workflow::builtin(template_id).ok_or_else(|| {
+            CommandError::new(
+                ORC_TEMPLATE_UNKNOWN,
+                format!("模板不存在：{template_id}（可选：快速修复 / 标准交付 / 完整评估）"),
+            )
+        })
+    }
+
+    /// 读取节点配置（§3）：settings 缺失 = 未配置；读取/解析失败 → 告警 + 按未配置处理（不猜）。
+    async fn node_config(&self) -> NodeConfig {
+        let Some(settings) = &self.settings else {
+            return NodeConfig::default();
+        };
+        let entries = match settings.store().settings_entries().await {
+            Ok(entries) => entries,
+            Err(error) => {
+                tracing::warn!(%error, "读取编排节点配置失败，按未配置处理");
+                return NodeConfig::default();
+            }
+        };
+        let Some(value) = entries.get(KEY_ORCHESTRATION_NODE_CONFIG) else {
+            return NodeConfig::default();
+        };
+        match NodeConfig::from_json(value) {
+            Ok(config) => config,
+            Err(reason) => {
+                tracing::warn!("编排节点配置读取失败，按未配置处理：{reason}");
+                NodeConfig::default()
+            }
+        }
+    }
+
+    /// 固定模板列表（设置页节点配置与创建任务预览共用）：节点含合并后的 Agent/模型。
+    pub async fn list_orc_templates(&self) -> Result<Vec<OrcTemplateDto>, CommandError> {
+        let node_config = self.node_config().await;
+        Ok(template_dtos(&node_config))
+    }
+
+    /// 保存某模板的节点配置（覆盖式，§3）：校验通过后返回保存后的全量模板列表。
+    pub async fn save_orc_template_config(
+        &self,
+        payload: SaveOrcTemplateConfigPayload,
+    ) -> Result<Vec<OrcTemplateDto>, CommandError> {
+        let Some(settings) = &self.settings else {
+            return Err(CommandError::new(
+                ORC_SETTINGS_UNAVAILABLE,
+                "编排设置存储不可用：无法保存节点配置",
+            ));
+        };
+        let template_id = payload.template_id.trim();
+        let workflow = Workflow::builtin(template_id).ok_or_else(|| {
+            CommandError::new(
+                ORC_TEMPLATE_UNKNOWN,
+                format!("模板不存在：{template_id}（可选：快速修复 / 标准交付 / 完整评估）"),
+            )
+        })?;
+        let entries = validate_template_steps(&workflow, &payload.steps)?;
+        let mut node_config = self.node_config().await;
+        node_config.set_template(template_id, entries);
+        let mut values = std::collections::BTreeMap::new();
+        values.insert(
+            KEY_ORCHESTRATION_NODE_CONFIG.to_string(),
+            node_config.to_json(),
+        );
+        settings
+            .store()
+            .write_settings_entries(values)
+            .await
+            .map_err(|error| {
+                CommandError::new(
+                    "settings_write_failed",
+                    format!("保存节点配置失败：{error}"),
+                )
+            })?;
+        Ok(template_dtos(&node_config))
+    }
+
+    /// OpenCode 已知项目（工作目录下拉数据源，§3.1）：失败明确报错（界面退回手动输入）。
+    pub async fn list_opencode_projects(&self) -> Result<Vec<OpencodeProjectDto>, CommandError> {
+        super::opencode_projects::list_projects().await
     }
 
     pub async fn advance(
@@ -623,10 +739,12 @@ fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, Co
         block_reason: meta.block_reason,
         notify_mode: meta.notify_mode.as_str().to_string(),
         goal: meta.goal,
+        working_dir: meta.working_dir,
+        finalizing: meta.final_report_pending,
     })
 }
 
-/// 工作流视图：节点列表（角色/建议 Agent/人工确认门）供 UI 预览「每步做什么、派给谁」。
+/// 工作流视图：节点列表（角色/建议 Agent/模型/人工确认门）供 UI 预览「每步做什么、派给谁」。
 fn orc_workflow_to_dto(workflow: &Workflow) -> OrcWorkflowDto {
     OrcWorkflowDto {
         id: workflow.id.clone(),
@@ -638,6 +756,7 @@ fn orc_workflow_to_dto(workflow: &Workflow) -> OrcWorkflowDto {
                 order: step.order,
                 role: step.role.clone(),
                 agent_hint: step.agent_hint.clone(),
+                model: step.model.clone(),
                 human_gate: step.human_gate,
             })
             .collect(),

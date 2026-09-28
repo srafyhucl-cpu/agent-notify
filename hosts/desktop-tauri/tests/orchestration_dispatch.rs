@@ -94,10 +94,19 @@ fn dispatched_handler(store: &Arc<SqliteStore>, driver: Arc<FakeDriver>) -> OrcC
     )
 }
 
+/// 测试用工作目录：testkit 隔离根（必须已存在，创建任务时校验）。
+fn existing_dir() -> String {
+    agentnotify_testkit::test_temp_root()
+        .to_string_lossy()
+        .into_owned()
+}
+
 async fn create_task(handler: &OrcCommandHandler) -> String {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "做一个贪吃蛇游戏".into(),
+            template_id: "preset-requirement-to-report".into(),
+            working_dir: existing_dir(),
             notify_mode: None,
         })
         .await
@@ -288,6 +297,8 @@ async fn no_driver_keeps_original_advance_behavior() {
     let created = handler
         .create(CreateOrcTaskPayload {
             goal: "不派活的目标".into(),
+            template_id: "preset-requirement-to-report".into(),
+            working_dir: existing_dir(),
             notify_mode: None,
         })
         .await
@@ -382,6 +393,8 @@ async fn envelope_rendering_feeds_dispatch_text() {
     let task_id = handler
         .create(CreateOrcTaskPayload {
             goal: "信封衔接目标".into(),
+            template_id: "preset-requirement-to-report".into(),
+            working_dir: existing_dir(),
             notify_mode: None,
         })
         .await
