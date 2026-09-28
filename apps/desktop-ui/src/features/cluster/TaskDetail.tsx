@@ -3,12 +3,12 @@ import { SectionCard, StatusBadge } from "../../components/patterns";
 import {
   ORC_MESSAGE_KIND_ACTIONS,
   ORC_NOTIFY_MODE_LABELS,
-  ORC_ROLE_LABELS,
   ORC_TASK_STATE_LABELS,
   ORC_TASK_STATE_TONES,
   ORC_TERMINAL_STATES,
-  orcAgentLabel,
+  orcNodeStatesOfTask,
 } from "./labels";
+import { OrcNodeChain } from "./OrcNodeChain";
 
 export interface TaskDetailProps {
   task: OrcTaskDto | null;
@@ -52,7 +52,10 @@ export function TaskDetail({
   const pendingStart = !task.started && !terminal;
   const stepLabel = blocked
     ? `阻塞在第 ${task.blockedStep ?? task.currentStep} 步`
-    : `第 ${task.currentStep} 步`;
+    : task.finalizing
+      ? `第 ${task.currentStep} 步（汇总中）`
+      : `第 ${task.currentStep} 步`;
+  const nodeStates = orcNodeStatesOfTask(task);
 
   return (
     <article className="cluster-task-detail" aria-label="任务详情">
@@ -77,42 +80,30 @@ export function TaskDetail({
             </dd>
           </div>
           <div className="cluster-task-fact">
+            <dt>工作目录</dt>
+            <dd className="cluster-task-fact-dir">
+              {task.workingDir ?? "跟随宿主当前项目"}
+            </dd>
+          </div>
+          <div className="cluster-task-fact">
             <dt>任务 ID</dt>
             <dd className="cluster-task-fact-id">{task.id}</dd>
           </div>
         </dl>
 
-        <div className="cluster-workflow" aria-label="工作流节点">
+        <div className="cluster-workflow">
           <p className="cluster-workflow-title">工作流节点</p>
-          <ol className="cluster-workflow-step-list">
-            {task.workflow.steps.map((step) => {
-              const done = step.order < task.currentStep;
-              const current = step.order === task.currentStep && !terminal;
-              const stepClass = [
-                "cluster-workflow-step",
-                current ? "cluster-workflow-step--current" : "",
-                done ? "cluster-workflow-step--done" : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              return (
-                <li className={stepClass} key={step.order}>
-                  <span className="cluster-workflow-step-order">
-                    第 {step.order} 步
-                  </span>
-                  <span className="cluster-workflow-step-role">
-                    {ORC_ROLE_LABELS[step.role] ?? step.role}
-                  </span>
-                  <span className="cluster-workflow-step-agent">
-                    {orcAgentLabel(step.agentHint)}
-                  </span>
-                  {step.humanGate ? (
-                    <span className="cluster-workflow-step-gate">需人工确认</span>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ol>
+          <OrcNodeChain
+            label="工作流节点"
+            steps={task.workflow.steps.map((step) => ({
+              order: step.order,
+              role: step.role,
+              agent: step.agentHint,
+              model: step.model,
+              humanGate: step.humanGate,
+            }))}
+            nodeStates={nodeStates}
+          />
         </div>
 
         {blocked ? (
@@ -132,6 +123,13 @@ export function TaskDetail({
           </div>
         ) : terminal ? (
           <p className="cluster-terminal-note">任务已结束，无待办操作。</p>
+        ) : task.finalizing ? (
+          <div className="cluster-actions cluster-actions--finalizing">
+            <p className="cluster-actions-label">项目经理汇总中</p>
+            <p className="cluster-actions-note">
+              项目经理正在汇总，等待最终汇报；汇总完成后任务自动结束。
+            </p>
+          </div>
         ) : pendingStart ? (
           <div className="cluster-actions">
             <p className="cluster-actions-label">任务待开始</p>

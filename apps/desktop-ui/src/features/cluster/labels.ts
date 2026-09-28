@@ -53,12 +53,6 @@ export const ORC_ROLE_LABELS: Record<string, string> = {
   reviewer: "复核汇总",
 };
 
-/** 节点 Agent 显示名（空 = 不派活，仅人工推进）。 */
-export function orcAgentLabel(agentHint: string | null | undefined): string {
-  const hint = agentHint?.trim();
-  return hint ? hint : "（未指定，人工推进）";
-}
-
 /** 首节点 = 项目经理：负责汇总各步产出并向人做最终汇报（§2/§4）。 */
 export const ORC_PROJECT_MANAGER_LABEL = "项目经理";
 

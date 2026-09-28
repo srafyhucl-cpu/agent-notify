@@ -44,6 +44,11 @@ test("控件冒烟：逐页点击所有可用控件，不产生 console 错误�
     const controls = page.locator(CONTROL_SELECTOR);
     const total = await controls.count();
     for (let index = 0; index < total; index++) {
+      // 点击会改变控件集合（例如集群任务推进到最后一步后转入「项目经理汇总」，
+      // 推进按钮被隐藏）：集合变小时结束本节，而不是等待已不存在的控件。
+      if (index >= (await controls.count())) {
+        break;
+      }
       const control = controls.nth(index);
       const label = (
         (await control.getAttribute("aria-label")) ??

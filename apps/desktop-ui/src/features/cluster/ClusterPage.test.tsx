@@ -10,6 +10,7 @@ import { createQueryClient } from "../../data/queryClient";
 import {
   opencodeProjectsFixture,
   orcTaskFixture,
+  unconfiguredOrcTaskFixture,
 } from "../../test/fixtures";
 import { ClusterPage } from "./ClusterPage";
 
@@ -83,6 +84,19 @@ describe("ClusterPage 任务列表", () => {
     ).toHaveClass("cluster-task-row--blocked");
   });
 
+  it("汇总中的任务在列表卡片标注「汇总中」", async () => {
+    const finalizingTask = orcTaskFixture("task-finalizing", {
+      goal: "等待项目经理汇总",
+      state: "working",
+      currentStep: 3,
+      finalizing: true,
+    });
+    renderWithQuery(fixturedBridge([finalizingTask]));
+
+    const list = await screen.findByRole("list", { name: "任务列表" });
+    expect(within(list).getByText("汇总中")).toBeVisible();
+  });
+
   it("无任务时显示空态，创建入口保持可用", async () => {
     const bridge = fixturedBridge();
     renderWithQuery(bridge);
@@ -154,6 +168,46 @@ describe("ClusterPage 任务详情与发指令", () => {
         within(detail).getByRole("button", { name: label }),
       ).toBeVisible();
     }
+  });
+
+  it("事实区展示工作目录；旧任务缺工作目录时明确说明跟随宿主", async () => {
+    const legacyTask = orcTaskFixture("task-legacy", {
+      goal: "旧任务",
+      workingDir: null,
+    });
+    renderWithQuery(fixturedBridge([workingTask, legacyTask]));
+
+    const detail = await screen.findByRole("article", { name: "任务详情" });
+    expect(within(detail).getByText("工作目录")).toBeVisible();
+    expect(
+      within(detail).getByText("D:/Project/agent-notify"),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /旧任务/ }));
+    expect(
+      await within(detail).findByText("跟随宿主当前项目"),
+    ).toBeVisible();
+  });
+
+  it("节点链展示用途/Agent/模型与当前节点状态标签", async () => {
+    renderWithQuery(fixturedBridge([workingTask]));
+
+    const chain = await screen.findByRole("list", { name: "工作流节点" });
+    // 首节点 = 项目经理；未配置/已配置 Agent 都直接可读
+    expect(within(chain).getByText("项目经理")).toBeVisible();
+    expect(within(chain).getByText("初步判断")).toBeVisible();
+    expect(within(chain).getByText("规划整理")).toBeVisible();
+    expect(within(chain).getByText("实施")).toBeVisible();
+    expect(within(chain).getByText("codex")).toBeVisible();
+    expect(within(chain).getByText("opencode")).toBeVisible();
+    // 配置了模型的节点显示模型，未配置的显示默认模型（透明语义）
+    expect(
+      within(chain).getByText("anthropic/claude-sonnet-4-5"),
+    ).toBeVisible();
+    expect(within(chain).getAllByText("默认模型").length).toBeGreaterThan(0);
+    // 状态语义由中文标签承载（动效只做引导）
+    expect(within(chain).getByText("当前节点")).toBeVisible();
+    expect(within(chain).getByText("已完成")).toBeVisible();
   });
 
   it("点击「发指令」调用 advance（kind=instruction）", async () => {
@@ -259,6 +313,61 @@ describe("ClusterPage 任务详情与发指令", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "任务推进失败：调度器暂时不可用。",
+    );
+  });
+
+  it("汇总阶段：首节点回到脉冲态并标注「项目经理汇总中」，隐藏推进操作", async () => {
+    const finalizingTask = orcTaskFixture("task-finalizing", {
+      goal: "汇总阶段任务",
+      state: "working",
+      currentStep: 3,
+      finalizing: true,
+    });
+    renderWithQuery(fixturedBridge([finalizingTask]));
+
+    const detail = await screen.findByRole("article", { name: "任务详情" });
+    expect(
+      within(detail).getByText("项目经理正在汇总，等待最终汇报；汇总完成后任务自动结束。"),
+    ).toBeVisible();
+    expect(screen.queryByText("推进任务")).not.toBeInTheDocument();
+    expect(
+      within(detail).queryByRole("button", { name: "发指令" }),
+    ).not.toBeInTheDocument();
+    // 首节点回到脉冲态（动效 class 的载体），去掉动效仍保留文字语义
+    const chain = within(detail).getByRole("list", { name: "工作流节点" });
+    expect(chain.querySelector('[data-state="finalizing"]')).not.toBeNull();
+    expect(within(chain).getByText("项目经理汇总中")).toBeVisible();
+  });
+
+  it("手动推进到汇总阶段后再点推进会展示后端中文拒绝原因", async () => {
+    const user = userEvent.setup();
+    const task = orcTaskFixture("task-last-step", {
+      goal: "最后一步任务",
+      currentStep: 3,
+    });
+    const bridge = fixturedBridge([task]);
+    renderWithQuery(bridge);
+
+    const detail = await screen.findByRole("article", { name: "任务详情" });
+    await user.click(within(detail).getByRole("button", { name: "发指令" }));
+
+    // mock：最后一步推进 → finalizing；再推进 → orc_task_finalizing
+    expect(
+      await screen.findByText("项目经理正在汇总，等待最终汇报；汇总完成后任务自动结束。"),
+    ).toBeVisible();
+  });
+
+  it("未配置 Agent 的任务点「开始执行」时展示后端预检中文错误", async () => {
+    const user = userEvent.setup();
+    const task = unconfiguredOrcTaskFixture("task-unconfigured");
+    const bridge = fixturedBridge([task]);
+    renderWithQuery(bridge);
+
+    const detail = await screen.findByRole("article", { name: "任务详情" });
+    await user.click(within(detail).getByRole("button", { name: "开始执行" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "第 1 步未选择 Agent：请先在设置 → 编排中配置",
     );
   });
 });
