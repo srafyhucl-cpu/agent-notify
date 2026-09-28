@@ -19,19 +19,12 @@ use super::dto::{
 };
 use super::error::CommandError;
 
-/// 桌面命令的唯一业务端口。实现必须只返回脱敏 DTO，并保持命令语义稳定。
+/// 渠道账号命令端口（渠道域）：登录流程、启停、测试发送。
+///
+/// 2026-09 从 `HostCommandService` 拆分：主端口按域组合子端口，各域实现分布在
+/// `production/service/` 对应文件（拆分只搬移不改行为）。
 #[async_trait::async_trait]
-pub trait HostCommandService: Send + Sync {
-    async fn get_snapshot(&self, payload: EmptyPayload)
-    -> Result<RuntimeSnapshotDto, CommandError>;
-
-    async fn list_agents(&self, payload: EmptyPayload) -> Result<Vec<AgentDto>, CommandError>;
-
-    async fn update_agent_config(
-        &self,
-        payload: UpdateAgentConfigPayload,
-    ) -> Result<AgentDto, CommandError>;
-
+pub trait ChannelCommands: Send + Sync {
     async fn list_channel_accounts(
         &self,
         payload: EmptyPayload,
@@ -66,7 +59,11 @@ pub trait HostCommandService: Send + Sync {
         &self,
         payload: SendTestNotificationPayload,
     ) -> Result<TestNotificationResultDto, CommandError>;
+}
 
+/// 通知与投递命令端口（历史/详情/重投）。
+#[async_trait::async_trait]
+pub trait NotificationCommands: Send + Sync {
     async fn list_notifications(
         &self,
         payload: NotificationFilterPayload,
@@ -79,14 +76,22 @@ pub trait HostCommandService: Send + Sync {
 
     async fn retry_delivery(&self, payload: DeliveryIdPayload)
     -> Result<DeliveryDto, CommandError>;
+}
 
+/// 诊断命令端口（运行诊断、旧数据迁移重试）。
+#[async_trait::async_trait]
+pub trait DiagnosticsCommands: Send + Sync {
     async fn get_diagnostics(&self, payload: EmptyPayload) -> Result<DiagnosticsDto, CommandError>;
 
     async fn retry_legacy_migration(
         &self,
         payload: EmptyPayload,
     ) -> Result<LegacyMigrationDto, CommandError>;
+}
 
+/// 设置与应用控制命令端口（设置读写、暂停、退出）。
+#[async_trait::async_trait]
+pub trait SettingsCommands: Send + Sync {
     async fn get_settings(&self, payload: EmptyPayload) -> Result<SettingsDto, CommandError>;
 
     async fn update_settings(&self, payload: SettingsDto) -> Result<SettingsDto, CommandError>;
@@ -97,7 +102,11 @@ pub trait HostCommandService: Send + Sync {
     ) -> Result<RuntimeSummaryDto, CommandError>;
 
     async fn quit_app(&self, payload: EmptyPayload) -> Result<MutationAcceptedDto, CommandError>;
+}
 
+/// 更新命令端口（更新状态查询与安装）。
+#[async_trait::async_trait]
+pub trait UpdateCommands: Send + Sync {
     async fn get_update_status(
         &self,
         payload: EmptyPayload,
@@ -107,6 +116,29 @@ pub trait HostCommandService: Send + Sync {
         &self,
         payload: InstallUpdatePayload,
     ) -> Result<InstallUpdateResultDto, CommandError>;
+}
+
+/// 桌面命令的唯一业务端口：由各域子端口组合而成。
+/// 实现必须只返回脱敏 DTO，并保持命令语义稳定。
+#[async_trait::async_trait]
+pub trait HostCommandService:
+    Send
+    + Sync
+    + ChannelCommands
+    + NotificationCommands
+    + DiagnosticsCommands
+    + SettingsCommands
+    + UpdateCommands
+{
+    async fn get_snapshot(&self, payload: EmptyPayload)
+    -> Result<RuntimeSnapshotDto, CommandError>;
+
+    async fn list_agents(&self, payload: EmptyPayload) -> Result<Vec<AgentDto>, CommandError>;
+
+    async fn update_agent_config(
+        &self,
+        payload: UpdateAgentConfigPayload,
+    ) -> Result<AgentDto, CommandError>;
 
     async fn create_orc_task(
         &self,
@@ -291,27 +323,8 @@ mod tests {
         );
     }
 }
-
 #[async_trait::async_trait]
-impl HostCommandService for UnavailableHostCommandService {
-    async fn get_snapshot(
-        &self,
-        _payload: EmptyPayload,
-    ) -> Result<RuntimeSnapshotDto, CommandError> {
-        Err(CommandError::unavailable_message(&self.message))
-    }
-
-    async fn list_agents(&self, _payload: EmptyPayload) -> Result<Vec<AgentDto>, CommandError> {
-        Err(CommandError::unavailable_message(&self.message))
-    }
-
-    async fn update_agent_config(
-        &self,
-        _payload: UpdateAgentConfigPayload,
-    ) -> Result<AgentDto, CommandError> {
-        Err(CommandError::unavailable_message(&self.message))
-    }
-
+impl ChannelCommands for UnavailableHostCommandService {
     async fn list_channel_accounts(
         &self,
         _payload: EmptyPayload,
@@ -360,7 +373,10 @@ impl HostCommandService for UnavailableHostCommandService {
     ) -> Result<TestNotificationResultDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+}
 
+#[async_trait::async_trait]
+impl NotificationCommands for UnavailableHostCommandService {
     async fn list_notifications(
         &self,
         _payload: NotificationFilterPayload,
@@ -381,7 +397,10 @@ impl HostCommandService for UnavailableHostCommandService {
     ) -> Result<DeliveryDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+}
 
+#[async_trait::async_trait]
+impl DiagnosticsCommands for UnavailableHostCommandService {
     async fn get_diagnostics(
         &self,
         _payload: EmptyPayload,
@@ -395,7 +414,10 @@ impl HostCommandService for UnavailableHostCommandService {
     ) -> Result<LegacyMigrationDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+}
 
+#[async_trait::async_trait]
+impl SettingsCommands for UnavailableHostCommandService {
     async fn get_settings(&self, _payload: EmptyPayload) -> Result<SettingsDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
@@ -414,7 +436,10 @@ impl HostCommandService for UnavailableHostCommandService {
     async fn quit_app(&self, _payload: EmptyPayload) -> Result<MutationAcceptedDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
+}
 
+#[async_trait::async_trait]
+impl UpdateCommands for UnavailableHostCommandService {
     async fn get_update_status(
         &self,
         _payload: EmptyPayload,
@@ -426,6 +451,27 @@ impl HostCommandService for UnavailableHostCommandService {
         &self,
         _payload: InstallUpdatePayload,
     ) -> Result<InstallUpdateResultDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+}
+
+#[async_trait::async_trait]
+impl HostCommandService for UnavailableHostCommandService {
+    async fn get_snapshot(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<RuntimeSnapshotDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn list_agents(&self, _payload: EmptyPayload) -> Result<Vec<AgentDto>, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn update_agent_config(
+        &self,
+        _payload: UpdateAgentConfigPayload,
+    ) -> Result<AgentDto, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
 

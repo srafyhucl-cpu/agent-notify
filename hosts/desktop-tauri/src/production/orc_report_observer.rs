@@ -14,7 +14,7 @@ use std::sync::Arc;
 use agentnotify_agent_sdk::AgentEventEnvelope;
 use agentnotify_runtime::AgentEventObserver;
 
-use super::service::OrcCommandHandler;
+use super::orc_handler::OrcCommandHandler;
 
 /// 编排会话 id 前缀：`task-<task_id>-step-<n>`（与 `AgentDriver` 的 session 策略一致）。
 const ORC_SESSION_PREFIX: &str = "task-";

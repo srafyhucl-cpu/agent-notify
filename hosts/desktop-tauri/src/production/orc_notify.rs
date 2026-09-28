@@ -19,8 +19,8 @@ use agentnotify_channel_sdk::{ChannelRegistry, OutboundMessage};
 use agentnotify_domain::SafeError;
 use agentnotify_orchestration::{MessageKind, NotifyMode, StepOutcome, TransitionAction};
 
+use super::orc_handler::KEY_ORCHESTRATION_NOTIFY_MODE;
 use super::orc_wechat_route::{channel_error_safe, valid_notice_receipt};
-use super::service::KEY_ORCHESTRATION_NOTIFY_MODE;
 use super::settings::ProductionSettingsStore;
 use super::targets::ProductionTargetProvider;
 

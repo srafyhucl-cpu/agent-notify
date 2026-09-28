@@ -28,7 +28,7 @@ use agentnotify_orchestration::{
 use agentnotify_runtime::{InboundInterceptor, RuntimeTargetError};
 use agentnotify_storage_sqlite::SqliteStore;
 
-use super::service::OrcCommandHandler;
+use super::orc_handler::OrcCommandHandler;
 use crate::bridge::dto::{
     AdvanceOrcTaskPayload, OrcMessageKindDto, OrcTaskDto, OrcTaskIdPayload, OrcTaskStateDto,
 };
