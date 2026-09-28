@@ -17,7 +17,7 @@ use agentnotify_desktop::bridge::dto::{
     OrcTaskIdPayload, OrcTaskStateDto,
 };
 use agentnotify_desktop::production::WechatOrcRouter;
-use agentnotify_desktop::production::service::OrcCommandHandler;
+use agentnotify_desktop::production::orc_handler::OrcCommandHandler;
 use agentnotify_domain::{
     ChannelAccountId, ChannelId, ExternalMessageId, InboundMessage, InboundMessageId,
     InboundMessageInput, Timestamp,

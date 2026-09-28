@@ -8,7 +8,10 @@ use agentnotify_application::{
     SecretStore, SecretValue,
 };
 use agentnotify_channel_clawbot::CLAWBOT_CHANNEL_ID;
-use agentnotify_desktop::bridge::commands::HostCommandService;
+use agentnotify_desktop::bridge::commands::{
+    ChannelCommands, DiagnosticsCommands, HostCommandService, NotificationCommands,
+    SettingsCommands, UpdateCommands,
+};
 use agentnotify_desktop::bridge::dto::*;
 use agentnotify_desktop::platform::AppPaths;
 use agentnotify_desktop::platform::windows::{CredentialBackend, WindowsSecretStore};

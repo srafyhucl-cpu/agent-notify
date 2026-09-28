@@ -10,7 +10,7 @@ use agentnotify_desktop::bridge::dto::{
 };
 use agentnotify_desktop::bridge::error::CommandError;
 use agentnotify_desktop::production::agent_driver::AgentDriver;
-use agentnotify_desktop::production::service::OrcCommandHandler;
+use agentnotify_desktop::production::orc_handler::OrcCommandHandler;
 use agentnotify_domain::{AgentId, AgentSessionId};
 use agentnotify_orchestration::{OrcStore, Workflow, WorkflowStep};
 use agentnotify_storage_sqlite::SqliteStore;

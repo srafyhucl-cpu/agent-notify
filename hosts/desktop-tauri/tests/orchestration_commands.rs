@@ -8,7 +8,7 @@ use agentnotify_desktop::bridge::dto::{
     AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload, OrcMessageKindDto,
     OrcTaskIdPayload, OrcTaskStateDto,
 };
-use agentnotify_desktop::production::service::{OrcCommandHandler, load_harness_templates};
+use agentnotify_desktop::production::orc_handler::{OrcCommandHandler, load_harness_templates};
 use agentnotify_orchestration::{OrcStore, Workflow};
 use agentnotify_storage_sqlite::SqliteStore;
 

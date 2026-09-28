@@ -3,6 +3,7 @@ mod agents;
 mod app_exit;
 pub mod events;
 mod mapping;
+pub mod orc_handler;
 pub mod orc_notify;
 pub mod orc_report_observer;
 pub mod orc_wechat_route;
@@ -27,7 +28,7 @@ use agent_driver::ProductionAgentDriver;
 use agents::{
     assemble_agents, legacy_installation_detected, load_agent_configs, seed_disabled_agent_configs,
 };
-use service::{OrcCommandHandler, load_harness_templates};
+use orc_handler::{OrcCommandHandler, load_harness_templates};
 
 pub use agent_driver::AgentDriver;
 pub use events::EventForwarder;
