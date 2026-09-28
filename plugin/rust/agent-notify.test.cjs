@@ -523,3 +523,116 @@ test("session map refresh picks up mappings written after first load", async () 
     "未命中时应刷新磁盘映射",
   )
 })
+
+test("permission ask is auto-allowed for orchestration sessions", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const ctx = fakeContext(async () => {})
+  ctx.session.create = async () => ({ id: "ses_perm_mapped" })
+  await __test.resolvePromptSessionID(ctx, {
+    id: "seed-perm",
+    sessionID: "task-perm-step-1",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+  })
+
+  const event = {
+    sessionID: "ses_perm_mapped",
+    action: "edit",
+    resources: ["src/app.ts"],
+    effect: "ask",
+  }
+  __test.evaluatePermission(event)
+  assert.equal(event.effect, "allow")
+})
+
+test("permission ask is untouched for plain sessions", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const event = {
+    sessionID: "ses_plain_unmapped",
+    action: "bash",
+    resources: ["rm -rf build"],
+    effect: "ask",
+  }
+  __test.evaluatePermission(event)
+  assert.equal(event.effect, "ask")
+})
+
+test("permission allow and deny effects are never rewritten", async () => {
+  const { __test } = await pluginModule
+  __test.resetSessionMapForTests()
+  const ctx = fakeContext(async () => {})
+  ctx.session.create = async () => ({ id: "ses_perm_effects" })
+  await __test.resolvePromptSessionID(ctx, {
+    id: "seed-effects",
+    sessionID: "task-effects-step-1",
+    text: "seed",
+    createdAt: "",
+    expiresAt: "",
+    open: true,
+  })
+
+  const allowed = {
+    sessionID: "ses_perm_effects",
+    action: "read",
+    resources: [],
+    effect: "allow",
+  }
+  const denied = {
+    sessionID: "ses_perm_effects",
+    action: "bash",
+    resources: [],
+    effect: "deny",
+  }
+  __test.evaluatePermission(allowed)
+  __test.evaluatePermission(denied)
+  assert.equal(allowed.effect, "allow")
+  assert.equal(denied.effect, "deny")
+})
+
+test("setup tolerates a missing or failing permission API", async () => {
+  const { default: plugin } = await pluginModule
+
+  // 宿主无 permission API：setup 正常完成。
+  const noApiCtx = fakeContext(async () => {})
+  assert.equal(noApiCtx.permission, undefined)
+  const disposeNoApi = await plugin.setup(noApiCtx)
+  await disposeNoApi()
+
+  // 注册即抛错：降级且不阻断 setup。
+  const brokenCtx = fakeContext(async () => {})
+  brokenCtx.permission = {
+    hook: () => {
+      throw new Error("permission hook boom")
+    },
+  }
+  const disposeBroken = await plugin.setup(brokenCtx)
+  await disposeBroken()
+})
+
+test("setup registers the permission evaluate hook and disposes it", async () => {
+  const { default: plugin } = await pluginModule
+  const registered = []
+  let disposed = 0
+  const ctx = fakeContext(async () => {})
+  ctx.permission = {
+    hook: async (name, handler) => {
+      registered.push({ name, handler })
+      return {
+        dispose: () => {
+          disposed += 1
+        },
+      }
+    },
+  }
+
+  const dispose = await plugin.setup(ctx)
+  assert.equal(registered.length, 1)
+  assert.equal(registered[0].name, "evaluate")
+
+  await dispose()
+  await waitFor(() => disposed === 1)
+})
