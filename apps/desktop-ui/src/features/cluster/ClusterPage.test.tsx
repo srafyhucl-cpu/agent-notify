@@ -397,18 +397,100 @@ describe("ClusterPage 任务详情与发指令", () => {
     expect(alert).not.toHaveTextContent("provider/");
   });
 
-  it("终态任务（已完成）不再提供任何操作", async () => {
+  it("终态任务（已完成）提供「继续迭代」，不提供推进操作", async () => {
     const user = userEvent.setup();
     renderWithQuery(fixturedBridge([completedTask]));
 
     const detail = await expandTask(user, "已完成");
-    expect(within(detail).getByText("任务已结束，无待办操作。")).toBeVisible();
+    expect(
+      within(detail).getByRole("button", { name: "继续迭代（第 2 轮）" }),
+    ).toBeVisible();
     expect(
       within(detail).queryByRole("button", { name: "发指令" }),
     ).not.toBeInTheDocument();
     expect(
       within(detail).queryByRole("button", { name: "重新发起" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("「继续迭代」：填写本轮要求后开始新一轮（提交 instruction，列表出现第 2 轮）", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge([completedTask]);
+    renderWithQuery(bridge);
+
+    const detail = await expandTask(user, "已完成");
+    await user.click(
+      within(detail).getByRole("button", { name: "继续迭代（第 2 轮）" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "继续迭代（第 2 轮）",
+    });
+    await user.type(
+      within(dialog).getByLabelText("本轮要求"),
+      "翅膀握住车把，腿自然弯曲",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "开始新一轮" }),
+    );
+
+    await waitFor(() => {
+      expect(bridge.calls("continue_orc_task")).toHaveLength(1);
+    });
+    expect(bridge.calls("continue_orc_task")[0]?.payload).toEqual({
+      taskId: "task-done",
+      instruction: "翅膀握住车把，腿自然弯曲",
+    });
+    // mock：round+1、回到第 1 步 → 列表出现「第 2 轮」徽标、状态回到执行中
+    const list = await taskTable();
+    await waitFor(() => {
+      expect(within(list).getAllByText("第 2 轮").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("「继续迭代」留空：instruction 为 null（交给项目经理按上一轮结论继续）", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge([completedTask]);
+    renderWithQuery(bridge);
+
+    const detail = await expandTask(user, "已完成");
+    await user.click(
+      within(detail).getByRole("button", { name: "继续迭代（第 2 轮）" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "继续迭代（第 2 轮）",
+    });
+    await user.click(
+      within(dialog).getByRole("button", { name: "开始新一轮" }),
+    );
+
+    await waitFor(() => {
+      expect(bridge.calls("continue_orc_task")).toHaveLength(1);
+    });
+    expect(bridge.calls("continue_orc_task")[0]?.payload).toEqual({
+      taskId: "task-done",
+      instruction: null,
+    });
+  });
+
+  it("第 2 轮任务：列表显示轮次徽标，详情展示本轮要求", async () => {
+    const user = userEvent.setup();
+    const roundTwo = orcTaskFixture("task-round2", {
+      goal: "鹈鹕骑车图",
+      name: "鹈鹕迭代",
+      round: 2,
+      roundInput: "翅膀握住车把，腿自然弯曲",
+    });
+    renderWithQuery(fixturedBridge([roundTwo]));
+
+    const list = await taskTable();
+    expect(within(list).getByText("第 2 轮")).toBeVisible();
+
+    const detail = await expandTask(user, "鹈鹕迭代");
+    expect(within(detail).getByText("轮次")).toBeVisible();
+    expect(within(detail).getByText("第 2 轮要求")).toBeVisible();
+    expect(
+      within(detail).getByText("翅膀握住车把，腿自然弯曲"),
+    ).toBeVisible();
   });
 
   it("推进失败时保留页面并给出可读错误", async () => {

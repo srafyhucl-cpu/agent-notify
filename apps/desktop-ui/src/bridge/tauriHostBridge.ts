@@ -133,6 +133,10 @@ async function dispatchCommand(
       return commands.deleteOrcTask(
         payload as CommandPayloadMap["delete_orc_task"],
       );
+    case "continue_orc_task":
+      return commands.continueOrcTask(
+        payload as CommandPayloadMap["continue_orc_task"],
+      );
     case "get_current_orc_workflow":
       return commands.getCurrentOrcWorkflow(
         payload as CommandPayloadMap["get_current_orc_workflow"],

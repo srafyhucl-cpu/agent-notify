@@ -53,6 +53,12 @@ pub struct OrcMeta {
     /// 旧任务缺省 None = 由目标推导展示（向后兼容）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// 迭代轮次（从 1 起；「继续迭代」或项目经理判定继续时 +1，回到第 1 步）。
+    #[serde(default = "round_default")]
+    pub round: u32,
+    /// 本轮要求/上一轮结论（新一轮开始时写入；第 1 轮为 None）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round_input: Option<String>,
     /// 是否已开始执行（人工确认后开始；创建后默认 false，避免"没看清节点就被派活"）。
     /// 旧任务（无此字段）默认 true——它们本就已在运行，保持向后兼容。
     #[serde(default = "started_default_true")]
@@ -138,6 +144,11 @@ fn started_default_true() -> bool {
     true
 }
 
+/// 轮次缺省值：旧任务没有该字段 = 第 1 轮。
+fn round_default() -> u32 {
+    1
+}
+
 /// A2A Task.metadata 中编排语境所在的键。
 pub const ORC_META_KEY: &str = "orc";
 
@@ -163,6 +174,8 @@ impl OrcTask {
             notify_mode,
             goal: goal.to_string(),
             name: None,
+            round: 1,
+            round_input: None,
             started: false,
             working_dir: None,
             steps_snapshot: None,
@@ -305,6 +318,35 @@ impl OrcTask {
         let mut meta = self.meta()?;
         meta.notify_mode = mode;
         self.put_meta(&meta)
+    }
+
+    /// 当前迭代轮次（旧任务缺省 1）。
+    pub fn round(&self) -> Result<u32, OrcError> {
+        Ok(self.meta()?.round.max(1))
+    }
+
+    /// 本轮要求/上一轮结论（第 1 轮为 None）。
+    pub fn round_input(&self) -> Result<Option<String>, OrcError> {
+        Ok(self.meta()?.round_input)
+    }
+
+    /// 开始新一轮迭代（用户「继续迭代」或项目经理判定继续）：
+    /// 轮次 +1、写入本轮要求、回到第 1 步、退出汇总/阻塞，状态回到 Working。
+    /// 调用方负责校验「本轮已结束」等前置条件。
+    pub fn begin_round(&mut self, input: Option<&str>) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.round = meta.round.max(1).saturating_add(1);
+        meta.round_input = input
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        meta.current_step = 1;
+        meta.final_report_pending = false;
+        meta.blocked_step = None;
+        meta.block_reason = None;
+        self.put_meta(&meta)?;
+        self.set_state(TaskState::Working);
+        Ok(())
     }
 
     /// 设置任务工作目录（创建任务时由宿主写入；空串 = 清除）。

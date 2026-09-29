@@ -344,6 +344,13 @@ impl HostCommandService for ProductionHostCommandService {
         self.orchestration.delete(payload).await
     }
 
+    async fn continue_orc_task(
+        &self,
+        payload: ContinueOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.continue_task(payload).await
+    }
+
     async fn get_current_orc_workflow(
         &self,
         _payload: EmptyPayload,

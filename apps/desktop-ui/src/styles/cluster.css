@@ -431,6 +431,29 @@
   overflow-wrap: anywhere;
 }
 
+/* 新一轮要求（第 2 轮起）：与任务描述同块展示，虚线分隔 */
+.cluster-detail-round {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--hairline);
+}
+
+.cluster-detail-round-label {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+
+.cluster-detail-round-text {
+  margin: 0;
+  font-size: var(--font-size-2);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 /* 编辑任务弹窗：复用创建弹窗结构，宽度收窄 */
 .cluster-edit-dialog {
   width: min(560px, 100%);
@@ -510,12 +533,6 @@
   font-size: var(--font-body);
   line-height: 1.5;
   overflow-wrap: anywhere;
-}
-
-.cluster-terminal-note {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-body);
 }
 
 /* 推进指令区 */

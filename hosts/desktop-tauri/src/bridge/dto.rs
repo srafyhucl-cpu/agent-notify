@@ -40,6 +40,7 @@ pub enum BusinessCommand {
     ListOpencodeModels,
     UpdateOrcTask,
     DeleteOrcTask,
+    ContinueOrcTask,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -174,6 +175,10 @@ pub struct OrcTaskDto {
     pub goal: String,
     /// 任务名称（短名 ≤8 字；用于集群列表与真实会话标题；旧任务按目标前 8 字推导）。
     pub name: String,
+    /// 迭代轮次（从 1 起；「继续迭代」后 +1）。
+    pub round: u32,
+    /// 本轮要求/上一轮结论（第 1 轮为 None）。
+    pub round_input: Option<String>,
     /// 任务工作目录（OpenCode 会话创建位置）；None = 旧任务，跟随宿主当前项目。
     pub working_dir: Option<String>,
     /// 是否处于「项目经理汇总阶段」（最后一步完成、等待首节点汇总，§4）。
@@ -304,6 +309,15 @@ pub struct UpdateOrcTaskPayload {
     pub name: Option<String>,
     pub goal: Option<String>,
     pub notify_mode: Option<String>,
+}
+
+/// 继续迭代（集群页「继续迭代」）：本轮结束后开始新一轮（轮次 +1、回到第 1 步）。
+/// `instruction` = 本轮要求（用户填写；留空则交给项目经理按上一轮结论继续）。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ContinueOrcTaskPayload {
+    pub task_id: String,
+    pub instruction: Option<String>,
 }
 
 /// 推进编排任务：消息驱动（§4.4），`kind` 决定转移语义。

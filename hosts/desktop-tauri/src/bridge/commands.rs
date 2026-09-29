@@ -8,10 +8,10 @@ use tauri::State;
 
 use super::dto::{
     AdvanceOrcTaskPayload, AgentDto, BeginChannelLoginPayload, BeginChannelLoginResultDto,
-    ChannelAccountDto, ChannelAccountIdPayload, ChannelListDto, CreateOrcTaskPayload,
-    CurrentOrcWorkflowDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto, EmptyPayload,
-    InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto, LoginSessionDto,
-    MarkBlockedOrcTaskPayload, MutationAcceptedDto, NotificationDetailDto,
+    ChannelAccountDto, ChannelAccountIdPayload, ChannelListDto, ContinueOrcTaskPayload,
+    CreateOrcTaskPayload, CurrentOrcWorkflowDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto,
+    EmptyPayload, InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto,
+    LoginSessionDto, MarkBlockedOrcTaskPayload, MutationAcceptedDto, NotificationDetailDto,
     NotificationFilterPayload, NotificationIdPayload, NotificationListDto, OpencodeModelDto,
     OpencodeProjectDto, OrcTaskDto, OrcTaskIdPayload, OrcTemplateDto, RuntimeSnapshotDto,
     RuntimeSummaryDto, SaveOrcTemplateConfigPayload, SendTestNotificationPayload,
@@ -177,6 +177,12 @@ pub trait HostCommandService:
         &self,
         payload: OrcTaskIdPayload,
     ) -> Result<MutationAcceptedDto, CommandError>;
+
+    /// 继续迭代（本轮结束后开始新一轮；可带本轮要求）。
+    async fn continue_orc_task(
+        &self,
+        payload: ContinueOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
 
     /// 当前编排工作流（节点列表）：创建任务前预览「每步做什么、派给谁」。
     async fn get_current_orc_workflow(
@@ -565,6 +571,13 @@ impl HostCommandService for UnavailableHostCommandService {
         Err(CommandError::unavailable_message(&self.message))
     }
 
+    async fn continue_orc_task(
+        &self,
+        _payload: ContinueOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
     async fn get_current_orc_workflow(
         &self,
         _payload: EmptyPayload,
@@ -889,6 +902,16 @@ pub async fn delete_orc_task(
 ) -> Result<MutationAcceptedDto, CommandError> {
     let service = state.service.current().await;
     service.delete_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn continue_orc_task(
+    state: State<'_, BridgeState>,
+    payload: ContinueOrcTaskPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.continue_orc_task(payload).await
 }
 
 #[tauri::command]

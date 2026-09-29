@@ -114,6 +114,11 @@ export function TaskList({
                       <StatusBadge tone={orcTaskStateTone(task)}>
                         {orcTaskStateLabel(task)}
                       </StatusBadge>
+                      {task.round > 1 ? (
+                        <StatusBadge tone="neutral">
+                          第 {task.round} 轮
+                        </StatusBadge>
+                      ) : null}
                       {task.finalizing ? (
                         <StatusBadge tone="info">汇总中</StatusBadge>
                       ) : null}

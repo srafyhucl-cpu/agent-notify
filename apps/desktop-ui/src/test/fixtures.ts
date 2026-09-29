@@ -289,6 +289,8 @@ export function orcTaskFixture(
     goal,
     // 名称与后端同规则：显式优先，缺省按目标前 8 字推导。
     name: overrides.name ?? [...goal].slice(0, 8).join(""),
+    round: 1,
+    roundInput: null,
     workingDir: "D:/Project/agent-notify",
     finalizing: false,
     ...overrides,

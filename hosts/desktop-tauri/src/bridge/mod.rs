@@ -14,7 +14,7 @@ pub use dto::*;
 pub use error::CommandError;
 pub use events::{ChannelLoginChangedEvent, DeliveryChangedEvent, SnapshotChangedEvent};
 
-pub const BUSINESS_COMMAND_NAMES: [&str; 34] = [
+pub const BUSINESS_COMMAND_NAMES: [&str; 35] = [
     "get_snapshot",
     "list_agents",
     "update_agent_config",
@@ -44,6 +44,7 @@ pub const BUSINESS_COMMAND_NAMES: [&str; 34] = [
     "start_orc_task",
     "update_orc_task",
     "delete_orc_task",
+    "continue_orc_task",
     "get_current_orc_workflow",
     "list_orc_templates",
     "save_orc_template_config",
@@ -84,6 +85,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::start_orc_task,
             commands::update_orc_task,
             commands::delete_orc_task,
+            commands::continue_orc_task,
             commands::get_current_orc_workflow,
             commands::list_orc_templates,
             commands::save_orc_template_config,

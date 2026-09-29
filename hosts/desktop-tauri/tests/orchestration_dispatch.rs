@@ -5,8 +5,8 @@
 use std::sync::{Arc, RwLock};
 
 use agentnotify_desktop::bridge::dto::{
-    AdvanceOrcTaskPayload, CreateOrcTaskPayload, OrcMessageKindDto, OrcTaskIdPayload,
-    OrcTaskStateDto, OrcTemplateStepConfigDto, SaveOrcTemplateConfigPayload,
+    AdvanceOrcTaskPayload, ContinueOrcTaskPayload, CreateOrcTaskPayload, OrcMessageKindDto,
+    OrcTaskIdPayload, OrcTaskStateDto, OrcTemplateStepConfigDto, SaveOrcTemplateConfigPayload,
 };
 use agentnotify_desktop::bridge::error::CommandError;
 use agentnotify_desktop::production::agent_driver::{AgentDriver, DispatchOptions};
@@ -826,4 +826,191 @@ async fn static_custom_workflow_is_resolved_from_binding() {
         .await
         .expect("开始执行必须成功");
     assert_eq!(driver.calls()[0].agent_id, "codex");
+}
+
+/// 继续迭代（人工）：本轮结束后开始新一轮——轮次 +1、回到第 1 步并带上「本轮要求」派活；
+/// 运行中的任务拒绝继续。
+#[tokio::test]
+async fn continue_task_starts_next_round_with_instruction() {
+    let (_root, store) = open_sqlite("agentnotify-orc-continue-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+    save_quickfix_config(
+        &handler,
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
+    )
+    .await;
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            name: Some("迭代任务".into()),
+            steps: Some(vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+            ]),
+            goal: "鹈鹕骑车图".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
+    let task_id = created.id.clone();
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始必须成功");
+
+    // 运行中的任务拒绝继续迭代（等本轮结束）。
+    let running = handler
+        .continue_task(ContinueOrcTaskPayload {
+            task_id: task_id.clone(),
+            instruction: None,
+        })
+        .await
+        .expect_err("运行中必须拒绝继续迭代");
+    assert_eq!(running.code(), "orc_task_running");
+
+    // 走完第 1 轮：第 1 步汇报 → 第 2 步汇报 → 汇总（达标）。
+    handler
+        .report_from_agent(&task_id, 1, "第 1 步完成", false)
+        .await
+        .expect("第 1 步汇报必须成功");
+    handler
+        .report_from_agent(&task_id, 2, "第 2 步完成", false)
+        .await
+        .expect("第 2 步汇报必须成功");
+    handler
+        .report_from_agent(&task_id, 1, "汇总如下……\n【结论：达标】", false)
+        .await
+        .expect("汇总回合必须成功");
+    let done = handler
+        .list()
+        .await
+        .expect("列出任务必须成功")
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .expect("任务必须存在");
+    assert_eq!(done.state, OrcTaskStateDto::Completed);
+    assert_eq!(done.round, 1, "第 1 轮完成");
+
+    // 继续迭代：带本轮要求 → 第 2 轮、回到第 1 步、信封带新一轮前缀。
+    let calls_before = driver.calls().len();
+    let continued = handler
+        .continue_task(ContinueOrcTaskPayload {
+            task_id: task_id.clone(),
+            instruction: Some("翅膀握住车把，腿自然弯曲".into()),
+        })
+        .await
+        .expect("继续迭代必须成功");
+    assert_eq!(continued.round, 2);
+    assert_eq!(continued.state, OrcTaskStateDto::Working);
+    assert_eq!(continued.current_step, 1);
+    assert_eq!(
+        continued.round_input.as_deref(),
+        Some("翅膀握住车把，腿自然弯曲")
+    );
+    assert!(!continued.finalizing);
+
+    let calls = driver.calls();
+    assert_eq!(calls.len(), calls_before + 1, "新一轮必须派活第 1 步");
+    let last = calls.last().expect("必须有派活");
+    assert_eq!(last.session_id, format!("task-{task_id}-step-1"));
+    assert!(
+        last.envelope.contains("【第 2 轮迭代】"),
+        "{}",
+        last.envelope
+    );
+    assert!(last.envelope.contains("翅膀握住车把"), "{}", last.envelope);
+    assert!(
+        last.envelope.contains("第 2 轮 · Step 1/2"),
+        "{}",
+        last.envelope
+    );
+}
+
+/// 项目经理判定「继续迭代」→ 不完成，自动开始新一轮（带上它列出的问题）。
+#[tokio::test]
+async fn summary_verdict_continue_auto_starts_next_round() {
+    let (_root, store) = open_sqlite("agentnotify-orc-loop-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+    save_quickfix_config(
+        &handler,
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
+    )
+    .await;
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            name: Some("循环任务".into()),
+            steps: None,
+            goal: "鹈鹕骑车图".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: Some("verbose".into()),
+        })
+        .await
+        .expect("创建任务必须成功");
+    let task_id = created.id.clone();
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始必须成功");
+    handler
+        .report_from_agent(&task_id, 1, "第 1 步完成", false)
+        .await
+        .expect("第 1 步汇报必须成功");
+    handler
+        .report_from_agent(&task_id, 2, "第 2 步完成", false)
+        .await
+        .expect("第 2 步汇报必须成功");
+
+    // 汇总回合：项目经理判定继续迭代并列出下一轮问题 → 任务不完成，自动进入第 2 轮。
+    handler
+        .report_from_agent(
+            &task_id,
+            1,
+            "第 1 轮总结\n【结论：继续迭代】\n- 翅膀没握把\n- 腿太直",
+            false,
+        )
+        .await
+        .expect("汇总回合必须成功");
+    let task = handler
+        .list()
+        .await
+        .expect("列出任务必须成功")
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .expect("任务必须存在");
+    assert_eq!(task.state, OrcTaskStateDto::Working, "判定继续 → 不完成");
+    assert_eq!(task.round, 2);
+    assert_eq!(task.current_step, 1);
+    assert!(
+        task.round_input
+            .as_deref()
+            .unwrap_or("")
+            .contains("翅膀没握把"),
+        "{:?}",
+        task.round_input
+    );
+    let last = driver.calls().last().cloned().expect("必须有派活");
+    assert!(
+        last.envelope.contains("【第 2 轮迭代】"),
+        "{}",
+        last.envelope
+    );
+    assert!(last.envelope.contains("翅膀没握把"), "{}", last.envelope);
 }

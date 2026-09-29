@@ -10,6 +10,7 @@ import { SectionCard } from "../../components/patterns";
 import { toUserError } from "../../data/errors";
 import {
   useAdvanceOrcTaskMutation,
+  useContinueOrcTaskMutation,
   useCreateOrcTaskMutation,
   useDeleteOrcTaskMutation,
   useRecoverBlockedOrcTaskMutation,
@@ -23,6 +24,10 @@ import {
   CreateTaskDialog,
   type CreateOrcTaskInput,
 } from "./CreateTaskDialog";
+import {
+  ContinueTaskDialog,
+  type ContinueTaskInput,
+} from "./ContinueTaskDialog";
 import { EditTaskDialog, type EditTaskInput } from "./EditTaskDialog";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList } from "./TaskList";
@@ -46,6 +51,7 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const startMutation = useStartOrcTaskMutation(bridge);
   const updateMutation = useUpdateOrcTaskMutation(bridge);
   const deleteMutation = useDeleteOrcTaskMutation(bridge);
+  const continueMutation = useContinueOrcTaskMutation(bridge);
 
   // 手风琴：同一时间最多展开一个任务；进入页面不默认展开任何任务。
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -56,9 +62,11 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const [editError, setEditError] = useState<unknown>(null);
   const [deleteTarget, setDeleteTarget] = useState<OrcTaskDto | null>(null);
   const [deleteError, setDeleteError] = useState<unknown>(null);
+  const [continueTask, setContinueTask] = useState<OrcTaskDto | null>(null);
+  const [continueError, setContinueError] = useState<unknown>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
   const [pendingAction, setPendingAction] = useState<
-    "create" | "advance" | "recover" | "start" | "update" | "delete" | null
+    "create" | "advance" | "recover" | "start" | "update" | "delete" | "continue" | null
   >(null);
 
   const tasks = tasksQuery.data ?? [];
@@ -184,6 +192,28 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
     }
   };
 
+  /** 继续迭代：开始新一轮（轮次 +1、回到第 1 步）；成功关闭弹窗，失败在弹窗内展示。 */
+  const handleContinue = async (input: ContinueTaskInput): Promise<boolean> => {
+    if (!continueTask) {
+      return false;
+    }
+    setContinueError(null);
+    setPendingAction("continue");
+    try {
+      await continueMutation.mutateAsync({
+        taskId: continueTask.id,
+        instruction: input.instruction,
+      });
+      setContinueTask(null);
+      return true;
+    } catch (error) {
+      setContinueError(error);
+      return false;
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
   // 删除确认：Escape 关闭；打开时把焦点移到「取消」（破坏性操作不自动聚焦）。
   useEffect(() => {
     if (!deleteTarget) {
@@ -279,6 +309,10 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
                   onStart={() => void handleStart(task.id)}
                   onAdvance={(kind) => void handleAdvance(task.id, kind)}
                   onRecover={() => void handleRecover(task.id)}
+                  onContinue={() => {
+                    setContinueError(null);
+                    setContinueTask(task);
+                  }}
                 />
               )}
             />
@@ -309,6 +343,16 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
           error={editError}
           onSubmit={handleUpdate}
           onClose={() => setEditTask(null)}
+        />
+      ) : null}
+
+      {continueTask ? (
+        <ContinueTaskDialog
+          task={continueTask}
+          pending={pendingAction === "continue"}
+          error={continueError}
+          onSubmit={handleContinue}
+          onClose={() => setContinueTask(null)}
         />
       ) : null}
 

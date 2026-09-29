@@ -18,6 +18,8 @@ export interface TaskDetailProps {
   onStart: () => void;
   onAdvance: (kind: OrcMessageKindDto) => void;
   onRecover: () => void;
+  /** 继续迭代（本轮结束后开始新一轮）：打开继续迭代弹窗。 */
+  onContinue: () => void;
 }
 
 /**
@@ -30,6 +32,7 @@ export function TaskDetail({
   onStart,
   onAdvance,
   onRecover,
+  onContinue,
 }: TaskDetailProps) {
   const blocked = task.blockedStep !== null;
   const terminal = ORC_TERMINAL_STATES.has(task.state);
@@ -46,6 +49,14 @@ export function TaskDetail({
       <section className="cluster-detail-pane" aria-label="任务描述">
         <h4 className="cluster-detail-pane-title">任务描述</h4>
         <p className="cluster-detail-goal">{task.goal}</p>
+        {task.round > 1 && task.roundInput ? (
+          <div className="cluster-detail-round">
+            <p className="cluster-detail-round-label">
+              第 {task.round} 轮要求
+            </p>
+            <p className="cluster-detail-round-text">{task.roundInput}</p>
+          </div>
+        ) : null}
       </section>
 
       <section className="cluster-detail-pane" aria-label="工作流">
@@ -85,6 +96,10 @@ export function TaskDetail({
             </dd>
           </div>
           <div className="cluster-task-fact">
+            <dt>轮次</dt>
+            <dd>第 {task.round} 轮</dd>
+          </div>
+          <div className="cluster-task-fact">
             <dt>工作目录</dt>
             <dd className="cluster-task-fact-dir">
               {task.workingDir ?? "跟随宿主当前项目"}
@@ -115,7 +130,22 @@ export function TaskDetail({
         <section className="cluster-detail-pane" aria-label="操作">
           <h4 className="cluster-detail-pane-title">操作</h4>
           {terminal ? (
-            <p className="cluster-terminal-note">任务已结束，无待办操作。</p>
+            <div className="cluster-actions">
+              <p className="cluster-actions-note">
+                本轮已结束。想继续改就点「继续迭代」：回到第 1 步由项目经理重新规划，
+                再走一遍实施与复核（可附上本轮要求或复核意见）。
+              </p>
+              <div className="cluster-actions-buttons">
+                <button
+                  className="button"
+                  type="button"
+                  disabled={busy}
+                  onClick={onContinue}
+                >
+                  继续迭代（第 {task.round + 1} 轮）
+                </button>
+              </div>
+            </div>
           ) : task.finalizing ? (
             <div className="cluster-actions cluster-actions--finalizing">
               <p className="cluster-actions-label">项目经理汇总中</p>

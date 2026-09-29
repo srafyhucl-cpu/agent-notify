@@ -41,6 +41,7 @@ import type {
   UpdateAgentConfigPayload,
   UpdateOrcTaskPayload,
   UpdateStatusDto,
+  ContinueOrcTaskPayload,
 } from "./types";
 
 export type BusinessCommand = GeneratedBusinessCommand;
@@ -76,6 +77,7 @@ export interface CommandPayloadMap {
   start_orc_task: OrcTaskIdPayload;
   update_orc_task: UpdateOrcTaskPayload;
   delete_orc_task: OrcTaskIdPayload;
+  continue_orc_task: ContinueOrcTaskPayload;
   get_current_orc_workflow: EmptyPayload;
   list_orc_templates: EmptyPayload;
   save_orc_template_config: SaveOrcTemplateConfigPayload;
@@ -113,6 +115,7 @@ export interface CommandResultMap {
   start_orc_task: OrcTaskDto;
   update_orc_task: OrcTaskDto;
   delete_orc_task: MutationAcceptedDto;
+  continue_orc_task: OrcTaskDto;
   get_current_orc_workflow: CurrentOrcWorkflowDto;
   list_orc_templates: OrcTemplateDto[];
   save_orc_template_config: OrcTemplateDto[];

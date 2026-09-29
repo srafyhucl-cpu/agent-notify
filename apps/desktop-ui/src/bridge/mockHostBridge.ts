@@ -33,6 +33,7 @@ import type {
   SettingsDto,
   UpdateOrcTaskPayload,
   UpdateStatusDto,
+  ContinueOrcTaskPayload,
 } from "./types";
 import type {
   CommandPayloadMap,
@@ -701,6 +702,8 @@ export function createMockHostBridge(
           notifyMode: create.notifyMode ?? "final_only",
           goal,
           name: taskName,
+          round: 1,
+          roundInput: null,
           workingDir,
           blockedStep: null,
           blockReason: null,
@@ -797,6 +800,34 @@ export function createMockHostBridge(
           orcTasks.splice(index, 1);
         }
         result = accepted();
+        break;
+      }
+      case "continue_orc_task": {
+        const cont = payload as unknown as ContinueOrcTaskPayload;
+        const task = orcTasks.find((item) => item.id === cont.taskId);
+        if (!task) {
+          orcTaskNotFound(cont.taskId);
+        }
+        if (
+          task.state === "working" ||
+          task.state === "input_required" ||
+          task.state === "submitted"
+        ) {
+          throw {
+            code: "orc_task_running",
+            message: "任务还在进行中：等本轮结束后再点「继续迭代」",
+            retryable: false,
+          };
+        }
+        task.round += 1;
+        task.roundInput = cont.instruction?.trim() || null;
+        task.state = "working";
+        task.currentStep = 1;
+        task.finalizing = false;
+        task.blockedStep = null;
+        task.blockReason = null;
+        task.started = true;
+        result = cloneDto(task);
         break;
       }
       case "get_current_orc_workflow":

@@ -34,7 +34,7 @@ fn user_config_template_is_used_and_source_reported() {
     let step1 = wf.step(1).expect("步骤 1 必须存在");
     let rendered = result
         .resolver
-        .render_envelope(&wf, step1, "贪吃蛇", Some("planner"));
+        .render_envelope(&wf, step1, "贪吃蛇", Some("planner"), 1);
     assert_eq!(
         rendered.text, "【贪吃蛇】判断：orchestrator（Agent codex）",
         "用户模板必须替换占位符并生效：{}",
@@ -42,22 +42,31 @@ fn user_config_template_is_used_and_source_reported() {
     );
     assert!(rendered.warnings.is_empty(), "{:?}", rendered.warnings);
 
-    let resolved = result
-        .resolver
-        .resolve(step1.harness_template.as_deref(), &wf.id, step1.order);
+    let resolved = result.resolver.resolve(
+        step1.harness_template.as_deref(),
+        &wf.id,
+        step1.order,
+        &step1.role,
+    );
     assert_eq!(resolved.source, TemplateSource::UserConfig);
     assert_eq!(resolved.warning, None);
 
     // 步骤 2 也命中用户配置；步骤 3 未配置 → 内置默认
     let step2 = wf.step(2).expect("步骤 2 必须存在");
-    let resolved2 = result
-        .resolver
-        .resolve(step2.harness_template.as_deref(), &wf.id, step2.order);
+    let resolved2 = result.resolver.resolve(
+        step2.harness_template.as_deref(),
+        &wf.id,
+        step2.order,
+        &step2.role,
+    );
     assert_eq!(resolved2.source, TemplateSource::UserConfig);
     let step3 = wf.step(3).expect("步骤 3 必须存在");
-    let resolved3 = result
-        .resolver
-        .resolve(step3.harness_template.as_deref(), &wf.id, step3.order);
+    let resolved3 = result.resolver.resolve(
+        step3.harness_template.as_deref(),
+        &wf.id,
+        step3.order,
+        &step3.role,
+    );
     assert_eq!(resolved3.source, TemplateSource::BuiltinDefault);
 }
 
@@ -76,11 +85,14 @@ fn step_template_precedes_user_config() {
 
     let rendered = result
         .resolver
-        .render_envelope(&wf, &step1, "贪吃蛇", Some("planner"));
+        .render_envelope(&wf, &step1, "贪吃蛇", Some("planner"), 1);
     assert_eq!(rendered.text, "步骤自带模板 【贪吃蛇】");
-    let resolved = result
-        .resolver
-        .resolve(step1.harness_template.as_deref(), &wf.id, step1.order);
+    let resolved = result.resolver.resolve(
+        step1.harness_template.as_deref(),
+        &wf.id,
+        step1.order,
+        &step1.role,
+    );
     assert_eq!(resolved.source, TemplateSource::StepOverride);
 }
 
@@ -95,13 +107,16 @@ fn missing_user_config_falls_back_to_default() {
 
     let wf = preset();
     let step1 = wf.step(1).expect("步骤 1 必须存在");
-    let resolved = result
-        .resolver
-        .resolve(step1.harness_template.as_deref(), &wf.id, step1.order);
+    let resolved = result.resolver.resolve(
+        step1.harness_template.as_deref(),
+        &wf.id,
+        step1.order,
+        &step1.role,
+    );
     assert_eq!(resolved.source, TemplateSource::BuiltinDefault);
     let rendered = result
         .resolver
-        .render_envelope(&wf, step1, "贪吃蛇", Some("planner"));
+        .render_envelope(&wf, step1, "贪吃蛇", Some("planner"), 1);
     assert!(
         rendered.text.contains("【任务：贪吃蛇】"),
         "默认模板必须生效：{}",
@@ -144,7 +159,7 @@ fn corrupted_config_warns_and_falls_back_to_default() {
     let rendered =
         result
             .resolver
-            .render_envelope(&wf, wf.step(1).unwrap(), "贪吃蛇", Some("planner"));
+            .render_envelope(&wf, wf.step(1).unwrap(), "贪吃蛇", Some("planner"), 1);
     assert!(
         rendered.text.contains("【任务：贪吃蛇】"),
         "{}",
@@ -220,9 +235,12 @@ fn blank_template_entry_is_unconfigured() {
     assert!(result.warnings.is_empty(), "{:?}", result.warnings);
     let wf = preset();
     let step1 = wf.step(1).expect("步骤 1 必须存在");
-    let resolved = result
-        .resolver
-        .resolve(step1.harness_template.as_deref(), &wf.id, step1.order);
+    let resolved = result.resolver.resolve(
+        step1.harness_template.as_deref(),
+        &wf.id,
+        step1.order,
+        &step1.role,
+    );
     assert_eq!(resolved.source, TemplateSource::BuiltinDefault);
 }
 
@@ -243,7 +261,7 @@ fn unknown_placeholder_warns_and_stays_literal() {
     let step1 = wf.step(1).expect("步骤 1 必须存在");
     let rendered = result
         .resolver
-        .render_envelope(&wf, step1, "贪吃蛇", Some("planner"));
+        .render_envelope(&wf, step1, "贪吃蛇", Some("planner"), 1);
     // 已知占位符替换、未知占位符原样保留（与 P0 替换语义一致）
     assert_eq!(rendered.text, "【贪吃蛇】请 {bogus} 和 {unknown_x}");
 
@@ -270,7 +288,7 @@ fn step_template_unknown_placeholder_warns() {
     step1.harness_template = Some("占位 {goal} {oops}".to_string());
 
     let resolver = TemplateResolver::new();
-    let rendered = resolver.render_envelope(&wf, &step1, "贪吃蛇", Some("planner"));
+    let rendered = resolver.render_envelope(&wf, &step1, "贪吃蛇", Some("planner"), 1);
     assert_eq!(rendered.text, "占位 贪吃蛇 {oops}");
     assert_eq!(rendered.warnings.len(), 1, "{:?}", rendered.warnings);
     assert_eq!(
@@ -289,8 +307,8 @@ fn resolver_default_render_equals_free_render_envelope() {
             .step(order)
             .unwrap_or_else(|| panic!("步骤 {order} 必须存在"));
         let next_role = if order < 3 { Some("next-role") } else { None };
-        let via_resolver = resolver.render_envelope(&wf, step, "贪吃蛇", next_role);
-        let via_free = render_envelope(&wf, step, "贪吃蛇", next_role);
+        let via_resolver = resolver.render_envelope(&wf, step, "贪吃蛇", next_role, 1);
+        let via_free = render_envelope(&wf, step, "贪吃蛇", next_role, 1);
         assert_eq!(
             via_resolver.text, via_free,
             "第 {order} 步渲染必须与 P0 一致"
@@ -324,7 +342,7 @@ fn summary_envelope_includes_reports_and_pm_instruction() {
     let resolver = TemplateResolver::new();
     let wf = preset();
     let reports = "【第 1 步 · orchestrator 产出】\n结论可行";
-    let rendered = resolver.render_summary_envelope(&wf, "贪吃蛇", reports);
+    let rendered = resolver.render_summary_envelope(&wf, "贪吃蛇", reports, 1);
 
     assert!(
         rendered.text.contains("【任务：贪吃蛇】"),
@@ -354,7 +372,7 @@ fn summary_envelope_includes_reports_and_pm_instruction() {
     assert!(rendered.warnings.is_empty(), "{:?}", rendered.warnings);
 
     // 步骤信封不含 {reports} 内容（已知但仅在汇总信封填充）。
-    let step_rendered = resolver.render_envelope(&wf, wf.step(1).unwrap(), "贪吃蛇", None);
+    let step_rendered = resolver.render_envelope(&wf, wf.step(1).unwrap(), "贪吃蛇", None, 1);
     assert!(!step_rendered.text.contains("结论可行"));
 }
 
@@ -375,7 +393,7 @@ fn user_summary_template_overrides_default() {
     let wf = preset();
     let rendered = result
         .resolver
-        .render_summary_envelope(&wf, "贪吃蛇", "第 1 步产出");
+        .render_summary_envelope(&wf, "贪吃蛇", "第 1 步产出", 1);
     assert_eq!(rendered.text, "【贪吃蛇】自定义汇总：第 1 步产出");
     assert_eq!(
         result.resolver.resolve_summary(PRESET_ID).source,
@@ -437,7 +455,7 @@ fn user_summary_unknown_placeholder_warns() {
     let wf = preset();
     let rendered = result
         .resolver
-        .render_summary_envelope(&wf, "贪吃蛇", "产出");
+        .render_summary_envelope(&wf, "贪吃蛇", "产出", 1);
     assert_eq!(rendered.text, "汇总 贪吃蛇 {bogus}");
     assert_eq!(rendered.warnings.len(), 1, "{:?}", rendered.warnings);
     assert_eq!(

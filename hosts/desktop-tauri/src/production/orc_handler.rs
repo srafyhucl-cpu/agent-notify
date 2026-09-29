@@ -19,6 +19,7 @@ use agentnotify_domain::{AgentId, AgentSessionId};
 use agentnotify_orchestration::{
     MessageKind, NotifyMode, OrcError, OrcRepositoryError, OrcStore, OrcTask, OrcTaskRepository,
     StepOutcome, TaskState, TemplateResolver, TransitionAction, Workflow, render_step_reports,
+    round_continue_input,
 };
 use agentnotify_storage_sqlite::SqliteStore;
 
@@ -84,6 +85,8 @@ const ORC_WORKING_DIR_INVALID: &str = "orc_working_dir_invalid";
 const ORC_TASK_NAME_INVALID: &str = "orc_task_name_invalid";
 /// 任务名称长度上限（字）：短名只用于列表与会话标题展示。
 const ORC_TASK_NAME_MAX_CHARS: usize = 8;
+/// 自动迭代轮次上限：项目经理判定「继续迭代」时最多自动跑到该轮次，之后按完成处理交给用户决定。
+const ORC_MAX_ROUNDS: u32 = 5;
 /// 任务处于「项目经理汇总阶段」：不接受人工推进（等待首节点汇总）。
 const ORC_TASK_FINALIZING: &str = "orc_task_finalizing";
 /// 编排设置存储不可用（静态装配/初始化未完成）时保存节点配置的错误码。
@@ -463,6 +466,38 @@ impl OrcCommandHandler {
         orc_task_to_dto(&task, store.workflow())
     }
 
+    /// 继续迭代（人工，§4 循环）：本轮结束后开始新一轮——轮次 +1、回到第 1 步（项目经理重新规划），
+    /// 可带「本轮要求」（留空则由项目经理按上一轮结论继续）。运行中的任务拒绝（等本轮结束再继续）。
+    pub async fn continue_task(
+        &self,
+        payload: ContinueOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let (store, mut task) = self.task_store(&payload.task_id).await?;
+        match task.state() {
+            TaskState::Completed
+            | TaskState::Failed
+            | TaskState::Canceled
+            | TaskState::Rejected => {}
+            _ => {
+                return Err(CommandError::new(
+                    "orc_task_running",
+                    "任务还在进行中：等本轮结束后再点「继续迭代」",
+                ));
+            }
+        }
+        let instruction = payload
+            .instruction
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        task.begin_round(instruction).map_err(orc_error)?;
+        store.save(task.clone()).await.map_err(orc_error)?;
+        let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
+        self.dispatch_step(&store, &task).await;
+        let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
+        orc_task_to_dto(&task, store.workflow())
+    }
+
     /// 全局默认通知节奏：已装配呈现层时读设置（缺失/非法回退 final_only 并告警）；
     /// 未装配（向前兼容）按 final_only。
     async fn global_default_notify_mode(&self) -> NotifyMode {
@@ -699,6 +734,24 @@ impl OrcCommandHandler {
                 .await;
                 return Ok(true);
             }
+            // 项目经理判定「继续迭代」且未达轮次上限 → 不完成：自动开始新一轮（§4 迭代循环）。
+            if let Some(input) = round_continue_input(body) {
+                let round = task.round().unwrap_or(1);
+                if round < ORC_MAX_ROUNDS {
+                    let mut next = store.get_task(task_id).await.map_err(orc_error)?;
+                    next.begin_round(Some(input.as_str())).map_err(orc_error)?;
+                    store.save(next.clone()).await.map_err(orc_error)?;
+                    self.present_round_continue(&store, &next, round, &input)
+                        .await;
+                    self.dispatch_step(&store, &next).await;
+                    return Ok(true);
+                }
+                tracing::warn!(
+                    task_id,
+                    round,
+                    "项目经理判定继续迭代但已达轮次上限，按完成处理（用户可手动继续迭代）"
+                );
+            }
             let task = store
                 .complete_finalizing(task_id)
                 .await
@@ -823,6 +876,48 @@ impl OrcCommandHandler {
             total,
             state_cn(&OrcTaskStateDto::Completed),
             &truncate_final_report(body),
+        );
+        presenter.push(task.id(), text).await;
+    }
+
+    /// 自动继续迭代的进度呈现：仅 verbose 模式推（final_only 只推最终汇报，§5）。
+    async fn present_round_continue(
+        &self,
+        store: &OrcStore,
+        task: &OrcTask,
+        round: u32,
+        input: &str,
+    ) {
+        let Some(presenter) = &self.presenter else {
+            return;
+        };
+        let mode = match task.notify_mode() {
+            Ok(mode) => mode,
+            Err(_) => return,
+        };
+        if mode != NotifyMode::Verbose {
+            return;
+        }
+        let detail = input.trim();
+        let detail = if detail.is_empty() {
+            "按上一轮结论继续".to_string()
+        } else {
+            let mut text: String = detail.chars().take(80).collect();
+            if detail.chars().count() > 80 {
+                text.push('…');
+            }
+            text
+        };
+        let total = store.workflow().max_order();
+        let text = render_cluster_message(
+            task.id(),
+            1,
+            total,
+            state_cn(&OrcTaskStateDto::Working),
+            &format!(
+                "第 {round} 轮完成：项目经理判定继续迭代，已自动开始第 {} 轮（{detail}）",
+                round + 1
+            ),
         );
         presenter.push(task.id(), text).await;
     }
@@ -961,14 +1056,22 @@ impl OrcCommandHandler {
                 display_name(None, &goal)
             }
         };
-        // 信封渲染（用户模板优先、内置默认兜底，§4.3 / P1-5）：渲染告警只记日志不阻断。
+        // 信封渲染（用户模板优先、按角色的内置默认兜底，§4.3 / P1-5）：渲染告警只记日志不阻断。
         let next_role = store
             .workflow()
             .next_step(current_step)
             .map(|next| next.role.as_str());
-        let rendered = self
-            .templates
-            .render_envelope(store.workflow(), &step, &goal, next_role);
+        let round = task.round().unwrap_or(1);
+        let rendered =
+            self.templates
+                .render_envelope(store.workflow(), &step, &goal, next_role, round);
+        // 第 2 轮起：把本轮要求/上一轮结论作为前缀交给项目经理（首步续聊有上下文）。
+        let rendered_text = if current_step == 1 && round > 1 {
+            let input = task.round_input().unwrap_or(None);
+            format!("{}{}", round_intro(round, input.as_deref()), rendered.text)
+        } else {
+            rendered.text.clone()
+        };
         for warning in &rendered.warnings {
             tracing::warn!(
                 task_id = %task.id(),
@@ -999,7 +1102,7 @@ impl OrcCommandHandler {
                 task.id(),
                 &agent_id,
                 &session_id,
-                &rendered.text,
+                &rendered_text,
                 open,
                 &options,
             )
@@ -1069,9 +1172,12 @@ impl OrcCommandHandler {
                 return;
             }
         };
-        let rendered = self
-            .templates
-            .render_summary_envelope(workflow, &goal, &reports);
+        let rendered = self.templates.render_summary_envelope(
+            workflow,
+            &goal,
+            &reports,
+            task.round().unwrap_or(1),
+        );
         for warning in &rendered.warnings {
             tracing::warn!(
                 task_id = %task.id(),
@@ -1321,6 +1427,8 @@ fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, Co
         notify_mode: meta.notify_mode.as_str().to_string(),
         goal: meta.goal,
         name,
+        round: meta.round.max(1),
+        round_input: meta.round_input,
         working_dir: meta.working_dir,
         finalizing: meta.final_report_pending,
     })
@@ -1394,9 +1502,36 @@ fn orc_task_state_dto(state: TaskState) -> OrcTaskStateDto {
     }
 }
 
+/// 新一轮的派活前缀（第 2 轮起）：把本轮要求/上一轮结论交给项目经理，保证续聊有上下文。
+fn round_intro(round: u32, input: Option<&str>) -> String {
+    match input.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(text) => format!(
+            "【第 {round} 轮迭代】本轮要求（来自用户或上一轮结论）：\n{text}\n────────────────────────\n"
+        ),
+        None => {
+            format!("【第 {round} 轮迭代】沿用上一轮结论继续推进。\n────────────────────────\n")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 新一轮前缀：带要求时写清来源与内容；无要求时明确「沿用上一轮结论」。
+    #[test]
+    fn round_intro_states_round_and_input() {
+        let with_input = round_intro(2, Some("翅膀握住车把，腿自然弯曲"));
+        assert!(with_input.contains("第 2 轮"), "{with_input}");
+        assert!(with_input.contains("翅膀握住车把"), "{with_input}");
+
+        let without = round_intro(3, None);
+        assert!(without.contains("第 3 轮"), "{without}");
+        assert!(without.contains("沿用上一轮结论"), "{without}");
+
+        let blank = round_intro(2, Some("   "));
+        assert!(blank.contains("沿用上一轮结论"), "{blank}");
+    }
 
     /// 面向用户的失败原因：常见模型错误翻译成中文+处理建议；未识别保留原文；超长截断。
     #[test]
