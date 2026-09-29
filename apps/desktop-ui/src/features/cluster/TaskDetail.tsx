@@ -7,6 +7,7 @@ import {
   orcNodeStatesOfTask,
   orcTaskStateLabel,
   orcTaskStateTone,
+  shortBlockReason,
 } from "./labels";
 import { OrcNodeChain } from "./OrcNodeChain";
 
@@ -91,7 +92,10 @@ export function TaskDetail({
         <div className="cluster-blocked-card" role="alert">
           <strong className="cluster-blocked-title">任务阻塞</strong>
           <p className="cluster-blocked-reason">
-            {task.blockReason ?? "投递失败，需要人工处理后重新发起。"}
+            {shortBlockReason(
+              task.blockReason ??
+                "任务执行失败：请打开对应会话查看原因后点「重新发起」",
+            )}
           </p>
           <button
             className="button button-secondary"

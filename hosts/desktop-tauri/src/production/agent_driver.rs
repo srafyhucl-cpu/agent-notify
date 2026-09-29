@@ -68,7 +68,7 @@ impl ProductionAgentDriver {
 impl AgentDriver for ProductionAgentDriver {
     async fn dispatch(
         &self,
-        task_id: &str,
+        _task_id: &str,
         agent_id: &AgentId,
         session_id: &AgentSessionId,
         envelope: &str,
@@ -79,7 +79,7 @@ impl AgentDriver for ProductionAgentDriver {
             CommandError::new(
                 ORC_STEP_AGENT_UNREGISTERED,
                 format!(
-                    "Agent {agent_id} 未注册，无法派活（任务 {task_id}），请先在设置中启用该 Agent"
+                    "无法唤醒 {agent_id}：该 Agent 未启用，请在「Agent 管理」里启用后点「重新发起」"
                 ),
             )
         })?;
@@ -88,18 +88,16 @@ impl AgentDriver for ProductionAgentDriver {
             .dispatch_with_options(session_id, envelope, open, options)
             .await
             .map(|_| ())
-            .map_err(|error| dispatch_error(task_id, agent_id, &error))
+            .map_err(|error| dispatch_error(agent_id, &error))
     }
 }
 
-/// 派活失败 → 命令错误：保留稳定错误码 + 适配器给的中文原因（写清谁不可用、未送达）。
-fn dispatch_error(task_id: &str, agent_id: &AgentId, error: &AgentError) -> CommandError {
+/// 派活失败 → 命令错误：保留稳定错误码 + 一句用户可读的原因（哪个 Agent 没唤醒成功，
+/// 以及适配器给出的处理办法）；不带任务 ID 与内部实现细节。
+fn dispatch_error(agent_id: &AgentId, error: &AgentError) -> CommandError {
     CommandError::new(
         ORC_STEP_DISPATCH_FAILED,
-        format!(
-            "任务 {task_id} 派活给 Agent {agent_id} 失败：{}（任务已阻塞，不会自动重推）",
-            error.message()
-        ),
+        format!("无法唤醒 {agent_id}：{}", error.message()),
     )
 }
 
@@ -314,7 +312,16 @@ mod tests {
             "错误必须写清插件未连接：{}",
             error.message()
         );
-        assert!(error.message().contains("t-1"), "{}", error.message());
+        assert!(
+            error.message().contains("无法唤醒 opencode"),
+            "错误必须写清是哪个 Agent 没唤醒成功：{}",
+            error.message()
+        );
+        assert!(
+            !error.message().contains("t-1"),
+            "面向用户的原因不得包含任务 ID：{}",
+            error.message()
+        );
     }
 
     /// resume 失败（超时/拒绝）：同样明确报错，走下游 blocked。
@@ -372,7 +379,16 @@ mod tests {
             "{}",
             error.message()
         );
-        assert!(error.message().contains("t-1"), "{}", error.message());
+        assert!(
+            error.message().contains("Agent 管理"),
+            "必须给出处理办法：{}",
+            error.message()
+        );
+        assert!(
+            !error.message().contains("t-1"),
+            "面向用户的原因不得包含任务 ID：{}",
+            error.message()
+        );
     }
 
     /// 派活选项透传：覆写 `dispatch_with_options` 的适配器必须原样收到工作目录/模型/无人值守。

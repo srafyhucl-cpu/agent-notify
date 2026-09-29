@@ -457,10 +457,10 @@ async fn failure_reminder_always_pushes_regardless_of_mode() {
             text.contains(&format!("【集群 {task_id}】")),
             "缺少前缀：{text}"
         );
-        assert!(text.contains("Step 2 失败"), "{text}");
+        assert!(text.contains("第 2 步失败"), "{text}");
         assert!(text.contains(reason), "必须写清失败原因：{text}");
         assert!(text.contains("需人工处理"), "{text}");
-        assert!(text.contains("不会自动重推"), "{text}");
+        assert!(text.contains("不会自动重试"), "{text}");
         assert!(
             text.contains(&format!("【{task_id} · Step 2/3 · 已阻塞】")),
             "缺少后缀：{text}"

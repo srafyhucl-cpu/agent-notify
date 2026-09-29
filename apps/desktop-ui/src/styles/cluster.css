@@ -277,15 +277,6 @@
   color: var(--color-danger);
 }
 
-.cluster-task-reason {
-  display: block;
-  margin-top: 4px;
-  color: var(--color-danger);
-  font-size: var(--font-size-1);
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
 .cluster-task-badges {
   display: inline-flex;
   flex-wrap: wrap;

@@ -94,10 +94,10 @@ const ORC_TASK_NOT_FOUND_CODE: &str = "orc.task_not_found";
 const ORC_DISPATCH_SESSION_PREFIX: &str = "task";
 /// 插件把失败终态也上报为 `session.completed`，失败正文以该前缀开头（失败回合识别）。
 const AGENT_FAILURE_BODY_PREFIX: &str = "任务执行失败：";
-/// 汇总派活失败的阻塞原因前缀（§4 失败语义）。
-const SUMMARY_DISPATCH_FAILED_PREFIX: &str = "汇总汇报派活失败：";
+/// 汇总阶段无法派活的阻塞原因前缀（§4 失败语义）。
+const SUMMARY_DISPATCH_FAILED_PREFIX: &str = "最终汇总：";
 /// 首节点汇总回合失败的阻塞原因前缀（§4 失败语义）。
-const SUMMARY_ROUND_FAILED_PREFIX: &str = "首节点汇总回合失败：";
+const SUMMARY_ROUND_FAILED_PREFIX: &str = "项目经理汇总失败：";
 
 impl OrcCommandHandler {
     /// 默认装配：仅内置默认信封模板（向后兼容）。
@@ -718,7 +718,7 @@ impl OrcCommandHandler {
                 &store,
                 task_id,
                 step,
-                format!("Step {step} 执行失败：{}", failure_detail(body)),
+                format!("第 {step} 步执行失败：{}", failure_detail(body)),
             )
             .await;
             return Ok(true);
@@ -1012,13 +1012,8 @@ impl OrcCommandHandler {
                 "派活失败：{}",
                 error.message()
             );
-            self.auto_blocked(
-                store,
-                task.id(),
-                current_step,
-                format!("Step {current_step} 派活失败：{}", error.message()),
-            )
-            .await;
+            self.auto_blocked(store, task.id(), current_step, error.message().to_string())
+                .await;
         }
     }
 
@@ -1251,6 +1246,8 @@ fn legacy_failure_marker(body: &str) -> bool {
 }
 
 /// 失败详情：去空白并剥掉旧插件的「任务执行失败：」前缀；空正文给可读兜底（不猜测细节）。
+/// 失败详情：去空白、剥掉旧插件的「任务执行失败：」前缀，并把常见英文错误翻译成
+/// 用户看得懂、知道怎么解决的中文一句话（未识别的错误保留原文，只做长度截断）。
 fn failure_detail(body: &str) -> String {
     let detail = body.trim();
     let detail = detail
@@ -1258,10 +1255,37 @@ fn failure_detail(body: &str) -> String {
         .unwrap_or(detail)
         .trim();
     if detail.is_empty() {
-        "OpenCode 未返回具体错误信息".to_string()
-    } else {
-        detail.to_string()
+        return "Agent 未返回具体错误信息：请打开对应会话查看原因后点「重新发起」".to_string();
     }
+    user_facing_failure(detail)
+}
+
+/// 阻塞原因展示上限（字符数）：一句话讲清原因与处理办法，超长截断。
+const FAILURE_DETAIL_LIMIT: usize = 120;
+
+/// 常见失败 → 一句用户可读的话（含处理建议）：只识别有把握的模型/额度错误；
+/// 其余保留原文（不硬翻译、不加戏），超长截断。
+fn user_facing_failure(detail: &str) -> String {
+    let lower = detail.to_lowercase();
+    if lower.contains("insufficient account funds")
+        || lower.contains("insufficient funds")
+        || lower.contains("quota")
+    {
+        return "模型服务余额不足：请充值，或给该节点换一个模型后点「重新发起」".to_string();
+    }
+    if lower.contains("model unavailable")
+        || lower.contains("model not found")
+        || lower.contains("unknown model")
+    {
+        return "所选模型不可用：请给该节点换一个模型后点「重新发起」".to_string();
+    }
+    let trimmed = detail.trim();
+    if trimmed.chars().count() <= FAILURE_DETAIL_LIMIT {
+        return trimmed.to_string();
+    }
+    let mut truncated: String = trimmed.chars().take(FAILURE_DETAIL_LIMIT).collect();
+    truncated.push('…');
+    truncated
 }
 
 /// P2 派活目标：由 `agent_hint` 解析 Agent id，并为 (task, step) 生成稳定会话 id
@@ -1367,5 +1391,33 @@ fn orc_task_state_dto(state: TaskState) -> OrcTaskStateDto {
         TaskState::Rejected => OrcTaskStateDto::Rejected,
         TaskState::AuthRequired => OrcTaskStateDto::AuthRequired,
         _ => OrcTaskStateDto::Unspecified,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 面向用户的失败原因：常见模型错误翻译成中文+处理建议；未识别保留原文；超长截断。
+    #[test]
+    fn user_facing_failure_maps_known_errors() {
+        let model = user_facing_failure("Model unavailable: provider/DeepSeek V4.1 Flash");
+        assert!(model.contains("所选模型不可用"), "{model}");
+        assert!(model.contains("换一个模型"), "必须给出处理办法：{model}");
+
+        let funds = user_facing_failure("Upstream request failed: Insufficient account funds");
+        assert!(funds.contains("余额不足"), "{funds}");
+        assert!(funds.contains("充值"), "必须给出处理办法：{funds}");
+
+        assert_eq!(
+            user_facing_failure("Codex 未找到可续聊的目标线程"),
+            "Codex 未找到可续聊的目标线程",
+            "未识别的错误保留原文（不硬翻译）"
+        );
+
+        let long = "长".repeat(FAILURE_DETAIL_LIMIT + 50);
+        let truncated = user_facing_failure(&long);
+        assert_eq!(truncated.chars().count(), FAILURE_DETAIL_LIMIT + 1);
+        assert!(truncated.ends_with('…'));
     }
 }

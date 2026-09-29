@@ -102,6 +102,37 @@ export function orcTaskStateTone(
 }
 
 /**
+ * 阻塞原因的展示清洗：去掉任务 ID / 内部实现细节，把常见英文错误翻译成
+ * 用户看得懂、知道怎么解决的一句话（新任务的 reason 已是干净文案，这里兜底旧数据）。
+ */
+export function shortBlockReason(reason: string): string {
+  const text = reason.trim();
+  const lower = text.toLowerCase();
+  if (
+    lower.includes("insufficient account funds") ||
+    lower.includes("insufficient funds") ||
+    lower.includes("quota")
+  ) {
+    return "模型服务余额不足：请充值，或给该节点换一个模型后点「重新发起」";
+  }
+  if (
+    lower.includes("model unavailable") ||
+    lower.includes("model not found") ||
+    lower.includes("unknown model")
+  ) {
+    return "所选模型不可用：请给该节点换一个模型后点「重新发起」";
+  }
+  return text
+    .replace(/任务\s+[0-9a-fA-F-]{36}\s*/g, "")
+    .replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, "")
+    .replace(/（任务已阻塞，不会自动重推）/g, "")
+    .replace(/派活给 Agent\s+(\S+)\s+失败：/g, "无法唤醒 $1：")
+    .replace(/\bStep\s+(\d+)\s*/g, "第 $1 步")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
  * 节点链状态（可视化 §7）：动效只做注意力引导，语义由「颜色 + 简短中文标签」承载。
  * `idle` = 预览/配置态（无进度语义），`pending` = 未执行。
  */

@@ -154,9 +154,10 @@ describe("ClusterPage 任务列表", () => {
     expect(within(list).getByRole("button", { name: "周报草稿" })).toBeVisible();
     expect(within(list).getByText("阻塞")).toBeVisible();
     expect(within(list).getByText("逐步流转")).toBeVisible();
+    // 报错不在列表里堆：原因只在展开详情中展示
     expect(
-      within(list).getByText(/判断 Agent（Codex）会话不可用/),
-    ).toBeVisible();
+      within(list).queryByText(/判断 Agent（Codex）会话不可用/),
+    ).not.toBeInTheDocument();
     const blockedRow = within(list)
       .getByRole("button", { name: "周报草稿" })
       .closest(".cluster-task-row");
@@ -353,6 +354,8 @@ describe("ClusterPage 任务详情与发指令", () => {
     const alert = within(detail).getByRole("alert");
     expect(alert).toHaveTextContent("任务阻塞");
     expect(alert).toHaveTextContent(/判断 Agent（Codex）会话不可用/);
+    // 旧数据里的「Step N」展示成中文「第 N 步」
+    expect(alert).toHaveTextContent("第 1 步投递失败");
     expect(within(detail).queryByText("推进任务")).not.toBeInTheDocument();
 
     await user.click(within(detail).getByRole("button", { name: "重新发起" }));
@@ -362,6 +365,27 @@ describe("ClusterPage 任务详情与发指令", () => {
     expect(bridge.calls("recover_blocked_orc_task")[0]?.payload).toEqual({
       taskId: "task-blocked",
     });
+  });
+
+  it("旧任务的英文模型报错在详情里翻译成中文处理建议（不含 ID/英文原文）", async () => {
+    const user = userEvent.setup();
+    const task = orcTaskFixture("task-model-fail", {
+      goal: "模型失败任务",
+      name: "模型失败",
+      state: "failed",
+      currentStep: 1,
+      blockedStep: 1,
+      blockReason:
+        "Step 1 执行失败：Model unavailable: provider/DeepSeek V4.1 Flash",
+    });
+    renderWithQuery(fixturedBridge([task]));
+
+    const detail = await expandTask(user, "模型失败");
+    const alert = within(detail).getByRole("alert");
+    expect(alert).toHaveTextContent("所选模型不可用");
+    expect(alert).toHaveTextContent("换一个模型后点「重新发起」");
+    expect(alert).not.toHaveTextContent("Model unavailable");
+    expect(alert).not.toHaveTextContent("provider/");
   });
 
   it("终态任务（已完成）不再提供任何操作", async () => {

@@ -96,7 +96,7 @@ pub fn progress_body(kind: MessageKind, action: TransitionAction, step: u32) -> 
 
 /// 失败提醒正文（§4.6 R8）：写清哪一步失败、谁不可用/未送达、需人工处理，不自动重推。
 pub fn failure_body(step: u32, reason: &str) -> String {
-    format!("Step {step} 失败：{reason}。任务已阻塞，需人工处理（不会自动重推）。")
+    format!("第 {step} 步失败：{reason}。请处理后点「重新发起」（不会自动重试）。")
 }
 
 /// 最终项目经理汇报正文上限（字符数；超出截断并标注，§4）。
@@ -342,13 +342,13 @@ mod tests {
     #[test]
     fn failure_body_states_step_reason_and_manual_handling() {
         let text = failure_body(2, "opencode 会话不可用（未登录），消息未送达");
-        assert!(text.contains("Step 2 失败"), "{text}");
+        assert!(text.contains("第 2 步失败"), "{text}");
         assert!(
             text.contains("opencode 会话不可用（未登录），消息未送达"),
             "{text}"
         );
-        assert!(text.contains("需人工处理"), "{text}");
-        assert!(text.contains("不会自动重推"), "{text}");
+        assert!(text.contains("重新发起"), "{text}");
+        assert!(text.contains("不会自动重试"), "{text}");
     }
 
     /// 全局默认节奏解析：verbose 生效；缺失/未知取值回退 final_only（不猜测）。
