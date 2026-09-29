@@ -21,11 +21,11 @@ pub const OPENCODE_MODELS_UNAVAILABLE: &str = "opencode_models_unavailable";
 pub const OPENCODE_SERVICE_INFO_MISSING: &str = "opencode_service_info_missing";
 
 /// OpenCode 桌面端日志目录（相对用户目录；`AppData/Roaming` 为 Windows 约定）。
-const OPENCODE_LOGS_RELATIVE: &str = "AppData/Roaming/ai.opencode.desktop/logs";
+pub(crate) const OPENCODE_LOGS_RELATIVE: &str = "AppData/Roaming/ai.opencode.desktop/logs";
 /// OpenCode 服务信息文件（相对用户目录）。
-const OPENCODE_SERVICE_RELATIVE: &str = ".config/opencode/service.json";
+pub(crate) const OPENCODE_SERVICE_RELATIVE: &str = ".config/opencode/service.json";
 /// 约定服务端口：桌面端各版本观察到的稳定监听端口（仅作日志解析失败后的验证性回退）。
-const OPENCODE_DEFAULT_PORT: u16 = 49374;
+pub(crate) const OPENCODE_DEFAULT_PORT: u16 = 49374;
 /// 本地回环请求超时。
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// 日志读取上限（只关心末尾的服务就绪行）。
@@ -74,7 +74,7 @@ fn home_dir() -> Result<PathBuf, CommandError> {
 }
 
 /// 从 `service.json` 读取服务密码（Basic 认证用）：缺失/无效一律明确报错。
-fn read_service_password(path: &Path) -> Result<String, CommandError> {
+pub(crate) fn read_service_password(path: &Path) -> Result<String, CommandError> {
     if !path.is_file() {
         return Err(CommandError::new(
             OPENCODE_SERVICE_INFO_MISSING,
@@ -107,7 +107,7 @@ fn read_service_password(path: &Path) -> Result<String, CommandError> {
 }
 
 /// 从最新一次启动日志中解析后台服务端口（日志目录按时间戳命名；解析不到返回 None）。
-fn port_from_latest_log(logs_dir: &Path) -> Option<u16> {
+pub(crate) fn port_from_latest_log(logs_dir: &Path) -> Option<u16> {
     let mut newest: Option<(String, PathBuf)> = None;
     for entry in std::fs::read_dir(logs_dir).ok()?.flatten() {
         let path = entry.path();

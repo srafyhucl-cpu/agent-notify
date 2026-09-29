@@ -10,6 +10,7 @@ pub mod orc_handler;
 pub mod orc_node_config;
 pub mod orc_notify;
 pub mod orc_report_observer;
+pub mod orc_watchdog;
 pub mod orc_wechat_route;
 pub mod runtime;
 pub mod service;
@@ -248,6 +249,32 @@ async fn bootstrap_internal(
     } else {
         None
     };
+    // 宿主看门狗（§4.4 兜底）：OpenCode 插件实例可能被回收/未加载，`session.idle` 事件随之丢失。
+    // 这里用 OpenCode 只读 API 定期核对「当前步回合已结束但宿主没收到汇报」并自动回注。
+    if enable_agent_driver {
+        let watchdog_handler = Arc::new(OrcCommandHandler::with_selector(
+            None,
+            store.clone(),
+            settings.clone(),
+            load_harness_templates(&harness_config_dir),
+            Some(Arc::new(ProductionOrcPresenter::new(
+                settings.clone(),
+                target_provider.clone(),
+                channel_registry.clone(),
+                Some(store.clone()),
+            ))),
+            Some(Arc::new(ProductionAgentDriver::new(agent_registry.clone()))),
+        ));
+        match orc_watchdog::OpenCodeSessionProbe::new() {
+            Ok(probe) => Arc::new(orc_watchdog::OrcWatchdog::new(
+                watchdog_handler,
+                store.clone(),
+                Arc::new(probe),
+            ))
+            .spawn(),
+            Err(reason) => tracing::warn!("编排看门狗未启动（OpenCode 服务信息不可用）：{reason}"),
+        }
+    }
     let coordinator = Arc::new(
         ProductionRuntimeCoordinator::with_ingress_pipe(
             paths,

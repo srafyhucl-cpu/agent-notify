@@ -1106,6 +1106,20 @@ impl OrcCommandHandler {
             unattended: self.unattended().await,
             title: Some(format!("【集群】{session_title} · 第 {current_step} 步")),
         };
+        // 记录派活时刻（宿主看门狗用：只认此后的回合产出，避免把上一轮正文当成本次汇报）。
+        let dispatched_at_ms = Timestamp::now_utc().unix_millis();
+        match store.get_task(task.id()).await {
+            Ok(mut dispatched) => {
+                if let Err(error) = dispatched.mark_dispatched(dispatched_at_ms) {
+                    tracing::warn!(task_id = %task.id(), code = error.code.as_str(), "记录派活时刻失败（看门狗将跳过本步）");
+                } else if let Err(error) = store.save(dispatched).await {
+                    tracing::warn!(task_id = %task.id(), "保存派活时刻失败（看门狗将跳过本步）：{error}");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(task_id = %task.id(), code = error.code.as_str(), "读取任务失败，无法记录派活时刻（看门狗将跳过本步）");
+            }
+        }
         if let Err(error) = driver
             .dispatch(
                 task.id(),

@@ -65,6 +65,12 @@ pub struct OrcMeta {
     /// 轮次时间线（每轮要求 + 结论摘要；旧任务缺省空，展示侧按任务描述合成第 1 轮）。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub round_history: Vec<RoundRecord>,
+    /// 最近一次派活时刻（ms epoch；看门狗用：只认此后的回合产出，旧任务缺省 None）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_dispatch_at_ms: Option<i64>,
+    /// 看门狗最近一次回注的回合完成时刻（ms epoch；防同一回合重复回注）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_settled_turn_ms: Option<i64>,
     /// 是否已开始执行（人工确认后开始；创建后默认 false，避免"没看清节点就被派活"）。
     /// 旧任务（无此字段）默认 true——它们本就已在运行，保持向后兼容。
     #[serde(default = "started_default_true")]
@@ -214,6 +220,8 @@ impl OrcTask {
                 input: None,
                 summary: None,
             }],
+            last_dispatch_at_ms: None,
+            last_settled_turn_ms: None,
             started: false,
             working_dir: None,
             steps_snapshot: None,
@@ -388,6 +396,33 @@ impl OrcTask {
     /// 轮次时间线（旧任务缺省空；展示侧按任务描述合成第 1 轮）。
     pub fn round_history(&self) -> Result<Vec<RoundRecord>, OrcError> {
         Ok(self.meta()?.round_history)
+    }
+
+    /// 最近一次派活时刻（ms epoch；旧任务缺省 None）。
+    pub fn last_dispatch_at_ms(&self) -> Result<Option<i64>, OrcError> {
+        Ok(self.meta()?.last_dispatch_at_ms)
+    }
+
+    /// 记录派活时刻（看门狗用；每次派活覆盖旧值）。
+    pub fn mark_dispatched(&mut self, at_ms: i64) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.last_dispatch_at_ms = Some(at_ms);
+        self.put_meta(&meta)
+    }
+
+    /// 看门狗最近一次回注的回合完成时刻（防同一回合重复回注）。
+    pub fn last_settled_turn_ms(&self) -> Result<Option<i64>, OrcError> {
+        Ok(self.meta()?.last_settled_turn_ms)
+    }
+
+    /// 记录看门狗已回注的回合完成时刻（只前进，不回退）。
+    pub fn mark_settled_turn(&mut self, completed_at_ms: i64) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        let current = meta.last_settled_turn_ms.unwrap_or(i64::MIN);
+        if completed_at_ms > current {
+            meta.last_settled_turn_ms = Some(completed_at_ms);
+        }
+        self.put_meta(&meta)
     }
 
     /// 记录本轮结论摘要（项目经理最终汇报，轮次时间线用；按上限截断）。
