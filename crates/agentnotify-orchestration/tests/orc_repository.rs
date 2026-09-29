@@ -21,6 +21,7 @@ struct FaultyRepository {
     fail_save: bool,
     fail_get: bool,
     fail_list: bool,
+    fail_delete: bool,
 }
 
 #[async_trait::async_trait]
@@ -53,6 +54,16 @@ impl OrcTaskRepository for FaultyRepository {
             ));
         }
         self.inner.list_tasks().await
+    }
+
+    async fn delete_task(&self, task_id: &str) -> Result<(), OrcRepositoryError> {
+        if self.fail_delete {
+            return Err(OrcRepositoryError::new(
+                "mock_delete_failed",
+                "模拟删除任务失败",
+            ));
+        }
+        self.inner.delete_task(task_id).await
     }
 }
 

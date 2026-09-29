@@ -28,6 +28,8 @@ export interface OrcNodeChainProps {
   showMeta?: boolean;
   /** 每步附加内容（设置页的节点编辑控件等）。 */
   renderDetails?: (step: OrcNodeChainStep) => ReactNode;
+  /** 布局：list = 竖向链（详情/设置）；grid = 栅格（创建弹窗，避免纵向过长）。 */
+  layout?: "list" | "grid";
   className?: string;
 }
 
@@ -42,11 +44,15 @@ export function OrcNodeChain({
   nodeStates,
   showMeta = true,
   renderDetails,
+  layout = "list",
   className,
 }: OrcNodeChainProps) {
   const classes = ["orc-node-chain"];
   if (nodeStates) {
     classes.push("orc-node-chain--live");
+  }
+  if (layout === "grid") {
+    classes.push("orc-node-chain--grid");
   }
   if (className) {
     classes.push(className);

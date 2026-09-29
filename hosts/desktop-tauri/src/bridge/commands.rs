@@ -16,7 +16,7 @@ use super::dto::{
     OpencodeProjectDto, OrcTaskDto, OrcTaskIdPayload, OrcTemplateDto, RuntimeSnapshotDto,
     RuntimeSummaryDto, SaveOrcTemplateConfigPayload, SendTestNotificationPayload,
     SetRuntimePausedPayload, SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
-    UpdateAgentConfigPayload, UpdateStatusDto,
+    UpdateAgentConfigPayload, UpdateOrcTaskPayload, UpdateStatusDto,
 };
 use super::error::CommandError;
 
@@ -165,6 +165,18 @@ pub trait HostCommandService:
 
     /// 开始执行（人工确认）：创建后的任务先「待开始」，此命令标记已开始并派活第 1 步。
     async fn start_orc_task(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError>;
+
+    /// 更新任务（名称/描述/通知节奏；未提供字段不变；描述仅未开始任务可改）。
+    async fn update_orc_task(
+        &self,
+        payload: UpdateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
+
+    /// 删除任务（幂等；界面确认后调用）。
+    async fn delete_orc_task(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<MutationAcceptedDto, CommandError>;
 
     /// 当前编排工作流（节点列表）：创建任务前预览「每步做什么、派给谁」。
     async fn get_current_orc_workflow(
@@ -539,6 +551,20 @@ impl HostCommandService for UnavailableHostCommandService {
         Err(CommandError::unavailable_message(&self.message))
     }
 
+    async fn update_orc_task(
+        &self,
+        _payload: UpdateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn delete_orc_task(
+        &self,
+        _payload: OrcTaskIdPayload,
+    ) -> Result<MutationAcceptedDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
     async fn get_current_orc_workflow(
         &self,
         _payload: EmptyPayload,
@@ -843,6 +869,26 @@ pub async fn start_orc_task(
 ) -> Result<OrcTaskDto, CommandError> {
     let service = state.service.current().await;
     service.start_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_orc_task(
+    state: State<'_, BridgeState>,
+    payload: UpdateOrcTaskPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.update_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_orc_task(
+    state: State<'_, BridgeState>,
+    payload: OrcTaskIdPayload,
+) -> Result<MutationAcceptedDto, CommandError> {
+    let service = state.service.current().await;
+    service.delete_orc_task(payload).await
 }
 
 #[tauri::command]

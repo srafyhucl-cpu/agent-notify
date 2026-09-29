@@ -168,6 +168,7 @@ fn existing_dir() -> String {
 async fn create_task(creator: &OrcCommandHandler) -> String {
     let created = creator
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: "preset-requirement-to-report".into(),

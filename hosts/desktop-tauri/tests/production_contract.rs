@@ -1477,6 +1477,7 @@ async fn orchestration_commands_enabled_by_default_on_host() {
 
     let created = service
         .create_orc_task(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "目标".into(),
             template_id: "preset-requirement-to-report".into(),
@@ -1512,6 +1513,7 @@ async fn orchestration_commands_disabled_explicitly_on_host() {
 
     let error = service
         .create_orc_task(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "目标".into(),
             template_id: "preset-requirement-to-report".into(),
@@ -1545,6 +1547,7 @@ async fn orchestration_commands_full_chain_via_host_service() {
 
     let created = service
         .create_orc_task(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: "preset-requirement-to-report".into(),

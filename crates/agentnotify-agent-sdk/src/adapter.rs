@@ -44,15 +44,18 @@ pub struct DispatchOptions {
     pub model: Option<String>,
     /// 无人值守（编排会话权限 ask 自动放行）；默认 true。
     pub unattended: bool,
+    /// 会话标题（集群任务名等展示用）；None = 适配器默认标题。
+    pub title: Option<String>,
 }
 
 impl Default for DispatchOptions {
-    /// 缺省 = 不指定目录/模型，无人值守开启（与 settings `orchestration.unattended` 默认一致）。
+    /// 缺省 = 不指定目录/模型/标题，无人值守开启（与 settings `orchestration.unattended` 默认一致）。
     fn default() -> Self {
         Self {
             working_dir: None,
             model: None,
             unattended: true,
+            title: None,
         }
     }
 }

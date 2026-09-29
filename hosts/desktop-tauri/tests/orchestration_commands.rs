@@ -59,6 +59,7 @@ fn working_dir(root: &tempfile::TempDir) -> String {
 
 fn create_payload(goal: &str, template_id: &str, dir: &str) -> CreateOrcTaskPayload {
     CreateOrcTaskPayload {
+        name: None,
         steps: None,
         goal: goal.into(),
         template_id: template_id.into(),
@@ -180,6 +181,7 @@ async fn orc_commands_persist_across_reopen() {
         let handler = enabled_handler(&store);
         let created = handler
             .create(CreateOrcTaskPayload {
+                name: None,
                 steps: None,
                 goal: "持久化验证".into(),
                 template_id: PRESET_ID.into(),
@@ -232,6 +234,7 @@ async fn create_with_task_steps_locks_snapshot() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: Some(vec![
                 OrcTemplateStepConfigDto {
                     order: 1,
@@ -313,6 +316,7 @@ async fn create_with_task_steps_requires_every_agent() {
 
     let error = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: Some(vec![
                 OrcTemplateStepConfigDto {
                     order: 1,
@@ -516,6 +520,7 @@ async fn orc_commands_validate_inputs_and_expose_business_errors() {
 
     let err = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "目标".into(),
             template_id: PRESET_ID.into(),

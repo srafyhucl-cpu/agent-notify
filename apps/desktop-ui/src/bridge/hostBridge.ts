@@ -39,6 +39,7 @@ import type {
   SubmitChannelLoginCodePayload,
   TestNotificationResultDto,
   UpdateAgentConfigPayload,
+  UpdateOrcTaskPayload,
   UpdateStatusDto,
 } from "./types";
 
@@ -73,6 +74,8 @@ export interface CommandPayloadMap {
   mark_blocked_orc_task: MarkBlockedOrcTaskPayload;
   recover_blocked_orc_task: OrcTaskIdPayload;
   start_orc_task: OrcTaskIdPayload;
+  update_orc_task: UpdateOrcTaskPayload;
+  delete_orc_task: OrcTaskIdPayload;
   get_current_orc_workflow: EmptyPayload;
   list_orc_templates: EmptyPayload;
   save_orc_template_config: SaveOrcTemplateConfigPayload;
@@ -108,6 +111,8 @@ export interface CommandResultMap {
   mark_blocked_orc_task: OrcTaskDto;
   recover_blocked_orc_task: OrcTaskDto;
   start_orc_task: OrcTaskDto;
+  update_orc_task: OrcTaskDto;
+  delete_orc_task: MutationAcceptedDto;
   get_current_orc_workflow: CurrentOrcWorkflowDto;
   list_orc_templates: OrcTemplateDto[];
   save_orc_template_config: OrcTemplateDto[];

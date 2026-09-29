@@ -31,6 +31,7 @@ import type {
   RuntimeSummaryDto,
   SaveOrcTemplateConfigPayload,
   SettingsDto,
+  UpdateOrcTaskPayload,
   UpdateStatusDto,
 } from "./types";
 import type {
@@ -658,6 +659,27 @@ export function createMockHostBridge(
             };
           }
         }
+        // 任务名称（必填、≤8 字）：显式提交时校验；缺省按目标前 8 字推导（与后端一致）。
+        const rawName = create.name?.trim() ?? "";
+        let taskName = rawName;
+        if (create.name != null) {
+          if (!taskName) {
+            throw {
+              code: "orc_task_name_invalid",
+              message: "任务名称不能为空：请填 8 个字以内的短名",
+              retryable: false,
+            };
+          }
+          if ([...taskName].length > 8) {
+            throw {
+              code: "orc_task_name_invalid",
+              message: `任务名称最多 8 个字，当前 ${String([...taskName].length)} 个字：请精简后重试`,
+              retryable: false,
+            };
+          }
+        } else {
+          taskName = [...goal].slice(0, 8).join("");
+        }
         const workflow: OrcWorkflowDto = {
           id: template.id,
           name: template.name,
@@ -678,6 +700,7 @@ export function createMockHostBridge(
           workflow,
           notifyMode: create.notifyMode ?? "final_only",
           goal,
+          name: taskName,
           workingDir,
           blockedStep: null,
           blockReason: null,
@@ -710,6 +733,70 @@ export function createMockHostBridge(
         task.started = true;
         task.state = "working";
         result = cloneDto(task);
+        break;
+      }
+      case "update_orc_task": {
+        const update = payload as UpdateOrcTaskPayload;
+        const task = orcTasks.find((item) => item.id === update.taskId);
+        if (!task) {
+          orcTaskNotFound(update.taskId);
+        }
+        if (update.name != null) {
+          const name = update.name.trim();
+          if (!name) {
+            throw {
+              code: "orc_task_name_invalid",
+              message: "任务名称不能为空：请填 8 个字以内的短名",
+              retryable: false,
+            };
+          }
+          if ([...name].length > 8) {
+            throw {
+              code: "orc_task_name_invalid",
+              message: `任务名称最多 8 个字，当前 ${String([...name].length)} 个字：请精简后重试`,
+              retryable: false,
+            };
+          }
+          task.name = name;
+        }
+        if (update.goal != null) {
+          const goalText = update.goal.trim();
+          if (!goalText) {
+            throw {
+              code: "orc_goal_empty",
+              message: "任务描述不能为空",
+              retryable: false,
+            };
+          }
+          if (task.started) {
+            throw {
+              code: "orc_task_already_started",
+              message: "任务已开始，描述不可修改（可修改名称）",
+              retryable: false,
+            };
+          }
+          task.goal = goalText;
+        }
+        if (update.notifyMode != null) {
+          if (update.notifyMode !== "final_only" && update.notifyMode !== "verbose") {
+            throw {
+              code: "orc_notify_mode_invalid",
+              message: `无效的通知节奏：${update.notifyMode}（可选 final_only / verbose）`,
+              retryable: false,
+            };
+          }
+          task.notifyMode = update.notifyMode;
+        }
+        result = cloneDto(task);
+        break;
+      }
+      case "delete_orc_task": {
+        const remove = payload as unknown as OrcTaskIdPayload;
+        const index = orcTasks.findIndex((item) => item.id === remove.taskId);
+        if (index >= 0) {
+          orcTasks.splice(index, 1);
+        }
+        result = accepted();
         break;
       }
       case "get_current_orc_workflow":

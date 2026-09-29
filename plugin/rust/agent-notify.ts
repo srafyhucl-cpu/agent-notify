@@ -151,6 +151,8 @@ interface ReplyJob {
   location?: string
   /** 是否无人值守（权限 ask 自动放行）；缺省 true，显式 false 时保留人工确认。 */
   unattended?: boolean
+  /** 会话标题（集群任务名等展示用）；缺省用「【集群】合成 id」。 */
+  title?: string
 }
 
 let fsMod: FsModule | null = null
@@ -627,6 +629,7 @@ function jobModelSpec(job: ReplyJob): ModelSpec | undefined {
 interface CreateSessionOptions {
   location?: string
   model?: ModelSpec
+  title?: string
 }
 
 async function createRealSession(
@@ -638,11 +641,15 @@ async function createRealSession(
   if (typeof create !== "function") {
     throw new Error("当前 OpenCode 版本不支持创建会话，请升级 OpenCode 后重试")
   }
+  const title =
+    typeof options.title === "string" && options.title.trim()
+      ? options.title.trim()
+      : `【集群】${syntheticID}`
   const input: {
     title: string
     location?: { directory: string }
     model?: ModelSpec
-  } = { title: `【集群】${syntheticID}` }
+  } = { title }
   const location =
     typeof options.location === "string" ? options.location.trim() : ""
   if (location) {
@@ -727,6 +734,7 @@ async function resolvePromptSessionID(
   const real = await createRealSession(ctx, job.sessionID, {
     location: job.location,
     model: jobModelSpec(job),
+    title: job.title,
   })
   map.set(job.sessionID, {
     id: real,

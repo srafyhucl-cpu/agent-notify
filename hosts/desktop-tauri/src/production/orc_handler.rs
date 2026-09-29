@@ -80,6 +80,10 @@ const ORC_TEMPLATE_UNKNOWN: &str = "orc_template_unknown";
 const ORC_WORKFLOW_UNKNOWN: &str = "orc_workflow_unknown";
 /// 工作目录为空或不是已存在目录。
 const ORC_WORKING_DIR_INVALID: &str = "orc_working_dir_invalid";
+/// 任务名称非法（空 / 超过 8 字）。
+const ORC_TASK_NAME_INVALID: &str = "orc_task_name_invalid";
+/// 任务名称长度上限（字）：短名只用于列表与会话标题展示。
+const ORC_TASK_NAME_MAX_CHARS: usize = 8;
 /// 任务处于「项目经理汇总阶段」：不接受人工推进（等待首节点汇总）。
 const ORC_TASK_FINALIZING: &str = "orc_task_finalizing";
 /// 编排设置存储不可用（静态装配/初始化未完成）时保存节点配置的错误码。
@@ -317,6 +321,11 @@ impl OrcCommandHandler {
         if goal.is_empty() {
             return Err(CommandError::new("orc_goal_empty", "任务目标不能为空"));
         }
+        // 任务名称（必填、≤8 字）：新 UI 显式提交；旧调用方缺省时按目标前 8 字推导（向后兼容）。
+        let name = match payload.name.as_deref() {
+            Some(raw) => validate_task_name(raw)?,
+            None => derive_task_name(goal),
+        };
         // 任务锁定模板（§3.1）：只接受内置三档模板（或静态装配的工作流）。
         let workflow = self.resolve_create_workflow(payload.template_id.trim())?;
         let working_dir = payload.working_dir.trim();
@@ -354,6 +363,7 @@ impl OrcCommandHandler {
             .create_task(goal, notify_mode)
             .await
             .map_err(orc_error)?;
+        task.set_name(&name).map_err(orc_error)?;
         task.set_working_dir(working_dir).map_err(orc_error)?;
         if let Some(snapshot) = locked_snapshot {
             task.set_steps_snapshot(&snapshot).map_err(orc_error)?;
@@ -363,6 +373,52 @@ impl OrcCommandHandler {
         // 看清工作流节点（每步角色与派给谁）后点「开始执行」再派活第 1 步。
         // 这样避免"没看清节点就被派活"，也避免默认工作流与实际可用 Agent 不匹配时的意外阻塞。
         orc_task_to_dto(&task, store.workflow())
+    }
+
+    /// 更新任务（集群页「编辑」）：名称随时可改；描述仅未开始任务可改；通知节奏随时可改。
+    /// 未提供（None）的字段保持不变；全部校验通过才落库（失败不产生部分更新）。
+    pub async fn update(&self, payload: UpdateOrcTaskPayload) -> Result<OrcTaskDto, CommandError> {
+        let (store, mut task) = self.task_store(&payload.task_id).await?;
+        if let Some(raw) = payload.name.as_deref() {
+            let name = validate_task_name(raw)?;
+            task.set_name(&name).map_err(orc_error)?;
+        }
+        if let Some(raw) = payload.goal.as_deref() {
+            let goal = raw.trim();
+            if goal.is_empty() {
+                return Err(CommandError::new("orc_goal_empty", "任务描述不能为空"));
+            }
+            if task.is_started().map_err(orc_error)? {
+                return Err(CommandError::new(
+                    "orc_task_already_started",
+                    "任务已开始，描述不可修改（可修改名称）",
+                ));
+            }
+            task.set_goal(goal).map_err(orc_error)?;
+        }
+        if let Some(raw) = payload.notify_mode.as_deref() {
+            let mode = parse_notify_mode(Some(raw))?;
+            task.set_notify_mode(mode).map_err(orc_error)?;
+        }
+        store.save(task.clone()).await.map_err(orc_error)?;
+        orc_task_to_dto(&task, store.workflow())
+    }
+
+    /// 删除任务（集群页「删除」，幂等）：删除任务记录，不做猜测式兜底。
+    /// 已派活的 OpenCode 会话不会被停止（界面确认文案里明确说明）。
+    pub async fn delete(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<MutationAcceptedDto, CommandError> {
+        let repository = self.repository().await?;
+        repository
+            .delete_task(payload.task_id.trim())
+            .await
+            .map_err(|error| CommandError::new(error.code(), error.message().to_string()))?;
+        Ok(MutationAcceptedDto {
+            accepted: true,
+            id: None,
+        })
     }
 
     /// 开始执行（人工确认后）：预检全部节点 Agent 已配置、工作目录仍存在，
@@ -893,6 +949,18 @@ impl OrcCommandHandler {
                 return;
             }
         };
+        // 会话标题（用户可见）：任务短名 + 步骤；读不到名称时按目标前 8 字推导。
+        let session_title = match task.name() {
+            Ok(name) => display_name(name.as_deref(), &goal),
+            Err(error) => {
+                tracing::warn!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务名称失败，会话标题按目标推导"
+                );
+                display_name(None, &goal)
+            }
+        };
         // 信封渲染（用户模板优先、内置默认兜底，§4.3 / P1-5）：渲染告警只记日志不阻断。
         let next_role = store
             .workflow()
@@ -924,6 +992,7 @@ impl OrcCommandHandler {
             working_dir,
             model: step.model.clone(),
             unattended: self.unattended().await,
+            title: Some(format!("【集群】{session_title} · 第 {current_step} 步")),
         };
         if let Err(error) = driver
             .dispatch(
@@ -1025,10 +1094,16 @@ impl OrcCommandHandler {
             }
         };
         let (agent_id, session_id) = targets;
+        // 汇总复用首步会话（resume 不新建会话），标题保持一致语义、不影响既有会话标题。
+        let session_title = match task.name() {
+            Ok(name) => display_name(name.as_deref(), &goal),
+            Err(_) => display_name(None, &goal),
+        };
         let options = DispatchOptions {
             working_dir,
             model: first.model.clone(),
             unattended: self.unattended().await,
+            title: Some(format!("【集群】{session_title} · 汇总汇报")),
         };
         if let Err(error) = driver
             .dispatch(
@@ -1209,6 +1284,7 @@ fn dispatch_targets(
 /// 脱敏后的任务视图：只暴露任务上下文，不暴露内部元数据细节。
 fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, CommandError> {
     let meta = task.meta().map_err(orc_error)?;
+    let name = display_name(meta.name.as_deref(), &meta.goal);
     Ok(OrcTaskDto {
         id: task.id().to_string(),
         workflow_id: meta.workflow_id,
@@ -1220,9 +1296,42 @@ fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, Co
         block_reason: meta.block_reason,
         notify_mode: meta.notify_mode.as_str().to_string(),
         goal: meta.goal,
+        name,
         working_dir: meta.working_dir,
         finalizing: meta.final_report_pending,
     })
+}
+
+/// 任务展示名：显式名称优先；旧任务缺省时按目标前 8 字推导（界面/会话标题始终可读）。
+fn display_name(name: Option<&str>, goal: &str) -> String {
+    if let Some(value) = name.map(str::trim).filter(|value| !value.is_empty()) {
+        return value.to_string();
+    }
+    derive_task_name(goal)
+}
+
+/// 从目标推导短名（去空白后取前 8 字；调用方保证目标非空）。
+fn derive_task_name(goal: &str) -> String {
+    goal.trim().chars().take(ORC_TASK_NAME_MAX_CHARS).collect()
+}
+
+/// 任务名称校验（必填、≤8 字）：空/超长都明确报错，不截断猜测。
+fn validate_task_name(raw: &str) -> Result<String, CommandError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(CommandError::new(
+            ORC_TASK_NAME_INVALID,
+            "任务名称不能为空：请填 8 个字以内的短名",
+        ));
+    }
+    let count = trimmed.chars().count();
+    if count > ORC_TASK_NAME_MAX_CHARS {
+        return Err(CommandError::new(
+            ORC_TASK_NAME_INVALID,
+            format!("任务名称最多 {ORC_TASK_NAME_MAX_CHARS} 个字，当前 {count} 个字：请精简后重试"),
+        ));
+    }
+    Ok(trimmed.to_string())
 }
 
 /// 工作流视图：节点列表（角色/建议 Agent/模型/人工确认门）供 UI 预览「每步做什么、派给谁」。

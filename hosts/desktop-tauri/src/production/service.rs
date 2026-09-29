@@ -330,6 +330,20 @@ impl HostCommandService for ProductionHostCommandService {
         self.orchestration.start(payload).await
     }
 
+    async fn update_orc_task(
+        &self,
+        payload: UpdateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.update(payload).await
+    }
+
+    async fn delete_orc_task(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<MutationAcceptedDto, CommandError> {
+        self.orchestration.delete(payload).await
+    }
+
     async fn get_current_orc_workflow(
         &self,
         _payload: EmptyPayload,

@@ -442,6 +442,7 @@ mod tests {
             working_dir: Some("D:/Project/demo".into()),
             model: Some("anthropic/claude-sonnet-4-5".into()),
             unattended: false,
+            title: None,
         };
 
         driver

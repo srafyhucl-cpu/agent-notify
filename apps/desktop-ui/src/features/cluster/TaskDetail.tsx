@@ -42,6 +42,11 @@ export function TaskDetail({
 
   return (
     <article className="cluster-task-detail" aria-label="任务详情">
+      <div className="cluster-detail-head">
+        <h3 className="cluster-detail-name">{task.name}</h3>
+        <p className="cluster-detail-goal">{task.goal}</p>
+      </div>
+
       <div className="cluster-workflow">
         <p className="cluster-workflow-title">工作流</p>
         <OrcNodeChain
@@ -79,10 +84,6 @@ export function TaskDetail({
           <dd className="cluster-task-fact-dir">
             {task.workingDir ?? "跟随宿主当前项目"}
           </dd>
-        </div>
-        <div className="cluster-task-fact">
-          <dt>任务 ID</dt>
-          <dd className="cluster-task-fact-id">{task.id}</dd>
         </div>
       </dl>
 

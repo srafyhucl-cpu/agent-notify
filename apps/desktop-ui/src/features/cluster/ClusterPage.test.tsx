@@ -33,6 +33,7 @@ function fixturedBridge(tasks: OrcTaskDto[] = []) {
 
 const workingTask = orcTaskFixture("task-working", {
   goal: "把登录流程加入重试机制",
+  name: "登录重试",
   state: "working",
   currentStep: 2,
   notifyMode: "final_only",
@@ -40,6 +41,7 @@ const workingTask = orcTaskFixture("task-working", {
 
 const blockedTask = orcTaskFixture("task-blocked", {
   goal: "生成周报草稿",
+  name: "周报草稿",
   state: "failed",
   currentStep: 1,
   blockedStep: 1,
@@ -49,6 +51,7 @@ const blockedTask = orcTaskFixture("task-blocked", {
 
 const pendingTask = orcTaskFixture("task-pending", {
   goal: "待开始的贪吃蛇",
+  name: "贪吃蛇",
   state: "working",
   currentStep: 1,
   started: false,
@@ -56,6 +59,7 @@ const pendingTask = orcTaskFixture("task-pending", {
 
 const completedTask = orcTaskFixture("task-done", {
   goal: "已完成的任务",
+  name: "已完成",
   state: "completed",
   currentStep: 3,
 });
@@ -64,13 +68,13 @@ function taskTable() {
   return screen.findByRole("table", { name: "编排任务列表" });
 }
 
-/** 点任务行展开手风琴（默认全部收起）。 */
+/** 点任务行展开手风琴（默认全部收起）：按任务名称定位。 */
 async function expandTask(
   user: ReturnType<typeof userEvent.setup>,
-  goal: string,
+  name: string,
 ) {
   const list = await taskTable();
-  await user.click(within(list).getByRole("button", { name: goal }));
+  await user.click(within(list).getByRole("button", { name }));
   return screen.findByRole("article", { name: "任务详情" });
 }
 
@@ -87,6 +91,7 @@ async function fillCreateDialog(
   user: ReturnType<typeof userEvent.setup>,
   options: {
     goal: string;
+    name?: string;
     orderCount?: number;
     agent?: string;
     directory?: string;
@@ -94,7 +99,11 @@ async function fillCreateDialog(
   },
 ) {
   const dialog = await openCreateDialog(user);
-  await user.type(within(dialog).getByLabelText("目标"), options.goal);
+  await user.type(
+    within(dialog).getByLabelText("任务名称"),
+    options.name ?? "测试任务",
+  );
+  await user.type(within(dialog).getByLabelText("任务描述"), options.goal);
   await user.selectOptions(
     within(dialog).getByLabelText("工作流模板"),
     "template-standard",
@@ -125,26 +134,36 @@ async function fillCreateDialog(
 }
 
 describe("ClusterPage 任务列表", () => {
-  it("行内展示目标、状态、进度与通知节奏；阻塞任务显示原因并标红", async () => {
+  it("行内展示任务名称+描述、状态、进度段与通知节奏；阻塞任务显示原因并标红", async () => {
     renderWithQuery(fixturedBridge([workingTask, blockedTask]));
 
     const list = await taskTable();
+    // 名称醒目、描述作为次要一行（真实需求仍可读）
+    expect(within(list).getByRole("button", { name: "登录重试" })).toBeVisible();
     expect(within(list).getByText("把登录流程加入重试机制")).toBeVisible();
     expect(within(list).getByText("执行中")).toBeVisible();
     expect(within(list).getByText("第 2 / 3 步")).toBeVisible();
     expect(within(list).getByText("只推最终汇报")).toBeVisible();
+    // 进度段：3 步 = 3 段（当前/完成/待执行用样式区分）
+    const workingRow = within(list)
+      .getByRole("button", { name: "登录重试" })
+      .closest(".cluster-task-row");
+    expect(workingRow?.querySelectorAll(".cluster-step-dot")).toHaveLength(3);
+    expect(workingRow?.querySelector(".cluster-step-dot--current")).not.toBeNull();
+    expect(workingRow?.querySelector(".cluster-step-dot--done")).not.toBeNull();
 
+    expect(within(list).getByRole("button", { name: "周报草稿" })).toBeVisible();
     expect(within(list).getByText("生成周报草稿")).toBeVisible();
     expect(within(list).getByText("阻塞")).toBeVisible();
     expect(within(list).getByText("逐步流转")).toBeVisible();
     expect(
       within(list).getByText(/判断 Agent（Codex）会话不可用/),
     ).toBeVisible();
-    expect(
-      within(list)
-        .getByRole("button", { name: "生成周报草稿" })
-        .closest(".cluster-task-row"),
-    ).toHaveClass("cluster-task-row--blocked");
+    const blockedRow = within(list)
+      .getByRole("button", { name: "周报草稿" })
+      .closest(".cluster-task-row");
+    expect(blockedRow).toHaveClass("cluster-task-row--blocked");
+    expect(blockedRow?.querySelector(".cluster-step-dot--failed")).not.toBeNull();
   });
 
   it("未开始的任务显示「待开始」而不是「执行中」，进度显示总步数", async () => {
@@ -178,13 +197,13 @@ describe("ClusterPage 任务列表", () => {
       screen.queryByRole("article", { name: "任务详情" }),
     ).not.toBeInTheDocument();
 
-    await expandTask(user, "把登录流程加入重试机制");
+    await expandTask(user, "登录重试");
     expect(
       screen.getByRole("article", { name: "任务详情" }),
     ).toBeVisible();
 
     const list = await taskTable();
-    await user.click(within(list).getByRole("button", { name: "把登录流程加入重试机制" }));
+    await user.click(within(list).getByRole("button", { name: "登录重试" }));
     expect(
       screen.queryByRole("article", { name: "任务详情" }),
     ).not.toBeInTheDocument();
@@ -194,8 +213,8 @@ describe("ClusterPage 任务列表", () => {
     const user = userEvent.setup();
     renderWithQuery(fixturedBridge([workingTask, blockedTask]));
 
-    await expandTask(user, "把登录流程加入重试机制");
-    await expandTask(user, "生成周报草稿");
+    await expandTask(user, "登录重试");
+    await expandTask(user, "周报草稿");
 
     expect(screen.getAllByRole("article", { name: "任务详情" })).toHaveLength(1);
     const detail = screen.getByRole("article", { name: "任务详情" });
@@ -253,7 +272,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     const user = userEvent.setup();
     renderWithQuery(fixturedBridge([workingTask]));
 
-    const detail = await expandTask(user, "把登录流程加入重试机制");
+    const detail = await expandTask(user, "登录重试");
     const chain = within(detail).getByRole("list", { name: "工作流节点" });
     // 首节点 = 项目经理；用途/Agent/模型都可读
     expect(within(chain).getByText("项目经理")).toBeVisible();
@@ -299,7 +318,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     const bridge = fixturedBridge([workingTask]);
     renderWithQuery(bridge);
 
-    const detail = await expandTask(user, "把登录流程加入重试机制");
+    const detail = await expandTask(user, "登录重试");
     await user.click(within(detail).getByRole("button", { name: "发指令" }));
 
     await waitFor(() => {
@@ -316,7 +335,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     const bridge = fixturedBridge([workingTask]);
     renderWithQuery(bridge);
 
-    const detail = await expandTask(user, "把登录流程加入重试机制");
+    const detail = await expandTask(user, "登录重试");
     await user.click(within(detail).getByRole("button", { name: "确认完成" }));
 
     await waitFor(() => {
@@ -333,7 +352,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     const bridge = fixturedBridge([blockedTask]);
     renderWithQuery(bridge);
 
-    const detail = await expandTask(user, "生成周报草稿");
+    const detail = await expandTask(user, "周报草稿");
     const alert = within(detail).getByRole("alert");
     expect(alert).toHaveTextContent("任务阻塞");
     expect(alert).toHaveTextContent(/判断 Agent（Codex）会话不可用/);
@@ -352,7 +371,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     const user = userEvent.setup();
     renderWithQuery(fixturedBridge([completedTask]));
 
-    const detail = await expandTask(user, "已完成的任务");
+    const detail = await expandTask(user, "已完成");
     expect(within(detail).getByText("任务已结束，无待办操作。")).toBeVisible();
     expect(within(detail).queryByText("推进任务")).not.toBeInTheDocument();
     expect(
@@ -374,7 +393,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     });
     renderWithQuery(bridge);
 
-    const detail = await expandTask(user, "把登录流程加入重试机制");
+    const detail = await expandTask(user, "登录重试");
     await user.click(within(detail).getByRole("button", { name: "发指令" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -386,13 +405,14 @@ describe("ClusterPage 任务详情与发指令", () => {
     const user = userEvent.setup();
     const finalizingTask = orcTaskFixture("task-finalizing", {
       goal: "汇总阶段任务",
+      name: "汇总阶段",
       state: "working",
       currentStep: 3,
       finalizing: true,
     });
     renderWithQuery(fixturedBridge([finalizingTask]));
 
-    const detail = await expandTask(user, "汇总阶段任务");
+    const detail = await expandTask(user, "汇总阶段");
     expect(
       within(detail).getByText(
         "项目经理正在汇总，等待最终汇报；汇总完成后任务自动结束。",
@@ -406,10 +426,13 @@ describe("ClusterPage 任务详情与发指令", () => {
 
   it("未配置 Agent 的任务点「开始执行」时展示后端预检中文错误", async () => {
     const user = userEvent.setup();
-    const task = unconfiguredOrcTaskFixture("task-unconfigured");
+    const task = {
+      ...unconfiguredOrcTaskFixture("task-unconfigured"),
+      name: "未配置",
+    };
     renderWithQuery(fixturedBridge([task]));
 
-    const detail = await expandTask(user, "集群任务 task-unconfigured");
+    const detail = await expandTask(user, "未配置");
     await user.click(within(detail).getByRole("button", { name: "开始执行" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -422,7 +445,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     const bridge = fixturedBridge([pendingTask]);
     renderWithQuery(bridge);
 
-    const detail = await expandTask(user, "待开始的贪吃蛇");
+    const detail = await expandTask(user, "贪吃蛇");
     expect(within(detail).getByText("任务待开始")).toBeVisible();
     expect(within(detail).getByText("待开始")).toBeVisible();
 
@@ -451,7 +474,8 @@ describe("ClusterPage 创建任务弹窗", () => {
     const dialog = await openCreateDialog(user);
     expect(within(dialog).getByRole("button", { name: "创建并开始" })).toBeDisabled();
 
-    await user.type(within(dialog).getByLabelText("目标"), "未选 Agent 的任务");
+    await user.type(within(dialog).getByLabelText("任务名称"), "未选Agent");
+    await user.type(within(dialog).getByLabelText("任务描述"), "未选 Agent 的任务");
     await user.selectOptions(
       within(dialog).getByLabelText("工作流模板"),
       "template-standard",
@@ -470,6 +494,39 @@ describe("ClusterPage 创建任务弹窗", () => {
     expect(within(dialog).getByRole("button", { name: "仅创建" })).toBeDisabled();
   });
 
+  it("任务名称必填（8 字以内）：未填名称时不能提交", async () => {
+    const user = userEvent.setup();
+    renderWithQuery(fixturedBridge());
+
+    const dialog = await openCreateDialog(user);
+    const nameInput = within(dialog).getByLabelText("任务名称");
+    expect(nameInput).toHaveAttribute("maxlength", "8");
+    expect(within(dialog).getByRole("button", { name: "仅创建" })).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText("任务描述"), "只填描述");
+    await user.selectOptions(
+      within(dialog).getByLabelText("工作流模板"),
+      "template-quickfix",
+    );
+    await user.selectOptions(
+      within(dialog).getByLabelText("工作目录"),
+      "D:/Project/agent-notify",
+    );
+    await within(dialog).findAllByRole("option", { name: /Alpha Agent/ });
+    await user.selectOptions(
+      within(dialog).getByLabelText("第 1 步 Agent"),
+      "alpha",
+    );
+    await user.selectOptions(
+      within(dialog).getByLabelText("第 2 步 Agent"),
+      "alpha",
+    );
+    expect(within(dialog).getByRole("button", { name: "仅创建" })).toBeDisabled();
+
+    await user.type(nameInput, "短名");
+    expect(within(dialog).getByRole("button", { name: "仅创建" })).toBeEnabled();
+  });
+
   it("「仅创建」提交全量节点配置（创建即锁定），任务出现在列表并展开", async () => {
     const user = userEvent.setup();
     const bridge = fixturedBridge();
@@ -485,6 +542,7 @@ describe("ClusterPage 创建任务弹窗", () => {
     });
     expect(bridge.calls("create_orc_task")[0]?.payload).toEqual({
       goal: "把登录流程加入重试机制",
+      name: "测试任务",
       notifyMode: "final_only",
       templateId: "template-standard",
       workingDir: "D:/Project/agent-notify",
@@ -525,7 +583,8 @@ describe("ClusterPage 创建任务弹窗", () => {
     renderWithQuery(bridge);
 
     const dialog = await openCreateDialog(user);
-    await user.type(within(dialog).getByLabelText("目标"), "手动目录任务");
+    await user.type(within(dialog).getByLabelText("任务名称"), "手动目录");
+    await user.type(within(dialog).getByLabelText("任务描述"), "手动目录任务");
     await user.selectOptions(
       within(dialog).getByLabelText("工作流模板"),
       "template-standard",
@@ -549,6 +608,7 @@ describe("ClusterPage 创建任务弹窗", () => {
       expect(bridge.calls("create_orc_task")).toHaveLength(1);
     });
     expect(bridge.calls("create_orc_task")[0]?.payload).toMatchObject({
+      name: "手动目录",
       workingDir: "D:/Project/manual-app",
     });
   });
@@ -569,6 +629,7 @@ describe("ClusterPage 创建任务弹窗", () => {
       expect(bridge.calls("create_orc_task")).toHaveLength(1);
     });
     expect(bridge.calls("create_orc_task")[0]?.payload).toMatchObject({
+      name: "测试任务",
       notifyMode: "verbose",
     });
   });
@@ -584,7 +645,8 @@ describe("ClusterPage 创建任务弹窗", () => {
     renderWithQuery(bridge);
 
     const dialog = await openCreateDialog(user);
-    await user.type(within(dialog).getByLabelText("目标"), "带模型的任务");
+    await user.type(within(dialog).getByLabelText("任务名称"), "带模型");
+    await user.type(within(dialog).getByLabelText("任务描述"), "带模型的任务");
     await user.selectOptions(
       within(dialog).getByLabelText("工作流模板"),
       "template-quickfix",
@@ -622,6 +684,7 @@ describe("ClusterPage 创建任务弹窗", () => {
       expect(bridge.calls("create_orc_task")).toHaveLength(1);
     });
     expect(bridge.calls("create_orc_task")[0]?.payload).toMatchObject({
+      name: "带模型",
       templateId: "template-quickfix",
       steps: [
         { order: 1, agent: "opencode", model: "opencode-go/space-bunny-free" },
@@ -646,7 +709,8 @@ describe("ClusterPage 创建任务弹窗", () => {
     renderWithQuery(bridge);
 
     const dialog = await openCreateDialog(user);
-    await user.type(within(dialog).getByLabelText("目标"), "模型读不到也要能建");
+    await user.type(within(dialog).getByLabelText("任务名称"), "模型失败");
+    await user.type(within(dialog).getByLabelText("任务描述"), "模型读不到也要能建");
     await user.selectOptions(
       within(dialog).getByLabelText("工作流模板"),
       "template-quickfix",
@@ -679,6 +743,7 @@ describe("ClusterPage 创建任务弹窗", () => {
       expect(bridge.calls("create_orc_task")).toHaveLength(1);
     });
     expect(bridge.calls("create_orc_task")[0]?.payload).toMatchObject({
+      name: "模型失败",
       steps: [
         { order: 1, agent: "opencode", model: "opencode-go/space-bunny-free" },
         { order: 2, agent: "opencode", model: null },
@@ -735,7 +800,8 @@ describe("ClusterPage 创建任务弹窗", () => {
 
     const dialog = await openCreateDialog(user);
     const submit = within(dialog).getByRole("button", { name: "创建并开始" });
-    await user.type(within(dialog).getByLabelText("目标"), "继承默认配置");
+    await user.type(within(dialog).getByLabelText("任务名称"), "继承默认");
+    await user.type(within(dialog).getByLabelText("任务描述"), "继承默认配置");
     await user.selectOptions(
       within(dialog).getByLabelText("工作流模板"),
       "template-standard",
@@ -754,6 +820,7 @@ describe("ClusterPage 创建任务弹窗", () => {
       expect(bridge.calls("create_orc_task")).toHaveLength(1);
     });
     expect(bridge.calls("create_orc_task")[0]?.payload).toMatchObject({
+      name: "继承默认",
       steps: [
         { order: 1, agent: "opencode", model: null },
         { order: 2, agent: "opencode", model: "anthropic/claude-sonnet-4-5" },
@@ -864,7 +931,7 @@ describe("ClusterPage 创建任务弹窗", () => {
     expect(
       screen.getByRole("dialog", { name: "新建编排任务" }),
     ).toBeVisible();
-    expect(within(dialog).getByLabelText("目标")).toHaveValue("会失败的任务");
+    expect(within(dialog).getByLabelText("任务描述")).toHaveValue("会失败的任务");
     expect(bridge.calls("start_orc_task")).toHaveLength(0);
   });
 
@@ -874,7 +941,8 @@ describe("ClusterPage 创建任务弹窗", () => {
     renderWithQuery(bridge);
 
     const dialog = await openCreateDialog(user);
-    await user.type(within(dialog).getByLabelText("目标"), "半途放弃");
+    await user.type(within(dialog).getByLabelText("任务名称"), "半途放弃");
+    await user.type(within(dialog).getByLabelText("任务描述"), "半途放弃");
     await user.keyboard("{Escape}");
 
     expect(
@@ -907,5 +975,136 @@ describe("ClusterPage 工作目录数据源", () => {
     const projects = opencodeProjectsFixture();
     expect(projects[0]?.name).toBe("agent-notify");
     expect(projects[1]?.name).toBeNull();
+  });
+});
+
+describe("ClusterPage 编辑与删除", () => {
+  it("编辑待开始任务：名称/描述/通知节奏可改并提交 update_orc_task", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge([pendingTask]);
+    renderWithQuery(bridge);
+
+    await taskTable();
+    await user.click(screen.getByRole("button", { name: "编辑任务 贪吃蛇" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑任务" });
+    const nameInput = within(dialog).getByLabelText("任务名称");
+    await user.clear(nameInput);
+    await user.type(nameInput, "改名任务");
+    const goalInput = within(dialog).getByLabelText("任务描述");
+    await user.clear(goalInput);
+    await user.type(goalInput, "新的描述");
+    await user.selectOptions(within(dialog).getByLabelText("通知节奏"), "verbose");
+    await user.click(within(dialog).getByRole("button", { name: "保存修改" }));
+
+    await waitFor(() => {
+      expect(bridge.calls("update_orc_task")).toHaveLength(1);
+    });
+    expect(bridge.calls("update_orc_task")[0]?.payload).toEqual({
+      taskId: "task-pending",
+      name: "改名任务",
+      goal: "新的描述",
+      notifyMode: "verbose",
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "编辑任务" }),
+    ).not.toBeInTheDocument();
+    // 列表刷新后显示新名称
+    const list = await taskTable();
+    expect(within(list).getByRole("button", { name: "改名任务" })).toBeVisible();
+  });
+
+  it("编辑已开始任务：描述禁用且不提交 goal（只改名称）", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge([workingTask]);
+    renderWithQuery(bridge);
+
+    await taskTable();
+    await user.click(screen.getByRole("button", { name: "编辑任务 登录重试" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑任务" });
+    expect(within(dialog).getByLabelText("任务描述")).toBeDisabled();
+    expect(within(dialog).getByText(/描述不可再改/)).toBeVisible();
+    const nameInput = within(dialog).getByLabelText("任务名称");
+    await user.clear(nameInput);
+    await user.type(nameInput, "新短名");
+    await user.click(within(dialog).getByRole("button", { name: "保存修改" }));
+
+    await waitFor(() => {
+      expect(bridge.calls("update_orc_task")).toHaveLength(1);
+    });
+    expect(bridge.calls("update_orc_task")[0]?.payload).toEqual({
+      taskId: "task-working",
+      name: "新短名",
+      goal: null,
+      notifyMode: "final_only",
+    });
+  });
+
+  it("删除任务：确认后调用 delete_orc_task 并收起详情", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge([workingTask, blockedTask]);
+    renderWithQuery(bridge);
+
+    await expandTask(user, "登录重试");
+    await user.click(screen.getByRole("button", { name: "删除任务 登录重试" }));
+    const confirm = await screen.findByRole("alertdialog");
+    expect(confirm).toHaveTextContent("删除任务「登录重试」");
+    await user.click(within(confirm).getByRole("button", { name: "确认删除" }));
+
+    await waitFor(() => {
+      expect(bridge.calls("delete_orc_task")).toHaveLength(1);
+    });
+    expect(bridge.calls("delete_orc_task")[0]?.payload).toEqual({
+      taskId: "task-working",
+    });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "登录重试" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("article", { name: "任务详情" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("删除确认可取消：不调用删除", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge([workingTask]);
+    renderWithQuery(bridge);
+
+    await taskTable();
+    await user.click(screen.getByRole("button", { name: "删除任务 登录重试" }));
+    const confirm = await screen.findByRole("alertdialog");
+    await user.click(within(confirm).getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(bridge.calls("delete_orc_task")).toHaveLength(0);
+  });
+
+  it("编辑失败：在弹窗内展示后端中文错误并保留输入", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      orcTasks: [pendingTask],
+      errors: {
+        update_orc_task: {
+          code: "orc_task_already_started",
+          message: "任务已开始，描述不可修改（可修改名称）",
+          retryable: false,
+        },
+      },
+    });
+    renderWithQuery(bridge);
+
+    await taskTable();
+    await user.click(screen.getByRole("button", { name: "编辑任务 贪吃蛇" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑任务" });
+    const nameInput = within(dialog).getByLabelText("任务名称");
+    await user.clear(nameInput);
+    await user.type(nameInput, "改名");
+    await user.click(within(dialog).getByRole("button", { name: "保存修改" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "任务已开始，描述不可修改",
+    );
+    expect(within(dialog).getByLabelText("任务名称")).toHaveValue("改名");
   });
 });

@@ -38,6 +38,8 @@ pub enum BusinessCommand {
     SaveOrcTemplateConfig,
     ListOpencodeProjects,
     ListOpencodeModels,
+    UpdateOrcTask,
+    DeleteOrcTask,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -170,6 +172,8 @@ pub struct OrcTaskDto {
     /// 通知节奏：final_only / verbose（§4.6）
     pub notify_mode: String,
     pub goal: String,
+    /// 任务名称（短名 ≤8 字；用于集群列表与真实会话标题；旧任务按目标前 8 字推导）。
+    pub name: String,
     /// 任务工作目录（OpenCode 会话创建位置）；None = 旧任务，跟随宿主当前项目。
     pub working_dir: Option<String>,
     /// 是否处于「项目经理汇总阶段」（最后一步完成、等待首节点汇总，§4）。
@@ -273,6 +277,8 @@ pub struct CurrentOrcWorkflowDto {
 #[serde(rename_all = "camelCase")]
 pub struct CreateOrcTaskPayload {
     pub goal: String,
+    /// 任务名称（必填、≤8 字；只用于集群列表与真实会话标题展示）。None = 旧调用方，按目标前 8 字推导。
+    pub name: Option<String>,
     /// 工作流模板 id（内置三档模板之一；旧预设仅兼容已存在任务，不再对新任务开放）。
     pub template_id: String,
     /// 任务工作目录（OpenCode 会话创建位置；必须是已存在的目录）。
@@ -288,6 +294,16 @@ pub struct CreateOrcTaskPayload {
 #[serde(rename_all = "camelCase")]
 pub struct OrcTaskIdPayload {
     pub task_id: String,
+}
+
+/// 更新编排任务（集群页「编辑」）：名称随时可改；描述仅未开始任务可改；通知节奏随时可改。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOrcTaskPayload {
+    pub task_id: String,
+    pub name: Option<String>,
+    pub goal: Option<String>,
+    pub notify_mode: Option<String>,
 }
 
 /// 推进编排任务：消息驱动（§4.4），`kind` 决定转移语义。

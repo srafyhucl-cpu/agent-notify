@@ -56,6 +56,9 @@ export const ORC_ROLE_LABELS: Record<string, string> = {
 /** 首节点 = 项目经理：负责汇总各步产出并向人做最终汇报（§2/§4）。 */
 export const ORC_PROJECT_MANAGER_LABEL = "项目经理";
 
+/** 任务名称长度上限（字）：短名只用于集群列表与真实会话标题展示。 */
+export const TASK_NAME_MAX_CHARS = 8;
+
 /** v1 仅 OpenCode 支持指定模型（§3）；设置页与创建任务弹窗共用。 */
 export const ORC_MODEL_CAPABLE_AGENT = "opencode";
 

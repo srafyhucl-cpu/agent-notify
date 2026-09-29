@@ -239,6 +239,7 @@ async fn dispatch_options_are_written_with_plugin_field_names() {
         working_dir: Some("D:/Project/demo".to_string()),
         model: Some("anthropic/claude-sonnet-4-5".to_string()),
         unattended: false,
+        title: None,
     };
     agentnotify_agent_sdk::AgentAdapter::dispatch_with_options(
         &adapter,

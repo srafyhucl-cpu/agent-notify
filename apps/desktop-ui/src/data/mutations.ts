@@ -209,3 +209,23 @@ export function useStartOrcTaskMutation(bridge: HostBridge) {
     onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
   });
 }
+
+export function useUpdateOrcTaskMutation(bridge: HostBridge) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CommandPayloadMap["update_orc_task"]) =>
+      bridge.invoke("update_orc_task", payload),
+    onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
+  });
+}
+
+export function useDeleteOrcTaskMutation(bridge: HostBridge) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CommandPayloadMap["delete_orc_task"]) =>
+      bridge.invoke("delete_orc_task", payload),
+    onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
+  });
+}

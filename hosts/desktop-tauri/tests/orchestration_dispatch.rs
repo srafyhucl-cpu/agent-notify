@@ -129,6 +129,7 @@ fn working_dir(root: &tempfile::TempDir) -> String {
 async fn create_task(handler: &OrcCommandHandler, dir: &str) -> String {
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
@@ -309,6 +310,7 @@ async fn dispatch_options_carry_model_and_unattended_setting() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "透传选项".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
@@ -404,6 +406,7 @@ async fn start_snapshots_config_and_ignores_later_changes() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "快照任务".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
@@ -493,6 +496,7 @@ async fn config_change_before_start_applies_to_snapshot() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "start 前改配置".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
@@ -541,6 +545,7 @@ async fn task_without_snapshot_uses_live_node_config() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "旧任务实时合并".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
@@ -599,6 +604,7 @@ async fn task_without_snapshot_and_cleared_config_blocks_on_dispatch() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "无快照缺配置".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
@@ -643,6 +649,7 @@ async fn no_driver_keeps_original_advance_behavior() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "不派活的目标".into(),
             template_id: PRESET_ID.into(),
@@ -741,6 +748,7 @@ async fn envelope_rendering_feeds_dispatch_text() {
 
     let task_id = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "信封衔接目标".into(),
             template_id: PRESET_ID.into(),
@@ -798,6 +806,7 @@ async fn static_custom_workflow_is_resolved_from_binding() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "自定义工作流目标".into(),
             template_id: "custom-static".into(),

@@ -249,6 +249,7 @@ export function orcTaskFixture(
   id: string,
   overrides: Partial<OrcTaskDto> = {},
 ): OrcTaskDto {
+  const goal = overrides.goal ?? `集群任务 ${id}`;
   return {
     id,
     workflowId: "workflow-preset",
@@ -285,7 +286,9 @@ export function orcTaskFixture(
     blockedStep: null,
     blockReason: null,
     notifyMode: "final_only",
-    goal: `集群任务 ${id}`,
+    goal,
+    // 名称与后端同规则：显式优先，缺省按目标前 8 字推导。
+    name: overrides.name ?? [...goal].slice(0, 8).join(""),
     workingDir: "D:/Project/agent-notify",
     finalizing: false,
     ...overrides,

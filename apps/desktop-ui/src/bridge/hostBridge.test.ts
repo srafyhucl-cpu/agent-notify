@@ -80,6 +80,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
 
     const created = await bridge.invoke("create_orc_task", {
       goal: "新任务",
+      name: "新任务",
       templateId: "template-standard",
       workingDir: "D:/Project/agent-notify",
       notifyMode: "verbose",
@@ -103,6 +104,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
     const bridge = createMockHostBridge();
     const created = await bridge.invoke("create_orc_task", {
       goal: "默认节奏",
+      name: "默认节奏",
       templateId: "template-quickfix",
       workingDir: "D:/Project/agent-notify",
       notifyMode: null,
@@ -117,6 +119,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
     await expect(
       bridge.invoke("create_orc_task", {
         goal: "未知模板",
+        name: "未知模板",
         templateId: "template-missing",
         workingDir: "D:/Project/agent-notify",
         notifyMode: null,
@@ -127,6 +130,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
     await expect(
       bridge.invoke("create_orc_task", {
         goal: "空目录",
+        name: "空目录",
         templateId: "template-standard",
         workingDir: "   ",
         notifyMode: null,
@@ -140,6 +144,7 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
     await expect(
       bridge.invoke("create_orc_task", {
         goal: "非法目录",
+        name: "非法目录",
         templateId: "template-standard",
         workingDir: "not-a-directory",
         notifyMode: null,

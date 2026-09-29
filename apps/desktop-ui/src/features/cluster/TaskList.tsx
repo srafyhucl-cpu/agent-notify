@@ -1,13 +1,15 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Pencil, Trash2 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 
 import type { OrcTaskDto } from "../../bridge/types";
 import { StatusBadge } from "../../components/patterns";
 import {
   ORC_NOTIFY_MODE_LABELS,
+  orcNodeStatesOfTask,
   orcTaskProgressLabel,
   orcTaskStateLabel,
   orcTaskStateTone,
+  type OrcNodeState,
 } from "./labels";
 
 export interface TaskListProps {
@@ -15,18 +17,38 @@ export interface TaskListProps {
   /** 展开中的任务（手风琴：同一时间最多展开一个；进入页面不默认展开任何任务）。 */
   expandedTaskId: string | null;
   onToggle: (taskId: string) => void;
+  onEdit: (task: OrcTaskDto) => void;
+  onDelete: (task: OrcTaskDto) => void;
   /** 展开内容：任务详情（工作流 + 任务信息 + 操作）。 */
   renderDetail: (task: OrcTaskDto) => ReactNode;
 }
 
+/** 节点状态 → 进度段样式（预览态 idle 不出现，兜底 pending）。 */
+function stepDotClass(state: OrcNodeState | undefined): string {
+  switch (state) {
+    case "done":
+      return "cluster-step-dot cluster-step-dot--done";
+    case "current":
+    case "finalizing":
+      return "cluster-step-dot cluster-step-dot--current";
+    case "failed":
+      return "cluster-step-dot cluster-step-dot--failed";
+    default:
+      return "cluster-step-dot";
+  }
+}
+
 /**
  * 任务列表（对齐渠道页）：整行可点手风琴，默认全部收起；
- * 行内展示目标、状态、进度、通知节奏；阻塞任务标红并显示原因。
+ * 行内展示任务名称（短名）+ 描述、状态、按步骤的进度段与通知节奏；
+ * 行尾提供编辑/删除（增删改查），阻塞任务标红并显示原因。
  */
 export function TaskList({
   tasks,
   expandedTaskId,
   onToggle,
+  onEdit,
+  onDelete,
   renderDetail,
 }: TaskListProps) {
   return (
@@ -45,6 +67,9 @@ export function TaskList({
             <th scope="col" className="cluster-th-notify">
               通知节奏
             </th>
+            <th scope="col" className="cluster-th-actions">
+              <span className="visually-hidden">操作</span>
+            </th>
             <th scope="col" className="cluster-th-expand">
               <span className="visually-hidden">展开</span>
             </th>
@@ -61,6 +86,7 @@ export function TaskList({
             if (blocked) {
               rowClasses.push("cluster-task-row--blocked");
             }
+            const nodeStates = orcNodeStatesOfTask(task);
 
             return (
               <Fragment key={task.id}>
@@ -70,7 +96,7 @@ export function TaskList({
                 >
                   <th scope="row">
                     <button
-                      className="cluster-task-goal"
+                      className="cluster-task-name"
                       type="button"
                       aria-expanded={expanded}
                       aria-controls={
@@ -81,8 +107,9 @@ export function TaskList({
                         onToggle(task.id);
                       }}
                     >
-                      {task.goal}
+                      {task.name}
                     </button>
+                    <p className="cluster-task-goal-text">{task.goal}</p>
                     {blocked && task.blockReason ? (
                       <span className="cluster-task-reason">
                         {task.blockReason}
@@ -103,10 +130,43 @@ export function TaskList({
                     </span>
                   </td>
                   <td className="cluster-task-progress">
-                    {orcTaskProgressLabel(task)}
+                    <span className="cluster-step-track" aria-hidden="true">
+                      {task.workflow.steps.map((step) => (
+                        <span
+                          className={stepDotClass(nodeStates[step.order])}
+                          key={step.order}
+                        />
+                      ))}
+                    </span>
+                    <span className="cluster-progress-text">
+                      {orcTaskProgressLabel(task)}
+                    </span>
                   </td>
                   <td className="cluster-task-notify">
                     {ORC_NOTIFY_MODE_LABELS[task.notifyMode] ?? task.notifyMode}
+                  </td>
+                  <td
+                    className="cluster-task-actions-cell"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      className="button-icon-subtle"
+                      type="button"
+                      title="编辑任务"
+                      aria-label={`编辑任务 ${task.name}`}
+                      onClick={() => onEdit(task)}
+                    >
+                      <Pencil size={13} aria-hidden="true" />
+                    </button>
+                    <button
+                      className="button-icon-subtle button-icon-danger"
+                      type="button"
+                      title="删除任务"
+                      aria-label={`删除任务 ${task.name}`}
+                      onClick={() => onDelete(task)}
+                    >
+                      <Trash2 size={13} aria-hidden="true" />
+                    </button>
                   </td>
                   <td className="cluster-task-expand-cell">
                     <ChevronDown
@@ -121,7 +181,7 @@ export function TaskList({
 
                 {expanded ? (
                   <tr className="cluster-task-detail-row">
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <div
                         className="cluster-task-inline-detail"
                         id={`cluster-task-detail-${task.id}`}

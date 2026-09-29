@@ -11,7 +11,7 @@ import { InlineError } from "../../components/InlineError";
 import { toUserError } from "../../data/errors";
 import { useAgents } from "../../data/useAgents";
 import { useOpencodeModels } from "../../data/useOpencodeModels";
-import { ORC_MODEL_CAPABLE_AGENT, ORC_NOTIFY_MODE_OPTIONS } from "./labels";
+import { ORC_MODEL_CAPABLE_AGENT, ORC_NOTIFY_MODE_OPTIONS, TASK_NAME_MAX_CHARS } from "./labels";
 import { OrcModelSelect } from "./OrcModelSelect";
 import { OrcNodeChain, type OrcNodeChainStep } from "./OrcNodeChain";
 
@@ -25,8 +25,11 @@ interface StepDraft {
   model: string;
 }
 
-/** 创建任务提交内容（§3.1：模板必选、工作目录必填、每个节点必须有 Agent）。 */
+/** 创建任务提交内容（§3.1：名称必填 ≤8 字、模板必选、工作目录必填、每个节点必须有 Agent）。 */
 export interface CreateOrcTaskInput {
+  /** 任务名称（≤8 字；只用于集群列表与真实会话标题展示）。 */
+  name: string;
+  /** 任务描述（真实需求全文）。 */
   goal: string;
   notifyMode: string;
   templateId: string;
@@ -92,6 +95,7 @@ export function CreateTaskDialog({
   const modelsError = modelsQuery.error
     ? toUserError(modelsQuery.error).message
     : null;
+  const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [notifyMode, setNotifyMode] = useState("final_only");
   const [templateId, setTemplateId] = useState("");
@@ -156,7 +160,11 @@ export function CreateTaskDialog({
   const missingAgentOrders = drafts
     .filter((step) => step.agent.trim().length === 0)
     .map((step) => step.order);
+  const trimmedName = name.trim();
+  const nameOk =
+    trimmedName.length > 0 && [...trimmedName].length <= TASK_NAME_MAX_CHARS;
   const canSubmit =
+    nameOk &&
     goal.trim().length > 0 &&
     templateId.length > 0 &&
     workingDir.length > 0 &&
@@ -171,6 +179,7 @@ export function CreateTaskDialog({
     }
     await onSubmit(
       {
+        name: trimmedName,
         goal: goal.trim(),
         notifyMode,
         templateId,
@@ -237,19 +246,20 @@ export function CreateTaskDialog({
             />
           ) : null}
 
-          <label className="cluster-create-goal-field">
-            <span>目标</span>
-            <textarea
-              aria-label="目标"
-              className="cluster-create-goal"
-              rows={2}
-              placeholder="例如：把登录流程加入重试机制"
-              value={goal}
-              onChange={(event) => setGoal(event.currentTarget.value)}
-            />
-          </label>
+          <div className="cluster-create-fields cluster-create-fields--trio">
+            <label>
+              <span>任务名称</span>
+              <input
+                aria-label="任务名称"
+                className="cluster-create-name"
+                type="text"
+                maxLength={TASK_NAME_MAX_CHARS}
+                placeholder="8 个字以内"
+                value={name}
+                onChange={(event) => setName(event.currentTarget.value)}
+              />
+            </label>
 
-          <div className="cluster-create-fields cluster-create-fields--pair">
             <label>
               <span>通知节奏</span>
               <select
@@ -282,6 +292,18 @@ export function CreateTaskDialog({
               </select>
             </label>
           </div>
+
+          <label className="cluster-create-goal-field">
+            <span>任务描述</span>
+            <textarea
+              aria-label="任务描述"
+              className="cluster-create-goal"
+              rows={3}
+              placeholder="写清真实需求：做什么、交付什么、有什么约束"
+              value={goal}
+              onChange={(event) => setGoal(event.currentTarget.value)}
+            />
+          </label>
 
           <div className="cluster-create-dir-field">
             <label>
@@ -373,6 +395,7 @@ export function CreateTaskDialog({
                 label={`${selectedTemplate.name} 节点配置`}
                 steps={chainStepsOf(selectedTemplate)}
                 showMeta={false}
+                layout="grid"
                 renderDetails={(step) => {
                   const current = drafts.find(
                     (candidate) => candidate.order === step.order,
@@ -381,7 +404,7 @@ export function CreateTaskDialog({
                   const model = current?.model ?? "";
                   const modelDisabled = agent !== ORC_MODEL_CAPABLE_AGENT;
                   return (
-                    <div className="orc-node-fields">
+                    <div className="orc-node-fields orc-node-fields--pair">
                       <label className="orc-node-field">
                         <span>Agent</span>
                         <select
@@ -423,17 +446,17 @@ export function CreateTaskDialog({
                         />
                       </label>
 
-                      <p className="orc-node-field-hint">
-                        {agent === ""
-                          ? "请先选择 Agent"
-                          : modelDisabled
-                            ? "该 Agent 暂不支持指定模型"
-                            : "留空 = 不指定，由 OpenCode 用其当前默认模型"}
-                      </p>
-                    </div>
-                  );
-                }}
-              />
+                    <p className="orc-node-field-hint">
+                      {agent === ""
+                        ? "请先选择 Agent"
+                        : modelDisabled
+                          ? "该 Agent 暂不支持指定模型"
+                          : "留空 = 不指定，由 OpenCode 用其当前默认模型"}
+                    </p>
+                  </div>
+                );
+              }}
+            />
               {agents.length === 0 ? (
                 <p className="cluster-create-dir-hint">
                   当前没有已接入 Agent：请先在「Agent 管理」页接入后重试。

@@ -49,6 +49,10 @@ pub struct OrcMeta {
     pub notify_mode: NotifyMode,
     /// 任务目标（用户原话）
     pub goal: String,
+    /// 任务名称（短名，≤8 字；用于集群列表与真实会话标题展示）。
+    /// 旧任务缺省 None = 由目标推导展示（向后兼容）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// 是否已开始执行（人工确认后开始；创建后默认 false，避免"没看清节点就被派活"）。
     /// 旧任务（无此字段）默认 true——它们本就已在运行，保持向后兼容。
     #[serde(default = "started_default_true")]
@@ -158,6 +162,7 @@ impl OrcTask {
             block_reason: None,
             notify_mode,
             goal: goal.to_string(),
+            name: None,
             started: false,
             working_dir: None,
             steps_snapshot: None,
@@ -269,6 +274,37 @@ impl OrcTask {
     /// 任务工作目录（None = 跟随宿主当前项目；旧任务缺省）。
     pub fn working_dir(&self) -> Result<Option<String>, OrcError> {
         Ok(self.meta()?.working_dir)
+    }
+
+    /// 任务名称（None = 旧任务缺省，由展示侧按目标推导）。
+    pub fn name(&self) -> Result<Option<String>, OrcError> {
+        Ok(self.meta()?.name)
+    }
+
+    /// 设置任务名称（空串 = 清除；长度校验由调用方负责）。
+    pub fn set_name(&mut self, name: &str) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        let trimmed = name.trim();
+        meta.name = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        self.put_meta(&meta)
+    }
+
+    /// 更新任务目标（仅未开始任务允许；由调用方校验后写入）。
+    pub fn set_goal(&mut self, goal: &str) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.goal = goal.trim().to_string();
+        self.put_meta(&meta)
+    }
+
+    /// 更新通知节奏（运行中改只影响后续推送；由调用方解析后传入）。
+    pub fn set_notify_mode(&mut self, mode: NotifyMode) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.notify_mode = mode;
+        self.put_meta(&meta)
     }
 
     /// 设置任务工作目录（创建任务时由宿主写入；空串 = 清除）。

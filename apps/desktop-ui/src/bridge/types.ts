@@ -34,6 +34,8 @@ export const commands = {
 	markBlockedOrcTask: (payload: MarkBlockedOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("mark_blocked_orc_task", { payload }),
 	recoverBlockedOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("recover_blocked_orc_task", { payload }),
 	startOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("start_orc_task", { payload }),
+	updateOrcTask: (payload: UpdateOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("update_orc_task", { payload }),
+	deleteOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<MutationAcceptedDto>("delete_orc_task", { payload }),
 	getCurrentOrcWorkflow: (payload: EmptyPayload) => __TAURI_INVOKE<CurrentOrcWorkflowDto>("get_current_orc_workflow", { payload }),
 	listOrcTemplates: (payload: EmptyPayload) => __TAURI_INVOKE<OrcTemplateDto[]>("list_orc_templates", { payload }),
 	saveOrcTemplateConfig: (payload: SaveOrcTemplateConfigPayload) => __TAURI_INVOKE<OrcTemplateDto[]>("save_orc_template_config", { payload }),
@@ -89,7 +91,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow" | "list_orc_templates" | "save_orc_template_config" | "list_opencode_projects" | "list_opencode_models";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow" | "list_orc_templates" | "save_orc_template_config" | "list_opencode_projects" | "list_opencode_models" | "update_orc_task" | "delete_orc_task";
 
 export type ChannelAccountDto = {
 	id: string,
@@ -175,6 +177,8 @@ export type ComponentStateDto = "Starting" | "Running" | "Paused" | "Stopped" | 
  */
 export type CreateOrcTaskPayload = {
 	goal: string,
+	/**  任务名称（必填、≤8 字；只用于集群列表与真实会话标题展示）。None = 旧调用方，按目标前 8 字推导。 */
+	name: string | null,
 	/**  工作流模板 id（内置三档模板之一；旧预设仅兼容已存在任务，不再对新任务开放）。 */
 	templateId: string,
 	/**  任务工作目录（OpenCode 会话创建位置；必须是已存在的目录）。 */
@@ -403,6 +407,8 @@ export type OrcTaskDto = {
 	/**  通知节奏：final_only / verbose（§4.6） */
 	notifyMode: string,
 	goal: string,
+	/**  任务名称（短名 ≤8 字；用于集群列表与真实会话标题；旧任务按目标前 8 字推导）。 */
+	name: string,
 	/**  任务工作目录（OpenCode 会话创建位置）；None = 旧任务，跟随宿主当前项目。 */
 	workingDir: string | null,
 	/**  是否处于「项目经理汇总阶段」（最后一步完成、等待首节点汇总，§4）。 */
@@ -554,6 +560,14 @@ export type UpdateAgentConfigPayload = {
 };
 
 export type UpdateChannelDto = "Stable" | "Beta";
+
+/**  更新编排任务（集群页「编辑」）：名称随时可改；描述仅未开始任务可改；通知节奏随时可改。 */
+export type UpdateOrcTaskPayload = {
+	taskId: string,
+	name: string | null,
+	goal: string | null,
+	notifyMode: string | null,
+};
 
 export type UpdateStateDto = "UpToDate" | "Available" | "ReadyToInstall" | "Unsupported" | "Failed";
 

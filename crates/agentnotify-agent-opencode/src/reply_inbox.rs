@@ -43,6 +43,8 @@ pub struct OpenCodeReplyJob {
     pub location: Option<String>,
     /// 无人值守（权限 ask 自动放行）；缺省 true，显式 false 保留人工确认。
     pub unattended: bool,
+    /// 会话标题（集群任务名等展示用）；None = 插件默认标题（【集群】合成 id）。
+    pub title: Option<String>,
     pub created_at: Timestamp,
     pub expires_at: Timestamp,
 }
@@ -169,6 +171,7 @@ impl OpenCodeReplyInbox {
             model: options.model.clone(),
             location: options.working_dir.clone(),
             unattended: options.unattended,
+            title: options.title.clone(),
             created_at: now,
             expires_at,
         };
@@ -351,6 +354,9 @@ struct WireJob<'a> {
     location: Option<&'a str>,
     /// 无人值守（权限 ask 自动放行）；缺省 true，显式 false 保留人工确认。
     unattended: bool,
+    /// 会话标题（集群任务名等展示用）；缺省 = 插件默认标题（插件契约字段名 `title`）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<&'a str>,
     created_at: String,
     expires_at: String,
 }
@@ -365,6 +371,7 @@ impl<'a> From<&'a OpenCodeReplyJob> for WireJob<'a> {
             model: job.model.as_deref(),
             location: job.location.as_deref(),
             unattended: job.unattended,
+            title: job.title.as_deref(),
             created_at: job.created_at.to_rfc3339(),
             expires_at: job.expires_at.to_rfc3339(),
         }

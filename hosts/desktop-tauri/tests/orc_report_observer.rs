@@ -183,6 +183,7 @@ fn report_handler_with_presenter(
 async fn create_task(handler: &OrcCommandHandler, dir: &str) -> String {
     handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
@@ -232,6 +233,7 @@ async fn completed_session_advances_task_and_dispatches_next_step() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),

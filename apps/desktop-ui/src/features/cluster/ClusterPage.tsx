@@ -1,8 +1,8 @@
-import { Plus } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, Plus, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import type { HostBridge } from "../../bridge";
-import type { OrcMessageKindDto } from "../../bridge/types";
+import type { OrcMessageKindDto, OrcTaskDto } from "../../bridge/types";
 import { EmptyState } from "../../components/EmptyState";
 import { InlineError } from "../../components/InlineError";
 import { LoadingRows } from "../../components/LoadingRows";
@@ -11,8 +11,10 @@ import { toUserError } from "../../data/errors";
 import {
   useAdvanceOrcTaskMutation,
   useCreateOrcTaskMutation,
+  useDeleteOrcTaskMutation,
   useRecoverBlockedOrcTaskMutation,
   useStartOrcTaskMutation,
+  useUpdateOrcTaskMutation,
 } from "../../data/mutations";
 import { useOpencodeProjects } from "../../data/useOpencodeProjects";
 import { useOrcTasks } from "../../data/useOrcTasks";
@@ -21,6 +23,7 @@ import {
   CreateTaskDialog,
   type CreateOrcTaskInput,
 } from "./CreateTaskDialog";
+import { EditTaskDialog, type EditTaskInput } from "./EditTaskDialog";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList } from "./TaskList";
 
@@ -41,14 +44,21 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const advanceMutation = useAdvanceOrcTaskMutation(bridge);
   const recoverMutation = useRecoverBlockedOrcTaskMutation(bridge);
   const startMutation = useStartOrcTaskMutation(bridge);
+  const updateMutation = useUpdateOrcTaskMutation(bridge);
+  const deleteMutation = useDeleteOrcTaskMutation(bridge);
 
   // 手风琴：同一时间最多展开一个任务；进入页面不默认展开任何任务。
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [editTask, setEditTask] = useState<OrcTaskDto | null>(null);
+  const [editError, setEditError] = useState<unknown>(null);
+  const [deleteTarget, setDeleteTarget] = useState<OrcTaskDto | null>(null);
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
   const [pendingAction, setPendingAction] = useState<
-    "create" | "advance" | "recover" | "start" | null
+    "create" | "advance" | "recover" | "start" | "update" | "delete" | null
   >(null);
 
   const tasks = tasksQuery.data ?? [];
@@ -130,6 +140,65 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
     }
   };
 
+  /** 保存编辑：成功关闭弹窗；失败在弹窗内展示并保留输入。 */
+  const handleUpdate = async (input: EditTaskInput): Promise<boolean> => {
+    if (!editTask) {
+      return false;
+    }
+    setEditError(null);
+    setPendingAction("update");
+    try {
+      await updateMutation.mutateAsync({
+        taskId: editTask.id,
+        name: input.name,
+        goal: input.goal,
+        notifyMode: input.notifyMode,
+      });
+      setEditTask(null);
+      return true;
+    } catch (error) {
+      setEditError(error);
+      return false;
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  /** 删除任务（界面已确认）：成功收起详情与确认框；失败展示明确原因。 */
+  const handleDelete = async () => {
+    if (!deleteTarget) {
+      return;
+    }
+    setDeleteError(null);
+    setPendingAction("delete");
+    try {
+      await deleteMutation.mutateAsync({ taskId: deleteTarget.id });
+      if (expandedTaskId === deleteTarget.id) {
+        setExpandedTaskId(null);
+      }
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(error);
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  // 删除确认：Escape 关闭；打开时把焦点移到「取消」（破坏性操作不自动聚焦）。
+  useEffect(() => {
+    if (!deleteTarget) {
+      return;
+    }
+    cancelDeleteRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDeleteTarget(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteTarget]);
+
   return (
     <section className="workbench-page cluster-page">
       <h1 className="visually-hidden">集群</h1>
@@ -195,6 +264,14 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
                   current === taskId ? null : taskId,
                 )
               }
+              onEdit={(task) => {
+                setEditError(null);
+                setEditTask(task);
+              }}
+              onDelete={(task) => {
+                setDeleteError(null);
+                setDeleteTarget(task);
+              }}
               renderDetail={(task) => (
                 <TaskDetail
                   task={task}
@@ -223,6 +300,65 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
           onSubmit={handleCreate}
           onClose={() => setCreateOpen(false)}
         />
+      ) : null}
+
+      {editTask ? (
+        <EditTaskDialog
+          task={editTask}
+          pending={pendingAction === "update"}
+          error={editError}
+          onSubmit={handleUpdate}
+          onClose={() => setEditTask(null)}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <div className="dialog-overlay" role="presentation">
+          <section
+            className="confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="cluster-delete-title"
+          >
+            <AlertTriangle aria-hidden="true" size={24} />
+            <div>
+              <h2 id="cluster-delete-title">
+                删除任务「{deleteTarget.name}」
+              </h2>
+              <p>
+                删除后任务记录不再显示；已派活的 OpenCode
+                会话不会停止，后续进度也不再跟踪。此操作不可恢复。
+              </p>
+              {deleteError ? (
+                <InlineError
+                  title="删除失败"
+                  message={toUserError(deleteError).message}
+                />
+              ) : null}
+            </div>
+            <div className="confirm-dialog-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                ref={cancelDeleteRef}
+                disabled={pendingAction === "delete"}
+                onClick={() => setDeleteTarget(null)}
+              >
+                <X aria-hidden="true" size={15} />
+                取消
+              </button>
+              <button
+                className="button button-danger"
+                type="button"
+                aria-label="确认删除"
+                disabled={pendingAction === "delete"}
+                onClick={() => void handleDelete()}
+              >
+                {pendingAction === "delete" ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
     </section>
   );

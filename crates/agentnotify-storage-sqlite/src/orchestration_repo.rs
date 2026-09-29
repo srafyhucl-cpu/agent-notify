@@ -97,6 +97,18 @@ impl OrcTaskRepository for SqliteStore {
         .await
         .map_err(repository_error)
     }
+
+    async fn delete_task(&self, task_id: &str) -> Result<(), OrcRepositoryError> {
+        let task_id = task_id.to_owned();
+        self.run(move |connection| {
+            connection
+                .execute("DELETE FROM orc_tasks WHERE task_id = ?1", params![task_id])
+                .map_err(|error| storage_error("删除编排任务失败", error))?;
+            Ok(())
+        })
+        .await
+        .map_err(repository_error)
+    }
 }
 
 /// 从 orc_tasks 行还原 A2A Task；JSON 损坏或内部 id 与主键不一致 → 明确报错（不猜测兜底）。

@@ -125,6 +125,7 @@ async fn final_only_pushes_only_the_final_report() {
     let handler = handler_with(&store, Workflow::preset(false).unwrap(), presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
@@ -213,6 +214,7 @@ async fn verbose_pushes_every_step_progress() {
     let handler = handler_with(&store, Workflow::preset(false).unwrap(), presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
@@ -329,6 +331,7 @@ async fn final_only_pushes_gate_wait_and_final_report() {
     let handler = handler_with(&store, workflow, presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "带人工确认的任务".into(),
             template_id: "custom-gate".into(),
@@ -426,6 +429,7 @@ async fn failure_reminder_always_pushes_regardless_of_mode() {
         let handler = handler_with(&store, Workflow::preset(false).unwrap(), presenter);
         let created = handler
             .create(CreateOrcTaskPayload {
+                name: None,
                 steps: None,
                 goal: "失败提醒测试".into(),
                 template_id: PRESET_ID.into(),
@@ -487,6 +491,7 @@ async fn recover_blocked_does_not_add_push() {
     let handler = handler_with(&store, Workflow::preset(false).unwrap(), presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "恢复不重复推".into(),
             template_id: PRESET_ID.into(),
@@ -527,6 +532,7 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     // 未显式指定 → 继承全局默认 verbose
     let inherited = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "继承全局默认".into(),
             template_id: PRESET_ID.into(),
@@ -540,6 +546,7 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     // 显式指定 → 任务级覆盖（全局默认 verbose 被覆盖为 final_only，现有语义保持）
     let overridden = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "显式覆盖".into(),
             template_id: PRESET_ID.into(),
@@ -553,6 +560,7 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     // 显式非法值 → 明确报错（不猜测兜底）
     let err = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "非法节奏".into(),
             template_id: PRESET_ID.into(),
@@ -611,6 +619,7 @@ async fn global_default_reads_real_settings_and_falls_back() {
     write_mode(&store, "verbose").await;
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "settings 继承".into(),
             template_id: PRESET_ID.into(),
@@ -624,6 +633,7 @@ async fn global_default_reads_real_settings_and_falls_back() {
     write_mode(&store, "garbage").await;
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
             steps: None,
             goal: "settings 回退".into(),
             template_id: PRESET_ID.into(),
