@@ -266,11 +266,21 @@ describe("ClusterPage 任务列表", () => {
 });
 
 describe("ClusterPage 任务详情与发指令", () => {
-  it("展开后先展示工作流节点链与状态标签，再展示任务信息与推进操作", async () => {
+  it("展开后按块展示：描述 / 工作流 / 任务信息 / 操作（不重复名称）", async () => {
     const user = userEvent.setup();
     renderWithQuery(fixturedBridge([workingTask]));
 
     const detail = await expandTask(user, "登录重试");
+    // 分块：每块一个带标题的区块（描述、工作流、任务信息、操作）
+    for (const pane of ["任务描述", "工作流", "任务信息", "操作"]) {
+      expect(within(detail).getByRole("region", { name: pane })).toBeVisible();
+    }
+    // 名称只在列表行出现，详情里不重复标题
+    expect(
+      within(detail).queryByRole("heading", { name: "登录重试" }),
+    ).not.toBeInTheDocument();
+    expect(within(detail).getByText("把登录流程加入重试机制")).toBeVisible();
+
     const chain = within(detail).getByRole("list", { name: "工作流节点" });
     // 首节点 = 项目经理；用途/Agent/模型都可读
     expect(within(chain).getByText("项目经理")).toBeVisible();
@@ -293,7 +303,6 @@ describe("ClusterPage 任务详情与发指令", () => {
     expect(
       within(detail).getByText("D:/Project/agent-notify"),
     ).toBeVisible();
-    expect(within(detail).getByText("推进任务")).toBeVisible();
     for (const label of ["发指令", "确认完成", "汇报", "提问", "补充信息"]) {
       expect(within(detail).getByRole("button", { name: label })).toBeVisible();
     }
@@ -356,7 +365,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     expect(alert).toHaveTextContent(/判断 Agent（Codex）会话不可用/);
     // 旧数据里的「Step N」展示成中文「第 N 步」
     expect(alert).toHaveTextContent("第 1 步投递失败");
-    expect(within(detail).queryByText("推进任务")).not.toBeInTheDocument();
+    expect(within(detail).queryByRole("region", { name: "操作" })).not.toBeInTheDocument();
 
     await user.click(within(detail).getByRole("button", { name: "重新发起" }));
     await waitFor(() => {
@@ -394,7 +403,9 @@ describe("ClusterPage 任务详情与发指令", () => {
 
     const detail = await expandTask(user, "已完成");
     expect(within(detail).getByText("任务已结束，无待办操作。")).toBeVisible();
-    expect(within(detail).queryByText("推进任务")).not.toBeInTheDocument();
+    expect(
+      within(detail).queryByRole("button", { name: "发指令" }),
+    ).not.toBeInTheDocument();
     expect(
       within(detail).queryByRole("button", { name: "重新发起" }),
     ).not.toBeInTheDocument();
@@ -439,7 +450,9 @@ describe("ClusterPage 任务详情与发指令", () => {
         "项目经理正在汇总，等待最终汇报；汇总完成后任务自动结束。",
       ),
     ).toBeVisible();
-    expect(screen.queryByText("推进任务")).not.toBeInTheDocument();
+    expect(
+      within(detail).queryByRole("button", { name: "发指令" }),
+    ).not.toBeInTheDocument();
     const chain = within(detail).getByRole("list", { name: "工作流节点" });
     expect(chain.querySelector('[data-state="finalizing"]')).not.toBeNull();
     expect(within(chain).getByText("项目经理汇总中")).toBeVisible();
@@ -467,7 +480,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     renderWithQuery(bridge);
 
     const detail = await expandTask(user, "贪吃蛇");
-    expect(within(detail).getByText("任务待开始")).toBeVisible();
+    expect(within(detail).getByRole("region", { name: "操作" })).toBeVisible();
     expect(within(detail).getByText("待开始")).toBeVisible();
 
     await user.click(within(detail).getByRole("button", { name: "开始执行" }));
@@ -477,9 +490,9 @@ describe("ClusterPage 任务详情与发指令", () => {
     });
     // mock 将 started 置 true，mutation 失效重查后转为推进操作。
     await waitFor(() => {
-      expect(within(detail).getByText("推进任务")).toBeVisible();
+      expect(within(detail).getByRole("button", { name: "发指令" })).toBeVisible();
     });
-    expect(within(detail).queryByText("任务待开始")).toBeNull();
+    expect(within(detail).queryByRole("button", { name: "开始执行" })).not.toBeInTheDocument();
   });
 });
 
@@ -579,7 +592,7 @@ describe("ClusterPage 创建任务弹窗", () => {
       screen.queryByRole("dialog", { name: "新建编排任务" }),
     ).not.toBeInTheDocument();
     const detail = await screen.findByRole("article", { name: "任务详情" });
-    expect(within(detail).getByText("任务待开始")).toBeVisible();
+    expect(within(detail).getByRole("region", { name: "操作" })).toBeVisible();
   });
 
   it("「创建并开始」创建成功后立即派活第 1 步", async () => {

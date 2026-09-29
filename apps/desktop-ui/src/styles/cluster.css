@@ -395,31 +395,38 @@
   animation: agent-card-body-in var(--duration-fast) var(--ease-spring);
 }
 
-/* ===== 任务详情（展开行内容：工作流置顶） ===== */
+/* ===== 任务详情（展开行内容：分块展示，工作流置顶重点） ===== */
 .cluster-task-detail {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
 }
 
-/* 详情头部：任务名称 + 描述（任务 ID 不展示给用户） */
-.cluster-detail-head {
+/* 详情分块：每块一张浅色卡片（与渠道页详情 pane 同一套语言） */
+.cluster-detail-pane {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-3);
   min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
 }
 
-.cluster-detail-name {
+.cluster-detail-pane-title {
   margin: 0;
-  font-size: var(--font-body);
+  padding-bottom: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
   font-weight: 700;
-  overflow-wrap: anywhere;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--hairline);
 }
 
+/* 任务描述：详情里的正文（名称只在列表行展示，不重复标题） */
 .cluster-detail-goal {
   margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-size-2);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -537,21 +544,16 @@
   font-size: var(--font-size-1);
   line-height: 1.5;
 }
-/* ===== 共用节点链（任务详情 / 创建预览 / 设置页，§7 动态可视化） ===== */
-.cluster-workflow-preview,
-.cluster-workflow {
+/* ===== 共用节点链（创建弹窗预览 / 设置页 / 任务详情，§7 动态可视化） ===== */
+.cluster-workflow-preview {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-}
-
-.cluster-workflow-preview {
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 
-.cluster-workflow-preview-title,
-.cluster-workflow-title {
+.cluster-workflow-preview-title {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-1);
