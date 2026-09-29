@@ -145,6 +145,130 @@ test("session.idle submits once per assistant message", async () => {
   )
 })
 
+test("终态正文只认本回合：上一轮正文不会当成本次汇报", async () => {
+  const { __test } = await pluginModule
+  __test.resetTerminalStateForTests()
+  const submitted = []
+  const ctx = fakeContext(undefined, async () => ({
+    data: [
+      {
+        info: {
+          id: "msg-r1",
+          role: "assistant",
+          time: { completed: 1789897100000 },
+        },
+        parts: [{ type: "text", text: "第 1 轮汇报：已完成" }],
+      },
+      {
+        info: { id: "msg-user", role: "user", time: { created: 1789897200000 } },
+        parts: [],
+      },
+      {
+        info: {
+          id: "msg-tool",
+          role: "assistant",
+          time: { completed: 1789897300000 },
+        },
+        parts: [{ type: "tool", tool: "read", state: { status: "completed" } }],
+      },
+      { info: { id: "idle", type: "idle" }, parts: [] },
+    ],
+  }))
+  const event = {
+    type: "session.idle",
+    properties: { sessionID: "session-turns" },
+  }
+  const submit = async (envelope) => submitted.push(envelope)
+
+  await __test.dispatchTerminalEvent(ctx, "session-turns", event, submit)
+
+  assert.equal(submitted.length, 1, "空正文回合必须上报（不静默跳过）")
+  assert.equal(submitted[0].payload.failed, true, "没有正文必须按失败上报")
+  assert.match(submitted[0].payload.body, /没有产出汇报/)
+  assert.doesNotMatch(
+    submitted[0].payload.body,
+    /第 1 轮汇报/,
+    "不得把上一轮正文当成本次汇报",
+  )
+})
+
+test("本回合最新消息没有正文时，取本回合更早带正文的消息", async () => {
+  const { __test } = await pluginModule
+  __test.resetTerminalStateForTests()
+  const submitted = []
+  const ctx = fakeContext(undefined, async () => ({
+    data: [
+      {
+        info: {
+          id: "prev",
+          role: "assistant",
+          time: { completed: 1789897000000 },
+        },
+        parts: [{ type: "text", text: "上一轮汇报" }],
+      },
+      {
+        info: { id: "u1", role: "user", time: { created: 1789897100000 } },
+        parts: [],
+      },
+      {
+        info: {
+          id: "a1",
+          role: "assistant",
+          time: { completed: 1789897200000 },
+        },
+        parts: [
+          { type: "text", text: "本轮旁白：最后确认一下" },
+          { type: "tool", tool: "shell", state: { status: "completed" } },
+        ],
+      },
+      {
+        info: {
+          id: "a2",
+          role: "assistant",
+          time: { completed: 1789897300000 },
+        },
+        parts: [{ type: "tool", tool: "read", state: { status: "completed" } }],
+      },
+      { info: { id: "idle", type: "idle" }, parts: [] },
+    ],
+  }))
+  const event = {
+    type: "session.idle",
+    properties: { sessionID: "session-turn-text" },
+  }
+  const submit = async (envelope) => submitted.push(envelope)
+
+  await __test.dispatchTerminalEvent(ctx, "session-turn-text", event, submit)
+
+  assert.equal(submitted.length, 1)
+  assert.equal(submitted[0].payload.body, "本轮旁白：最后确认一下")
+  assert.equal(submitted[0].payload.failed, undefined)
+})
+
+test("本回合没有任何 assistant 响应：不提交事件（避免误报失败）", async () => {
+  const { __test } = await pluginModule
+  __test.resetTerminalStateForTests()
+  const submitted = []
+  const ctx = fakeContext(undefined, async () => ({
+    data: [
+      {
+        info: { id: "u1", role: "user", time: { created: 1789897100000 } },
+        parts: [],
+      },
+      { info: { id: "idle", type: "idle" }, parts: [] },
+    ],
+  }))
+  const event = {
+    type: "session.idle",
+    properties: { sessionID: "session-empty-turn" },
+  }
+  const submit = async (envelope) => submitted.push(envelope)
+
+  await __test.dispatchTerminalEvent(ctx, "session-empty-turn", event, submit)
+
+  assert.equal(submitted.length, 0, "没有 assistant 响应不得上报")
+})
+
 test("OpenCode V2 event payload and assistant context are supported", async () => {
   const { __test } = await pluginModule
   __test.resetTerminalStateForTests()

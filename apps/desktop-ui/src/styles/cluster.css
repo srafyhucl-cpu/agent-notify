@@ -460,13 +460,77 @@
   overflow-wrap: anywhere;
 }
 
-/* 轮次时间线（任务描述块内）：默认叠放最近几轮，点「展开全部 N 轮」看完整时间线 */
+/* 轮次时间线（任务描述块内）：折叠 = 整块可点展开（卡片堆预览）；展开 = 顶部整行可点收起 */
 .cluster-round-stack {
   display: grid;
   gap: var(--space-2);
+  width: 100%;
   min-width: 0;
-  padding-top: var(--space-2);
+  padding: var(--space-2) 0 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
   border-top: 1px dashed var(--hairline);
+  border-radius: var(--radius-control);
+  font: inherit;
+  cursor: pointer;
+  animation: cluster-round-reveal var(--duration-base) var(--ease-out);
+}
+
+.cluster-round-stack:hover .cluster-round-stack-card {
+  border-color: var(--border-hover);
+}
+
+.cluster-round-stack:focus-visible,
+.cluster-round-head:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* 顶部整行（折叠态的 span / 展开态的按钮）：标题在左、展开收起在右，位置一致 */
+.cluster-round-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cluster-round-head-title {
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 700;
+}
+
+.cluster-round-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-primary);
+  font-size: var(--font-caption);
+  font-weight: 650;
+  transition: color var(--duration-fast) ease;
+}
+
+.cluster-round-stack:hover .cluster-round-toggle,
+.cluster-round-head:hover .cluster-round-toggle {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+.cluster-round-chevron {
+  flex: none;
 }
 
 .cluster-round-stack-cards {
@@ -484,6 +548,7 @@
   background: var(--color-surface-muted);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
+  transition: border-color var(--duration-fast) ease;
 }
 
 /* 卡片堆：最新一轮在最上（DOM 顺序即最新在前），更旧的逐层上移收窄、置于下层 */
@@ -526,28 +591,6 @@
   white-space: nowrap;
 }
 
-.cluster-round-toggle {
-  justify-self: start;
-  padding: 0;
-  color: var(--color-primary);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-control);
-  font-size: var(--font-caption);
-  cursor: pointer;
-  transition: color var(--duration-fast) ease;
-}
-
-.cluster-round-toggle:hover {
-  color: var(--color-primary-hover);
-  text-decoration: underline;
-}
-
-.cluster-round-toggle:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
 /* 展开态：完整迭代时间线（每轮一张卡：要求 + 结论） */
 .cluster-round-timeline {
   display: grid;
@@ -555,20 +598,26 @@
   min-width: 0;
   padding-top: var(--space-2);
   border-top: 1px dashed var(--hairline);
+  animation: cluster-round-reveal var(--duration-base) var(--ease-out);
 }
 
-.cluster-round-timeline-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-  min-width: 0;
+/* 展开/收起：内容轻量下移淡入（收起时叠放态同样有该动效） */
+@keyframes cluster-round-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--space-1) * -1));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
-.cluster-round-timeline-title {
-  color: var(--color-text-muted);
-  font-size: var(--font-caption);
-  font-weight: 700;
+@media (prefers-reduced-motion: reduce) {
+  .cluster-round-stack,
+  .cluster-round-timeline {
+    animation: none;
+  }
 }
 
 .cluster-round-card {
@@ -644,26 +693,51 @@
   margin: 0;
 }
 
-/* 任务信息一行：label+value 内联、分隔点间隔；窄窗自动换行不溢出 */
+/* 任务信息一行：label+value 内联、分隔点间隔；不换行（窗口窄时只有工作目录省略号） */
 .cluster-task-facts--inline {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .cluster-task-facts--inline .cluster-task-fact {
   display: inline-flex;
+  flex: none;
   align-items: baseline;
   gap: var(--space-1);
   min-width: 0;
   padding: 0;
+  white-space: nowrap;
+}
+
+/* 最后一项（工作目录）可收缩：窗口窄时省略号截断，保证整行不换行 */
+.cluster-task-facts--inline .cluster-task-fact:last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cluster-task-facts--inline .cluster-task-fact:last-child dd {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cluster-task-facts--inline .cluster-task-fact:not(:last-child)::after {
   content: "·";
-  margin-left: var(--space-3);
+  margin-left: var(--space-2);
   color: var(--color-text-muted);
+}
+
+.cluster-task-facts--inline .cluster-task-fact dt {
+  flex: none;
+  font-size: var(--font-small);
+}
+
+.cluster-task-facts--inline .cluster-task-fact dd:not(.cluster-task-fact-dir) {
+  font-size: var(--font-caption);
 }
 
 .cluster-task-fact {
@@ -727,16 +801,28 @@
   overflow-wrap: anywhere;
 }
 
+/* 当前节点卡内的推进操作（跟随节点状态显示/隐藏；见 orcStepActions） */
+.orc-node-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--hairline);
+}
+
+.orc-node-actions-note {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 /* 推进指令区 */
 .cluster-actions {
   min-width: 0;
-}
-
-.cluster-actions-label {
-  margin: 0 0 var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-1);
-  font-weight: 650;
 }
 
 .cluster-actions-buttons {

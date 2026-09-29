@@ -197,43 +197,64 @@ export const ORC_NOTIFY_MODE_OPTIONS: ReadonlyArray<{
 ];
 
 /**
- * 推进任务的指令类型（§4.2 消息总线 kind）。
- * `primary` 只给最常见的「发指令」，其余为次要操作；全部经 advance_orc_task 发送；
- * `hint` = 悬浮一句话说明（鼠标停在按钮上就能看懂每个操作是干嘛的）。
+ * 当前节点的推进操作（§4.2 消息总线 kind 的子集，随节点状态显示/隐藏）：
+ * 精简为最多 2 个按钮，集成在工作流当前节点卡内（不再单开「操作」区块）。
  */
-export const ORC_MESSAGE_KIND_ACTIONS: ReadonlyArray<{
+export interface OrcStepAction {
   kind: OrcMessageKindDto;
   label: string;
+  /** 悬浮一句话说明（鼠标停在按钮上就能看懂是干嘛的） */
   hint: string;
   primary?: boolean;
-}> = [
-  {
-    kind: "instruction",
-    label: "发指令",
-    hint: "给当前步骤的 Agent 发一条指令：补充要求或纠正方向，它回到本步继续干活",
-    primary: true,
-  },
-  {
-    kind: "confirm",
-    label: "确认完成",
-    hint: "通过当前步骤的人工确认门：确认后推进到下一步",
-  },
-  {
-    kind: "report",
-    label: "汇报",
-    hint: "以人工身份替当前步骤提交产出汇报：推进到下一步",
-  },
-  {
-    kind: "question",
-    label: "提问",
-    hint: "向当前步骤提问：不推进，等它回答",
-  },
-  {
-    kind: "info",
-    label: "补充信息",
-    hint: "给当前步骤补充上下文信息：不推进，任务继续",
-  },
-];
+}
+
+/**
+ * 当前节点可用操作：
+ * - 阻塞 / 终态 / 汇总中：无（阻塞用「重新发起」、终态用「继续迭代」、汇总等首节点汇报）；
+ * - 待开始：无（「开始执行」由详情组件单独渲染在当前节点卡内）；
+ * - 等待人工确认（input_required）：确认完成（主）+ 发指令（要求返工）；
+ * - 干活中：发指令（主）+ 汇报（Agent 没自动汇报时人工补报，推进到下一步）。
+ */
+export function orcStepActions(
+  task: Pick<OrcTaskDto, "state" | "started" | "finalizing" | "blockedStep">,
+): OrcStepAction[] {
+  if (
+    ORC_TERMINAL_STATES.has(task.state) ||
+    task.blockedStep !== null ||
+    task.finalizing ||
+    !task.started
+  ) {
+    return [];
+  }
+  if (task.state === "input_required") {
+    return [
+      {
+        kind: "confirm",
+        label: "确认完成",
+        hint: "通过这一步的人工确认门：确认后推进到下一步",
+        primary: true,
+      },
+      {
+        kind: "instruction",
+        label: "发指令",
+        hint: "要求返工或补充：这一步回到干活状态继续改",
+      },
+    ];
+  }
+  return [
+    {
+      kind: "instruction",
+      label: "发指令",
+      hint: "给这一步的 Agent 发一条指令：补充要求或纠正方向，它回到本步继续干活",
+      primary: true,
+    },
+    {
+      kind: "report",
+      label: "汇报",
+      hint: "以人工身份替这一步提交产出汇报：推进到下一步（Agent 没自动汇报时用）",
+    },
+  ];
+}
 
 /**
  * 任务创建时间展示（本地时区）：列表用短格式 MM-DD HH:mm，详情用完整格式 YYYY-MM-DD HH:mm。

@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 
 import type { OrcRoundRecordDto } from "../../bridge/types";
@@ -59,7 +60,8 @@ function requirementText(view: RoundView): string {
 }
 
 /**
- * 轮次时间线（任务描述块内）：默认叠放最近几轮卡片，点「展开全部 N 轮」看完整时间线。
+ * 轮次时间线（任务描述块内）：默认叠放最近几轮卡片，点整个区域或右上角「展开全部 N 轮」
+ * 进入完整时间线；展开后点顶部整行「收起」回到叠放。展开/收起带轻量位移动效。
  * 只有一轮时不渲染（任务描述本身就是第 1 轮要求）。
  */
 export function RoundTimeline({
@@ -79,16 +81,23 @@ export function RoundTimeline({
   if (expanded) {
     return (
       <div className="cluster-round-timeline">
-        <div className="cluster-round-timeline-head">
-          <span className="cluster-round-timeline-title">迭代时间线</span>
-          <button
-            className="cluster-round-toggle"
-            type="button"
-            onClick={() => setExpanded(false)}
-          >
+        <button
+          className="cluster-round-head"
+          type="button"
+          aria-expanded={true}
+          aria-label="收起迭代时间线"
+          onClick={() => setExpanded(false)}
+        >
+          <span className="cluster-round-head-title">迭代时间线</span>
+          <span className="cluster-round-toggle">
             收起
-          </button>
-        </div>
+            <ChevronUp
+              className="cluster-round-chevron"
+              aria-hidden="true"
+              size={13}
+            />
+          </span>
+        </button>
         {views
           .slice()
           .reverse()
@@ -129,24 +138,34 @@ export function RoundTimeline({
   }
 
   return (
-    <div className="cluster-round-stack">
-      <div className="cluster-round-stack-cards">
+    <button
+      className="cluster-round-stack"
+      type="button"
+      aria-expanded={false}
+      aria-label={`展开迭代时间线（共 ${views.length} 轮）`}
+      onClick={() => setExpanded(true)}
+    >
+      <span className="cluster-round-head">
+        <span className="cluster-round-head-title">迭代时间线</span>
+        <span className="cluster-round-toggle">
+          展开全部 {views.length} 轮
+          <ChevronDown
+            className="cluster-round-chevron"
+            aria-hidden="true"
+            size={13}
+          />
+        </span>
+      </span>
+      <span className="cluster-round-stack-cards">
         {preview.map((view) => (
-          <div className="cluster-round-stack-card" key={view.round}>
+          <span className="cluster-round-stack-card" key={view.round}>
             <span className="cluster-round-badge">第 {view.round} 轮</span>
             <span className="cluster-round-stack-text">
               {requirementText(view)}
             </span>
-          </div>
+          </span>
         ))}
-      </div>
-      <button
-        className="cluster-round-toggle"
-        type="button"
-        onClick={() => setExpanded(true)}
-      >
-        展开全部 {views.length} 轮
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }

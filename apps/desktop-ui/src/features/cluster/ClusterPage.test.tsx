@@ -266,15 +266,19 @@ describe("ClusterPage 任务列表", () => {
 });
 
 describe("ClusterPage 任务详情与发指令", () => {
-  it("展开后按块展示：描述 / 工作流 / 任务信息 / 操作（不重复名称）", async () => {
+  it("展开后按块展示：描述 / 工作流 / 任务信息（推进操作跟随当前节点；不重复名称）", async () => {
     const user = userEvent.setup();
     renderWithQuery(fixturedBridge([workingTask]));
 
     const detail = await expandTask(user, "登录重试");
-    // 分块：每块一个带标题的区块（描述、工作流、任务信息、操作）
-    for (const pane of ["任务描述", "工作流", "任务信息", "操作"]) {
+    // 分块：每块一个带标题的区块（描述、工作流、任务信息）
+    for (const pane of ["任务描述", "工作流", "任务信息"]) {
       expect(within(detail).getByRole("region", { name: pane })).toBeVisible();
     }
+    // 推进操作集成在工作流当前节点卡内（不再单开「操作」区块）
+    expect(
+      within(detail).queryByRole("region", { name: "操作" }),
+    ).not.toBeInTheDocument();
     // 名称只在列表行出现，详情里不重复标题
     expect(
       within(detail).queryByRole("heading", { name: "登录重试" }),
@@ -303,7 +307,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     expect(
       within(detail).getByText("D:/Project/agent-notify"),
     ).toBeVisible();
-    for (const label of ["发指令", "确认完成", "汇报", "提问", "补充信息"]) {
+    for (const label of ["发指令", "汇报"]) {
       expect(within(detail).getByRole("button", { name: label })).toBeVisible();
     }
   });
@@ -339,17 +343,23 @@ describe("ClusterPage 任务详情与发指令", () => {
 
   it("点击「确认完成」调用 advance（kind=confirm，human_gate 语义）", async () => {
     const user = userEvent.setup();
-    const bridge = fixturedBridge([workingTask]);
+    const gateTask = orcTaskFixture("task-gate-click", {
+      goal: "确认门点击",
+      name: "确认门点",
+      state: "input_required",
+      currentStep: 2,
+    });
+    const bridge = fixturedBridge([gateTask]);
     renderWithQuery(bridge);
 
-    const detail = await expandTask(user, "登录重试");
+    const detail = await expandTask(user, "确认门点");
     await user.click(within(detail).getByRole("button", { name: "确认完成" }));
 
     await waitFor(() => {
       expect(bridge.calls("advance_orc_task")).toHaveLength(1);
     });
     expect(bridge.calls("advance_orc_task")[0]?.payload).toEqual({
-      taskId: "task-working",
+      taskId: "task-gate-click",
       kind: "confirm",
     });
   });
@@ -504,7 +514,7 @@ describe("ClusterPage 任务详情与发指令", () => {
       within(detail).getByText("翅膀握住车把，腿自然弯曲"),
     ).toBeVisible();
     await user.click(
-      within(detail).getByRole("button", { name: "展开全部 2 轮" }),
+      within(detail).getByRole("button", { name: /展开迭代时间线/ }),
     );
 
     // 展开态：完整时间线（第 1 轮初始需求 + 结论；第 2 轮本轮要求 + 进行中）。
@@ -515,7 +525,13 @@ describe("ClusterPage 任务详情与发指令", () => {
     ).toBeVisible();
     expect(within(detail).getByText("本轮要求")).toBeVisible();
     expect(within(detail).getByText("本轮进行中")).toBeVisible();
-    expect(within(detail).getByRole("button", { name: "收起" })).toBeVisible();
+    // 收起入口与展开入口同位置（右上角），点它回到叠放态。
+    await user.click(
+      within(detail).getByRole("button", { name: /收起迭代时间线/ }),
+    );
+    expect(
+      within(detail).getByRole("button", { name: /展开迭代时间线/ }),
+    ).toBeVisible();
   });
 
   it("创建时间：列表行显示短格式，详情信息一行显示完整格式", async () => {
@@ -552,14 +568,31 @@ describe("ClusterPage 任务详情与发指令", () => {
     ).toContain("补充要求");
     expect(
       within(detail)
+        .getByRole("button", { name: "汇报" })
+        .getAttribute("title"),
+    ).toContain("推进到下一步");
+  });
+
+  it("等待人工确认：只给「确认完成」与「发指令」（随节点状态切换）", async () => {
+    const user = userEvent.setup();
+    const gateTask = orcTaskFixture("task-gate", {
+      goal: "人工确认门",
+      name: "确认门",
+      state: "input_required",
+      currentStep: 2,
+    });
+    renderWithQuery(fixturedBridge([gateTask]));
+
+    const detail = await expandTask(user, "确认门");
+    expect(
+      within(detail)
         .getByRole("button", { name: "确认完成" })
         .getAttribute("title"),
     ).toContain("人工确认门");
+    // 干活态才有的「汇报」在确认门阶段隐藏
     expect(
-      within(detail)
-        .getByRole("button", { name: "提问" })
-        .getAttribute("title"),
-    ).toContain("不推进");
+      within(detail).queryByRole("button", { name: "汇报" }),
+    ).not.toBeInTheDocument();
   });
 
   it("推进失败时保留页面并给出可读错误", async () => {
@@ -631,7 +664,7 @@ describe("ClusterPage 任务详情与发指令", () => {
     renderWithQuery(bridge);
 
     const detail = await expandTask(user, "贪吃蛇");
-    expect(within(detail).getByRole("region", { name: "操作" })).toBeVisible();
+    expect(within(detail).getByRole("region", { name: "工作流" })).toBeVisible();
     expect(within(detail).getByText("待开始")).toBeVisible();
 
     await user.click(within(detail).getByRole("button", { name: "开始执行" }));
@@ -743,7 +776,10 @@ describe("ClusterPage 创建任务弹窗", () => {
       screen.queryByRole("dialog", { name: "新建编排任务" }),
     ).not.toBeInTheDocument();
     const detail = await screen.findByRole("article", { name: "任务详情" });
-    expect(within(detail).getByRole("region", { name: "操作" })).toBeVisible();
+    expect(within(detail).getByRole("region", { name: "工作流" })).toBeVisible();
+    expect(
+      within(detail).getByRole("button", { name: "开始执行" }),
+    ).toBeVisible();
   });
 
   it("「创建并开始」创建成功后立即派活第 1 步", async () => {
