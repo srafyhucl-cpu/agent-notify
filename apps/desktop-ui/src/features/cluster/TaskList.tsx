@@ -5,6 +5,7 @@ import type { OrcTaskDto } from "../../bridge/types";
 import { StatusBadge } from "../../components/patterns";
 import {
   ORC_NOTIFY_MODE_LABELS,
+  formatOrcCreatedAt,
   orcNodeStatesOfTask,
   orcTaskStateLabel,
   orcTaskStateTone,
@@ -86,6 +87,7 @@ export function TaskList({
               rowClasses.push("cluster-task-row--blocked");
             }
             const nodeStates = orcNodeStatesOfTask(task);
+            const createdAt = formatOrcCreatedAt(task.createdAt);
 
             return (
               <Fragment key={task.id}>
@@ -94,20 +96,30 @@ export function TaskList({
                   onClick={() => onToggle(task.id)}
                 >
                   <th scope="row">
-                    <button
-                      className="cluster-task-name"
-                      type="button"
-                      aria-expanded={expanded}
-                      aria-controls={
-                        expanded ? `cluster-task-detail-${task.id}` : undefined
-                      }
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onToggle(task.id);
-                      }}
-                    >
-                      {task.name}
-                    </button>
+                    <span className="cluster-task-name-cell">
+                      <button
+                        className="cluster-task-name"
+                        type="button"
+                        aria-expanded={expanded}
+                        aria-controls={
+                          expanded ? `cluster-task-detail-${task.id}` : undefined
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggle(task.id);
+                        }}
+                      >
+                        {task.name}
+                      </button>
+                      {createdAt ? (
+                        <span
+                          className="cluster-task-created"
+                          title={`创建于 ${formatOrcCreatedAt(task.createdAt, "full")}`}
+                        >
+                          {createdAt}
+                        </span>
+                      ) : null}
+                    </span>
                   </th>
                   <td>
                     <span className="cluster-task-badges">

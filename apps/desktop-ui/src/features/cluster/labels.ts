@@ -198,16 +198,60 @@ export const ORC_NOTIFY_MODE_OPTIONS: ReadonlyArray<{
 
 /**
  * 推进任务的指令类型（§4.2 消息总线 kind）。
- * `primary` 只给最常见的「发指令」，其余为次要操作；全部经 advance_orc_task 发送。
+ * `primary` 只给最常见的「发指令」，其余为次要操作；全部经 advance_orc_task 发送；
+ * `hint` = 悬浮一句话说明（鼠标停在按钮上就能看懂每个操作是干嘛的）。
  */
 export const ORC_MESSAGE_KIND_ACTIONS: ReadonlyArray<{
   kind: OrcMessageKindDto;
   label: string;
+  hint: string;
   primary?: boolean;
 }> = [
-  { kind: "instruction", label: "发指令", primary: true },
-  { kind: "confirm", label: "确认完成" },
-  { kind: "report", label: "汇报" },
-  { kind: "question", label: "提问" },
-  { kind: "info", label: "补充信息" },
+  {
+    kind: "instruction",
+    label: "发指令",
+    hint: "给当前步骤的 Agent 发一条指令：补充要求或纠正方向，它回到本步继续干活",
+    primary: true,
+  },
+  {
+    kind: "confirm",
+    label: "确认完成",
+    hint: "通过当前步骤的人工确认门：确认后推进到下一步",
+  },
+  {
+    kind: "report",
+    label: "汇报",
+    hint: "以人工身份替当前步骤提交产出汇报：推进到下一步",
+  },
+  {
+    kind: "question",
+    label: "提问",
+    hint: "向当前步骤提问：不推进，等它回答",
+  },
+  {
+    kind: "info",
+    label: "补充信息",
+    hint: "给当前步骤补充上下文信息：不推进，任务继续",
+  },
 ];
+
+/**
+ * 任务创建时间展示（本地时区）：列表用短格式 MM-DD HH:mm，详情用完整格式 YYYY-MM-DD HH:mm。
+ * 旧任务无创建时间或值非法时返回 null（不显示、不猜）。
+ */
+export function formatOrcCreatedAt(
+  value: string | null | undefined,
+  style: "short" | "full" = "short",
+): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return style === "full" ? `${day} ${time}` : `${day.slice(5)} ${time}`;
+}

@@ -179,10 +179,26 @@ pub struct OrcTaskDto {
     pub round: u32,
     /// 本轮要求/上一轮结论（第 1 轮为 None）。
     pub round_input: Option<String>,
+    /// 任务创建时间（RFC3339；旧任务为 None，界面不显示）。
+    pub created_at: Option<String>,
+    /// 轮次时间线（每轮要求 + 结论摘要；旧任务为空，UI 按任务描述合成第 1 轮）。
+    pub round_history: Vec<OrcRoundRecordDto>,
     /// 任务工作目录（OpenCode 会话创建位置）；None = 旧任务，跟随宿主当前项目。
     pub working_dir: Option<String>,
     /// 是否处于「项目经理汇总阶段」（最后一步完成、等待首节点汇总，§4）。
     pub finalizing: bool,
+}
+
+/// 单轮迭代记录（轮次时间线）：本轮要求 + 本轮结论摘要。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcRoundRecordDto {
+    /// 轮次（从 1 起）
+    pub round: u32,
+    /// 本轮要求（第 1 轮/未填写为 None = 界面按任务描述或留空呈现）
+    pub input: Option<String>,
+    /// 本轮结论摘要（本轮未结束为 None）
+    pub summary: Option<String>,
 }
 
 /// 编排工作流视图（预置工作流或其用户配置）：节点列表供 UI 预览「每步做什么、派给谁」。

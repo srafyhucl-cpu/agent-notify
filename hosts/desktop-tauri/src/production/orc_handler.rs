@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use agentnotify_domain::{AgentId, AgentSessionId};
+use agentnotify_domain::{AgentId, AgentSessionId, Timestamp};
 use agentnotify_orchestration::{
     MessageKind, NotifyMode, OrcError, OrcRepositoryError, OrcStore, OrcTask, OrcTaskRepository,
     StepOutcome, TaskState, TemplateResolver, TransitionAction, Workflow, render_step_reports,
@@ -368,6 +368,9 @@ impl OrcCommandHandler {
             .map_err(orc_error)?;
         task.set_name(&name).map_err(orc_error)?;
         task.set_working_dir(working_dir).map_err(orc_error)?;
+        // 创建时间（轮次时间线/列表展示用；旧任务缺省不显示）。
+        task.set_created_at(&Timestamp::now_utc().to_rfc3339())
+            .map_err(orc_error)?;
         if let Some(snapshot) = locked_snapshot {
             task.set_steps_snapshot(&snapshot).map_err(orc_error)?;
         }
@@ -739,6 +742,8 @@ impl OrcCommandHandler {
                 let round = task.round().unwrap_or(1);
                 if round < ORC_MAX_ROUNDS {
                     let mut next = store.get_task(task_id).await.map_err(orc_error)?;
+                    // 本轮结论摘要进轮次时间线；随后 begin_round 追加新一轮记录。
+                    next.record_round_summary(body).map_err(orc_error)?;
                     next.begin_round(Some(input.as_str())).map_err(orc_error)?;
                     store.save(next.clone()).await.map_err(orc_error)?;
                     self.present_round_continue(&store, &next, round, &input)
@@ -752,6 +757,10 @@ impl OrcCommandHandler {
                     "项目经理判定继续迭代但已达轮次上限，按完成处理（用户可手动继续迭代）"
                 );
             }
+            // 本轮结论摘要进轮次时间线（完成任务也保留每轮结论）。
+            let mut finished = store.get_task(task_id).await.map_err(orc_error)?;
+            finished.record_round_summary(body).map_err(orc_error)?;
+            store.save(finished).await.map_err(orc_error)?;
             let task = store
                 .complete_finalizing(task_id)
                 .await
@@ -1429,6 +1438,16 @@ fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, Co
         name,
         round: meta.round.max(1),
         round_input: meta.round_input,
+        created_at: meta.created_at,
+        round_history: meta
+            .round_history
+            .into_iter()
+            .map(|record| OrcRoundRecordDto {
+                round: record.round,
+                input: record.input,
+                summary: record.summary,
+            })
+            .collect(),
         working_dir: meta.working_dir,
         finalizing: meta.final_report_pending,
     })

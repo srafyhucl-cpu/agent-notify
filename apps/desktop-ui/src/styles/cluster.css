@@ -267,6 +267,35 @@
   cursor: pointer;
 }
 
+/* 名称单元格：名称 + 创建时间（短格式）并排；时间不抢名称的宽度 */
+.cluster-task-name-cell {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cluster-task-name-cell .cluster-task-name {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.cluster-task-created {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* 窄窗优先保名称与状态：创建时间隐藏（详情里仍可见完整时间） */
+@media (max-width: 960px) {
+  .cluster-task-created {
+    display: none;
+  }
+}
+
 .cluster-task-name:hover {
   color: var(--color-primary);
 }
@@ -431,27 +460,168 @@
   overflow-wrap: anywhere;
 }
 
-/* 新一轮要求（第 2 轮起）：与任务描述同块展示，虚线分隔 */
-.cluster-detail-round {
+/* 轮次时间线（任务描述块内）：默认叠放最近几轮，点「展开全部 N 轮」看完整时间线 */
+.cluster-round-stack {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: 0;
   padding-top: var(--space-2);
   border-top: 1px dashed var(--hairline);
 }
 
-.cluster-detail-round-label {
-  margin: 0;
+.cluster-round-stack-cards {
+  display: grid;
+  min-width: 0;
+}
+
+.cluster-round-stack-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+/* 卡片堆：最新一轮在最上（DOM 顺序即最新在前），更旧的逐层上移收窄、置于下层 */
+.cluster-round-stack-card:nth-child(1) {
+  z-index: 3;
+}
+
+.cluster-round-stack-card:nth-child(2) {
+  z-index: 2;
+  width: calc(100% - var(--space-4));
+  margin-top: calc(var(--space-3) * -1);
+  margin-left: var(--space-2);
+  opacity: 0.85;
+}
+
+.cluster-round-stack-card:nth-child(3) {
+  z-index: 1;
+  width: calc(100% - var(--space-5));
+  margin-top: calc(var(--space-3) * -1);
+  margin-left: var(--space-4);
+  opacity: 0.7;
+}
+
+.cluster-round-stack-text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-round-badge {
+  flex: none;
+  padding: 0 var(--space-2);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-small);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.cluster-round-toggle {
+  justify-self: start;
+  padding: 0;
+  color: var(--color-primary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  font-size: var(--font-caption);
+  cursor: pointer;
+  transition: color var(--duration-fast) ease;
+}
+
+.cluster-round-toggle:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+.cluster-round-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* 展开态：完整迭代时间线（每轮一张卡：要求 + 结论） */
+.cluster-round-timeline {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--hairline);
+}
+
+.cluster-round-timeline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cluster-round-timeline-title {
   color: var(--color-text-muted);
   font-size: var(--font-caption);
   font-weight: 700;
 }
 
-.cluster-detail-round-text {
+.cluster-round-card {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.cluster-round-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cluster-round-current {
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+}
+
+.cluster-round-card-label {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  font-weight: 650;
+}
+
+.cluster-round-card-text {
   margin: 0;
   font-size: var(--font-size-2);
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.cluster-round-card-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.cluster-round-card-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
 }
 
 /* 编辑任务弹窗：复用创建弹窗结构，宽度收窄 */
@@ -472,6 +642,28 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-2) var(--space-4);
   margin: 0;
+}
+
+/* 任务信息一行：label+value 内联、分隔点间隔；窄窗自动换行不溢出 */
+.cluster-task-facts--inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.cluster-task-facts--inline .cluster-task-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0;
+}
+
+.cluster-task-facts--inline .cluster-task-fact:not(:last-child)::after {
+  content: "·";
+  margin-left: var(--space-3);
+  color: var(--color-text-muted);
 }
 
 .cluster-task-fact {

@@ -112,14 +112,40 @@ impl OrcTaskRepository for SqliteStore {
 }
 
 /// 从 orc_tasks 行还原 A2A Task；JSON 损坏或内部 id 与主键不一致 → 明确报错（不猜测兜底）。
+/// 旧任务（升级前创建）meta 缺 createdAt：用表里的 created_at 回填，保证创建时间可见。
 fn task_from_row(row: &rusqlite::Row<'_>) -> Result<Task, StoreError> {
     let task_id: String = crate::row_codec::column(row, "task_id")?;
     let json: String = crate::row_codec::column(row, "a2a_task_json")?;
-    let task: Task = serde_json::from_str(&json)
+    let mut task: Task = serde_json::from_str(&json)
         .map_err(|_| StoreError::corrupted("编排任务 JSON 损坏，无法读取任务记录"))?;
     if task.id != task_id {
         return Err(StoreError::corrupted("编排任务主键与任务内容不一致"));
     }
-    let _ = timestamp_column(row, "created_at")?;
+    let created_at = timestamp_column(row, "created_at")?;
+    backfill_created_at(&mut task, &created_at.to_rfc3339());
     Ok(task)
+}
+
+/// 旧任务 meta 缺 createdAt 时回填（只补展示用字段；已有值不覆盖）。
+fn backfill_created_at(task: &mut Task, created_at: &str) {
+    let Some(metadata) = task
+        .metadata
+        .as_mut()
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let Some(orc) = metadata
+        .get_mut("orc")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    if orc.contains_key("createdAt") {
+        return;
+    }
+    orc.insert(
+        "createdAt".to_string(),
+        serde_json::Value::String(created_at.to_string()),
+    );
 }

@@ -400,6 +400,16 @@ export type OpencodeProjectDto = {
 /**  编排消息 kind（推进命令用，§4 消息总线）。 */
 export type OrcMessageKindDto = "report" | "instruction" | "confirm" | "question" | "info";
 
+/**  单轮迭代记录（轮次时间线）：本轮要求 + 本轮结论摘要。 */
+export type OrcRoundRecordDto = {
+	/**  轮次（从 1 起） */
+	round: number,
+	/**  本轮要求（第 1 轮/未填写为 None = 界面按任务描述或留空呈现） */
+	input: string | null,
+	/**  本轮结论摘要（本轮未结束为 None） */
+	summary: string | null,
+};
+
 /**  编排任务视图：只暴露脱敏后的任务上下文（§3.2 TASK）。 */
 export type OrcTaskDto = {
 	id: string,
@@ -423,6 +433,10 @@ export type OrcTaskDto = {
 	round: number,
 	/**  本轮要求/上一轮结论（第 1 轮为 None）。 */
 	roundInput: string | null,
+	/**  任务创建时间（RFC3339；旧任务为 None，界面不显示）。 */
+	createdAt: string | null,
+	/**  轮次时间线（每轮要求 + 结论摘要；旧任务为空，UI 按任务描述合成第 1 轮）。 */
+	roundHistory: OrcRoundRecordDto[],
 	/**  任务工作目录（OpenCode 会话创建位置）；None = 旧任务，跟随宿主当前项目。 */
 	workingDir: string | null,
 	/**  是否处于「项目经理汇总阶段」（最后一步完成、等待首节点汇总，§4）。 */

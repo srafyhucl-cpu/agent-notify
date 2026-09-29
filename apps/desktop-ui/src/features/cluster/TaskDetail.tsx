@@ -4,12 +4,14 @@ import {
   ORC_MESSAGE_KIND_ACTIONS,
   ORC_NOTIFY_MODE_LABELS,
   ORC_TERMINAL_STATES,
+  formatOrcCreatedAt,
   orcNodeStatesOfTask,
   orcTaskStateLabel,
   orcTaskStateTone,
   shortBlockReason,
 } from "./labels";
 import { OrcNodeChain } from "./OrcNodeChain";
+import { RoundTimeline } from "./RoundTimeline";
 
 export interface TaskDetailProps {
   task: OrcTaskDto;
@@ -43,20 +45,20 @@ export function TaskDetail({
       ? `第 ${task.currentStep} 步（汇总中）`
       : `第 ${task.currentStep} 步`;
   const nodeStates = orcNodeStatesOfTask(task);
+  const createdAt = formatOrcCreatedAt(task.createdAt, "full");
 
   return (
     <article className="cluster-task-detail" aria-label="任务详情">
       <section className="cluster-detail-pane" aria-label="任务描述">
         <h4 className="cluster-detail-pane-title">任务描述</h4>
         <p className="cluster-detail-goal">{task.goal}</p>
-        {task.round > 1 && task.roundInput ? (
-          <div className="cluster-detail-round">
-            <p className="cluster-detail-round-label">
-              第 {task.round} 轮要求
-            </p>
-            <p className="cluster-detail-round-text">{task.roundInput}</p>
-          </div>
-        ) : null}
+        <RoundTimeline
+          goal={task.goal}
+          currentRound={task.round}
+          currentInput={task.roundInput}
+          records={task.roundHistory}
+          roundFinished={terminal}
+        />
       </section>
 
       <section className="cluster-detail-pane" aria-label="工作流">
@@ -76,7 +78,7 @@ export function TaskDetail({
 
       <section className="cluster-detail-pane" aria-label="任务信息">
         <h4 className="cluster-detail-pane-title">任务信息</h4>
-        <dl className="cluster-task-facts">
+        <dl className="cluster-task-facts cluster-task-facts--inline">
           <div className="cluster-task-fact">
             <dt>状态</dt>
             <dd>
@@ -99,6 +101,12 @@ export function TaskDetail({
             <dt>轮次</dt>
             <dd>第 {task.round} 轮</dd>
           </div>
+          {createdAt ? (
+            <div className="cluster-task-fact">
+              <dt>创建于</dt>
+              <dd>{createdAt}</dd>
+            </div>
+          ) : null}
           <div className="cluster-task-fact">
             <dt>工作目录</dt>
             <dd className="cluster-task-fact-dir">
@@ -120,6 +128,7 @@ export function TaskDetail({
           <button
             className="button button-secondary"
             type="button"
+            title="重新发起：清除阻塞，从被卡住的那一步重新派活"
             disabled={busy}
             onClick={onRecover}
           >
@@ -139,6 +148,7 @@ export function TaskDetail({
                 <button
                   className="button"
                   type="button"
+                  title="继续迭代：回到第 1 步由项目经理重新规划，再走一遍实施与复核（可附本轮要求）"
                   disabled={busy}
                   onClick={onContinue}
                 >
@@ -163,6 +173,7 @@ export function TaskDetail({
                 <button
                   className="button"
                   type="button"
+                  title="开始执行：派活第 1 步（节点配置在创建时已锁定）"
                   disabled={busy}
                   onClick={onStart}
                 >
@@ -177,6 +188,7 @@ export function TaskDetail({
                   <button
                     key={action.kind}
                     type="button"
+                    title={action.hint}
                     className={
                       action.primary ? "button" : "button button-secondary"
                     }

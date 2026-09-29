@@ -181,3 +181,60 @@ fn created_at_of(path: &std::path::Path, task_id: &str) -> String {
         )
         .unwrap()
 }
+
+/// 旧任务（升级前创建，meta 缺 createdAt）：读取时用表里的 created_at 回填；
+/// 已有 createdAt 不覆盖（显式值优先）。
+#[tokio::test]
+async fn orc_repo_backfills_missing_created_at() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("state.db");
+    let store = SqliteStore::open(&path).unwrap();
+    let orc = OrcStore::with_repository(Workflow::preset(false).unwrap(), Arc::new(store.clone()));
+    let created = orc
+        .create_task("旧任务", NotifyMode::FinalOnly)
+        .await
+        .unwrap();
+
+    // 模拟升级前数据：库里 JSON 去掉 createdAt（表列 created_at 保留）。
+    let mut legacy = created.a2a_task.clone();
+    legacy
+        .metadata
+        .as_mut()
+        .and_then(|value| value.get_mut("orc"))
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap()
+        .remove("createdAt");
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute(
+            "UPDATE orc_tasks SET a2a_task_json = ?1 WHERE task_id = ?2",
+            params![serde_json::to_string(&legacy).unwrap(), created.id()],
+        )
+        .unwrap();
+    drop(connection);
+
+    let fetched = store.get_task(created.id()).await.unwrap().unwrap();
+    let restored = OrcTask::from_a2a(fetched).unwrap();
+    let backfilled = restored.created_at().unwrap().unwrap();
+    let db_created_at = created_at_of(&path, created.id());
+    assert!(
+        backfilled.starts_with(&db_created_at[..10]),
+        "回填值必须来自表里的 created_at：{backfilled} vs {db_created_at}"
+    );
+
+    // 已有值不覆盖：显式写入的 createdAt 原样保留。
+    let mut explicit = restored;
+    explicit
+        .set_created_at("2020-01-02T03:04:05+00:00")
+        .unwrap();
+    store.save_task(&explicit.a2a_task).await.unwrap();
+    let fetched = store.get_task(created.id()).await.unwrap().unwrap();
+    assert_eq!(
+        OrcTask::from_a2a(fetched)
+            .unwrap()
+            .created_at()
+            .unwrap()
+            .as_deref(),
+        Some("2020-01-02T03:04:05+00:00")
+    );
+}

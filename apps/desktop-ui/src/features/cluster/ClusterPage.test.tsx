@@ -472,13 +472,25 @@ describe("ClusterPage 任务详情与发指令", () => {
     });
   });
 
-  it("第 2 轮任务：列表显示轮次徽标，详情展示本轮要求", async () => {
+  it("第 2 轮任务：列表显示轮次徽标，详情叠放轮次卡片并可展开完整时间线", async () => {
     const user = userEvent.setup();
     const roundTwo = orcTaskFixture("task-round2", {
       goal: "鹈鹕骑车图",
       name: "鹈鹕迭代",
       round: 2,
       roundInput: "翅膀握住车把，腿自然弯曲",
+      roundHistory: [
+        {
+          round: 1,
+          input: null,
+          summary: "第 1 轮结论：翅膀角度偏硬，腿太直。",
+        },
+        {
+          round: 2,
+          input: "翅膀握住车把，腿自然弯曲",
+          summary: null,
+        },
+      ],
     });
     renderWithQuery(fixturedBridge([roundTwo]));
 
@@ -487,10 +499,67 @@ describe("ClusterPage 任务详情与发指令", () => {
 
     const detail = await expandTask(user, "鹈鹕迭代");
     expect(within(detail).getByText("轮次")).toBeVisible();
-    expect(within(detail).getByText("第 2 轮要求")).toBeVisible();
+    // 折叠态：叠放卡片露出最新一轮要求 + 展开入口。
     expect(
       within(detail).getByText("翅膀握住车把，腿自然弯曲"),
     ).toBeVisible();
+    await user.click(
+      within(detail).getByRole("button", { name: "展开全部 2 轮" }),
+    );
+
+    // 展开态：完整时间线（第 1 轮初始需求 + 结论；第 2 轮本轮要求 + 进行中）。
+    expect(within(detail).getByText("迭代时间线")).toBeVisible();
+    expect(within(detail).getByText("初始需求")).toBeVisible();
+    expect(
+      within(detail).getByText("第 1 轮结论：翅膀角度偏硬，腿太直。"),
+    ).toBeVisible();
+    expect(within(detail).getByText("本轮要求")).toBeVisible();
+    expect(within(detail).getByText("本轮进行中")).toBeVisible();
+    expect(within(detail).getByRole("button", { name: "收起" })).toBeVisible();
+  });
+
+  it("创建时间：列表行显示短格式，详情信息一行显示完整格式", async () => {
+    const user = userEvent.setup();
+    const task = orcTaskFixture("task-created", {
+      goal: "展示创建时间",
+      createdAt: "2026-09-29T08:25:02.964Z",
+    });
+    renderWithQuery(fixturedBridge([task]));
+
+    const list = await taskTable();
+    const short = within(list).getByText(/^\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(short).toBeVisible();
+    expect(short.getAttribute("title")).toMatch(
+      /^创建于 \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/,
+    );
+
+    const detail = await expandTask(user, "展示创建时间");
+    expect(within(detail).getByText("创建于")).toBeVisible();
+    expect(
+      within(detail).getByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/),
+    ).toBeVisible();
+  });
+
+  it("操作按钮带一句话悬浮说明（title）", async () => {
+    const user = userEvent.setup();
+    renderWithQuery(fixturedBridge([workingTask]));
+
+    const detail = await expandTask(user, "登录重试");
+    expect(
+      within(detail)
+        .getByRole("button", { name: "发指令" })
+        .getAttribute("title"),
+    ).toContain("补充要求");
+    expect(
+      within(detail)
+        .getByRole("button", { name: "确认完成" })
+        .getAttribute("title"),
+    ).toContain("人工确认门");
+    expect(
+      within(detail)
+        .getByRole("button", { name: "提问" })
+        .getAttribute("title"),
+    ).toContain("不推进");
   });
 
   it("推进失败时保留页面并给出可读错误", async () => {

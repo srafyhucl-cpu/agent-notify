@@ -291,6 +291,8 @@ export function orcTaskFixture(
     name: overrides.name ?? [...goal].slice(0, 8).join(""),
     round: 1,
     roundInput: null,
+    createdAt: "2026-09-29T08:25:02.964Z",
+    roundHistory: [],
     workingDir: "D:/Project/agent-notify",
     finalizing: false,
     ...overrides,

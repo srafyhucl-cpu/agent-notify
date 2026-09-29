@@ -704,6 +704,8 @@ export function createMockHostBridge(
           name: taskName,
           round: 1,
           roundInput: null,
+          createdAt: new Date().toISOString(),
+          roundHistory: [{ round: 1, input: null, summary: null }],
           workingDir,
           blockedStep: null,
           blockReason: null,
@@ -821,6 +823,13 @@ export function createMockHostBridge(
         }
         task.round += 1;
         task.roundInput = cont.instruction?.trim() || null;
+        // 轮次时间线：追加新一轮记录（要求 = 本轮要求），并保留最近 20 轮（与后端同规则）。
+        task.roundHistory = [
+          ...(task.roundHistory ?? []).filter(
+            (record) => record.round < task.round,
+          ),
+          { round: task.round, input: task.roundInput, summary: null },
+        ].slice(-20);
         task.state = "working";
         task.currentStep = 1;
         task.finalizing = false;

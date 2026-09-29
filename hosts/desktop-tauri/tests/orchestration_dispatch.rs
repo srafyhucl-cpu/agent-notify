@@ -903,6 +903,17 @@ async fn continue_task_starts_next_round_with_instruction() {
         .expect("任务必须存在");
     assert_eq!(done.state, OrcTaskStateDto::Completed);
     assert_eq!(done.round, 1, "第 1 轮完成");
+    assert!(done.created_at.is_some(), "创建任务必须写入创建时间");
+    assert_eq!(done.round_history.len(), 1, "第 1 轮记录");
+    assert!(
+        done.round_history[0]
+            .summary
+            .as_deref()
+            .unwrap_or("")
+            .contains("达标"),
+        "第 1 轮结论摘要必须入时间线：{:?}",
+        done.round_history[0].summary
+    );
 
     // 继续迭代：带本轮要求 → 第 2 轮、回到第 1 步、信封带新一轮前缀。
     let calls_before = driver.calls().len();
@@ -921,6 +932,15 @@ async fn continue_task_starts_next_round_with_instruction() {
         Some("翅膀握住车把，腿自然弯曲")
     );
     assert!(!continued.finalizing);
+    // 轮次时间线：第 1 轮（带结论）+ 第 2 轮（带本轮要求、尚无结论）。
+    assert_eq!(continued.round_history.len(), 2, "两轮记录");
+    assert_eq!(continued.round_history[0].round, 1);
+    assert_eq!(continued.round_history[1].round, 2);
+    assert_eq!(
+        continued.round_history[1].input.as_deref(),
+        Some("翅膀握住车把，腿自然弯曲")
+    );
+    assert!(continued.round_history[1].summary.is_none());
 
     let calls = driver.calls();
     assert_eq!(calls.len(), calls_before + 1, "新一轮必须派活第 1 步");
@@ -1005,6 +1025,25 @@ async fn summary_verdict_continue_auto_starts_next_round() {
             .contains("翅膀没握把"),
         "{:?}",
         task.round_input
+    );
+    // 轮次时间线：第 1 轮结论（判定继续的汇总）+ 第 2 轮要求（问题清单）。
+    assert_eq!(task.round_history.len(), 2, "两轮记录");
+    assert!(
+        task.round_history[0]
+            .summary
+            .as_deref()
+            .unwrap_or("")
+            .contains("继续迭代"),
+        "第 1 轮结论必须入时间线：{:?}",
+        task.round_history[0].summary
+    );
+    assert_eq!(task.round_history[1].round, 2);
+    assert!(
+        task.round_history[1]
+            .input
+            .as_deref()
+            .unwrap_or("")
+            .contains("翅膀没握把")
     );
     let last = driver.calls().last().cloned().expect("必须有派活");
     assert!(
