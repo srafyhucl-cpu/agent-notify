@@ -177,7 +177,8 @@ fn turn_with_text(completed_at_ms: i64, text: &str) -> Vec<Value> {
             "info": {"type": "assistant", "time": {"created": completed_at_ms, "completed": completed_at_ms}},
             "parts": [{"type": "text", "text": text}],
         }),
-        json!({"info": {"type": "idle"}, "parts": []}),
+        // 会话收束标记：OpenCode 在回合结束后追加 idle 项（看门狗只认已收束的回合）。
+        json!({"info": {"type": "idle", "time": {"created": completed_at_ms + 1_000}}, "parts": []}),
     ]
 }
 
@@ -264,6 +265,46 @@ async fn ignores_turn_completed_before_dispatch() {
             .expect("读取当前步必须成功"),
         1
     );
+}
+
+/// 会话还在跑（尾部没有 idle 标记）：看门狗不得回注（真机事故回归：
+/// 把进行中的旁白当成最终汇报，导致第 2、3 步同时开跑）。
+#[tokio::test]
+async fn ignores_open_turn_while_session_busy() {
+    let (_root, store) = open_sqlite("agentnotify-watchdog-busy-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = Arc::new(dynamic_handler(&store, driver.clone()));
+    save_quickfix_config(&handler).await;
+    let dir = _root.path().to_string_lossy().into_owned();
+    let task_id = create_and_start(&handler, &dir).await;
+
+    let dispatched_at = load_task(&store, &task_id)
+        .await
+        .last_dispatch_at_ms()
+        .expect("读取派活时刻必须成功")
+        .expect("派活后必须记录派活时刻");
+    let completed_at = dispatched_at + 5_000;
+    let mut messages = turn_with_text(completed_at, "进行中的旁白");
+    messages.pop(); // 去掉 idle 标记：会话仍在跑
+    let logical = format!("task-{task_id}-step-1");
+    let probe = Arc::new(FakeProbe::new(vec![(
+        logical,
+        "ses-fake-step-1".into(),
+        messages,
+    )]));
+    let watchdog = OrcWatchdog::new(handler.clone(), store.clone(), probe);
+
+    let recovered = watchdog.run_once(completed_at + 90_000).await;
+    assert_eq!(recovered, 0, "会话进行中不得回注");
+    assert_eq!(
+        load_task(&store, &task_id)
+            .await
+            .current_step()
+            .expect("读取当前步必须成功"),
+        1,
+        "不得推进仍在运行的回合"
+    );
+    assert_eq!(driver.call_count(), 1, "不得额外派活下一步");
 }
 
 /// 旧任务（升级前没有派活时刻）：按会话最后一条 user 消息写基线，并兜底当前回合。

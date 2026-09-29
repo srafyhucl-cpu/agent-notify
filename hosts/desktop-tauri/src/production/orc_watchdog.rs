@@ -41,6 +41,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct TurnScan {
     /// 本回合是否出现过 assistant 消息（区分「没响应」与「响应了但没正文」）
     pub saw_assistant: bool,
+    /// 本回合是否已收束（会话尾部有 idle 标记；回合进行中不得回注）
+    pub closed: bool,
     /// 本回合最新一条带正文的 assistant 消息正文
     pub text: Option<String>,
     /// 该回合（最新 assistant 消息）的完成时间（ms epoch）
@@ -64,11 +66,18 @@ pub enum WatchdogDecision {
 ///
 /// 消息项形状兼容两种 OpenCode 返回：`{info: {...}, parts/content: [...]}` 与
 /// `{id, type, time, content: [...]}`；顺序不做假设（按 `time.created` 排序）。
+///
+/// `closed` 只认「最新一条消息是 idle 标记」：OpenCode 在会话收束（回合结束）时追加
+/// idle 项；回合进行中（还在工具调用/思考）尾部仍是 assistant 消息，此时**不得回注**，
+/// 否则会把进行中的旁白当成最终汇报（2026-09-29 真机事故）。
 pub fn scan_turn(items: &[Value]) -> TurnScan {
     let mut ordered: Vec<&Value> = items.iter().collect();
     ordered.sort_by_key(|item| value_field_i64(item, &["time", "created"]).unwrap_or(0));
 
     let mut scan = TurnScan::default();
+    if let Some(newest) = ordered.last() {
+        scan.closed = message_kind(newest).as_deref() == Some("idle");
+    }
     for item in ordered.iter().rev() {
         let kind = message_kind(item);
         if kind.as_deref() == Some("user") {
@@ -105,6 +114,10 @@ pub fn watchdog_decision(
         return WatchdogDecision::None;
     };
     if !turn.saw_assistant {
+        return WatchdogDecision::None;
+    }
+    if !turn.closed {
+        // 回合还在进行中（会话尾部没有 idle 标记）：不处理，避免把进行中的旁白当成最终汇报。
         return WatchdogDecision::None;
     }
     let Some(completed_at_ms) = turn.completed_at_ms else {
@@ -580,12 +593,31 @@ mod tests {
             message("user", 200, None),
             message("assistant", 300, None),
             message("assistant", 400, Some("本回合正文")),
-            json!({"info": {"type": "idle"}, "parts": []}),
+            json!({"info": {"type": "idle", "time": {"created": 500}}, "parts": []}),
         ];
         let turn = scan_turn(&items);
         assert!(turn.saw_assistant);
+        assert!(turn.closed, "尾部有 idle 标记 = 回合已收束");
         assert_eq!(turn.text.as_deref(), Some("本回合正文"));
         assert_eq!(turn.completed_at_ms, Some(400));
+    }
+
+    /// 回合进行中（尾部仍是 assistant，没有 idle 标记）：不得视为已收束。
+    #[test]
+    fn scan_turn_marks_open_turn_as_unclosed() {
+        let items = vec![
+            message("user", 200, None),
+            message("assistant", 300, Some("进行中的旁白")),
+            message("assistant", 400, Some("还在跑：工具调用之后的新旁白")),
+        ];
+        let turn = scan_turn(&items);
+        assert!(turn.saw_assistant);
+        assert!(!turn.closed, "进行中的回合不得标记为已收束");
+        // 未收束的回合一律不回注（真机事故：把旁白当成最终汇报）。
+        assert_eq!(
+            watchdog_decision(Some(100), None, &turn, 60_000, 100_000),
+            WatchdogDecision::None
+        );
     }
 
     /// 回合里没有正文：`text` 为空但 `saw_assistant` 为真（失败回注用）。
@@ -595,18 +627,21 @@ mod tests {
             message("assistant", 100, Some("上一轮正文")),
             message("user", 200, None),
             message("assistant", 300, None),
+            json!({"info": {"type": "idle", "time": {"created": 350}}, "parts": []}),
         ];
         let turn = scan_turn(&items);
         assert!(turn.saw_assistant);
+        assert!(turn.closed);
         assert_eq!(turn.text, None);
         assert_eq!(turn.completed_at_ms, Some(300));
     }
 
-    /// 判定：产出必须晚于派活、超出宽限、且未回注过。
+    /// 判定：产出必须晚于派活、超出宽限、回合已收束、且未回注过。
     #[test]
     fn watchdog_decision_guards() {
         let turn = TurnScan {
             saw_assistant: true,
+            closed: true,
             text: Some("完成正文".into()),
             completed_at_ms: Some(10_000),
         };
@@ -646,6 +681,7 @@ mod tests {
     fn watchdog_decision_reports_empty_turn_as_failure() {
         let turn = TurnScan {
             saw_assistant: true,
+            closed: true,
             text: None,
             completed_at_ms: Some(10_000),
         };
@@ -673,5 +709,6 @@ mod tests {
         let turn = scan_turn(&items);
         assert_eq!(turn.text.as_deref(), Some("V2 正文"));
         assert_eq!(turn.completed_at_ms, Some(25));
+        assert!(!turn.closed, "没有 idle 标记 = 回合未收束");
     }
 }
