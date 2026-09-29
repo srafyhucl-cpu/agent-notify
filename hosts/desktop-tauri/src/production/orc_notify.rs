@@ -94,7 +94,7 @@ pub fn progress_body(kind: MessageKind, action: TransitionAction, step: u32) -> 
     }
 }
 
-/// 失败提醒正文（§4.6 R8）：写清哪一步失败、谁不可用/未送达、需人工处理，不自动重推。
+/// 失败提醒正文（§4.6 R8）：写清哪一步失败、谁不可用/未送达、处理办法，不自动重试。
 pub fn failure_body(step: u32, reason: &str) -> String {
     format!("第 {step} 步失败：{reason}。请处理后点「重新发起」（不会自动重试）。")
 }
@@ -338,7 +338,7 @@ mod tests {
         );
     }
 
-    /// 失败提醒：写清哪一步失败、原因、需人工处理、不自动重推。
+    /// 失败提醒：写清哪一步失败、原因、处理办法、不自动重试。
     #[test]
     fn failure_body_states_step_reason_and_manual_handling() {
         let text = failure_body(2, "opencode 会话不可用（未登录），消息未送达");

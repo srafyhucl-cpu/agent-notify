@@ -5,7 +5,7 @@
 //! 覆盖（§4.6 / P1-4 验收）：
 //! - final_only：中间 Step 推进不推（仅落库），最终汇报/人工确认门才推；
 //! - verbose：每个推进类转移都推（带前后缀）；
-//! - 失败提醒一律推（写清失败 Step / 原因 / 需人工处理，不自动重推）；
+//! - 失败提醒一律推（写清失败步骤 / 原因 / 处理办法，不自动重试）；
 //! - 任务不存在：报错且不产生推送；恢复（recover_blocked）不额外推送（避免与 P1-3 微信回执重复）；
 //! - 任务创建：未显式指定继承全局默认，显式指定覆盖（现有语义保持）；
 //! - settings 默认读取/非法回退：真实 ProductionSettingsStore + ProductionOrcPresenter。
@@ -459,7 +459,7 @@ async fn failure_reminder_always_pushes_regardless_of_mode() {
         );
         assert!(text.contains("第 2 步失败"), "{text}");
         assert!(text.contains(reason), "必须写清失败原因：{text}");
-        assert!(text.contains("需人工处理"), "{text}");
+        assert!(text.contains("请处理后点「重新发起」"), "{text}");
         assert!(text.contains("不会自动重试"), "{text}");
         assert!(
             text.contains(&format!("【{task_id} · Step 2/3 · 已阻塞】")),

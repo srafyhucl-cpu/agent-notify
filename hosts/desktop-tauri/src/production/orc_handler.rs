@@ -852,7 +852,7 @@ impl OrcCommandHandler {
         Ok(dto)
     }
 
-    /// P1-4 失败提醒呈现：写清哪一步失败、原因，需人工处理（会话语义与命令 mark_blocked 一致）。
+    /// P1-4 失败提醒呈现：写清哪一步失败、原因与处理办法（会话语义与命令 mark_blocked 一致）。
     async fn present_blocked(
         &self,
         presenter: &Arc<dyn OrcClusterPresenter>,
