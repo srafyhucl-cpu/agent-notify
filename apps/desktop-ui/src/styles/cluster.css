@@ -39,6 +39,9 @@
   gap: var(--space-4);
   min-width: 0;
   padding: var(--space-4);
+  /* 控件字号与全站一致：标签 12px（--font-size-1）、控件与占位符 13px（--font-body）。 */
+  font-size: var(--font-body);
+  line-height: 1.5;
 }
 
 .cluster-dialog-actions {
@@ -198,7 +201,7 @@
 }
 
 .cluster-th-progress {
-  width: 150px;
+  width: 96px;
 }
 
 .cluster-th-notify {
@@ -268,15 +271,6 @@
   color: var(--color-primary);
 }
 
-/* 任务描述：名称下的次要一行（真实需求全文，长文换行不裁切） */
-.cluster-task-goal-text {
-  margin: 4px 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-1);
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
 /* 阻塞任务：名称标红，原因在行内直接可读（失败不藏着） */
 .cluster-task-row--blocked .cluster-task-name,
 .cluster-task-row--blocked .cluster-task-name:hover {
@@ -341,13 +335,6 @@
   background: var(--color-primary);
   border-color: transparent;
   animation: cluster-step-pulse var(--orc-node-pulse-duration) var(--ease-out) infinite;
-}
-
-.cluster-progress-text {
-  margin-left: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-1);
-  vertical-align: middle;
 }
 
 @keyframes cluster-step-pulse {

@@ -6,7 +6,6 @@ import { StatusBadge } from "../../components/patterns";
 import {
   ORC_NOTIFY_MODE_LABELS,
   orcNodeStatesOfTask,
-  orcTaskProgressLabel,
   orcTaskStateLabel,
   orcTaskStateTone,
   type OrcNodeState,
@@ -40,7 +39,7 @@ function stepDotClass(state: OrcNodeState | undefined): string {
 
 /**
  * 任务列表（对齐渠道页）：整行可点手风琴，默认全部收起；
- * 行内展示任务名称（短名）+ 描述、状态、按步骤的进度段与通知节奏；
+ * 行内只展示任务名称（短名）、状态、分步进度段与通知节奏；
  * 行尾提供编辑/删除（增删改查），阻塞任务标红并显示原因。
  */
 export function TaskList({
@@ -109,7 +108,6 @@ export function TaskList({
                     >
                       {task.name}
                     </button>
-                    <p className="cluster-task-goal-text">{task.goal}</p>
                     {blocked && task.blockReason ? (
                       <span className="cluster-task-reason">
                         {task.blockReason}
@@ -137,9 +135,6 @@ export function TaskList({
                           key={step.order}
                         />
                       ))}
-                    </span>
-                    <span className="cluster-progress-text">
-                      {orcTaskProgressLabel(task)}
                     </span>
                   </td>
                   <td className="cluster-task-notify">

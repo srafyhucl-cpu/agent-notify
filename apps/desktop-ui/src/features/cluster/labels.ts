@@ -101,14 +101,6 @@ export function orcTaskStateTone(
   return isPendingStart(task) ? "neutral" : ORC_TASK_STATE_TONES[task.state];
 }
 
-/** 列表进度文案：未开始显示总步数，已开始显示「第 N / M 步」。 */
-export function orcTaskProgressLabel(
-  task: Pick<OrcTaskDto, "state" | "started" | "currentStep" | "workflow">,
-): string {
-  const total = task.workflow.steps.length;
-  return isPendingStart(task) ? `共 ${total} 步` : `第 ${task.currentStep} / ${total} 步`;
-}
-
 /**
  * 节点链状态（可视化 §7）：动效只做注意力引导，语义由「颜色 + 简短中文标签」承载。
  * `idle` = 预览/配置态（无进度语义），`pending` = 未执行。

@@ -138,11 +138,10 @@ describe("ClusterPage 任务列表", () => {
     renderWithQuery(fixturedBridge([workingTask, blockedTask]));
 
     const list = await taskTable();
-    // 名称醒目、描述作为次要一行（真实需求仍可读）
+    // 行内只展示名称（描述只在展开详情里）；名称可点开详情
     expect(within(list).getByRole("button", { name: "登录重试" })).toBeVisible();
-    expect(within(list).getByText("把登录流程加入重试机制")).toBeVisible();
+    expect(within(list).queryByText("把登录流程加入重试机制")).not.toBeInTheDocument();
     expect(within(list).getByText("执行中")).toBeVisible();
-    expect(within(list).getByText("第 2 / 3 步")).toBeVisible();
     expect(within(list).getByText("只推最终汇报")).toBeVisible();
     // 进度段：3 步 = 3 段（当前/完成/待执行用样式区分）
     const workingRow = within(list)
@@ -153,7 +152,6 @@ describe("ClusterPage 任务列表", () => {
     expect(workingRow?.querySelector(".cluster-step-dot--done")).not.toBeNull();
 
     expect(within(list).getByRole("button", { name: "周报草稿" })).toBeVisible();
-    expect(within(list).getByText("生成周报草稿")).toBeVisible();
     expect(within(list).getByText("阻塞")).toBeVisible();
     expect(within(list).getByText("逐步流转")).toBeVisible();
     expect(
@@ -166,13 +164,12 @@ describe("ClusterPage 任务列表", () => {
     expect(blockedRow?.querySelector(".cluster-step-dot--failed")).not.toBeNull();
   });
 
-  it("未开始的任务显示「待开始」而不是「执行中」，进度显示总步数", async () => {
+  it("未开始的任务显示「待开始」而不是「执行中」", async () => {
     renderWithQuery(fixturedBridge([pendingTask]));
 
     const list = await taskTable();
     expect(within(list).getByText("待开始")).toBeVisible();
     expect(within(list).queryByText("执行中")).not.toBeInTheDocument();
-    expect(within(list).getByText("共 3 步")).toBeVisible();
   });
 
   it("汇总中的任务行标注「汇总中」", async () => {
