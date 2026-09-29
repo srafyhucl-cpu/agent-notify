@@ -661,7 +661,7 @@ impl OrcCommandHandler {
     ///
     /// 失败语义（§4.6）：`failed=true`（插件显式标记，或旧插件正文以「任务执行失败：」开头）
     /// **不 advance**——普通步骤 → blocked（「Step N 执行失败：…」）+ 失败提醒；
-    /// 汇总阶段首节点失败 → blocked（「首节点汇总回合失败：…」）。成功路径不变。
+    /// 汇总阶段首节点失败 → blocked（「项目经理汇总失败：…」）。成功路径不变。
     ///
     /// 汇总阶段（§4）：首节点（step=1）会话的成功上报 = 最终汇报 → 任务 Completed 并推送呈现层。
     ///
@@ -1020,7 +1020,7 @@ impl OrcCommandHandler {
     /// 派活「汇总信封」到首节点会话（resume，§4）：任务处于 finalizing 时使用，
     /// 也用于 blocked 后自动重派（v2 修订：不再需要再点一次「发指令」）。
     ///
-    /// 失败 → blocked（blocked_step = 1，原因「汇总汇报派活失败：…」）+ 失败提醒。
+    /// 失败 → blocked（blocked_step = 1，原因「最终汇总：…」）+ 失败提醒。
     async fn dispatch_summary(&self, store: &OrcStore, task: &OrcTask) {
         let Some(driver) = self.driver.as_ref() else {
             return;

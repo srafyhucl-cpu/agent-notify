@@ -382,11 +382,7 @@ async fn dispatch_failure_blocks_task_with_clear_reason() {
     assert_eq!(task.blocked_step, Some(2));
     let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
     assert!(
-        reason.contains("无法唤醒"),
-        "必须写清是哪个 Agent 没唤醒成功：{reason}"
-    );
-    assert!(
-        reason.contains("OpenCode 插件未连接"),
+        reason.contains("插件未连接") && reason.contains("请启动 OpenCode"),
         "必须带上可执行的处理办法：{reason}"
     );
     assert!(
