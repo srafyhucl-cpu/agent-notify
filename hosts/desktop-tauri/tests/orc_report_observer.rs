@@ -373,7 +373,7 @@ async fn project_manager_flow_dispatches_summary_and_completes() {
     assert!(
         pushed[0]
             .1
-            .contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
+            .contains("【做一个贪吃蛇游戏 · Step 3/3 · 已完成】"),
         "{}",
         pushed[0].1
     );

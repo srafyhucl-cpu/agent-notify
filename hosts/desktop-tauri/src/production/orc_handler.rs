@@ -832,7 +832,13 @@ impl OrcCommandHandler {
             step
         };
         let body = progress_body(kind, outcome.action, reported_step);
-        let text = render_cluster_message(task.id(), step, total, state_cn(&dto.state), &body);
+        let text = render_cluster_message(
+            &cluster_task_label(task),
+            step,
+            total,
+            state_cn(&dto.state),
+            &body,
+        );
         presenter.push(task.id(), text).await;
     }
 
@@ -859,7 +865,7 @@ impl OrcCommandHandler {
             return;
         }
         let text = render_cluster_message(
-            task.id(),
+            &cluster_task_label(task),
             order,
             workflow.max_order(),
             state_cn(&OrcTaskStateDto::Working),
@@ -880,7 +886,7 @@ impl OrcCommandHandler {
         let total = workflow.max_order();
         let step = task.current_step().unwrap_or(total).min(total.max(1));
         let text = render_cluster_message(
-            task.id(),
+            &cluster_task_label(task),
             step,
             total,
             state_cn(&OrcTaskStateDto::Completed),
@@ -919,7 +925,7 @@ impl OrcCommandHandler {
         };
         let total = store.workflow().max_order();
         let text = render_cluster_message(
-            task.id(),
+            &cluster_task_label(task),
             1,
             total,
             state_cn(&OrcTaskStateDto::Working),
@@ -950,7 +956,7 @@ impl OrcCommandHandler {
         let dto = orc_task_to_dto(&task, store.workflow())?;
         // P1-4 失败提醒不受 notify_mode 限制：一律外发（§4.6：写清失败 Step/原因，不自动重推）。
         if let Some(presenter) = &self.presenter {
-            self.present_blocked(presenter, store.workflow(), task.id(), payload.step, reason)
+            self.present_blocked(presenter, store.workflow(), &task, payload.step, reason)
                 .await;
         }
         Ok(dto)
@@ -961,19 +967,19 @@ impl OrcCommandHandler {
         &self,
         presenter: &Arc<dyn OrcClusterPresenter>,
         workflow: &Workflow,
-        task_id: &str,
+        task: &OrcTask,
         step: u32,
         reason: &str,
     ) {
         let total = workflow.max_order();
         let text = render_cluster_message(
-            task_id,
+            &cluster_task_label(task),
             step,
             total,
             state_cn(&OrcTaskStateDto::Failed),
             &failure_body(step, reason),
         );
-        presenter.push(task_id, text).await;
+        presenter.push(task.id(), text).await;
     }
 
     /// P2 推进后自动派活：`outcome.action` 属于要干活的转移（Advance/BackToWork/Recover）
@@ -1263,7 +1269,7 @@ impl OrcCommandHandler {
         match store.mark_blocked(task_id, step, &reason).await {
             Ok(task) => {
                 if let Some(presenter) = &self.presenter {
-                    self.present_blocked(presenter, store.workflow(), task.id(), step, &reason)
+                    self.present_blocked(presenter, store.workflow(), &task, step, &reason)
                         .await;
                 }
             }
@@ -1465,6 +1471,14 @@ fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, Co
         working_dir: meta.working_dir,
         finalizing: meta.final_report_pending,
     })
+}
+
+/// 集群消息里的任务标识（用户可读）：任务名称（缺省按目标推导）；元数据损坏时退回任务 ID 以便定位。
+fn cluster_task_label(task: &OrcTask) -> String {
+    match task.meta() {
+        Ok(meta) => display_name(meta.name.as_deref(), &meta.goal),
+        Err(_) => task.id().to_string(),
+    }
 }
 
 /// 任务展示名：显式名称优先；旧任务缺省时按目标前 8 字推导（界面/会话标题始终可读）。

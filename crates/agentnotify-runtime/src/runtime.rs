@@ -45,7 +45,7 @@ struct SnapshotMetadata {
 
 /// 入站消息拦截边界（P1-3 微信集群指令入口）：在引用回复路由之前先询问拦截器。
 ///
-/// 拦截器实现由宿主注入（桌面端用它把「【集群 <task_id>】…」消息路由到编排命令）；
+/// 拦截器实现由宿主注入（桌面端用它把「【集群 <任务名>】…」消息路由到编排命令）；
 /// 拦截器内部负责向用户回执可读结果，本 trait 只表达消费判定，不承载业务错误。
 #[async_trait::async_trait]
 pub trait InboundInterceptor: Send + Sync {

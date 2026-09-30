@@ -192,7 +192,7 @@ async fn final_only_pushes_only_the_final_report() {
     let (pushed_task, text) = &records[0];
     assert_eq!(pushed_task, &task_id);
     assert!(
-        text.contains(&format!("【集群 {task_id}】")),
+        text.contains("【集群 做一个贪吃蛇游戏】"),
         "缺少前缀：{text}"
     );
     assert!(
@@ -200,7 +200,7 @@ async fn final_only_pushes_only_the_final_report() {
         "缺少最终汇报正文：{text}"
     );
     assert!(
-        text.contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
+        text.contains("【做一个贪吃蛇游戏 · Step 3/3 · 已完成】"),
         "缺少后缀：{text}"
     );
 }
@@ -252,7 +252,7 @@ async fn verbose_pushes_every_step_progress() {
         assert!(
             records[0]
                 .1
-                .contains(&format!("【{task_id} · Step 2/3 · 干活中】")),
+                .contains("【做一个贪吃蛇游戏 · Step 2/3 · 干活中】"),
             "{}",
             records[0].1
         );
@@ -264,7 +264,7 @@ async fn verbose_pushes_every_step_progress() {
         assert!(
             records[1]
                 .1
-                .contains(&format!("【{task_id} · Step 3/3 · 干活中】")),
+                .contains("【做一个贪吃蛇游戏 · Step 3/3 · 干活中】"),
             "{}",
             records[1].1
         );
@@ -276,7 +276,7 @@ async fn verbose_pushes_every_step_progress() {
         assert!(
             records[2]
                 .1
-                .contains(&format!("【{task_id} · Step 3/3 · 干活中】")),
+                .contains("【做一个贪吃蛇游戏 · Step 3/3 · 干活中】"),
             "{}",
             records[2].1
         );
@@ -303,7 +303,7 @@ async fn verbose_pushes_every_step_progress() {
         assert!(
             records[3]
                 .1
-                .contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
+                .contains("【做一个贪吃蛇游戏 · Step 3/3 · 已完成】"),
             "{}",
             records[3].1
         );
@@ -376,7 +376,7 @@ async fn final_only_pushes_gate_wait_and_final_report() {
         assert!(
             records[0]
                 .1
-                .contains(&format!("【{task_id} · Step 4/4 · 等待确认】")),
+                .contains("【带人工确认的任务 · Step 4/4 · 等待确认】"),
             "{}",
             records[0].1
         );
@@ -413,7 +413,7 @@ async fn final_only_pushes_gate_wait_and_final_report() {
     assert!(
         records[1]
             .1
-            .contains(&format!("【{task_id} · Step 4/4 · 已完成】")),
+            .contains("【带人工确认的任务 · Step 4/4 · 已完成】"),
         "{}",
         records[1].1
     );
@@ -453,16 +453,13 @@ async fn failure_reminder_always_pushes_regardless_of_mode() {
         assert_eq!(records.len(), 1, "{mode} 失败提醒必须推：{:?}", records);
         let (pushed_task, text) = &records[0];
         assert_eq!(pushed_task, &task_id);
-        assert!(
-            text.contains(&format!("【集群 {task_id}】")),
-            "缺少前缀：{text}"
-        );
+        assert!(text.contains("【集群 失败提醒测试】"), "缺少前缀：{text}");
         assert!(text.contains("第 2 步失败"), "{text}");
         assert!(text.contains(reason), "必须写清失败原因：{text}");
         assert!(text.contains("请处理后点「重新发起」"), "{text}");
         assert!(text.contains("不会自动重试"), "{text}");
         assert!(
-            text.contains(&format!("【{task_id} · Step 2/3 · 已阻塞】")),
+            text.contains("【失败提醒测试 · Step 2/3 · 已阻塞】"),
             "缺少后缀：{text}"
         );
     }

@@ -1,11 +1,11 @@
 //! 微信集群指令路由（P1-3，§9 D-入口「微信回复」侧）。
 //!
-//! 实现 [`InboundInterceptor`]：把「【集群 <task_id>】…」的入站消息识别为集群指令，
+//! 实现 [`InboundInterceptor`]：把「【集群 <任务名>】…」的入站消息识别为集群指令，
 //! **复用 [`OrcCommandHandler`] 的 advance / recover_blocked 业务能力**推进任务，
 //! 并向微信回执结果（成功摘要或明确的中文失败原因，不静默吞掉）。
 //!
 //! 识别与映射规则（定死方案，解析纯函数在 `agentnotify-orchestration::wechat_command`）：
-//! - 前缀「【集群 」+ task_id + 「】」；不兼容「【task 」前缀，格式不符完全走既有引用回复链路；
+//! - 前缀「【集群 」+（任务名或任务 ID）+「】」；不兼容「【task 」前缀，格式不符完全走既有引用回复链路；
 //! - 确认 / 完成 / confirm → `Confirm`（advance）；恢复 / recover / 重发 → `Recover`
 //!   （recover_blocked，仅对 blocked 任务有效）；指令 / 下一步 / instruction → `Instruction`
 //!   （advance）；其余正文默认按「指令」处理（兜底不丢指令）；
@@ -42,8 +42,12 @@ const ORC_WECHAT_REPLY_UNCONFIRMED: &str = "orc_wechat_reply_unconfirmed";
 const ORCHESTRATION_DISABLED_CODE: &str = "orchestration_disabled";
 /// 指令正文为空时的错误码（识别成功但内容缺失，明确报错不猜测）。
 const ORC_WECHAT_BODY_EMPTY: &str = "orc_wechat_body_empty";
+/// 指令寻址找不到任务（任务名/任务 ID 都不匹配）。
+const ORC_WECHAT_TASK_UNKNOWN: &str = "orc_wechat_task_unknown";
+/// 指令寻址命中多个同名任务（不猜，明确要求消歧）。
+const ORC_WECHAT_TASK_AMBIGUOUS: &str = "orc_wechat_task_ambiguous";
 
-/// 微信集群指令路由器：识别「【集群 <task_id>】…」消息并调用编排命令，面向用户回执。
+/// 微信集群指令路由器：识别「【集群 <任务名或任务ID>】…」消息并调用编排命令，面向用户回执。
 pub struct WechatOrcRouter {
     handler: OrcCommandHandler,
     channels: Arc<ChannelRegistry>,
@@ -69,18 +73,20 @@ impl WechatOrcRouter {
     }
 
     /// 执行指令：正文为空明确报错；否则按映射调用 advance / recover_blocked。
+    /// 寻址（`【集群 <任务名或任务ID>】`）先解析成任务 ID，再交给业务命令。
     async fn route(&self, command: &ClusterCommand) -> Result<OrcTaskDto, CommandError> {
         if command.body.trim().is_empty() {
             return Err(CommandError::new(
                 ORC_WECHAT_BODY_EMPTY,
-                "集群指令缺少正文：请在【集群 <任务ID>】后附上指令（确认 / 指令内容 / 恢复）",
+                "集群指令缺少正文：请在【集群 <任务名>】后附上指令（确认 / 指令内容 / 恢复）",
             ));
         }
+        let task_id = self.resolve_task_id(&command.address).await?;
         match parse_wechat_action(&command.body) {
             WechatAction::Confirm => {
                 self.handler
                     .advance(AdvanceOrcTaskPayload {
-                        task_id: command.task_id.clone(),
+                        task_id,
                         kind: OrcMessageKindDto::Confirm,
                     })
                     .await
@@ -88,19 +94,43 @@ impl WechatOrcRouter {
             WechatAction::Instruction => {
                 self.handler
                     .advance(AdvanceOrcTaskPayload {
-                        task_id: command.task_id.clone(),
+                        task_id,
                         kind: OrcMessageKindDto::Instruction,
                     })
                     .await
             }
             WechatAction::Recover => {
                 self.handler
-                    .recover_blocked(OrcTaskIdPayload {
-                        task_id: command.task_id.clone(),
-                    })
+                    .recover_blocked(OrcTaskIdPayload { task_id })
                     .await
             }
         }
+    }
+
+    /// 把指令里的地址解析成任务 ID：优先任务 ID 精确匹配，其次任务名精确匹配；
+    /// 找不到 / 多个同名都返回面向微信用户的中文错误（不猜，不误伤别的任务）。
+    async fn resolve_task_id(&self, address: &str) -> Result<String, CommandError> {
+        let trimmed = address.trim();
+        let tasks = self.handler.list().await?;
+        if let Some(task) = tasks.iter().find(|task| task.id == trimmed) {
+            return Ok(task.id.clone());
+        }
+        let mut matched = tasks.iter().filter(|task| task.name.trim() == trimmed);
+        let Some(first) = matched.next() else {
+            return Err(CommandError::new(
+                ORC_WECHAT_TASK_UNKNOWN,
+                format!(
+                    "找不到任务「{trimmed}」：请按【集群 <任务名>】寻址（任务名见桌面端集群页），或使用任务 ID"
+                ),
+            ));
+        };
+        if matched.next().is_some() {
+            return Err(CommandError::new(
+                ORC_WECHAT_TASK_AMBIGUOUS,
+                format!("有多个任务都叫「{trimmed}」：请在桌面端操作，或改用任务 ID 寻址"),
+            ));
+        }
+        Ok(first.id.clone())
     }
 
     /// 向绑定私聊回执结果；失败只记录（诊断可见），不重试、不影响任务状态。
@@ -152,7 +182,7 @@ impl InboundInterceptor for WechatOrcRouter {
             return Ok(false);
         };
         // 已识别为集群指令：本消息不再进入引用回复路由（识别即消费，与编排开关无关）。
-        tracing::info!(task_id = %command.task_id, "识别到微信集群指令");
+        tracing::info!(address = %command.address, "识别到微信集群指令");
 
         let Some(channel) = self.channels.get(&message.channel_id) else {
             tracing::warn!(
@@ -185,7 +215,7 @@ impl InboundInterceptor for WechatOrcRouter {
             Ok(dto) => success_text(action, &dto),
             Err(error) => {
                 if error.code() != ORCHESTRATION_DISABLED_CODE {
-                    tracing::warn!(code = error.code(), task_id = %command.task_id, "集群指令执行失败");
+                    tracing::warn!(code = error.code(), address = %command.address, "集群指令执行失败");
                 }
                 format!("集群指令未生效：{}", error.message())
             }
@@ -195,7 +225,7 @@ impl InboundInterceptor for WechatOrcRouter {
     }
 }
 
-/// 成功回执：[任务摘要] + 动作说明（状态用中文，用户直接可读）。
+/// 成功回执：[任务名] + 动作说明（状态用中文，用户直接可读）。
 fn success_text(action: WechatAction, dto: &OrcTaskDto) -> String {
     let action_cn = match action {
         WechatAction::Confirm => "已确认，任务按指令推进",
@@ -204,7 +234,7 @@ fn success_text(action: WechatAction, dto: &OrcTaskDto) -> String {
     };
     format!(
         "【{} · Step {} · {}】{}",
-        dto.id,
+        dto.name,
         dto.current_step,
         state_cn(&dto.state),
         action_cn
