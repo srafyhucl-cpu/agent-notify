@@ -1,5 +1,16 @@
 # 「微信会话已断开」可见提醒设计
 
+> **2.0 Rust 桌面端实现状态（2026-09-30 补齐）**：`ClawBotChannel::inspect` 已按本设计判定
+> 「已登录但推送会话失效」——`session_established_at` 有值但 context token 缺失（或绑定了别的用户）
+> 时返回 `ChannelHealth::stale("clawbot_push_session_missing",
+> "ClawBot 主动推送会话失效：请在微信里给 ClawBot 发任意一条消息即可恢复")`，
+> 渠道页 / 总览健康锚点会同步显示；从未就绪（刚登录等首条消息）不报警。
+> 登录失效（`stale_at`，平台 ret=-14）优先提示重新扫码。
+> **气泡提醒已补**（`production/wechat_alert.rs`）：随运行时每 60s 巡检 ClawBot 健康，
+> 首次进入「推送会话失效」时弹一次系统通知（标题「微信推送已断开」+ 恢复指引），
+> 提醒时刻落库 `session_alert_at`（跨进程重启不重复弹）；会话恢复（session 轮询重新拿到上下文）
+> 时清除该记录，再次失效可再弹。未登录 / 登录失效 / 从未就绪都不弹。
+
 ## 背景
 
 ClawBot 主动推送依赖服务端下发的 `context_token`。该上下文会被服务端回收，典型表现是发送接口返回 `ret=-2 / errmsg="prepare failed"`。此时登录仍然有效，但所有通知都发不出去，`push.log` 记录为 `会话未建立`。

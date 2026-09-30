@@ -105,6 +105,25 @@
   --color-danger-soft: rgba(255, 139, 135, 0.16);
   --color-success-soft: rgba(74, 222, 128, 0.16);
 
+  /* 工作流步骤主题色（§12.6）：第 1 步 蓝青 / 2 紫 / 3 橙 / 4 品红 / 5 步起 青绿。
+     只做节点身份标识（色条/序号徽标/连接线），避开失败红与成功绿；
+     soft（柔和底）与 glow（辉光）由主色同源派生。 */
+  --orc-step-1: #4dd0f0;
+  --orc-step-2: #b18cfa;
+  --orc-step-3: #fb923c;
+  --orc-step-4: #f472b6;
+  --orc-step-5: #2dd4bf;
+  --orc-step-1-soft: color-mix(in srgb, var(--orc-step-1) 16%, transparent);
+  --orc-step-2-soft: color-mix(in srgb, var(--orc-step-2) 16%, transparent);
+  --orc-step-3-soft: color-mix(in srgb, var(--orc-step-3) 16%, transparent);
+  --orc-step-4-soft: color-mix(in srgb, var(--orc-step-4) 16%, transparent);
+  --orc-step-5-soft: color-mix(in srgb, var(--orc-step-5) 16%, transparent);
+  --orc-step-1-glow: color-mix(in srgb, var(--orc-step-1) 45%, transparent);
+  --orc-step-2-glow: color-mix(in srgb, var(--orc-step-2) 45%, transparent);
+  --orc-step-3-glow: color-mix(in srgb, var(--orc-step-3) 45%, transparent);
+  --orc-step-4-glow: color-mix(in srgb, var(--orc-step-4) 45%, transparent);
+  --orc-step-5-glow: color-mix(in srgb, var(--orc-step-5) 45%, transparent);
+
   --glass-bg-1: rgba(18, 20, 29, 0.7);
   --glass-bg-2: rgba(24, 28, 41, 0.85);
   --glass-bg-3: rgba(30, 36, 54, 0.95);
@@ -159,6 +178,23 @@
   --color-warning-soft: rgba(146, 64, 14, 0.08);
   --color-danger-soft: rgba(185, 28, 28, 0.08);
   --color-success-soft: rgba(22, 101, 52, 0.08);
+
+  /* 工作流步骤主题色（§12.6，亮色版：白面上可读的深色调，同样避开失败红与成功绿）。 */
+  --orc-step-1: #0e7490;
+  --orc-step-2: #6d28d9;
+  --orc-step-3: #c2410c;
+  --orc-step-4: #be185d;
+  --orc-step-5: #0f766e;
+  --orc-step-1-soft: color-mix(in srgb, var(--orc-step-1) 10%, transparent);
+  --orc-step-2-soft: color-mix(in srgb, var(--orc-step-2) 10%, transparent);
+  --orc-step-3-soft: color-mix(in srgb, var(--orc-step-3) 10%, transparent);
+  --orc-step-4-soft: color-mix(in srgb, var(--orc-step-4) 10%, transparent);
+  --orc-step-5-soft: color-mix(in srgb, var(--orc-step-5) 10%, transparent);
+  --orc-step-1-glow: color-mix(in srgb, var(--orc-step-1) 32%, transparent);
+  --orc-step-2-glow: color-mix(in srgb, var(--orc-step-2) 32%, transparent);
+  --orc-step-3-glow: color-mix(in srgb, var(--orc-step-3) 32%, transparent);
+  --orc-step-4-glow: color-mix(in srgb, var(--orc-step-4) 32%, transparent);
+  --orc-step-5-glow: color-mix(in srgb, var(--orc-step-5) 32%, transparent);
 
   --glass-bg-1: rgba(255, 255, 255, 0.85);
   --glass-bg-2: rgba(255, 255, 255, 0.95);

@@ -8,15 +8,15 @@ use tauri::State;
 
 use super::dto::{
     AdvanceOrcTaskPayload, AgentDto, BeginChannelLoginPayload, BeginChannelLoginResultDto,
-    ChannelAccountDto, ChannelAccountIdPayload, ChannelListDto, CreateOrcTaskPayload,
-    CurrentOrcWorkflowDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto, EmptyPayload,
-    InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto, LoginSessionDto,
-    MarkBlockedOrcTaskPayload, MutationAcceptedDto, NotificationDetailDto,
-    NotificationFilterPayload, NotificationIdPayload, NotificationListDto, OpencodeProjectDto,
-    OrcTaskDto, OrcTaskIdPayload, OrcTemplateDto, RuntimeSnapshotDto, RuntimeSummaryDto,
-    SaveOrcTemplateConfigPayload, SendTestNotificationPayload, SetRuntimePausedPayload,
-    SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
-    UpdateAgentConfigPayload, UpdateStatusDto,
+    ChannelAccountDto, ChannelAccountIdPayload, ChannelListDto, ContinueOrcTaskPayload,
+    CreateOrcTaskPayload, CurrentOrcWorkflowDto, DeliveryDto, DeliveryIdPayload, DiagnosticsDto,
+    EmptyPayload, InstallUpdatePayload, InstallUpdateResultDto, LegacyMigrationDto,
+    LoginSessionDto, MarkBlockedOrcTaskPayload, MutationAcceptedDto, NotificationDetailDto,
+    NotificationFilterPayload, NotificationIdPayload, NotificationListDto, OpencodeModelDto,
+    OpencodeProjectDto, OrcTaskDto, OrcTaskIdPayload, OrcTemplateDto, RuntimeSnapshotDto,
+    RuntimeSummaryDto, SaveOrcTemplateConfigPayload, SendTestNotificationPayload,
+    SetRuntimePausedPayload, SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
+    UpdateAgentConfigPayload, UpdateOrcTaskPayload, UpdateOrcTaskStepPayload, UpdateStatusDto,
 };
 use super::error::CommandError;
 
@@ -166,6 +166,30 @@ pub trait HostCommandService:
     /// 开始执行（人工确认）：创建后的任务先「待开始」，此命令标记已开始并派活第 1 步。
     async fn start_orc_task(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError>;
 
+    /// 更新任务（名称/描述/通知节奏；未提供字段不变；描述仅未开始任务可改）。
+    async fn update_orc_task(
+        &self,
+        payload: UpdateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
+
+    /// 修改某一步的模型/思考强度（任务结束前可改；改写任务步骤快照）。
+    async fn update_orc_task_step(
+        &self,
+        payload: UpdateOrcTaskStepPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
+
+    /// 删除任务（幂等；界面确认后调用）。
+    async fn delete_orc_task(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<MutationAcceptedDto, CommandError>;
+
+    /// 继续迭代（本轮结束后开始新一轮；可带本轮要求）。
+    async fn continue_orc_task(
+        &self,
+        payload: ContinueOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
+
     /// 当前编排工作流（节点列表）：创建任务前预览「每步做什么、派给谁」。
     async fn get_current_orc_workflow(
         &self,
@@ -189,6 +213,12 @@ pub trait HostCommandService:
         &self,
         payload: EmptyPayload,
     ) -> Result<Vec<OpencodeProjectDto>, CommandError>;
+
+    /// OpenCode 可用模型（模型下拉数据源）：只读本地服务；失败明确报错退回手动输入。
+    async fn list_opencode_models(
+        &self,
+        payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeModelDto>, CommandError>;
 }
 
 /// Tauri 管理的命令状态；后续宿主任务只负责注入新的服务实现。
@@ -533,6 +563,34 @@ impl HostCommandService for UnavailableHostCommandService {
         Err(CommandError::unavailable_message(&self.message))
     }
 
+    async fn update_orc_task(
+        &self,
+        _payload: UpdateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn update_orc_task_step(
+        &self,
+        _payload: UpdateOrcTaskStepPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn delete_orc_task(
+        &self,
+        _payload: OrcTaskIdPayload,
+    ) -> Result<MutationAcceptedDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn continue_orc_task(
+        &self,
+        _payload: ContinueOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
     async fn get_current_orc_workflow(
         &self,
         _payload: EmptyPayload,
@@ -558,6 +616,13 @@ impl HostCommandService for UnavailableHostCommandService {
         &self,
         _payload: EmptyPayload,
     ) -> Result<Vec<OpencodeProjectDto>, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
+    async fn list_opencode_models(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeModelDto>, CommandError> {
         Err(CommandError::unavailable_message(&self.message))
     }
 }
@@ -834,6 +899,46 @@ pub async fn start_orc_task(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn update_orc_task(
+    state: State<'_, BridgeState>,
+    payload: UpdateOrcTaskPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.update_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_orc_task_step(
+    state: State<'_, BridgeState>,
+    payload: UpdateOrcTaskStepPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.update_orc_task_step(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_orc_task(
+    state: State<'_, BridgeState>,
+    payload: OrcTaskIdPayload,
+) -> Result<MutationAcceptedDto, CommandError> {
+    let service = state.service.current().await;
+    service.delete_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn continue_orc_task(
+    state: State<'_, BridgeState>,
+    payload: ContinueOrcTaskPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.continue_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn get_current_orc_workflow(
     state: State<'_, BridgeState>,
     payload: EmptyPayload,
@@ -870,4 +975,14 @@ pub async fn list_opencode_projects(
 ) -> Result<Vec<OpencodeProjectDto>, CommandError> {
     let service = state.service.current().await;
     service.list_opencode_projects(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_opencode_models(
+    state: State<'_, BridgeState>,
+    payload: EmptyPayload,
+) -> Result<Vec<OpencodeModelDto>, CommandError> {
+    let service = state.service.current().await;
+    service.list_opencode_models(payload).await
 }

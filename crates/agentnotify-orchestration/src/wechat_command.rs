@@ -1,7 +1,7 @@
 //! 微信集群指令识别（§9 D-入口「微信回复」侧，P1-3）。
 //!
 //! 识别规则（定死方案，避免过度设计）：
-//! - 只有以「【集群 」开头、随后是 `<task_id>`、以「】」收尾的消息才判定为集群指令；
+//! - 只有以「【集群 」开头、随后是「任务地址」（任务名或任务 ID）、以「】」收尾的消息才判定为集群指令；
 //! - **不兼容「【task 」前缀**：与既有普通任务消息/引用回复区分开，避免误判；
 //! - 其余任何消息都不是集群指令（`parse_cluster_command` 返回 `None`），完全走既有回复链路。
 //!
@@ -17,13 +17,14 @@
 //! 语义约定：`confirm` 只有任务处于「等待确认」时才有效（状态机负责拒绝）；`恢复` 只对
 //! blocked（A2A `failed`）任务有效，非阻塞任务由 `recover_blocked` 明确报错。
 
-/// 集群指令固定前缀（设计文档 §4.6/S9：`【集群 <task_id>】`）。
+/// 集群指令固定前缀（设计文档 §4.6/S9：`【集群 <任务名或任务ID>】`）。
 pub const WECHAT_CLUSTER_PREFIX: &str = "【集群 ";
 
-/// 识别出的集群指令：`task_id` + 指令正文（可能为空，由路由层报错，不猜测兜底）。
+/// 识别出的集群指令：任务地址（任务名或任务 ID）+ 指令正文（可能为空，由路由层报错，不猜测兜底）。
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ClusterCommand {
-    pub task_id: String,
+    /// 任务地址：任务名（面向用户）或任务 ID（兼容旧消息）；由路由层解析成任务 ID。
+    pub address: String,
     pub body: String,
 }
 
@@ -49,21 +50,24 @@ impl WechatAction {
     }
 }
 
-/// 识别集群指令：`【集群 <task_id>】正文`。格式不符返回 `None`（走老路径）。
+/// 识别集群指令：`【集群 <任务名或任务ID>】正文`。格式不符返回 `None`（走老路径）。
 ///
 /// 正文允许为空（返回 `Some` 且 `body` 为空），由路由层给用户明确报错；
-/// `task_id` 为空（如 `【集群 】确认`）视为格式不符。
+/// 地址为空（如 `【集群 】确认`）视为格式不符。
+///
+/// 寻址以**第一个 `】`** 收尾：任务名禁止包含 `】`/`【`（创建/编辑侧校验），
+/// 否则地址会被截断（B3）。
 pub fn parse_cluster_command(text: &str) -> Option<ClusterCommand> {
     let text = text.trim();
     let rest = text.strip_prefix(WECHAT_CLUSTER_PREFIX)?;
     let close = rest.find('】')?;
-    let task_id = rest[..close].trim();
-    if task_id.is_empty() {
+    let address = rest[..close].trim();
+    if address.is_empty() {
         return None;
     }
     let body = rest[close + '】'.len_utf8()..].trim();
     Some(ClusterCommand {
-        task_id: task_id.to_owned(),
+        address: address.to_owned(),
         body: body.to_owned(),
     })
 }
@@ -117,16 +121,16 @@ mod tests {
     #[test]
     fn parse_cluster_command_extracts_task_id_and_body() {
         let command = parse_cluster_command("【集群 task_9】确认").expect("标准格式必须识别");
-        assert_eq!(command.task_id, "task_9");
+        assert_eq!(command.address, "task_9");
         assert_eq!(command.body, "确认");
 
         let command =
             parse_cluster_command("  【集群 task_9】  确认，可以  ").expect("首尾空白必须容忍");
-        assert_eq!(command.task_id, "task_9");
+        assert_eq!(command.address, "task_9");
         assert_eq!(command.body, "确认，可以");
 
         let command = parse_cluster_command("【集群 task_9】").expect("无正文也要识别出 task_id");
-        assert_eq!(command.task_id, "task_9");
+        assert_eq!(command.address, "task_9");
         assert!(command.body.is_empty(), "空正文保持为空，由路由层明确报错");
     }
 
@@ -147,6 +151,24 @@ mod tests {
         assert_eq!(parse_cluster_command("【集群  】"), None);
         assert_eq!(parse_cluster_command("普通消息"), None);
         assert_eq!(parse_cluster_command(""), None);
+    }
+
+    /// B3：正常任务名解析不受影响；地址段内含/后接 `】` 时只在第一个 `】` 收尾，
+    /// 不会误定位到后面的文字（这正是创建/编辑禁止 `】`/`【` 的原因）。
+    #[test]
+    fn address_separator_does_not_misroute() {
+        // 正常任务名：解析不受影响。
+        let command = parse_cluster_command("【集群 发版自检-闭环】确认").expect("正常名必须解析");
+        assert_eq!(command.address, "发版自检-闭环");
+        assert_eq!(command.body, "确认");
+
+        // 名称里混入分隔符（创建侧已拒绝）：地址在第一个 `】` 截断，不会跳到后续候选名。
+        let command = parse_cluster_command("【集群 发版自检】-闭环】确认").expect("仍能解析");
+        assert_eq!(command.address, "发版自检", "地址在第一个 】 截断");
+        assert_eq!(command.body, "-闭环】确认");
+
+        // 空地址后接 `】`：仍是无效指令，不会落到后面的「甲」。
+        assert_eq!(parse_cluster_command("【集群 】甲】确认"), None);
     }
 
     /// 动作映射表：确认 / 完成 / 恢复 / 重发 / 指令 / 下一步 + 英文（忽略大小写、按词匹配）。

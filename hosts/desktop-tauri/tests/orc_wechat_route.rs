@@ -168,6 +168,8 @@ fn existing_dir() -> String {
 async fn create_task(creator: &OrcCommandHandler) -> String {
     let created = creator
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: "preset-requirement-to-report".into(),
             working_dir: existing_dir(),
@@ -363,8 +365,57 @@ async fn unknown_task_replies_not_found() {
     let reply = sent_texts(&sent);
     assert_eq!(reply.len(), 1);
     assert!(
-        reply[0].contains("任务不存在"),
+        reply[0].contains("找不到任务"),
         "未知任务必须明确报错：{}",
+        reply[0]
+    );
+}
+
+/// 任务名寻址（推送头展示的形态）：按任务名也能下指令（旧的任务 ID 寻址保持兼容）。
+#[tokio::test]
+async fn instruction_by_task_name_resolves_and_replies() {
+    let (_root, store) = open_sqlite("agentnotify-orc-wechat-name-");
+    store.upsert(test_account()).await.expect("账号必须可保存");
+    let creator = enabled_handler(&store);
+    let _task_id = create_task(&creator).await;
+    let (sent, router) = router_with(&store, enabled_handler(&store));
+
+    // 任务未显式命名 → 展示名 = 目标前 8 字（与推送头一致）。
+    router
+        .intercept(&inbound("【集群 做一个贪吃蛇游戏】把重试加上"))
+        .await
+        .expect("拦截器必须成功");
+
+    let reply = sent_texts(&sent);
+    assert_eq!(reply.len(), 1);
+    assert!(
+        reply[0].contains("【做一个贪吃蛇游戏 · Step 1 · 干活中】"),
+        "按任务名寻址必须命中并回执任务名：{}",
+        reply[0]
+    );
+    assert!(reply[0].contains("指令已下发"), "{}", reply[0]);
+}
+
+/// 多个同名任务：不猜，明确要求消歧（用任务 ID 或到桌面端操作）。
+#[tokio::test]
+async fn ambiguous_task_name_replies_and_requires_disambiguation() {
+    let (_root, store) = open_sqlite("agentnotify-orc-wechat-ambiguous-");
+    store.upsert(test_account()).await.expect("账号必须可保存");
+    let creator = enabled_handler(&store);
+    create_task(&creator).await;
+    create_task(&creator).await; // 同名第二个：目标相同 → 展示名相同
+    let (sent, router) = router_with(&store, enabled_handler(&store));
+
+    router
+        .intercept(&inbound("【集群 做一个贪吃蛇游戏】指令"))
+        .await
+        .expect("拦截器必须成功");
+
+    let reply = sent_texts(&sent);
+    assert_eq!(reply.len(), 1);
+    assert!(
+        reply[0].contains("多个任务都叫"),
+        "同名任务必须要求消歧：{}",
         reply[0]
     );
 }

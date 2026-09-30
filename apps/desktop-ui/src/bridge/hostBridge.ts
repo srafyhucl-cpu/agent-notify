@@ -25,6 +25,7 @@ import type {
   NotificationFilterPayload,
   NotificationIdPayload,
   NotificationListDto,
+  OpencodeModelDto,
   OpencodeProjectDto,
   OrcTaskDto,
   OrcTaskIdPayload,
@@ -38,7 +39,10 @@ import type {
   SubmitChannelLoginCodePayload,
   TestNotificationResultDto,
   UpdateAgentConfigPayload,
+  UpdateOrcTaskPayload,
+  UpdateOrcTaskStepPayload,
   UpdateStatusDto,
+  ContinueOrcTaskPayload,
 } from "./types";
 
 export type BusinessCommand = GeneratedBusinessCommand;
@@ -72,10 +76,15 @@ export interface CommandPayloadMap {
   mark_blocked_orc_task: MarkBlockedOrcTaskPayload;
   recover_blocked_orc_task: OrcTaskIdPayload;
   start_orc_task: OrcTaskIdPayload;
+  update_orc_task: UpdateOrcTaskPayload;
+  update_orc_task_step: UpdateOrcTaskStepPayload;
+  delete_orc_task: OrcTaskIdPayload;
+  continue_orc_task: ContinueOrcTaskPayload;
   get_current_orc_workflow: EmptyPayload;
   list_orc_templates: EmptyPayload;
   save_orc_template_config: SaveOrcTemplateConfigPayload;
   list_opencode_projects: EmptyPayload;
+  list_opencode_models: EmptyPayload;
 }
 
 export interface CommandResultMap {
@@ -106,10 +115,15 @@ export interface CommandResultMap {
   mark_blocked_orc_task: OrcTaskDto;
   recover_blocked_orc_task: OrcTaskDto;
   start_orc_task: OrcTaskDto;
+  update_orc_task: OrcTaskDto;
+  update_orc_task_step: OrcTaskDto;
+  delete_orc_task: MutationAcceptedDto;
+  continue_orc_task: OrcTaskDto;
   get_current_orc_workflow: CurrentOrcWorkflowDto;
   list_orc_templates: OrcTemplateDto[];
   save_orc_template_config: OrcTemplateDto[];
   list_opencode_projects: OpencodeProjectDto[];
+  list_opencode_models: OpencodeModelDto[];
 }
 
 export interface EventPayloadMap {

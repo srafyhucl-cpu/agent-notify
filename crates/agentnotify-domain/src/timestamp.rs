@@ -24,4 +24,9 @@ impl Timestamp {
     pub fn checked_add(self, duration: time::Duration) -> Option<Self> {
         self.0.checked_add(duration).map(Self)
     }
+
+    /// Unix 毫秒时间戳（内部比较用：如编排看门狗判断「回合完成晚于派活」）。
+    pub fn unix_millis(self) -> i64 {
+        (self.0.unix_timestamp_nanos() / 1_000_000) as i64
+    }
 }

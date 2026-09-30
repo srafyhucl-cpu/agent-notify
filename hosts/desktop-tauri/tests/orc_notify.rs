@@ -5,7 +5,7 @@
 //! 覆盖（§4.6 / P1-4 验收）：
 //! - final_only：中间 Step 推进不推（仅落库），最终汇报/人工确认门才推；
 //! - verbose：每个推进类转移都推（带前后缀）；
-//! - 失败提醒一律推（写清失败 Step / 原因 / 需人工处理，不自动重推）；
+//! - 失败提醒一律推（写清失败步骤 / 原因 / 处理办法，不自动重试）；
 //! - 任务不存在：报错且不产生推送；恢复（recover_blocked）不额外推送（避免与 P1-3 微信回执重复）；
 //! - 任务创建：未显式指定继承全局默认，显式指定覆盖（现有语义保持）；
 //! - settings 默认读取/非法回退：真实 ProductionSettingsStore + ProductionOrcPresenter。
@@ -125,6 +125,8 @@ async fn final_only_pushes_only_the_final_report() {
     let handler = handler_with(&store, Workflow::preset(false).unwrap(), presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -182,6 +184,7 @@ async fn final_only_pushes_only_the_final_report() {
             1,
             "项目经理最终汇报：贪吃蛇已完成并自测通过。",
             false,
+            None,
         )
         .await
         .expect("汇总回注必须成功");
@@ -190,7 +193,7 @@ async fn final_only_pushes_only_the_final_report() {
     let (pushed_task, text) = &records[0];
     assert_eq!(pushed_task, &task_id);
     assert!(
-        text.contains(&format!("【集群 {task_id}】")),
+        text.contains("【集群 做一个贪吃蛇游戏】"),
         "缺少前缀：{text}"
     );
     assert!(
@@ -198,7 +201,7 @@ async fn final_only_pushes_only_the_final_report() {
         "缺少最终汇报正文：{text}"
     );
     assert!(
-        text.contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
+        text.contains("【做一个贪吃蛇游戏 · Step 3/3 · 已完成】"),
         "缺少后缀：{text}"
     );
 }
@@ -212,6 +215,8 @@ async fn verbose_pushes_every_step_progress() {
     let handler = handler_with(&store, Workflow::preset(false).unwrap(), presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -248,7 +253,7 @@ async fn verbose_pushes_every_step_progress() {
         assert!(
             records[0]
                 .1
-                .contains(&format!("【{task_id} · Step 2/3 · 干活中】")),
+                .contains("【做一个贪吃蛇游戏 · Step 2/3 · 干活中】"),
             "{}",
             records[0].1
         );
@@ -260,7 +265,7 @@ async fn verbose_pushes_every_step_progress() {
         assert!(
             records[1]
                 .1
-                .contains(&format!("【{task_id} · Step 3/3 · 干活中】")),
+                .contains("【做一个贪吃蛇游戏 · Step 3/3 · 干活中】"),
             "{}",
             records[1].1
         );
@@ -272,7 +277,7 @@ async fn verbose_pushes_every_step_progress() {
         assert!(
             records[2]
                 .1
-                .contains(&format!("【{task_id} · Step 3/3 · 干活中】")),
+                .contains("【做一个贪吃蛇游戏 · Step 3/3 · 干活中】"),
             "{}",
             records[2].1
         );
@@ -280,7 +285,7 @@ async fn verbose_pushes_every_step_progress() {
 
     // 首节点汇总产出回注 → 任务完成，推最终汇报（verbose 也有这一条）。
     handler
-        .report_from_agent(&task_id, 1, "项目经理最终汇报", false)
+        .report_from_agent(&task_id, 1, "项目经理最终汇报", false, None)
         .await
         .expect("汇总回注必须成功");
     {
@@ -299,7 +304,7 @@ async fn verbose_pushes_every_step_progress() {
         assert!(
             records[3]
                 .1
-                .contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
+                .contains("【做一个贪吃蛇游戏 · Step 3/3 · 已完成】"),
             "{}",
             records[3].1
         );
@@ -327,6 +332,8 @@ async fn final_only_pushes_gate_wait_and_final_report() {
     let handler = handler_with(&store, workflow, presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "带人工确认的任务".into(),
             template_id: "custom-gate".into(),
             working_dir: working_dir(&_root),
@@ -370,7 +377,7 @@ async fn final_only_pushes_gate_wait_and_final_report() {
         assert!(
             records[0]
                 .1
-                .contains(&format!("【{task_id} · Step 4/4 · 等待确认】")),
+                .contains("【带人工确认的任务 · Step 4/4 · 等待确认】"),
             "{}",
             records[0].1
         );
@@ -394,7 +401,7 @@ async fn final_only_pushes_gate_wait_and_final_report() {
 
     // 首节点汇总产出回注 → 完成并推最终汇报
     handler
-        .report_from_agent(&task_id, 1, "复核结论：通过，可以交付。", false)
+        .report_from_agent(&task_id, 1, "复核结论：通过，可以交付。", false, None)
         .await
         .expect("汇总回注必须成功");
     let records = pushed.lock().unwrap();
@@ -407,7 +414,7 @@ async fn final_only_pushes_gate_wait_and_final_report() {
     assert!(
         records[1]
             .1
-            .contains(&format!("【{task_id} · Step 4/4 · 已完成】")),
+            .contains("【带人工确认的任务 · Step 4/4 · 已完成】"),
         "{}",
         records[1].1
     );
@@ -423,6 +430,8 @@ async fn failure_reminder_always_pushes_regardless_of_mode() {
         let handler = handler_with(&store, Workflow::preset(false).unwrap(), presenter);
         let created = handler
             .create(CreateOrcTaskPayload {
+                name: None,
+                steps: None,
                 goal: "失败提醒测试".into(),
                 template_id: PRESET_ID.into(),
                 working_dir: working_dir(&_root),
@@ -445,16 +454,13 @@ async fn failure_reminder_always_pushes_regardless_of_mode() {
         assert_eq!(records.len(), 1, "{mode} 失败提醒必须推：{:?}", records);
         let (pushed_task, text) = &records[0];
         assert_eq!(pushed_task, &task_id);
-        assert!(
-            text.contains(&format!("【集群 {task_id}】")),
-            "缺少前缀：{text}"
-        );
-        assert!(text.contains("Step 2 失败"), "{text}");
+        assert!(text.contains("【集群 失败提醒测试】"), "缺少前缀：{text}");
+        assert!(text.contains("第 2 步失败"), "{text}");
         assert!(text.contains(reason), "必须写清失败原因：{text}");
-        assert!(text.contains("需人工处理"), "{text}");
-        assert!(text.contains("不会自动重推"), "{text}");
+        assert!(text.contains("请处理后点「重新发起」"), "{text}");
+        assert!(text.contains("不会自动重试"), "{text}");
         assert!(
-            text.contains(&format!("【{task_id} · Step 2/3 · 已阻塞】")),
+            text.contains("【失败提醒测试 · Step 2/3 · 已阻塞】"),
             "缺少后缀：{text}"
         );
     }
@@ -483,6 +489,8 @@ async fn recover_blocked_does_not_add_push() {
     let handler = handler_with(&store, Workflow::preset(false).unwrap(), presenter);
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "恢复不重复推".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -522,6 +530,8 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     // 未显式指定 → 继承全局默认 verbose
     let inherited = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "继承全局默认".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -534,6 +544,8 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     // 显式指定 → 任务级覆盖（全局默认 verbose 被覆盖为 final_only，现有语义保持）
     let overridden = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "显式覆盖".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -546,6 +558,8 @@ async fn create_inherits_global_default_and_explicit_overrides() {
     // 显式非法值 → 明确报错（不猜测兜底）
     let err = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "非法节奏".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -603,6 +617,8 @@ async fn global_default_reads_real_settings_and_falls_back() {
     write_mode(&store, "verbose").await;
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "settings 继承".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -615,6 +631,8 @@ async fn global_default_reads_real_settings_and_falls_back() {
     write_mode(&store, "garbage").await;
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "settings 回退".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),

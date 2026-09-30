@@ -11,21 +11,25 @@
 //! - 最后一步完成不直接 Completed：进入「项目经理汇总阶段」，派汇总信封回首节点，
 //!   首节点汇总产出到达后完成任务并推最终汇报。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
-use agentnotify_domain::{AgentId, AgentSessionId};
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
+
+use agentnotify_domain::{AgentId, AgentSessionId, Timestamp};
 use agentnotify_orchestration::{
     MessageKind, NotifyMode, OrcError, OrcRepositoryError, OrcStore, OrcTask, OrcTaskRepository,
     StepOutcome, TaskState, TemplateResolver, TransitionAction, Workflow, render_step_reports,
+    round_continue_input,
 };
 use agentnotify_storage_sqlite::SqliteStore;
 
 use super::agent_driver::{AgentDriver, DispatchOptions};
 use super::orc_node_config::{
-    NodeConfig, apply_steps_snapshot, missing_agent_step, steps_snapshot_of, template_dtos,
-    validate_template_steps,
+    MODEL_AGENT_OPENCODE, NodeConfig, ORC_MODEL_AGENT_UNSUPPORTED, ORC_MODEL_INVALID,
+    ORC_STEP_AGENT_MISSING, apply_steps_snapshot, is_provider_model, missing_agent_step,
+    steps_snapshot_of, task_steps_snapshot, template_dtos, validate_template_steps,
 };
 use super::orc_notify::{
     OrcClusterPresenter, failure_body, finalizing_body, progress_body, render_cluster_message,
@@ -37,6 +41,26 @@ use super::settings::{
 };
 use crate::bridge::dto::*;
 use crate::bridge::error::CommandError;
+
+/// 模型目录数据源（可注入，B2）：模型下拉与节点思考强度白名单共用同一份真实数据。
+///
+/// 生产注入 [`DesktopModelCatalog`]（读本机 OpenCode）；测试注入假目录，既不依赖
+/// 真实 OpenCode 进程，也不放宽生产校验（生产仍走同一实现）。
+#[async_trait::async_trait]
+pub trait OrcModelCatalog: Send + Sync {
+    /// 读取可用模型；OpenCode 未运行等失败必须返回面向用户的明确错误（不静默放行）。
+    async fn list_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError>;
+}
+
+/// 默认模型目录：读取本机 OpenCode 桌面端服务（生产装配使用）。
+pub struct DesktopModelCatalog;
+
+#[async_trait::async_trait]
+impl OrcModelCatalog for DesktopModelCatalog {
+    async fn list_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        super::opencode_models::list_models().await
+    }
+}
 
 /// 编排命令处理器（P1-1，B 方案接线）。
 ///
@@ -59,6 +83,11 @@ pub struct OrcCommandHandler {
     /// 派活驱动器（P2）：缺省不派活（行为与 P1-3/1-4 一致）；注入后 create/advance
     /// 把当前 Step 的任务信封真正交给配置的 Agent。
     driver: Option<Arc<dyn AgentDriver>>,
+    /// 模型目录（B2）：variant 白名单校验与模型下拉共用；未注入回退本机 OpenCode。
+    model_catalog: Option<Arc<dyn OrcModelCatalog>>,
+    /// 任务级写锁（B1）：同一任务的「读改写」串行，避免并发写整任务覆盖丢更新。
+    /// map 用 std 锁只做短查找（不跨 await）；值是 tokio 锁（允许跨 await 持有）。
+    task_locks: StdMutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
 /// 编排开关设置键（settings 表）。**默认开启**（缺失 = true，P1-1 体验修正：
@@ -74,16 +103,32 @@ pub const HARNESS_TEMPLATES_FILE: &str = "harness-templates.json";
 const ORCHESTRATION_DISABLED_CODE: &str = "orchestration_disabled";
 const ORCHESTRATION_DISABLED_MESSAGE: &str =
     "编排未启用：请在设置中启用 orchestration.enabled 后重启应用";
-/// 当前步骤未配置 Agent（agent_hint 缺失）时的稳定错误码（P2 派活，写进 blocked 原因）。
-const ORC_STEP_AGENT_MISSING: &str = "orc_step_agent_missing";
 /// 创建任务的模板不存在（新任务只开放内置三档模板）。
 const ORC_TEMPLATE_UNKNOWN: &str = "orc_template_unknown";
 /// 任务的工作流无法解析（既不是装配工作流也不是内置模板）。
 const ORC_WORKFLOW_UNKNOWN: &str = "orc_workflow_unknown";
 /// 工作目录为空或不是已存在目录。
 const ORC_WORKING_DIR_INVALID: &str = "orc_working_dir_invalid";
+/// 任务名称非法（空 / 超过 8 字 / 含分隔符）。
+const ORC_TASK_NAME_INVALID: &str = "orc_task_name_invalid";
+/// 任务名称长度上限（字）：短名只用于列表与会话标题展示。
+const ORC_TASK_NAME_MAX_CHARS: usize = 8;
+/// 任务名禁用字符：`】`/`【` 会破坏微信指令 `【集群 <名>】` 的寻址（B3），创建/编辑一律拒绝。
+const ORC_TASK_NAME_FORBIDDEN_CHARS: [char; 2] = ['【', '】'];
+/// 思考强度不在该模型可选列表内（或模型未知）：`update_task_step` 白名单校验错误码（B2）。
+const ORC_STEP_VARIANT_INVALID: &str = "orc_step_variant_invalid";
+/// 模型标识长度上限（`provider/model` 全串）：防御异常超长输入塞爆步骤快照与日志（B2）。
+const ORC_MODEL_MAX_CHARS: usize = 200;
+/// 思考强度标识长度上限（OpenCode variant 短标识，如 high/xhigh）（B2）。
+const ORC_VARIANT_MAX_CHARS: usize = 64;
+/// 自动迭代轮次上限：项目经理判定「继续迭代」时最多自动跑到该轮次，之后按完成处理交给用户决定。
+const ORC_MAX_ROUNDS: u32 = 5;
+/// 「继续迭代」微信提示里本轮要求的展示上限（字）：超长截断加省略号，避免刷屏。
+const ROUND_INPUT_HINT_MAX_CHARS: usize = 80;
 /// 任务处于「项目经理汇总阶段」：不接受人工推进（等待首节点汇总）。
 const ORC_TASK_FINALIZING: &str = "orc_task_finalizing";
+/// 任务步骤不可修改（终态只读 / 无步骤快照的旧任务，§12.4）。
+pub const ORC_TASK_STEP_LOCKED: &str = "orc_task_step_locked";
 /// 编排设置存储不可用（静态装配/初始化未完成）时保存节点配置的错误码。
 const ORC_SETTINGS_UNAVAILABLE: &str = "orchestration_settings_unavailable";
 /// `OrcError::task_not_found` 的稳定错误码（回注路径按它静默忽略缺失任务）。
@@ -92,10 +137,10 @@ const ORC_TASK_NOT_FOUND_CODE: &str = "orc.task_not_found";
 const ORC_DISPATCH_SESSION_PREFIX: &str = "task";
 /// 插件把失败终态也上报为 `session.completed`，失败正文以该前缀开头（失败回合识别）。
 const AGENT_FAILURE_BODY_PREFIX: &str = "任务执行失败：";
-/// 汇总派活失败的阻塞原因前缀（§4 失败语义）。
-const SUMMARY_DISPATCH_FAILED_PREFIX: &str = "汇总汇报派活失败：";
+/// 汇总阶段无法派活的阻塞原因前缀（§4 失败语义）。
+const SUMMARY_DISPATCH_FAILED_PREFIX: &str = "最终汇总：";
 /// 首节点汇总回合失败的阻塞原因前缀（§4 失败语义）。
-const SUMMARY_ROUND_FAILED_PREFIX: &str = "首节点汇总回合失败：";
+const SUMMARY_ROUND_FAILED_PREFIX: &str = "项目经理汇总失败：";
 
 impl OrcCommandHandler {
     /// 默认装配：仅内置默认信封模板（向后兼容）。
@@ -112,6 +157,8 @@ impl OrcCommandHandler {
             templates,
             presenter: None,
             driver: None,
+            model_catalog: None,
+            task_locks: StdMutex::new(HashMap::new()),
         }
     }
 
@@ -129,6 +176,8 @@ impl OrcCommandHandler {
             templates,
             presenter: Some(presenter),
             driver: None,
+            model_catalog: None,
+            task_locks: StdMutex::new(HashMap::new()),
         }
     }
 
@@ -149,6 +198,8 @@ impl OrcCommandHandler {
             templates,
             presenter,
             driver,
+            model_catalog: None,
+            task_locks: StdMutex::new(HashMap::new()),
         }
     }
 
@@ -171,6 +222,57 @@ impl OrcCommandHandler {
             templates,
             presenter,
             driver,
+            model_catalog: None,
+            task_locks: StdMutex::new(HashMap::new()),
+        }
+    }
+
+    /// 注入模型目录（测试/生产装配）：variant 白名单校验用（B2）。
+    pub fn with_model_catalog(mut self, catalog: Arc<dyn OrcModelCatalog>) -> Self {
+        self.model_catalog = Some(catalog);
+        self
+    }
+
+    /// 取任务级写锁（B1）：先短锁查/建该任务的锁，再返回 owned guard（可跨 await 持有）。
+    ///
+    /// 所有对外可变的任务命令必须先取此锁；内部 helper（`auto_blocked` / `dispatch_*` /
+    /// `present_*`）及其调用的无锁内核不得重复取锁（会自锁死）。
+    async fn task_lock(&self, task_id: &str) -> OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self
+                .task_locks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            locks.entry(task_id.to_owned()).or_default().clone()
+        };
+        lock.lock_owned().await
+    }
+
+    /// 任务级写锁内核：已持锁时读改写任务（B1，`mark_settled_turn` 并入回注临界区）。
+    async fn mark_settled_turn_locked(&self, task_id: &str, completed_at_ms: i64) {
+        let (store, mut task) = match self.task_store(task_id).await {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                tracing::warn!(
+                    task_id,
+                    code = error.code(),
+                    "回注后记录结算时刻失败：{}",
+                    error.message()
+                );
+                return;
+            }
+        };
+        if let Err(error) = task.mark_settled_turn(completed_at_ms) {
+            tracing::warn!(
+                task_id,
+                code = error.code.as_str(),
+                "记录回合结算时刻失败：{}",
+                error.message
+            );
+            return;
+        }
+        if let Err(error) = store.save(task).await {
+            tracing::warn!(task_id, "保存回合结算时刻失败：{error}");
         }
     }
 
@@ -319,6 +421,11 @@ impl OrcCommandHandler {
         if goal.is_empty() {
             return Err(CommandError::new("orc_goal_empty", "任务目标不能为空"));
         }
+        // 任务名称（必填、≤8 字）：新 UI 显式提交；旧调用方缺省时按目标前 8 字推导（向后兼容）。
+        let name = match payload.name.as_deref() {
+            Some(raw) => validate_task_name(raw)?,
+            None => derive_task_name(goal),
+        };
         // 任务锁定模板（§3.1）：只接受内置三档模板（或静态装配的工作流）。
         let workflow = self.resolve_create_workflow(payload.template_id.trim())?;
         let working_dir = payload.working_dir.trim();
@@ -340,13 +447,30 @@ impl OrcCommandHandler {
             Some(raw) => parse_notify_mode(Some(raw))?,
             None => self.global_default_notify_mode().await,
         };
-        let merged = self.node_config().await.merge_workflow(&workflow);
+        // 节点配置来源（§3）：
+        // - 新流程（创建任务弹窗逐个节点确认，payload.steps 有值）：任务级提交，**创建即快照锁定**，
+        //   此后改设置不影响该任务（所见即所得）；
+        // - 旧调用方（无 steps）：保持原行为——按当前设置实时合并，start 时才快照。
+        let (merged, locked_snapshot) = match payload.steps.as_deref() {
+            Some(steps) => {
+                let snapshot = task_steps_snapshot(&workflow, steps)?;
+                (apply_steps_snapshot(&workflow, &snapshot), Some(snapshot))
+            }
+            None => (self.node_config().await.merge_workflow(&workflow), None),
+        };
         let store = OrcStore::with_repository(merged, repository);
         let mut task = store
             .create_task(goal, notify_mode)
             .await
             .map_err(orc_error)?;
+        task.set_name(&name).map_err(orc_error)?;
         task.set_working_dir(working_dir).map_err(orc_error)?;
+        // 创建时间（轮次时间线/列表展示用；旧任务缺省不显示）。
+        task.set_created_at(&Timestamp::now_utc().to_rfc3339())
+            .map_err(orc_error)?;
+        if let Some(snapshot) = locked_snapshot {
+            task.set_steps_snapshot(&snapshot).map_err(orc_error)?;
+        }
         store.save(task.clone()).await.map_err(orc_error)?;
         // 创建后**不自动派活**：任务先进入「待开始」（started=false），用户在界面上
         // 看清工作流节点（每步角色与派给谁）后点「开始执行」再派活第 1 步。
@@ -354,11 +478,172 @@ impl OrcCommandHandler {
         orc_task_to_dto(&task, store.workflow())
     }
 
+    /// 更新任务（集群页「编辑」）：名称随时可改；描述仅未开始任务可改；通知节奏随时可改。
+    /// 未提供（None）的字段保持不变；全部校验通过才落库（失败不产生部分更新）。
+    pub async fn update(&self, payload: UpdateOrcTaskPayload) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
+        let (store, mut task) = self.task_store(&payload.task_id).await?;
+        if let Some(raw) = payload.name.as_deref() {
+            let name = validate_task_name(raw)?;
+            task.set_name(&name).map_err(orc_error)?;
+        }
+        if let Some(raw) = payload.goal.as_deref() {
+            let goal = raw.trim();
+            if goal.is_empty() {
+                return Err(CommandError::new("orc_goal_empty", "任务描述不能为空"));
+            }
+            if task.is_started().map_err(orc_error)? {
+                return Err(CommandError::new(
+                    "orc_task_already_started",
+                    "任务已开始，描述不可修改（可修改名称）",
+                ));
+            }
+            task.set_goal(goal).map_err(orc_error)?;
+        }
+        if let Some(raw) = payload.notify_mode.as_deref() {
+            let mode = parse_notify_mode(Some(raw))?;
+            task.set_notify_mode(mode).map_err(orc_error)?;
+        }
+        store.save(task.clone()).await.map_err(orc_error)?;
+        orc_task_to_dto(&task, store.workflow())
+    }
+
+    /// 修改任务某一步的模型/思考强度（§12.4，任务结束前可改）：
+    /// 只改**任务步骤快照**，不改 Agent 与工作流结构——
+    /// - 终态（Completed/Canceled/Rejected）只读；阻塞（Failed）/等待确认（InputRequired）可改后重新发起；
+    /// - 旧任务没有步骤快照（或快照缺该步）→ 明确报错，指向「设置 → 编排」或重新创建；
+    /// - `model=None` 不改；空串 = 清除（回到该 Agent 默认模型）；非空必须是 `provider/model`
+    ///   且该步 Agent 支持指定模型（v1 仅 OpenCode）；
+    /// - 强度随模型走：模型为空时强度一并清空；`variant=None` 不改、空串 = 清除，
+    ///   非空 trim 后必须在模型 `variants` 白名单内（B2，目录不可用/模型未知/不在列表明确报错）。
+    pub async fn update_task_step(
+        &self,
+        payload: UpdateOrcTaskStepPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
+        let (store, mut task) = self.task_store(&payload.task_id).await?;
+        if matches!(
+            task.state(),
+            TaskState::Completed | TaskState::Canceled | TaskState::Rejected
+        ) {
+            return Err(CommandError::new(
+                ORC_TASK_STEP_LOCKED,
+                "任务已结束：不能再修改节点模型",
+            ));
+        }
+        let Some(step) = store.workflow().step(payload.order) else {
+            return Err(orc_error(OrcError::step_not_found(payload.order)));
+        };
+        let agent = step.agent_hint.clone();
+        let Some(mut snapshot) = task.steps_snapshot().map_err(orc_error)? else {
+            return Err(CommandError::new(
+                ORC_TASK_STEP_LOCKED,
+                "该任务没有步骤快照（旧任务）：请到设置 → 编排里改模板，或重新创建任务",
+            ));
+        };
+        let Some(entry) = snapshot
+            .iter_mut()
+            .find(|entry| entry.order == payload.order)
+        else {
+            return Err(CommandError::new(
+                ORC_TASK_STEP_LOCKED,
+                format!(
+                    "该任务缺少第 {} 步的快照（旧任务）：请到设置 → 编排里改模板，或重新创建任务",
+                    payload.order
+                ),
+            ));
+        };
+        // model：None = 不改；空串 = 清除；非空 = 校验格式与 Agent 支持后写入。
+        let model = match payload.model.as_deref() {
+            None => entry.model.clone(),
+            Some(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    if !is_provider_model(trimmed) {
+                        return Err(CommandError::new(
+                            ORC_MODEL_INVALID,
+                            "模型格式应为 provider/model（例如 opencode-go/deepseek-v4.1-flash）",
+                        ));
+                    }
+                    if trimmed.chars().count() > ORC_MODEL_MAX_CHARS {
+                        return Err(CommandError::new(
+                            ORC_MODEL_INVALID,
+                            format!(
+                                "模型标识过长（最多 {ORC_MODEL_MAX_CHARS} 个字符）：请从下拉列表重新选择"
+                            ),
+                        ));
+                    }
+                    if agent.as_deref() != Some(MODEL_AGENT_OPENCODE) {
+                        return Err(CommandError::new(
+                            ORC_MODEL_AGENT_UNSUPPORTED,
+                            "该 Agent 暂不支持指定模型",
+                        ));
+                    }
+                    Some(trimmed.to_string())
+                }
+            }
+        };
+        // variant：模型为空时一并清空（强度依附于模型）；否则 None = 不改（保持旧值）、
+        // 空串 = 清除、非空 trim 后必须在该模型 `variants` 白名单内（B2：目录不可用/模型未知/
+        // 不在列表都明确报错，不静默放行；未提交强度时不校验，兼容旧任务）。
+        let variant = match (model.as_deref(), payload.variant.as_deref()) {
+            (None, _) => None,
+            (Some(_), None) => entry.variant.clone(),
+            (Some(model_id), Some(raw)) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    if trimmed.chars().count() > ORC_VARIANT_MAX_CHARS {
+                        return Err(CommandError::new(
+                            ORC_STEP_VARIANT_INVALID,
+                            format!(
+                                "思考强度标识过长（最多 {ORC_VARIANT_MAX_CHARS} 个字符）：请从下拉列表重新选择"
+                            ),
+                        ));
+                    }
+                    let models = self.list_models().await?;
+                    validate_variant(&models, model_id, trimmed)?;
+                    Some(trimmed.to_string())
+                }
+            }
+        };
+        entry.model = model;
+        entry.variant = variant;
+        task.set_steps_snapshot(&snapshot).map_err(orc_error)?;
+        store.save(task.clone()).await.map_err(orc_error)?;
+        // 返回的 DTO 必须体现本次改动：把新快照重新应用到生效工作流上再脱敏。
+        let effective = apply_steps_snapshot(store.workflow(), &snapshot);
+        orc_task_to_dto(&task, &effective)
+    }
+
+    /// 删除任务（集群页「删除」，幂等）：删除任务记录，不做猜测式兜底。
+    /// 已派活的 OpenCode 会话不会被停止（界面确认文案里明确说明）。
+    pub async fn delete(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<MutationAcceptedDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
+        let repository = self.repository().await?;
+        repository
+            .delete_task(payload.task_id.trim())
+            .await
+            .map_err(|error| CommandError::new(error.code(), error.message().to_string()))?;
+        Ok(MutationAcceptedDto {
+            accepted: true,
+            id: None,
+        })
+    }
+
     /// 开始执行（人工确认后）：预检全部节点 Agent 已配置、工作目录仍存在，
     /// **把合并后的步骤配置快照进任务**（此后改设置不影响该任务），然后标记已开始并派活第 1 步（§3.1）。
+    /// 新流程任务在创建时已锁定快照（payload.steps），这里幂等重写；旧任务在此首次锁定。
     ///
     /// 预检失败 → 明确报错且任务保持「待开始」（不写快照）；已开始的任务再调 → 明确错误。
     pub async fn start(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, mut task) = self.task_store(&payload.task_id).await?;
         if task.is_started().map_err(orc_error)? {
             return Err(CommandError::new(
@@ -390,6 +675,39 @@ impl OrcCommandHandler {
         store.save(task.clone()).await.map_err(orc_error)?;
         // 开始即派活第 1 步（新会话开工，open=true）：失败只标记 blocked（§4.6 不自动重推）
         // + 呈现层推失败提醒，不影响已落库的开始结果与命令返回。
+        self.dispatch_step(&store, &task).await;
+        let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
+        orc_task_to_dto(&task, store.workflow())
+    }
+
+    /// 继续迭代（人工，§4 循环）：本轮结束后开始新一轮——轮次 +1、回到第 1 步（项目经理重新规划），
+    /// 可带「本轮要求」（留空则由项目经理按上一轮结论继续）。运行中的任务拒绝（等本轮结束再继续）。
+    pub async fn continue_task(
+        &self,
+        payload: ContinueOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
+        let (store, mut task) = self.task_store(&payload.task_id).await?;
+        match task.state() {
+            TaskState::Completed
+            | TaskState::Failed
+            | TaskState::Canceled
+            | TaskState::Rejected => {}
+            _ => {
+                return Err(CommandError::new(
+                    "orc_task_running",
+                    "任务还在进行中：等本轮结束后再点「继续迭代」",
+                ));
+            }
+        }
+        let instruction = payload
+            .instruction
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        task.begin_round(instruction).map_err(orc_error)?;
+        store.save(task.clone()).await.map_err(orc_error)?;
+        let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
         self.dispatch_step(&store, &task).await;
         let task = store.get_task(&payload.task_id).await.map_err(orc_error)?;
         orc_task_to_dto(&task, store.workflow())
@@ -482,6 +800,19 @@ impl OrcCommandHandler {
         super::opencode_projects::list_projects().await
     }
 
+    /// OpenCode 可用模型（模型下拉数据源）：只读本地服务 API；失败明确报错退回手动输入。
+    pub async fn list_opencode_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        self.list_models().await
+    }
+
+    /// 模型目录读取：注入实现优先，未注入回退本机 OpenCode（行为与旧版一致，B2）。
+    async fn list_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        match &self.model_catalog {
+            Some(catalog) => catalog.list_models().await,
+            None => super::opencode_models::list_models().await,
+        }
+    }
+
     /// 旧 `get_current_orc_workflow` 的装配解析（动态模式沿用 `orchestration.workflow` 设置）。
     async fn resolve_legacy_store(&self) -> Result<OrcStore, CommandError> {
         let disabled =
@@ -523,6 +854,15 @@ impl OrcCommandHandler {
     }
 
     pub async fn advance(
+        &self,
+        payload: AdvanceOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
+        self.advance_locked(payload).await
+    }
+
+    /// 无锁内核：`report_from_agent` 持有同一把任务锁时直接调用（避免自锁死）。
+    async fn advance_locked(
         &self,
         payload: AdvanceOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError> {
@@ -588,13 +928,39 @@ impl OrcCommandHandler {
     ///
     /// 失败语义（§4.6）：`failed=true`（插件显式标记，或旧插件正文以「任务执行失败：」开头）
     /// **不 advance**——普通步骤 → blocked（「Step N 执行失败：…」）+ 失败提醒；
-    /// 汇总阶段首节点失败 → blocked（「首节点汇总回合失败：…」）。成功路径不变。
+    /// 汇总阶段首节点失败 → blocked（「项目经理汇总失败：…」）。成功路径不变。
     ///
     /// 汇总阶段（§4）：首节点（step=1）会话的成功上报 = 最终汇报 → 任务 Completed 并推送呈现层。
     ///
     /// 返回 `Ok(false)` = 过期/无关事件（任务不存在、步不一致、任务非干活中），静默忽略；
     /// 错误 = 回注自身失败（由调用方记日志，不影响事件消费）。
+    ///
+    /// `settled_turn_ms`：看门狗回注时传入本回合完成时刻；命中（`Ok(true)`）时**在同一把
+    /// 任务锁内**记录结算时刻，消除「回注后另起一次读改写整任务覆盖」的丢更新窗口（B1）。
+    /// 插件回注路径传 `None`，行为与旧版一致。
     pub async fn report_from_agent(
+        &self,
+        task_id: &str,
+        step: u32,
+        body: &str,
+        failed: bool,
+        settled_turn_ms: Option<i64>,
+    ) -> Result<bool, CommandError> {
+        let _guard = self.task_lock(task_id).await;
+        let applied = self
+            .report_from_agent_locked(task_id, step, body, failed)
+            .await?;
+        if applied {
+            if let Some(completed_at_ms) = settled_turn_ms {
+                self.mark_settled_turn_locked(task_id, completed_at_ms)
+                    .await;
+            }
+        }
+        Ok(applied)
+    }
+
+    /// 无锁内核：调用方必须已持有该任务的任务锁（`advance_locked` 同理由此直调）。
+    async fn report_from_agent_locked(
         &self,
         task_id: &str,
         step: u32,
@@ -626,6 +992,30 @@ impl OrcCommandHandler {
                 .await;
                 return Ok(true);
             }
+            // 项目经理判定「继续迭代」且未达轮次上限 → 不完成：自动开始新一轮（§4 迭代循环）。
+            if let Some(input) = round_continue_input(body) {
+                let round = task.round().unwrap_or(1);
+                if round < ORC_MAX_ROUNDS {
+                    let mut next = store.get_task(task_id).await.map_err(orc_error)?;
+                    // 本轮结论摘要进轮次时间线；随后 begin_round 追加新一轮记录。
+                    next.record_round_summary(body).map_err(orc_error)?;
+                    next.begin_round(Some(input.as_str())).map_err(orc_error)?;
+                    store.save(next.clone()).await.map_err(orc_error)?;
+                    self.present_round_continue(&store, &next, round, &input)
+                        .await;
+                    self.dispatch_step(&store, &next).await;
+                    return Ok(true);
+                }
+                tracing::warn!(
+                    task_id,
+                    round,
+                    "项目经理判定继续迭代但已达轮次上限，按完成处理（用户可手动继续迭代）"
+                );
+            }
+            // 本轮结论摘要进轮次时间线（完成任务也保留每轮结论）。
+            let mut finished = store.get_task(task_id).await.map_err(orc_error)?;
+            finished.record_round_summary(body).map_err(orc_error)?;
+            store.save(finished).await.map_err(orc_error)?;
             let task = store
                 .complete_finalizing(task_id)
                 .await
@@ -645,7 +1035,7 @@ impl OrcCommandHandler {
                 &store,
                 task_id,
                 step,
-                format!("Step {step} 执行失败：{}", failure_detail(body)),
+                format!("第 {step} 步执行失败：{}", failure_detail(body)),
             )
             .await;
             return Ok(true);
@@ -655,7 +1045,7 @@ impl OrcCommandHandler {
             .record_step_report(task_id, step, body)
             .await
             .map_err(orc_error)?;
-        self.advance(AdvanceOrcTaskPayload {
+        self.advance_locked(AdvanceOrcTaskPayload {
             task_id: task_id.to_owned(),
             kind: OrcMessageKindDto::Report,
         })
@@ -697,7 +1087,13 @@ impl OrcCommandHandler {
             step
         };
         let body = progress_body(kind, outcome.action, reported_step);
-        let text = render_cluster_message(task.id(), step, total, state_cn(&dto.state), &body);
+        let text = render_cluster_message(
+            &cluster_task_label(task),
+            step,
+            total,
+            state_cn(&dto.state),
+            &body,
+        );
         presenter.push(task.id(), text).await;
     }
 
@@ -724,7 +1120,7 @@ impl OrcCommandHandler {
             return;
         }
         let text = render_cluster_message(
-            task.id(),
+            &cluster_task_label(task),
             order,
             workflow.max_order(),
             state_cn(&OrcTaskStateDto::Working),
@@ -745,7 +1141,7 @@ impl OrcCommandHandler {
         let total = workflow.max_order();
         let step = task.current_step().unwrap_or(total).min(total.max(1));
         let text = render_cluster_message(
-            task.id(),
+            &cluster_task_label(task),
             step,
             total,
             state_cn(&OrcTaskStateDto::Completed),
@@ -754,10 +1150,53 @@ impl OrcCommandHandler {
         presenter.push(task.id(), text).await;
     }
 
+    /// 自动继续迭代的进度呈现：仅 verbose 模式推（final_only 只推最终汇报，§5）。
+    async fn present_round_continue(
+        &self,
+        store: &OrcStore,
+        task: &OrcTask,
+        round: u32,
+        input: &str,
+    ) {
+        let Some(presenter) = &self.presenter else {
+            return;
+        };
+        let mode = match task.notify_mode() {
+            Ok(mode) => mode,
+            Err(_) => return,
+        };
+        if mode != NotifyMode::Verbose {
+            return;
+        }
+        let detail = input.trim();
+        let detail = if detail.is_empty() {
+            "按上一轮结论继续".to_string()
+        } else {
+            let mut text: String = detail.chars().take(ROUND_INPUT_HINT_MAX_CHARS).collect();
+            if detail.chars().count() > ROUND_INPUT_HINT_MAX_CHARS {
+                text.push('…');
+            }
+            text
+        };
+        let total = store.workflow().max_order();
+        let text = render_cluster_message(
+            &cluster_task_label(task),
+            1,
+            total,
+            state_cn(&OrcTaskStateDto::Working),
+            &format!(
+                "第 {round} 轮完成：项目经理判定继续迭代，已自动开始第 {} 轮（{detail}）",
+                round + 1
+            ),
+        );
+        presenter.push(task.id(), text).await;
+    }
+
     pub async fn mark_blocked(
         &self,
         payload: MarkBlockedOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, _task) = self.task_store(&payload.task_id).await?;
         let reason = payload.reason.trim();
         if reason.is_empty() {
@@ -773,30 +1212,30 @@ impl OrcCommandHandler {
         let dto = orc_task_to_dto(&task, store.workflow())?;
         // P1-4 失败提醒不受 notify_mode 限制：一律外发（§4.6：写清失败 Step/原因，不自动重推）。
         if let Some(presenter) = &self.presenter {
-            self.present_blocked(presenter, store.workflow(), task.id(), payload.step, reason)
+            self.present_blocked(presenter, store.workflow(), &task, payload.step, reason)
                 .await;
         }
         Ok(dto)
     }
 
-    /// P1-4 失败提醒呈现：写清哪一步失败、原因，需人工处理（会话语义与命令 mark_blocked 一致）。
+    /// P1-4 失败提醒呈现：写清哪一步失败、原因与处理办法（会话语义与命令 mark_blocked 一致）。
     async fn present_blocked(
         &self,
         presenter: &Arc<dyn OrcClusterPresenter>,
         workflow: &Workflow,
-        task_id: &str,
+        task: &OrcTask,
         step: u32,
         reason: &str,
     ) {
         let total = workflow.max_order();
         let text = render_cluster_message(
-            task_id,
+            &cluster_task_label(task),
             step,
             total,
             state_cn(&OrcTaskStateDto::Failed),
             &failure_body(step, reason),
         );
-        presenter.push(task_id, text).await;
+        presenter.push(task.id(), text).await;
     }
 
     /// P2 推进后自动派活：`outcome.action` 属于要干活的转移（Advance/BackToWork/Recover）
@@ -876,14 +1315,34 @@ impl OrcCommandHandler {
                 return;
             }
         };
-        // 信封渲染（用户模板优先、内置默认兜底，§4.3 / P1-5）：渲染告警只记日志不阻断。
+        // 会话标题（用户可见）：任务短名 + 步骤；读不到名称时按目标前 8 字推导。
+        let session_title = match task.name() {
+            Ok(name) => display_name(name.as_deref(), &goal),
+            Err(error) => {
+                tracing::warn!(
+                    task_id = %task.id(),
+                    code = error.code.as_str(),
+                    "读取任务名称失败，会话标题按目标推导"
+                );
+                display_name(None, &goal)
+            }
+        };
+        // 信封渲染（用户模板优先、按角色的内置默认兜底，§4.3 / P1-5）：渲染告警只记日志不阻断。
         let next_role = store
             .workflow()
             .next_step(current_step)
             .map(|next| next.role.as_str());
-        let rendered = self
-            .templates
-            .render_envelope(store.workflow(), &step, &goal, next_role);
+        let round = task.round().unwrap_or(1);
+        let rendered =
+            self.templates
+                .render_envelope(store.workflow(), &step, &goal, next_role, round);
+        // 第 2 轮起：把本轮要求/上一轮结论作为前缀交给项目经理（首步续聊有上下文）。
+        let rendered_text = if current_step == 1 && round > 1 {
+            let input = task.round_input().unwrap_or(None);
+            format!("{}{}", round_intro(round, input.as_deref()), rendered.text)
+        } else {
+            rendered.text.clone()
+        };
         for warning in &rendered.warnings {
             tracing::warn!(
                 task_id = %task.id(),
@@ -906,14 +1365,30 @@ impl OrcCommandHandler {
         let options = DispatchOptions {
             working_dir,
             model: step.model.clone(),
+            variant: step.variant.clone(),
             unattended: self.unattended().await,
+            title: Some(format!("【集群】{session_title} · 第 {current_step} 步")),
         };
+        // 记录派活时刻（宿主看门狗用：只认此后的回合产出，避免把上一轮正文当成本次汇报）。
+        let dispatched_at_ms = Timestamp::now_utc().unix_millis();
+        match store.get_task(task.id()).await {
+            Ok(mut dispatched) => {
+                if let Err(error) = dispatched.mark_dispatched(dispatched_at_ms) {
+                    tracing::warn!(task_id = %task.id(), code = error.code.as_str(), "记录派活时刻失败（看门狗将跳过本步）");
+                } else if let Err(error) = store.save(dispatched).await {
+                    tracing::warn!(task_id = %task.id(), "保存派活时刻失败（看门狗将跳过本步）：{error}");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(task_id = %task.id(), code = error.code.as_str(), "读取任务失败，无法记录派活时刻（看门狗将跳过本步）");
+            }
+        }
         if let Err(error) = driver
             .dispatch(
                 task.id(),
                 &agent_id,
                 &session_id,
-                &rendered.text,
+                &rendered_text,
                 open,
                 &options,
             )
@@ -926,20 +1401,15 @@ impl OrcCommandHandler {
                 "派活失败：{}",
                 error.message()
             );
-            self.auto_blocked(
-                store,
-                task.id(),
-                current_step,
-                format!("Step {current_step} 派活失败：{}", error.message()),
-            )
-            .await;
+            self.auto_blocked(store, task.id(), current_step, error.message().to_string())
+                .await;
         }
     }
 
     /// 派活「汇总信封」到首节点会话（resume，§4）：任务处于 finalizing 时使用，
     /// 也用于 blocked 后自动重派（v2 修订：不再需要再点一次「发指令」）。
     ///
-    /// 失败 → blocked（blocked_step = 1，原因「汇总汇报派活失败：…」）+ 失败提醒。
+    /// 失败 → blocked（blocked_step = 1，原因「最终汇总：…」）+ 失败提醒。
     async fn dispatch_summary(&self, store: &OrcStore, task: &OrcTask) {
         let Some(driver) = self.driver.as_ref() else {
             return;
@@ -988,9 +1458,12 @@ impl OrcCommandHandler {
                 return;
             }
         };
-        let rendered = self
-            .templates
-            .render_summary_envelope(workflow, &goal, &reports);
+        let rendered = self.templates.render_summary_envelope(
+            workflow,
+            &goal,
+            &reports,
+            task.round().unwrap_or(1),
+        );
         for warning in &rendered.warnings {
             tracing::warn!(
                 task_id = %task.id(),
@@ -1008,10 +1481,17 @@ impl OrcCommandHandler {
             }
         };
         let (agent_id, session_id) = targets;
+        // 汇总复用首步会话（resume 不新建会话），标题保持一致语义、不影响既有会话标题。
+        let session_title = match task.name() {
+            Ok(name) => display_name(name.as_deref(), &goal),
+            Err(_) => display_name(None, &goal),
+        };
         let options = DispatchOptions {
             working_dir,
             model: first.model.clone(),
+            variant: first.variant.clone(),
             unattended: self.unattended().await,
+            title: Some(format!("【集群】{session_title} · 汇总汇报")),
         };
         if let Err(error) = driver
             .dispatch(
@@ -1047,7 +1527,7 @@ impl OrcCommandHandler {
         match store.mark_blocked(task_id, step, &reason).await {
             Ok(task) => {
                 if let Some(presenter) = &self.presenter {
-                    self.present_blocked(presenter, store.workflow(), task.id(), step, &reason)
+                    self.present_blocked(presenter, store.workflow(), &task, step, &reason)
                         .await;
                 }
             }
@@ -1069,6 +1549,7 @@ impl OrcCommandHandler {
         &self,
         payload: OrcTaskIdPayload,
     ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, _task) = self.task_store(&payload.task_id).await?;
         let task = store
             .recover_blocked(&payload.task_id)
@@ -1159,6 +1640,8 @@ fn legacy_failure_marker(body: &str) -> bool {
 }
 
 /// 失败详情：去空白并剥掉旧插件的「任务执行失败：」前缀；空正文给可读兜底（不猜测细节）。
+/// 失败详情：去空白、剥掉旧插件的「任务执行失败：」前缀，并把常见英文错误翻译成
+/// 用户看得懂、知道怎么解决的中文一句话（未识别的错误保留原文，只做长度截断）。
 fn failure_detail(body: &str) -> String {
     let detail = body.trim();
     let detail = detail
@@ -1166,10 +1649,37 @@ fn failure_detail(body: &str) -> String {
         .unwrap_or(detail)
         .trim();
     if detail.is_empty() {
-        "OpenCode 未返回具体错误信息".to_string()
-    } else {
-        detail.to_string()
+        return "Agent 未返回具体错误信息：请打开对应会话查看原因后点「重新发起」".to_string();
     }
+    user_facing_failure(detail)
+}
+
+/// 阻塞原因展示上限（字符数）：一句话讲清原因与处理办法，超长截断。
+const FAILURE_DETAIL_LIMIT: usize = 120;
+
+/// 常见失败 → 一句用户可读的话（含处理建议）：只识别有把握的模型/额度错误；
+/// 其余保留原文（不硬翻译、不加戏），超长截断。
+fn user_facing_failure(detail: &str) -> String {
+    let lower = detail.to_lowercase();
+    if lower.contains("insufficient account funds")
+        || lower.contains("insufficient funds")
+        || lower.contains("quota")
+    {
+        return "模型服务余额不足：请充值，或给该节点换一个模型后点「重新发起」".to_string();
+    }
+    if lower.contains("model unavailable")
+        || lower.contains("model not found")
+        || lower.contains("unknown model")
+    {
+        return "所选模型不可用：请给该节点换一个模型后点「重新发起」".to_string();
+    }
+    let trimmed = detail.trim();
+    if trimmed.chars().count() <= FAILURE_DETAIL_LIMIT {
+        return trimmed.to_string();
+    }
+    let mut truncated: String = trimmed.chars().take(FAILURE_DETAIL_LIMIT).collect();
+    truncated.push('…');
+    truncated
 }
 
 /// P2 派活目标：由 `agent_hint` 解析 Agent id，并为 (task, step) 生成稳定会话 id
@@ -1192,6 +1702,7 @@ fn dispatch_targets(
 /// 脱敏后的任务视图：只暴露任务上下文，不暴露内部元数据细节。
 fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, CommandError> {
     let meta = task.meta().map_err(orc_error)?;
+    let name = display_name(meta.name.as_deref(), &meta.goal);
     Ok(OrcTaskDto {
         id: task.id().to_string(),
         workflow_id: meta.workflow_id,
@@ -1203,9 +1714,105 @@ fn orc_task_to_dto(task: &OrcTask, workflow: &Workflow) -> Result<OrcTaskDto, Co
         block_reason: meta.block_reason,
         notify_mode: meta.notify_mode.as_str().to_string(),
         goal: meta.goal,
+        name,
+        round: meta.round.max(1),
+        round_input: meta.round_input,
+        created_at: meta.created_at,
+        round_history: meta
+            .round_history
+            .into_iter()
+            .map(|record| OrcRoundRecordDto {
+                round: record.round,
+                input: record.input,
+                summary: record.summary,
+            })
+            .collect(),
         working_dir: meta.working_dir,
         finalizing: meta.final_report_pending,
     })
+}
+
+/// 集群消息里的任务标识（用户可读）：任务名称（缺省按目标推导）；元数据损坏时退回任务 ID 以便定位。
+fn cluster_task_label(task: &OrcTask) -> String {
+    match task.meta() {
+        Ok(meta) => display_name(meta.name.as_deref(), &meta.goal),
+        Err(_) => task.id().to_string(),
+    }
+}
+
+/// 任务展示名：显式名称优先；旧任务缺省时按目标前 8 字推导（界面/会话标题始终可读）。
+fn display_name(name: Option<&str>, goal: &str) -> String {
+    if let Some(value) = name.map(str::trim).filter(|value| !value.is_empty()) {
+        return value.to_string();
+    }
+    derive_task_name(goal)
+}
+
+/// 从目标推导短名（去空白后取前 8 字；调用方保证目标非空）。
+fn derive_task_name(goal: &str) -> String {
+    goal.trim().chars().take(ORC_TASK_NAME_MAX_CHARS).collect()
+}
+
+/// 任务名称校验（必填、≤8 字、禁分隔符）：空/超长/含 `】`、`【` 都明确报错，不截断猜测。
+fn validate_task_name(raw: &str) -> Result<String, CommandError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(CommandError::new(
+            ORC_TASK_NAME_INVALID,
+            "任务名称不能为空：请填 8 个字以内的短名",
+        ));
+    }
+    // B3：`】`/`【` 会破坏微信指令 `【集群 <名>】` 的寻址，创建/编辑一律拒绝（不猜测清洗）。
+    if let Some(found) = trimmed
+        .chars()
+        .find(|c| ORC_TASK_NAME_FORBIDDEN_CHARS.contains(c))
+    {
+        return Err(CommandError::new(
+            ORC_TASK_NAME_INVALID,
+            format!("任务名称不能包含「{found}」：它会干扰微信指令寻址，请改用其他字符"),
+        ));
+    }
+    let count = trimmed.chars().count();
+    if count > ORC_TASK_NAME_MAX_CHARS {
+        return Err(CommandError::new(
+            ORC_TASK_NAME_INVALID,
+            format!("任务名称最多 {ORC_TASK_NAME_MAX_CHARS} 个字，当前 {count} 个字：请精简后重试"),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// 思考强度白名单校验（B2）：模型必须存在，且 variant 在该模型的 `variants` 中；
+/// 模型未知 / 不在列表 → 稳定错误码 `orc_step_variant_invalid` + 面向用户的中文提示。
+fn validate_variant(
+    models: &[OpencodeModelDto],
+    model: &str,
+    variant: &str,
+) -> Result<(), CommandError> {
+    let Some(found) = models
+        .iter()
+        .find(|entry| format!("{}/{}", entry.provider_id, entry.model_id) == model)
+    else {
+        return Err(CommandError::new(
+            ORC_STEP_VARIANT_INVALID,
+            format!("未找到模型 {model}：请确认 OpenCode 已打开并重新读取模型列表"),
+        ));
+    };
+    if !found.variants.iter().any(|item| item == variant) {
+        let options = if found.variants.is_empty() {
+            "该模型没有可选思考强度".to_string()
+        } else {
+            format!("可选：{}", found.variants.join(" / "))
+        };
+        return Err(CommandError::new(
+            ORC_STEP_VARIANT_INVALID,
+            format!(
+                "思考强度 {variant} 不适用于模型 {}（{options}）：请从下拉列表重新选择",
+                found.name
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// 工作流视图：节点列表（角色/建议 Agent/模型/人工确认门）供 UI 预览「每步做什么、派给谁」。
@@ -1221,6 +1828,7 @@ fn orc_workflow_to_dto(workflow: &Workflow) -> OrcWorkflowDto {
                 role: step.role.clone(),
                 agent_hint: step.agent_hint.clone(),
                 model: step.model.clone(),
+                variant: step.variant.clone(),
                 human_gate: step.human_gate,
             })
             .collect(),
@@ -1241,5 +1849,60 @@ fn orc_task_state_dto(state: TaskState) -> OrcTaskStateDto {
         TaskState::Rejected => OrcTaskStateDto::Rejected,
         TaskState::AuthRequired => OrcTaskStateDto::AuthRequired,
         _ => OrcTaskStateDto::Unspecified,
+    }
+}
+
+/// 新一轮的派活前缀（第 2 轮起）：把本轮要求/上一轮结论交给项目经理，保证续聊有上下文。
+fn round_intro(round: u32, input: Option<&str>) -> String {
+    match input.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(text) => format!(
+            "【第 {round} 轮迭代】本轮要求（来自用户或上一轮结论）：\n{text}\n────────────────────────\n"
+        ),
+        None => {
+            format!("【第 {round} 轮迭代】沿用上一轮结论继续推进。\n────────────────────────\n")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 新一轮前缀：带要求时写清来源与内容；无要求时明确「沿用上一轮结论」。
+    #[test]
+    fn round_intro_states_round_and_input() {
+        let with_input = round_intro(2, Some("翅膀握住车把，腿自然弯曲"));
+        assert!(with_input.contains("第 2 轮"), "{with_input}");
+        assert!(with_input.contains("翅膀握住车把"), "{with_input}");
+
+        let without = round_intro(3, None);
+        assert!(without.contains("第 3 轮"), "{without}");
+        assert!(without.contains("沿用上一轮结论"), "{without}");
+
+        let blank = round_intro(2, Some("   "));
+        assert!(blank.contains("沿用上一轮结论"), "{blank}");
+    }
+
+    /// 面向用户的失败原因：常见模型错误翻译成中文+处理建议；未识别保留原文；超长截断。
+    #[test]
+    fn user_facing_failure_maps_known_errors() {
+        let model = user_facing_failure("Model unavailable: provider/DeepSeek V4.1 Flash");
+        assert!(model.contains("所选模型不可用"), "{model}");
+        assert!(model.contains("换一个模型"), "必须给出处理办法：{model}");
+
+        let funds = user_facing_failure("Upstream request failed: Insufficient account funds");
+        assert!(funds.contains("余额不足"), "{funds}");
+        assert!(funds.contains("充值"), "必须给出处理办法：{funds}");
+
+        assert_eq!(
+            user_facing_failure("Codex 未找到可续聊的目标线程"),
+            "Codex 未找到可续聊的目标线程",
+            "未识别的错误保留原文（不硬翻译）"
+        );
+
+        let long = "长".repeat(FAILURE_DETAIL_LIMIT + 50);
+        let truncated = user_facing_failure(&long);
+        assert_eq!(truncated.chars().count(), FAILURE_DETAIL_LIMIT + 1);
+        assert!(truncated.ends_with('…'));
     }
 }

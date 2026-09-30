@@ -21,7 +21,7 @@ use super::mapping::{
     map_migration_snapshot, map_notification_record, sanitize_account_config,
     update_state_for_error,
 };
-use super::orc_handler::{OrcCommandHandler, load_harness_templates};
+use super::orc_handler::{DesktopModelCatalog, OrcCommandHandler, load_harness_templates};
 use super::orc_notify::ProductionOrcPresenter;
 use super::runtime::ProductionRuntimeCoordinator;
 use super::settings::ProductionSettingsStore;
@@ -79,7 +79,8 @@ impl ProductionHostCommandService {
             } else {
                 None
             },
-        );
+        )
+        .with_model_catalog(Arc::new(DesktopModelCatalog));
         Self {
             app,
             runtime,
@@ -330,6 +331,34 @@ impl HostCommandService for ProductionHostCommandService {
         self.orchestration.start(payload).await
     }
 
+    async fn update_orc_task(
+        &self,
+        payload: UpdateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.update(payload).await
+    }
+
+    async fn update_orc_task_step(
+        &self,
+        payload: UpdateOrcTaskStepPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.update_task_step(payload).await
+    }
+
+    async fn delete_orc_task(
+        &self,
+        payload: OrcTaskIdPayload,
+    ) -> Result<MutationAcceptedDto, CommandError> {
+        self.orchestration.delete(payload).await
+    }
+
+    async fn continue_orc_task(
+        &self,
+        payload: ContinueOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.continue_task(payload).await
+    }
+
     async fn get_current_orc_workflow(
         &self,
         _payload: EmptyPayload,
@@ -356,5 +385,12 @@ impl HostCommandService for ProductionHostCommandService {
         _payload: EmptyPayload,
     ) -> Result<Vec<OpencodeProjectDto>, CommandError> {
         self.orchestration.list_opencode_projects().await
+    }
+
+    async fn list_opencode_models(
+        &self,
+        _payload: EmptyPayload,
+    ) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        self.orchestration.list_opencode_models().await
     }
 }

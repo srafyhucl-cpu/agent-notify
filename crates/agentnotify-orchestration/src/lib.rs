@@ -22,13 +22,17 @@ pub mod wechat_command;
 pub mod workflow;
 
 pub use a2a_rs_core::{Message, Part, Role, Task, TaskState, TaskStatus};
-pub use envelope::{SUMMARY_REPORT_MISSING, render_envelope, render_step_reports};
+pub use envelope::{
+    ROUND_VERDICT_CONTINUE, ROUND_VERDICT_DONE, SUMMARY_REPORT_MISSING, render_envelope,
+    render_step_reports, round_continue_input,
+};
 pub use error::{OrcError, OrcErrorCode, OrcRepositoryError};
 pub use step_machine::{MessageKind, StepOutcome, StepState, TransitionAction, transition};
 pub use store::{InMemoryOrcTaskRepository, OrcStore, OrcTaskRepository};
 pub use task::{
-    NotifyMode, ORC_STEP_REPORT_LIMIT, ORC_STEP_REPORTS_TOTAL_LIMIT, OrcMeta, OrcTask,
-    StepConfigSnapshot, StepReport, continue_message, new_session_message,
+    NotifyMode, ORC_ROUND_HISTORY_LIMIT, ORC_ROUND_SUMMARY_LIMIT, ORC_STEP_REPORT_LIMIT,
+    ORC_STEP_REPORTS_TOTAL_LIMIT, OrcMeta, OrcTask, RoundRecord, StepConfigSnapshot, StepReport,
+    continue_message, new_session_message,
 };
 pub use template::{
     KNOWN_PLACEHOLDERS, RenderedEnvelope, ResolvedTemplate, TemplateLoadResult, TemplateResolver,

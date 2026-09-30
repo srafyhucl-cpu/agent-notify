@@ -49,6 +49,28 @@ pub struct OrcMeta {
     pub notify_mode: NotifyMode,
     /// 任务目标（用户原话）
     pub goal: String,
+    /// 任务名称（短名，≤8 字；用于集群列表与真实会话标题展示）。
+    /// 旧任务缺省 None = 由目标推导展示（向后兼容）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// 迭代轮次（从 1 起；「继续迭代」或项目经理判定继续时 +1，回到第 1 步）。
+    #[serde(default = "round_default")]
+    pub round: u32,
+    /// 本轮要求/上一轮结论（新一轮开始时写入；第 1 轮为 None）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round_input: Option<String>,
+    /// 任务创建时间（RFC3339；旧任务缺省 None，展示侧不显示）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    /// 轮次时间线（每轮要求 + 结论摘要；旧任务缺省空，展示侧按任务描述合成第 1 轮）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub round_history: Vec<RoundRecord>,
+    /// 最近一次派活时刻（ms epoch；看门狗用：只认此后的回合产出，旧任务缺省 None）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_dispatch_at_ms: Option<i64>,
+    /// 看门狗最近一次回注的回合完成时刻（ms epoch；防同一回合重复回注）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_settled_turn_ms: Option<i64>,
     /// 是否已开始执行（人工确认后开始；创建后默认 false，避免"没看清节点就被派活"）。
     /// 旧任务（无此字段）默认 true——它们本就已在运行，保持向后兼容。
     #[serde(default = "started_default_true")]
@@ -79,6 +101,20 @@ pub struct StepReport {
     pub body: String,
 }
 
+/// 单轮迭代记录（轮次时间线）：本轮要求 + 本轮结论摘要。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundRecord {
+    /// 轮次（从 1 起）
+    pub round: u32,
+    /// 本轮要求（第 1 轮为 None = 任务描述即要求；用户留空也为 None）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
+    /// 本轮结论摘要（项目经理最终汇报；本轮未结束时为 None）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
 /// 步骤配置快照（`start` 时锁定，§3「改配置不影响已创建任务」）。
 ///
 /// `agent` 必为已配置的非空 Agent id（`start` 预检保证）；`model` 可选（None = 该 Agent 默认模型）。
@@ -94,12 +130,19 @@ pub struct StepConfigSnapshot {
     /// 该步模型（`provider/model`；None = 该 Agent 默认模型）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// 该步思考强度（模型 variant；None = 模型默认强度）。旧任务/旧快照缺省兼容。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 
 /// 单步产出记录上限（字符数；超出截断并标注「…（已截断）」）。
 pub const ORC_STEP_REPORT_LIMIT: usize = 4000;
 /// 全部产出记录总上限（字符数；超出从最早步骤开始裁剪）。
 pub const ORC_STEP_REPORTS_TOTAL_LIMIT: usize = 12000;
+/// 轮次时间线保留上限（超出丢最旧；展示侧仍可按任务描述合成第 1 轮）。
+pub const ORC_ROUND_HISTORY_LIMIT: usize = 20;
+/// 单轮结论摘要上限（字符数；超出截断并标注「…（已截断）」）。
+pub const ORC_ROUND_SUMMARY_LIMIT: usize = 1200;
 
 /// 按字符截断正文；超限时追加标注（标注不计入上限，允许少量超出）。
 fn truncate_report(body: &str, limit: usize) -> String {
@@ -108,6 +151,14 @@ fn truncate_report(body: &str, limit: usize) -> String {
     }
     let head: String = body.chars().take(limit).collect();
     format!("{head}\n…（已截断）")
+}
+
+/// 总量保护：轮次时间线只保留最近 [`ORC_ROUND_HISTORY_LIMIT`] 轮（超出丢最旧）。
+fn trim_round_history(records: &mut Vec<RoundRecord>) {
+    if records.len() > ORC_ROUND_HISTORY_LIMIT {
+        let excess = records.len() - ORC_ROUND_HISTORY_LIMIT;
+        records.drain(0..excess);
+    }
 }
 
 /// 总量保护：从最早步骤开始裁剪，直到总字符数不超过 [`ORC_STEP_REPORTS_TOTAL_LIMIT`]。
@@ -134,6 +185,11 @@ fn started_default_true() -> bool {
     true
 }
 
+/// 轮次缺省值：旧任务没有该字段 = 第 1 轮。
+fn round_default() -> u32 {
+    1
+}
+
 /// A2A Task.metadata 中编排语境所在的键。
 pub const ORC_META_KEY: &str = "orc";
 
@@ -158,6 +214,17 @@ impl OrcTask {
             block_reason: None,
             notify_mode,
             goal: goal.to_string(),
+            name: None,
+            round: 1,
+            round_input: None,
+            created_at: None,
+            round_history: vec![RoundRecord {
+                round: 1,
+                input: None,
+                summary: None,
+            }],
+            last_dispatch_at_ms: None,
+            last_settled_turn_ms: None,
             started: false,
             working_dir: None,
             steps_snapshot: None,
@@ -269,6 +336,150 @@ impl OrcTask {
     /// 任务工作目录（None = 跟随宿主当前项目；旧任务缺省）。
     pub fn working_dir(&self) -> Result<Option<String>, OrcError> {
         Ok(self.meta()?.working_dir)
+    }
+
+    /// 任务名称（None = 旧任务缺省，由展示侧按目标推导）。
+    pub fn name(&self) -> Result<Option<String>, OrcError> {
+        Ok(self.meta()?.name)
+    }
+
+    /// 设置任务名称（空串 = 清除；长度校验由调用方负责）。
+    pub fn set_name(&mut self, name: &str) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        let trimmed = name.trim();
+        meta.name = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        self.put_meta(&meta)
+    }
+
+    /// 更新任务目标（仅未开始任务允许；由调用方校验后写入）。
+    pub fn set_goal(&mut self, goal: &str) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.goal = goal.trim().to_string();
+        self.put_meta(&meta)
+    }
+
+    /// 更新通知节奏（运行中改只影响后续推送；由调用方解析后传入）。
+    pub fn set_notify_mode(&mut self, mode: NotifyMode) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.notify_mode = mode;
+        self.put_meta(&meta)
+    }
+
+    /// 当前迭代轮次（旧任务缺省 1）。
+    pub fn round(&self) -> Result<u32, OrcError> {
+        Ok(self.meta()?.round.max(1))
+    }
+
+    /// 本轮要求/上一轮结论（第 1 轮为 None）。
+    pub fn round_input(&self) -> Result<Option<String>, OrcError> {
+        Ok(self.meta()?.round_input)
+    }
+
+    /// 任务创建时间（RFC3339；旧任务缺省 None）。
+    pub fn created_at(&self) -> Result<Option<String>, OrcError> {
+        Ok(self.meta()?.created_at)
+    }
+
+    /// 写入任务创建时间（创建任务时由宿主写入一次）。
+    pub fn set_created_at(&mut self, at: &str) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        let trimmed = at.trim();
+        meta.created_at = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        self.put_meta(&meta)
+    }
+
+    /// 轮次时间线（旧任务缺省空；展示侧按任务描述合成第 1 轮）。
+    pub fn round_history(&self) -> Result<Vec<RoundRecord>, OrcError> {
+        Ok(self.meta()?.round_history)
+    }
+
+    /// 最近一次派活时刻（ms epoch；旧任务缺省 None）。
+    pub fn last_dispatch_at_ms(&self) -> Result<Option<i64>, OrcError> {
+        Ok(self.meta()?.last_dispatch_at_ms)
+    }
+
+    /// 记录派活时刻（看门狗用；每次派活覆盖旧值）。
+    pub fn mark_dispatched(&mut self, at_ms: i64) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.last_dispatch_at_ms = Some(at_ms);
+        self.put_meta(&meta)
+    }
+
+    /// 看门狗最近一次回注的回合完成时刻（防同一回合重复回注）。
+    pub fn last_settled_turn_ms(&self) -> Result<Option<i64>, OrcError> {
+        Ok(self.meta()?.last_settled_turn_ms)
+    }
+
+    /// 记录看门狗已回注的回合完成时刻（只前进，不回退）。
+    pub fn mark_settled_turn(&mut self, completed_at_ms: i64) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        let current = meta.last_settled_turn_ms.unwrap_or(i64::MIN);
+        if completed_at_ms > current {
+            meta.last_settled_turn_ms = Some(completed_at_ms);
+        }
+        self.put_meta(&meta)
+    }
+
+    /// 记录本轮结论摘要（项目经理最终汇报，轮次时间线用；按上限截断）。
+    /// 旧任务没有对应轮次记录时补一条（要求取当前 round_input），不丢结论。
+    pub fn record_round_summary(&mut self, summary: &str) -> Result<(), OrcError> {
+        let trimmed = summary.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+        let mut meta = self.meta()?;
+        let round = meta.round.max(1);
+        let truncated = truncate_report(trimmed, ORC_ROUND_SUMMARY_LIMIT);
+        if let Some(record) = meta
+            .round_history
+            .iter_mut()
+            .find(|record| record.round == round)
+        {
+            record.summary = Some(truncated);
+        } else {
+            meta.round_history.push(RoundRecord {
+                round,
+                input: meta.round_input.clone(),
+                summary: Some(truncated),
+            });
+            meta.round_history.sort_by_key(|record| record.round);
+            trim_round_history(&mut meta.round_history);
+        }
+        self.put_meta(&meta)
+    }
+
+    /// 开始新一轮迭代（用户「继续迭代」或项目经理判定继续）：
+    /// 轮次 +1、写入本轮要求（并追加到轮次时间线）、回到第 1 步、退出汇总/阻塞，状态回到 Working。
+    /// 调用方负责校验「本轮已结束」等前置条件。
+    pub fn begin_round(&mut self, input: Option<&str>) -> Result<(), OrcError> {
+        let mut meta = self.meta()?;
+        meta.round = meta.round.max(1).saturating_add(1);
+        let input_value = input
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        meta.round_input = input_value.clone();
+        meta.round_history.push(RoundRecord {
+            round: meta.round,
+            input: input_value,
+            summary: None,
+        });
+        trim_round_history(&mut meta.round_history);
+        meta.current_step = 1;
+        meta.final_report_pending = false;
+        meta.blocked_step = None;
+        meta.block_reason = None;
+        self.put_meta(&meta)?;
+        self.set_state(TaskState::Working);
+        Ok(())
     }
 
     /// 设置任务工作目录（创建任务时由宿主写入；空串 = 清除）。

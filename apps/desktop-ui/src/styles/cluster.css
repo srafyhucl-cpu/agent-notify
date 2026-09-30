@@ -1,14 +1,20 @@
-/* ========== 集群页（P1：任务列表 + 对话线 + 发指令） ========== */
+/* ========== 集群页（2026-09 动线重做：单卡 + 行内手风琴 + 新建任务弹窗） ========== */
 :root {
-  /* 列表视口高度：与历史页同尺度，避免整页双滚动条 */
-  --cluster-list-height: min(58vh, 560px);
-  --cluster-scrollbar-size: var(--space-2);
+  /* 新建任务弹窗宽度：容得下逐节点配置与三列字段 */
+  --cluster-create-dialog-width: 880px;
+
+  /* §12.4 节点卡行内编辑：紧凑控件高度与下拉最大宽度（4px 网格；窄窗时收缩省略） */
+  --orc-node-inline-height: 24px;
+  --orc-node-select-max-width: 220px;
 
   /* 节点链动效（§7）：只做注意力引导，时长/幅度克制 */
   --orc-node-pulse-duration: 2500ms;
   --orc-node-settle-duration: 400ms;
   --orc-node-fail-duration: 1500ms;
   --orc-node-flow-duration: 1600ms;
+  /* §12.6：流转光束 2px→3px（更明显）；左侧身份色条同宽度保持观感一致 */
+  --orc-node-flow-width: 3px;
+  --orc-node-accent-width: 3px;
 }
 
 .cluster-page-content {
@@ -22,24 +28,82 @@
   gap: var(--space-5);
 }
 
-/* ===== 创建任务（SectionCard 内表单） ===== */
-.cluster-create-form {
+/* ===== 新建任务弹窗（对齐渠道页「添加账号」；表单控件样式与设置页节点编辑同源） ===== */
+.cluster-create-dialog {
+  width: min(var(--cluster-create-dialog-width), 100%);
+  max-height: calc(100vh - var(--space-6));
+  overflow-y: auto;
+  background: var(--surface-3);
+  border: 1px solid var(--surface-3-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--surface-3-shadow);
+  -webkit-backdrop-filter: var(--surface-3-blur);
+  backdrop-filter: var(--surface-3-blur);
+}
+
+.cluster-dialog-body {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+  /* 控件字号与全站一致：标签 12px（--font-size-1）、控件与占位符 13px（--font-body）。 */
+  font-size: var(--font-body);
+  line-height: 1.5;
+}
+
+.cluster-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--hairline);
+}
+
+/* 目标：单独一行（textarea 可纵向拉伸） */
+.cluster-create-goal-field {
+  display: grid;
+  gap: var(--space-1);
   min-width: 0;
 }
 
+.cluster-create-goal-field > span,
+.cluster-create-fields label > span,
+.cluster-create-dir-field > label > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-1);
+  font-weight: 650;
+}
+
+.cluster-create-goal {
+  width: 100%;
+  min-width: 0;
+  min-height: 88px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* 字段行：默认 1:1 两列；三列用于「名称 + 通知节奏 + 模板」；窄窗自动堆叠 */
 .cluster-create-fields {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: start;
   gap: var(--space-3);
   min-width: 0;
 }
 
-/* 模板 + 工作目录：等宽两列，长目录/名称都能换行或省略。 */
 .cluster-create-fields--pair {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.cluster-create-fields--trio {
+  grid-template-columns: minmax(150px, 0.75fr) minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .cluster-create-fields label,
@@ -55,28 +119,14 @@
   min-width: 0;
 }
 
-.cluster-create-fields label > span:first-child,
-.cluster-create-dir-field > label > span:first-child {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-1);
-  font-weight: 650;
-}
-
-.cluster-create-fields textarea,
-.cluster-create-fields select {
-  width: 100%;
-  min-width: 0;
-  color: var(--color-text);
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  font: inherit;
-}
-
+.cluster-create-fields select,
+.cluster-create-fields input,
 .cluster-create-dir-field select,
 .cluster-create-dir-input {
   width: 100%;
   min-width: 0;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
   color: var(--color-text);
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -84,29 +134,8 @@
   font: inherit;
 }
 
-.cluster-create-dir-input {
-  min-height: var(--control-height);
-  padding: 0 var(--space-3);
-}
-
-.cluster-create-dir-hint {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-caption);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.cluster-create-fields textarea {
-  min-height: 68px;
-  padding: var(--space-2) var(--space-3);
-  line-height: 1.5;
-  resize: vertical;
-}
-
-.cluster-create-fields select {
-  min-height: var(--control-height);
-  padding: 0 var(--space-3);
+.cluster-create-fields select,
+.cluster-create-dir-field select {
   appearance: none;
   -webkit-appearance: none;
   padding-right: 28px;
@@ -117,217 +146,622 @@
   cursor: pointer;
 }
 
-[data-theme="dark"] .cluster-create-fields select {
+[data-theme="dark"] .cluster-create-fields select,
+[data-theme="dark"] .cluster-create-dir-field select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23aaaaaa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
-.cluster-create-actions {
-  display: flex;
-  justify-content: flex-end;
-  min-width: 0;
+.cluster-create-dir-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* 节点未选齐：明确点名第几步，不让「创建并开始」变成谜题 */
+.cluster-create-agent-hint {
+  margin: 0;
+  color: var(--color-warning);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 820px) {
   .cluster-create-fields,
-  .cluster-create-fields--pair {
+  .cluster-create-fields--pair,
+  .cluster-create-fields--trio {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
-/* ===== 工作区：列表 + 详情（master-detail，参照历史页） ===== */
-.cluster-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(320px, 0.9fr);
-  align-items: start;
-  gap: var(--space-5);
-  min-width: 0;
-}
-
-@media (max-width: 980px) {
-  .cluster-workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* ===== 任务列表 ===== */
-.cluster-task-list {
-  min-width: 0;
-  background: var(--surface-1);
-  border: 1px solid var(--surface-1-border);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--surface-1-shadow), var(--surface-top-highlight);
-  -webkit-backdrop-filter: var(--surface-1-blur);
-  backdrop-filter: var(--surface-1-blur);
-  overflow: hidden;
-}
-
-.cluster-task-scroll {
-  max-height: var(--cluster-list-height);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  overflow-y: auto;
-}
-
-.cluster-task-scroll::-webkit-scrollbar {
-  width: var(--cluster-scrollbar-size);
-}
-
-.cluster-task-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.cluster-task-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: var(--radius-pill);
-}
-
-.cluster-task-item {
-  min-width: 0;
-}
-
-.cluster-task-row {
-  display: grid;
-  gap: var(--space-2);
+/* ===== 任务列表（对齐渠道页：整行可点手风琴，默认全部收起） ===== */
+.cluster-task-table {
   width: 100%;
   min-width: 0;
-  padding: var(--space-3) var(--space-4);
-  color: var(--color-text);
+}
+
+.cluster-task-table table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: var(--font-body);
+}
+
+.cluster-task-table thead th {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  background: transparent;
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--font-small);
+  font-weight: 650;
   text-align: left;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.cluster-th-state {
+  width: 168px;
+}
+
+.cluster-th-progress {
+  width: 96px;
+}
+
+.cluster-th-notify {
+  width: 118px;
+}
+
+.cluster-th-actions {
+  width: 76px;
+}
+
+.cluster-th-expand {
+  width: 44px;
+}
+
+/* 连续数据行：整行可点手风琴，消除工字光标 */
+.cluster-task-row {
+  cursor: pointer;
+  user-select: none;
+}
+
+.cluster-task-table tbody th,
+.cluster-task-table tbody td {
+  min-width: 0;
+  padding: 12px;
+  text-align: left;
+  vertical-align: middle;
+  background: transparent;
+  border-bottom: 1px solid var(--hairline);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--duration-fast) ease;
+}
+
+/* 展开行：柔和主色微光底 + 左侧 3px 品牌药丸竖条高光 */
+.cluster-task-row--expanded th,
+.cluster-task-row--expanded td {
+  background: var(--color-primary-soft);
+  border-bottom-color: transparent;
+}
+
+.cluster-task-row--expanded th:first-child {
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.cluster-task-table tbody tr:not(.cluster-task-row--expanded):not(.cluster-task-detail-row):hover th,
+.cluster-task-table tbody tr:not(.cluster-task-row--expanded):not(.cluster-task-detail-row):hover td {
+  background: var(--color-surface-muted);
+}
+
+.cluster-task-name {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  color: var(--color-text);
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--hairline);
-  cursor: pointer;
-  font: inherit;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
-}
-
-.cluster-task-row:last-child {
-  border-bottom: 0;
-}
-
-.cluster-task-row:hover {
-  background: var(--color-surface-muted);
-}
-
-.cluster-task-row:active {
-  background: var(--color-surface-muted);
-}
-
-.cluster-task-row:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -2px;
-  position: relative;
-  z-index: var(--z-content);
-}
-
-.cluster-task-row--selected,
-.cluster-task-row--selected:hover {
-  background: var(--color-surface-muted);
-  box-shadow: inset 3px 0 0 0 var(--color-primary);
-}
-
-.cluster-task-goal {
-  display: block;
-  min-width: 0;
   font-size: var(--font-body);
   font-weight: 650;
-  line-height: 1.45;
+  text-align: left;
   overflow-wrap: anywhere;
+  cursor: pointer;
 }
 
-.cluster-task-meta {
+/* 名称单元格：名称 + 创建时间（短格式）并排；时间不抢名称的宽度 */
+.cluster-task-name-cell {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
   min-width: 0;
 }
 
-.cluster-task-step,
+.cluster-task-name-cell .cluster-task-name {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.cluster-task-created {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* 窄窗优先保名称与状态：创建时间隐藏（详情里仍可见完整时间） */
+@media (max-width: 960px) {
+  .cluster-task-created {
+    display: none;
+  }
+}
+
+.cluster-task-name:hover {
+  color: var(--color-primary);
+}
+
+/* 阻塞任务：名称标红，原因在行内直接可读（失败不藏着） */
+.cluster-task-row--blocked .cluster-task-name,
+.cluster-task-row--blocked .cluster-task-name:hover {
+  color: var(--color-danger);
+}
+
+.cluster-task-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.cluster-task-progress,
 .cluster-task-notify {
   color: var(--color-text-muted);
   font-size: var(--font-size-1);
   white-space: nowrap;
 }
 
-.cluster-task-reason {
-  display: block;
+/* 进度：按步骤分段的小进度条（完成/当前/待执行/失败用语义色区分） */
+.cluster-task-progress {
+  white-space: nowrap;
+}
+
+.cluster-step-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: middle;
+}
+
+.cluster-step-dot {
+  display: inline-block;
+  width: 16px;
+  height: 6px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+}
+
+.cluster-step-dot--done {
+  background: var(--color-success);
+  border-color: transparent;
+}
+
+.cluster-step-dot--failed {
+  background: var(--color-danger);
+  border-color: transparent;
+}
+
+.cluster-step-dot--current {
+  background: var(--color-primary);
+  border-color: transparent;
+  animation: cluster-step-pulse var(--orc-node-pulse-duration) var(--ease-out) infinite;
+}
+
+@keyframes cluster-step-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scaleY(1.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cluster-step-dot--current {
+    animation: none;
+  }
+}
+
+/* 行操作：编辑 / 删除（图标按钮复用全局 .button-icon-subtle 体系） */
+.cluster-task-actions-cell {
+  width: 76px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cluster-task-actions-cell .button-icon-subtle {
+  display: inline-flex;
+  margin-left: var(--space-1);
+  vertical-align: middle;
+}
+
+.cluster-task-expand-cell {
+  width: 44px;
+  text-align: right;
+  padding-right: 16px !important;
+}
+
+.cluster-chevron {
+  color: var(--color-text-muted);
+  transition:
+    transform var(--duration-fast) var(--ease-spring),
+    color var(--duration-fast) ease;
+}
+
+.cluster-chevron--open {
+  transform: rotate(180deg);
+}
+
+.cluster-task-row:hover .cluster-chevron {
+  color: var(--color-primary);
+}
+
+.cluster-task-detail-row td {
+  padding: 0 !important;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--color-surface-muted);
+  cursor: default;
+}
+
+.cluster-task-inline-detail {
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--color-surface-muted);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+  animation: agent-card-body-in var(--duration-fast) var(--ease-spring);
+}
+
+/* ===== 任务详情（展开行内容：分块展示，工作流置顶重点） ===== */
+.cluster-task-detail {
+  display: grid;
+  gap: var(--space-3);
   min-width: 0;
-  color: var(--color-danger);
-  font-size: var(--font-size-1);
-  line-height: 1.45;
+}
+
+/* 详情分块：每块一张浅色卡片（与渠道页详情 pane 同一套语言） */
+.cluster-detail-pane {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.cluster-detail-pane-title {
+  margin: 0;
+  padding-bottom: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* 任务描述：详情里的正文（名称只在列表行展示，不重复标题） */
+.cluster-detail-goal {
+  margin: 0;
+  font-size: var(--font-size-2);
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-/* 阻塞任务：目标文字标红，与阻塞徽标/原因成组提示 */
-.cluster-task-row--blocked .cluster-task-goal {
-  color: var(--color-danger);
-}
-
-/* ===== 任务详情 ===== */
-.cluster-task-detail {
+/* 轮次时间线（任务描述块内）：折叠 = 整块可点展开（卡片堆预览）；展开 = 顶部整行可点收起 */
+.cluster-round-stack {
   display: grid;
-  align-content: start;
-  align-self: stretch;
-  gap: var(--space-5);
+  gap: var(--space-2);
+  width: 100%;
   min-width: 0;
-  min-height: 0;
-  overflow: auto;
+  padding: var(--space-2) 0 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-top: 1px dashed var(--hairline);
+  border-radius: var(--radius-control);
+  font: inherit;
+  cursor: pointer;
+  animation: cluster-round-reveal var(--duration-base) var(--ease-out);
 }
 
-.cluster-task-detail--empty {
+.cluster-round-stack:hover .cluster-round-stack-card {
+  border-color: var(--border-hover);
+}
+
+.cluster-round-stack:focus-visible,
+.cluster-round-head:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* 顶部整行（折叠态的 span / 展开态的按钮）：标题在左、展开收起在右，位置一致 */
+.cluster-round-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cluster-round-head-title {
   color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  font-weight: 700;
 }
 
-.cluster-task-detail--empty h2 {
-  margin: 0 0 var(--space-2);
-  color: var(--color-text);
-  font-size: var(--font-heading);
+.cluster-round-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-primary);
+  font-size: var(--font-caption);
+  font-weight: 650;
+  transition: color var(--duration-fast) ease;
 }
 
-.cluster-task-detail--empty p {
+.cluster-round-stack:hover .cluster-round-toggle,
+.cluster-round-head:hover .cluster-round-toggle {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+.cluster-round-chevron {
+  flex: none;
+}
+
+.cluster-round-stack-cards {
+  display: grid;
+  min-width: 0;
+}
+
+.cluster-round-stack-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  transition: border-color var(--duration-fast) ease;
+}
+
+/* 卡片堆：最新一轮在最上（DOM 顺序即最新在前），更旧的逐层上移收窄、置于下层 */
+.cluster-round-stack-card:nth-child(1) {
+  z-index: 3;
+}
+
+.cluster-round-stack-card:nth-child(2) {
+  z-index: 2;
+  width: calc(100% - var(--space-4));
+  margin-top: calc(var(--space-3) * -1);
+  margin-left: var(--space-2);
+  opacity: 0.85;
+}
+
+.cluster-round-stack-card:nth-child(3) {
+  z-index: 1;
+  width: calc(100% - var(--space-5));
+  margin-top: calc(var(--space-3) * -1);
+  margin-left: var(--space-4);
+  opacity: 0.7;
+}
+
+.cluster-round-stack-text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-round-badge {
+  flex: none;
+  padding: 0 var(--space-2);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-small);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+/* 展开态：完整迭代时间线（每轮一张卡：要求 + 结论） */
+.cluster-round-timeline {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--hairline);
+  animation: cluster-round-reveal var(--duration-base) var(--ease-out);
+}
+
+/* 展开/收起：内容轻量下移淡入（收起时叠放态同样有该动效） */
+@keyframes cluster-round-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--space-1) * -1));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cluster-round-stack,
+  .cluster-round-timeline {
+    animation: none;
+  }
+}
+
+.cluster-round-card {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.cluster-round-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cluster-round-current {
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+}
+
+.cluster-round-card-label {
   margin: 0;
-  font-size: var(--font-body);
-  line-height: 1.5;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  font-weight: 650;
 }
 
-.cluster-task-detail .pattern-section-card-title {
+.cluster-round-card-text {
+  margin: 0;
+  font-size: var(--font-size-2);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.cluster-round-card-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.cluster-round-card-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+}
+
+/* 编辑任务弹窗：复用创建弹窗结构，宽度收窄 */
+.cluster-edit-dialog {
+  width: min(560px, 100%);
+}
+
+.cluster-edit-note {
+  margin: 0;
+  color: var(--color-warning);
+  font-size: var(--font-caption);
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
 .cluster-task-facts {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+/* 任务信息一行：label+value 内联、分隔点间隔；不换行（窗口窄时只有工作目录省略号） */
+.cluster-task-facts--inline {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: var(--space-2);
-  margin: 0 0 var(--space-4);
+  min-width: 0;
+}
+
+.cluster-task-facts--inline .cluster-task-fact {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0;
+  white-space: nowrap;
+}
+
+/* 最后一项（工作目录）可收缩：窗口窄时省略号截断，保证整行不换行 */
+.cluster-task-facts--inline .cluster-task-fact:last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cluster-task-facts--inline .cluster-task-fact:last-child dd {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cluster-task-facts--inline .cluster-task-fact:not(:last-child)::after {
+  content: "·";
+  margin-left: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.cluster-task-facts--inline .cluster-task-fact dt {
+  flex: none;
+  font-size: var(--font-small);
+}
+
+.cluster-task-facts--inline .cluster-task-fact dd:not(.cluster-task-fact-dir) {
+  font-size: var(--font-caption);
 }
 
 .cluster-task-fact {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
+  display: grid;
+  gap: 2px;
   min-width: 0;
   padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--hairline);
-}
-
-.cluster-task-fact:last-child {
-  border-bottom: 0;
 }
 
 .cluster-task-fact dt {
-  flex: 0 0 auto;
   color: var(--color-text-muted);
-  font-size: var(--font-size-1);
+  font-size: var(--font-caption);
 }
 
 .cluster-task-fact dd {
   min-width: 0;
   margin: 0;
-  text-align: right;
   font-size: var(--font-size-2);
   font-weight: 650;
   overflow-wrap: anywhere;
@@ -340,7 +774,7 @@
   font-weight: 400;
 }
 
-/* 工作目录：长路径可换行，事实区内不撑破卡片 */
+/* 工作目录：长路径可换行，信息网格内不撑破卡片 */
 .cluster-task-fact-dir {
   color: var(--color-text-muted);
   font-family: var(--font-family-mono);
@@ -374,22 +808,9 @@
   overflow-wrap: anywhere;
 }
 
-.cluster-terminal-note {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-body);
-}
-
 /* 推进指令区 */
 .cluster-actions {
   min-width: 0;
-}
-
-.cluster-actions-label {
-  margin: 0 0 var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-1);
-  font-weight: 650;
 }
 
 .cluster-actions-buttons {
@@ -406,22 +827,16 @@
   font-size: var(--font-size-1);
   line-height: 1.5;
 }
-
-/* ===== 共用节点链（任务详情 / 创建预览 / 设置页，§7 动态可视化） ===== */
-.cluster-workflow-preview,
-.cluster-workflow {
+/* ===== 共用节点链（创建弹窗预览 / 设置页 / 任务详情，§7 动态可视化） ===== */
+.cluster-workflow-preview {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-}
-
-.cluster-workflow-preview {
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 
-.cluster-workflow-preview-title,
-.cluster-workflow-title {
+.cluster-workflow-preview-title {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-1);
@@ -440,27 +855,63 @@
 .orc-node {
   display: grid;
   min-width: 0;
+  /* §12.6 每步主题色（身份标识）：第 5 步起用青绿；1–4 步由 data-order 覆盖。
+     状态语义（当前/完成/失败）仍走主色/成功/失败，主题色只做身份识别。 */
+  --orc-node-theme: var(--orc-step-5);
+  --orc-node-theme-soft: var(--orc-step-5-soft);
+  --orc-node-theme-glow: var(--orc-step-5-glow);
+}
+
+.orc-node[data-order="1"] {
+  --orc-node-theme: var(--orc-step-1);
+  --orc-node-theme-soft: var(--orc-step-1-soft);
+  --orc-node-theme-glow: var(--orc-step-1-glow);
+}
+
+.orc-node[data-order="2"] {
+  --orc-node-theme: var(--orc-step-2);
+  --orc-node-theme-soft: var(--orc-step-2-soft);
+  --orc-node-theme-glow: var(--orc-step-2-glow);
+}
+
+.orc-node[data-order="3"] {
+  --orc-node-theme: var(--orc-step-3);
+  --orc-node-theme-soft: var(--orc-step-3-soft);
+  --orc-node-theme-glow: var(--orc-step-3-glow);
+}
+
+.orc-node[data-order="4"] {
+  --orc-node-theme: var(--orc-step-4);
+  --orc-node-theme-soft: var(--orc-step-4-soft);
+  --orc-node-theme-glow: var(--orc-step-4-glow);
 }
 
 /* 连接线：推进方向 = 从前一节点流向当前节点（自上而下）；流光仅作注意力引导。 */
 .orc-node-flow {
   position: relative;
   display: block;
-  width: 2px;
+  width: var(--orc-node-flow-width);
   height: var(--space-3);
   margin-left: var(--space-3);
   overflow: hidden;
-  background: var(--color-border);
+  background: linear-gradient(180deg, var(--orc-node-theme-soft), var(--hairline) 75%);
   border-radius: var(--radius-pill);
 }
 
+/* 流转光束（§12.6 强化）：加宽 + 提亮渐变 + 柔和同源辉光；仅当前节点接收推进方向。 */
 .orc-node[data-state="current"] .orc-node-flow::after,
 .orc-node[data-state="finalizing"] .orc-node-flow::after {
   content: "";
   position: absolute;
   inset: 0 0 auto;
   height: 70%;
-  background: linear-gradient(180deg, transparent, var(--color-primary));
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--orc-node-theme) 55%,
+    var(--orc-node-theme)
+  );
+  box-shadow: 0 0 8px var(--orc-node-theme-glow);
   animation: orc-node-flow var(--orc-node-flow-duration) linear infinite;
 }
 
@@ -475,6 +926,19 @@
   border-radius: var(--radius-control);
 }
 
+/* 左侧身份色条（§12.6）：该步主题色，上下留出圆角安全距。 */
+.orc-node-card::before {
+  content: "";
+  position: absolute;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  left: 0;
+  width: var(--orc-node-accent-width);
+  background: var(--orc-node-theme);
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+}
+
 .orc-node-head {
   display: flex;
   flex-wrap: wrap;
@@ -486,7 +950,11 @@
 
 .orc-node-order {
   flex: none;
-  color: var(--color-text-muted);
+  padding: 1px var(--space-2);
+  color: var(--orc-node-theme);
+  background: var(--orc-node-theme-soft);
+  border-radius: var(--radius-pill);
+  font-weight: 650;
 }
 
 .orc-node-role {
@@ -516,32 +984,100 @@
   font-size: var(--font-small);
 }
 
+/* 第二行（§12.4 行内编辑）：Agent / 模型 / 强度 + 当前节点操作；
+   单行不换行、固定行高——节点卡永远两行且层层等高。 */
+.orc-node-meta-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--orc-node-inline-height);
+}
+
 .orc-node-meta {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-1) var(--space-3);
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
   margin: 0;
 }
 
 .orc-node-meta-item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-1);
   min-width: 0;
+}
+
+/* 分隔点：只在相邻两项之间出现（右侧操作区不算一项） */
+.orc-node-meta-item + .orc-node-meta-item::before {
+  content: "·";
+  margin-right: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
 }
 
 .orc-node-meta-item dt {
   flex: none;
   color: var(--color-text-muted);
   font-size: var(--font-small);
+  white-space: nowrap;
 }
 
 .orc-node-meta-item dd {
   min-width: 0;
   margin: 0;
   font-size: var(--font-caption);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+
+/* 只读文本（Agent/模型值）：窄窗省略号截断；控件不裁剪，聚焦环保持完整 */
+.orc-node-meta-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 行内模型/强度下拉：紧凑变体（沿用全站 select 的 token / 边框 / 聚焦环） */
+.orc-node-inline-select {
+  max-width: min(100%, var(--orc-node-select-max-width));
+  min-height: var(--orc-node-inline-height);
+  height: var(--orc-node-inline-height);
+  padding: 0 var(--space-5) 0 var(--space-2);
+  font-size: var(--font-caption);
+  text-overflow: ellipsis;
+}
+
+/* 行内操作（仅当前节点）：右对齐，紧凑高度与下拉一致，保证卡片等高 */
+.orc-node-meta-actions {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  min-width: 0;
+}
+
+.orc-node-meta-actions .button {
+  flex: none;
+  min-height: var(--orc-node-inline-height);
+  padding: 0 var(--space-2);
+  font-size: var(--font-caption);
+}
+
+/* 汇总中说明：占第二行、不新开一行；窄窗省略号（悬浮可看全文） */
+.orc-node-meta-note {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .orc-node-details {
@@ -701,6 +1237,37 @@
 .orc-node-field select,
 .orc-node-field input {
   width: 100%;
+}
+
+/* 模型选择（下拉 +「手动输入」兜底，设置页与创建弹窗共用） */
+.orc-model-fields {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.orc-model-control {
+  min-width: 0;
+}
+
+/* 节点链栅格布局（创建弹窗）：节点并排，避免弹窗纵向过长；连接线在该布局下隐藏 */
+.orc-node-chain--grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+.orc-node-chain--grid .orc-node-flow {
+  display: none;
+}
+
+/* 节点字段并排（Agent + 模型 一行两列，提示横跨两列）：弹窗里压缩纵向高度 */
+.orc-node-fields--pair {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.orc-node-fields--pair .orc-node-field-hint {
+  grid-column: 1 / -1;
 }
 
 .orc-node-field-hint {

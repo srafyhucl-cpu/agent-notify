@@ -15,6 +15,7 @@ import type {
 } from "../../bridge/types";
 import { createQueryClient } from "../../data/queryClient";
 import { legacyMigrationFixture } from "../../test/fixtures";
+import { ORC_OPENCODE_ONLY_NOTE } from "../cluster/labels";
 import { DiagnosticsPage } from "../diagnostics/DiagnosticsPage";
 import { SettingsPage } from "./SettingsPage";
 
@@ -519,7 +520,7 @@ describe("SettingsPage 编排（集群）节点配置", () => {
     expect(screen.getAllByText("请先选择 Agent").length).toBeGreaterThan(0);
   });
 
-  it("模型仅 OpenCode 可编辑；切到其他 Agent 时清空并注明不支持", async () => {
+  it("模型仅 OpenCode 可编辑；Agent 下拉只提供 OpenCode 并给出说明", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
       settings: settingsFixture(),
@@ -528,17 +529,27 @@ describe("SettingsPage 编排（集群）节点配置", () => {
     renderSettings(bridge);
 
     const agentSelect = await screen.findByLabelText("第 1 步 Agent");
-    const modelInput = screen.getByLabelText("第 1 步 模型");
+    expect(
+      within(agentSelect)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["未选择", "OpenCode 适配器（opencode）"]);
+    // 已接入的其它 Agent 不再出现在下拉里
+    expect(
+      within(agentSelect).queryByRole("option", { name: /Alpha Agent/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(ORC_OPENCODE_ONLY_NOTE)).toBeVisible();
 
     await user.selectOptions(agentSelect, "opencode");
-    expect(modelInput).toBeEnabled();
-    expect(screen.getByText("留空 = 用该 Agent 默认模型")).toBeVisible();
+    const modelSelect = screen.getByLabelText("第 1 步 模型");
+    expect(modelSelect).toBeEnabled();
+    expect(
+      screen.getByText("留空 = 不指定，由 OpenCode 用其当前默认模型"),
+    ).toBeVisible();
 
-    await user.type(modelInput, "anthropic/claude-sonnet-4-5");
-    await user.selectOptions(agentSelect, "agent-alpha");
-    expect(modelInput).toBeDisabled();
-    expect(modelInput).toHaveValue("");
-    expect(screen.getByText("该 Agent 暂不支持指定模型")).toBeVisible();
+    // 下拉直接选（显示名 + provider/model），不用手拼格式
+    await screen.findByRole("option", { name: /Space Bunny Free/ });
+    await user.selectOptions(modelSelect, "opencode-go/space-bunny-free");
   });
 
   it("保存节点配置：提交全量节点并给出成功提示", async () => {
@@ -551,9 +562,10 @@ describe("SettingsPage 编排（集群）节点配置", () => {
 
     const agentSelect = await screen.findByLabelText("第 1 步 Agent");
     await user.selectOptions(agentSelect, "opencode");
-    await user.type(
+    await screen.findByRole("option", { name: /Space Bunny Free/ });
+    await user.selectOptions(
       screen.getByLabelText("第 1 步 模型"),
-      "anthropic/claude-sonnet-4-5",
+      "opencode-go/space-bunny-free",
     );
     await user.selectOptions(screen.getByLabelText("第 2 步 Agent"), "opencode");
 
@@ -571,7 +583,7 @@ describe("SettingsPage 编排（集群）节点配置", () => {
               {
                 order: 1,
                 agent: "opencode",
-                model: "anthropic/claude-sonnet-4-5",
+                model: "opencode-go/space-bunny-free",
               },
               { order: 2, agent: "opencode", model: null },
             ],

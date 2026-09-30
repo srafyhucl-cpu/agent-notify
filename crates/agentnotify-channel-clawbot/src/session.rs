@@ -549,6 +549,8 @@ async fn persist_poll_state(
     if context_token.is_some() {
         state.stale_at = None;
         state.session_established_at = Some(now);
+        // 会话恢复：清除「本次断开已提醒」记录，下次断开可再提醒。
+        state.session_alert_at = None;
     }
     account.config = serde_json::to_value(state)
         .map_err(|_| permanent_state_error("ClawBot 账号状态编码失败"))?;

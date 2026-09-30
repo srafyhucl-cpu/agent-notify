@@ -238,7 +238,9 @@ async fn dispatch_options_are_written_with_plugin_field_names() {
     let options = DispatchOptions {
         working_dir: Some("D:/Project/demo".to_string()),
         model: Some("anthropic/claude-sonnet-4-5".to_string()),
+        variant: None,
         unattended: false,
+        title: None,
     };
     agentnotify_agent_sdk::AgentAdapter::dispatch_with_options(
         &adapter,
@@ -272,6 +274,48 @@ async fn dispatch_options_are_written_with_plugin_field_names() {
         object.get("open"),
         Some(&serde_json::Value::Bool(false)),
         "续聊派活必须显式写出 open=false"
+    );
+    assert!(
+        object.get("variant").is_none(),
+        "未指定思考强度时不得写出 variant 字段（skip_serializing_if）：{value}"
+    );
+}
+
+/// T1：派活带思考强度时，wire JSON 必须按插件契约写出 `variant`。
+#[tokio::test]
+async fn dispatch_options_write_variant_when_present() {
+    let (_temp, inbox) = ready_inbox().await;
+    let session_id = AgentSessionId::new("task-7-step-2").unwrap();
+    let adapter = agentnotify_agent_opencode::OpenCodeAgent::new(inbox.clone());
+    let reader = tokio::spawn({
+        let inbox = inbox.clone();
+        async move { capture_job_json(&inbox).await }
+    });
+
+    let options = DispatchOptions {
+        working_dir: None,
+        model: Some("opencode-go/space-bunny-free".to_string()),
+        variant: Some("high".to_string()),
+        unattended: true,
+        title: None,
+    };
+    agentnotify_agent_sdk::AgentAdapter::dispatch_with_options(
+        &adapter,
+        &session_id,
+        "【task_7】Step 2 信封",
+        false,
+        &options,
+    )
+    .await
+    .expect("派活必须成功");
+
+    let raw = reader.await.unwrap();
+    let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let object = value.as_object().unwrap();
+    assert_eq!(
+        object.get("variant").and_then(|value| value.as_str()),
+        Some("high"),
+        "思考强度必须随派活透传（插件字段名 variant）：{value}"
     );
 }
 

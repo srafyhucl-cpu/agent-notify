@@ -37,6 +37,11 @@ pub enum BusinessCommand {
     ListOrcTemplates,
     SaveOrcTemplateConfig,
     ListOpencodeProjects,
+    ListOpencodeModels,
+    UpdateOrcTask,
+    DeleteOrcTask,
+    ContinueOrcTask,
+    UpdateOrcTaskStep,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -169,10 +174,32 @@ pub struct OrcTaskDto {
     /// 通知节奏：final_only / verbose（§4.6）
     pub notify_mode: String,
     pub goal: String,
+    /// 任务名称（短名 ≤8 字；用于集群列表与真实会话标题；旧任务按目标前 8 字推导）。
+    pub name: String,
+    /// 迭代轮次（从 1 起；「继续迭代」后 +1）。
+    pub round: u32,
+    /// 本轮要求/上一轮结论（第 1 轮为 None）。
+    pub round_input: Option<String>,
+    /// 任务创建时间（RFC3339；旧任务为 None，界面不显示）。
+    pub created_at: Option<String>,
+    /// 轮次时间线（每轮要求 + 结论摘要；旧任务为空，UI 按任务描述合成第 1 轮）。
+    pub round_history: Vec<OrcRoundRecordDto>,
     /// 任务工作目录（OpenCode 会话创建位置）；None = 旧任务，跟随宿主当前项目。
     pub working_dir: Option<String>,
     /// 是否处于「项目经理汇总阶段」（最后一步完成、等待首节点汇总，§4）。
     pub finalizing: bool,
+}
+
+/// 单轮迭代记录（轮次时间线）：本轮要求 + 本轮结论摘要。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcRoundRecordDto {
+    /// 轮次（从 1 起）
+    pub round: u32,
+    /// 本轮要求（第 1 轮/未填写为 None = 界面按任务描述或留空呈现）
+    pub input: Option<String>,
+    /// 本轮结论摘要（本轮未结束为 None）
+    pub summary: Option<String>,
 }
 
 /// 编排工作流视图（预置工作流或其用户配置）：节点列表供 UI 预览「每步做什么、派给谁」。
@@ -193,10 +220,26 @@ pub struct OrcWorkflowStepDto {
     pub role: String,
     /// 建议 Agent（可为空：留空时该步不派活，仅等待人工推进）。
     pub agent_hint: Option<String>,
-    /// 该步使用的模型（`provider/model`；None = 用该 Agent 默认模型）。
+    /// 该步使用的模型（`provider/model`；None = 未指定，由该 Agent 自己决定）。
     pub model: Option<String>,
+    /// 该步思考强度（模型 variant；None = 模型默认强度）。旧任务缺省兼容。
+    #[serde(default)]
+    pub variant: Option<String>,
     /// 是否需人确认才进入下一步。
     pub human_gate: bool,
+}
+
+/// 修改任务某一步的模型/思考强度（任务结束前可改；不改 Agent 与工作流结构）。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOrcTaskStepPayload {
+    pub task_id: String,
+    /// 目标步骤序号（必须存在于该任务的工作流里）
+    pub order: u32,
+    /// 新模型（`provider/model`）；None = 不改。空串 = 清除（回到该 Agent 默认模型）。
+    pub model: Option<String>,
+    /// 新思考强度（模型 variant）；None = 不改。空串 = 清除（回到模型默认强度）。
+    pub variant: Option<String>,
 }
 
 /// 固定工作流模板视图（设置页节点配置与创建任务预览共用）：节点含合并后的 Agent/模型。
@@ -247,6 +290,21 @@ pub struct OpencodeProjectDto {
     pub last_active_at: Option<i64>,
 }
 
+/// OpenCode 可用模型（模型下拉数据源）：`provider_id`/`model_id` 拼成 `provider/model`。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpencodeModelDto {
+    /// 提供方 id（如 `opencode-go`）。
+    pub provider_id: String,
+    /// 模型 id（如 `deepseek-v4.1-flash`）。
+    pub model_id: String,
+    /// 显示名（OpenCode 界面里的模型名，如 `DeepSeek V4.1 Flash`）。
+    pub name: String,
+    /// 思考强度候选（模型 variant，如 low/medium/high/xhigh/max；按服务返回顺序，可能为空）。
+    #[serde(default)]
+    pub variants: Vec<String>,
+}
+
 /// 当前编排工作流（供创建任务前预览节点）。
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -255,22 +313,47 @@ pub struct CurrentOrcWorkflowDto {
 }
 
 /// 创建编排任务（§3.1）：`template_id` 必选（任务锁定模板）；`working_dir` 必填（必须是已存在目录）；
-/// `notify_mode` 缺省为 final_only（只推最终汇报，默认）。
+/// `notify_mode` 缺省为 final_only（只推最终汇报，默认）；`steps` 为任务级节点配置（创建即锁定）。
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateOrcTaskPayload {
     pub goal: String,
+    /// 任务名称（必填、≤8 字；只用于集群列表与真实会话标题展示）。None = 旧调用方，按目标前 8 字推导。
+    pub name: Option<String>,
     /// 工作流模板 id（内置三档模板之一；旧预设仅兼容已存在任务，不再对新任务开放）。
     pub template_id: String,
     /// 任务工作目录（OpenCode 会话创建位置；必须是已存在的目录）。
     pub working_dir: String,
     pub notify_mode: Option<String>,
+    /// 任务级节点配置（启动器弹窗逐个节点确认）：order 必须与模板一致、每个节点都有 Agent；
+    /// 提交后**创建即锁定**为该任务的步骤快照（此后改设置不影响），不需要再在设置页配置。
+    /// None = 旧调用方：保持原行为（start 时按当时设置实时合并并锁定）。
+    pub steps: Option<Vec<OrcTemplateStepConfigDto>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct OrcTaskIdPayload {
     pub task_id: String,
+}
+
+/// 更新编排任务（集群页「编辑」）：名称随时可改；描述仅未开始任务可改；通知节奏随时可改。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOrcTaskPayload {
+    pub task_id: String,
+    pub name: Option<String>,
+    pub goal: Option<String>,
+    pub notify_mode: Option<String>,
+}
+
+/// 继续迭代（集群页「继续迭代」）：本轮结束后开始新一轮（轮次 +1、回到第 1 步）。
+/// `instruction` = 本轮要求（用户填写；留空则交给项目经理按上一轮结论继续）。
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ContinueOrcTaskPayload {
+    pub task_id: String,
+    pub instruction: Option<String>,
 }
 
 /// 推进编排任务：消息驱动（§4.4），`kind` 决定转移语义。

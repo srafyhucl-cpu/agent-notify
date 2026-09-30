@@ -8,6 +8,7 @@ import type {
   LegacyMigrationDto,
   NotificationDetailDto,
   NotificationSummaryDto,
+  OpencodeModelDto,
   OpencodeProjectDto,
   OrcTaskDto,
   OrcTemplateDto,
@@ -248,6 +249,7 @@ export function orcTaskFixture(
   id: string,
   overrides: Partial<OrcTaskDto> = {},
 ): OrcTaskDto {
+  const goal = overrides.goal ?? `集群任务 ${id}`;
   return {
     id,
     workflowId: "workflow-preset",
@@ -263,6 +265,7 @@ export function orcTaskFixture(
           role: "orchestrator",
           agentHint: "codex",
           model: null,
+          variant: null,
           humanGate: false,
         },
         {
@@ -270,6 +273,7 @@ export function orcTaskFixture(
           role: "planner",
           agentHint: "opencode",
           model: "anthropic/claude-sonnet-4-5",
+          variant: null,
           humanGate: false,
         },
         {
@@ -277,6 +281,7 @@ export function orcTaskFixture(
           role: "executor",
           agentHint: "commandcode",
           model: null,
+          variant: null,
           humanGate: false,
         },
       ],
@@ -284,7 +289,13 @@ export function orcTaskFixture(
     blockedStep: null,
     blockReason: null,
     notifyMode: "final_only",
-    goal: `集群任务 ${id}`,
+    goal,
+    // 名称与后端同规则：显式优先，缺省按目标前 8 字推导。
+    name: overrides.name ?? [...goal].slice(0, 8).join(""),
+    round: 1,
+    roundInput: null,
+    createdAt: "2026-09-29T08:25:02.964Z",
+    roundHistory: [],
     workingDir: "D:/Project/agent-notify",
     finalizing: false,
     ...overrides,
@@ -353,7 +364,7 @@ export function orcTemplatesFixture(): OrcTemplateDto[] {
   ];
 }
 
-/** 已配置 Agent/模型的模板（创建预览展示用）。 */
+/** 已配置 Agent/模型的模板（创建预览展示用）；第 3 步是旧保存的非 OpenCode 配置，用于验证兼容处理。 */
 export function configuredTemplateFixture(): OrcTemplateDto {
   return {
     id: "template-standard",
@@ -392,5 +403,29 @@ export function opencodeProjectsFixture(): OpencodeProjectDto[] {
       lastActiveAt: 1_760_000_000,
     }),
     opencodeProjectFixture("D:/Project/legacy-demo", { lastActiveAt: 1_750_000_000 }),
+  ];
+}
+
+/** 单条 OpenCode 可用模型样本（`provider/model`、显示名与思考强度候选）。 */
+export function opencodeModelFixture(
+  providerId: string,
+  modelId: string,
+  name: string,
+  variants: string[] = [],
+): OpencodeModelDto {
+  return { providerId, modelId, name, variants };
+}
+
+/** OpenCode 可用模型样本（模型下拉数据源；跨 provider 同名可从显示名区分）。 */
+export function opencodeModelsFixture(): OpencodeModelDto[] {
+  return [
+    opencodeModelFixture(
+      "opencode-go",
+      "deepseek-v4.1-flash",
+      "DeepSeek V4.1 Flash",
+      ["low", "medium", "high", "xhigh", "max"],
+    ),
+    opencodeModelFixture("opencode-go", "space-bunny-free", "Space Bunny Free", ["none"]),
+    opencodeModelFixture("opencode", "mimo-v2.6-flash", "MiMo-V2.6-Flash"),
   ];
 }

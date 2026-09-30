@@ -35,6 +35,10 @@ function accountStatus(account: ChannelAccountDto): {
     return { label: "已停用", tone: "warning" };
   }
   if (account.health.stale) {
+    // 主动推送会话失效（登录仍有效）：提示发条消息恢复，别误导成要重新登录。
+    if (account.health.detail?.code === "clawbot_push_session_missing") {
+      return { label: "推送已断", tone: "warning" };
+    }
     return { label: "状态已过期", tone: "danger" };
   }
   if (!account.health.available) {

@@ -21,6 +21,7 @@ import type {
   NotificationFilterPayload,
   NotificationListDto,
   NotificationSummaryDto,
+  OpencodeModelDto,
   OpencodeProjectDto,
   OrcTaskDto,
   OrcTaskIdPayload,
@@ -30,7 +31,10 @@ import type {
   RuntimeSummaryDto,
   SaveOrcTemplateConfigPayload,
   SettingsDto,
+  UpdateOrcTaskPayload,
+  UpdateOrcTaskStepPayload,
   UpdateStatusDto,
+  ContinueOrcTaskPayload,
 } from "./types";
 import type {
   CommandPayloadMap,
@@ -68,6 +72,8 @@ export interface MockHostBridgeOptions {
   orcTemplates?: OrcTemplateDto[];
   /** OpenCode 已知项目（工作目录下拉，按最近活跃倒序）；缺省 = 两条固定样本。 */
   opencodeProjects?: OpencodeProjectDto[];
+  /** OpenCode 可用模型（模型下拉）；缺省 = 三条固定样本。 */
+  opencodeModels?: OpencodeModelDto[];
 }
 
 export interface MockHostBridge extends HostBridge {
@@ -82,6 +88,9 @@ const MOCK_QR_PAYLOAD =
   `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 21 21"><rect width="21" height="21" fill="#fff"/><path fill="#111" d="M1 1h7v7H1zm2 2v3h3V3zm10-2h7v7h-7zm2 2v3h3V3zM1 13h7v7H1zm2 2v3h3v-3zm8-2h2v2h-2zm4 1h2v2h-2zm2-1h2v2h-2zm-6 4h2v2h-2zm3 1h2v2h-2zm3 0h3v3h-3zm-7-9h2v2h-2zm4 0h2v3h-2zm-5 4h3v2H9zm5-1h2v2h-2zm3 1h2v3h-2z"/></svg>',
   )}`;
+
+/** 模拟任务轮次时间线的保留上限（与后台 `ORC_ROUND_HISTORY_LIMIT` 一致，避免 mock 与真实行为漂移）。 */
+const MOCK_ROUND_HISTORY_LIMIT = 20;
 
 function runtimeSummary(paused = false): RuntimeSummaryDto {
   return {
@@ -293,6 +302,30 @@ function defaultOpencodeProjects(): OpencodeProjectDto[] {
   ];
 }
 
+/** 测试默认 OpenCode 可用模型（模型下拉数据源；variants = 思考强度候选）。 */
+function defaultOpencodeModels(): OpencodeModelDto[] {
+  return [
+    {
+      providerId: "opencode-go",
+      modelId: "deepseek-v4.1-flash",
+      name: "DeepSeek V4.1 Flash",
+      variants: ["low", "medium", "high", "xhigh", "max"],
+    },
+    {
+      providerId: "opencode-go",
+      modelId: "space-bunny-free",
+      name: "Space Bunny Free",
+      variants: ["none"],
+    },
+    {
+      providerId: "opencode",
+      modelId: "mimo-v2.6-flash",
+      name: "MiMo-V2.6-Flash",
+      variants: [],
+    },
+  ];
+}
+
 /** 模板 id → 展示名（错误文案与后端保持一致）。 */
 const TEMPLATE_NAME_HINTS = "快速修复 / 标准交付 / 完整评估";
 
@@ -322,6 +355,32 @@ function isProviderModel(value: string): boolean {
     value.slice(0, separator).trim().length > 0 &&
     value.slice(separator + 1).trim().length > 0
   );
+}
+
+/** 新流程三档内置模板 id（与后端 `TEMPLATE_IDS` 同构）：节点 Agent 只允许 OpenCode。 */
+const BUILTIN_TEMPLATE_IDS: readonly string[] = [
+  "template-quickfix",
+  "template-standard",
+  "template-full",
+];
+
+/** 内置模板节点只支持 OpenCode：与后端 `orc_step_agent_unsupported` 同码同文案（旧预置不受限）。 */
+function assertBuiltinTemplateAgentSupported(
+  templateId: string,
+  order: number,
+  agent: string,
+): void {
+  if (!BUILTIN_TEMPLATE_IDS.includes(templateId)) {
+    return;
+  }
+  if (agent === "" || agent === "opencode") {
+    return;
+  }
+  throw {
+    code: "orc_step_agent_unsupported",
+    message: `集群模式暂只支持 OpenCode：请把第 ${String(order)} 步的 Agent 改为 OpenCode`,
+    retryable: false,
+  };
 }
 
 /** 深拷贝 DTO 样本，避免 mock 内部写入污染调用方传入的 fixture。 */
@@ -402,6 +461,9 @@ export function createMockHostBridge(
   );
   const opencodeProjects = cloneDto(
     options.opencodeProjects ?? defaultOpencodeProjects(),
+  );
+  const opencodeModels = cloneDto(
+    options.opencodeModels ?? defaultOpencodeModels(),
   );
 
   async function applyDelay(command: BusinessCommand) {
@@ -591,14 +653,89 @@ export function createMockHostBridge(
             retryable: false,
           };
         }
+        // 任务级节点配置（新流程，创建即锁定）：order 与模板一致、模型规则、每个节点必须有 Agent。
+        let steps = template.steps.map((step) => ({
+          order: step.order,
+          agent: step.agent?.trim() || null,
+          model: step.model?.trim() || null,
+        }));
+        if (create.steps) {
+          if (create.steps.length !== template.steps.length) {
+            throw {
+              code: "orc_template_steps_invalid",
+              message: `模板 ${template.id} 共 ${String(template.steps.length)} 个节点，提交了 ${String(create.steps.length)} 个：请刷新后重试`,
+              retryable: false,
+            };
+          }
+          create.steps.forEach((step, index) => {
+            const expected = template.steps[index].order;
+            if (step.order !== expected) {
+              throw {
+                code: "orc_template_steps_invalid",
+                message: `模板 ${template.id} 第 ${String(index + 1)} 个节点序号应为 ${String(expected)}，实际为 ${String(step.order)}：请刷新后重试`,
+                retryable: false,
+              };
+            }
+            const agent = step.agent?.trim() ?? "";
+            const model = step.model?.trim() ?? "";
+            assertBuiltinTemplateAgentSupported(template.id, step.order, agent);
+            if (model) {
+              if (!isProviderModel(model)) {
+                orcModelInvalid(model);
+              }
+              if (agent !== "opencode") {
+                throw {
+                  code: "orc_model_agent_unsupported",
+                  message: "该 Agent 暂不支持指定模型",
+                  retryable: false,
+                };
+              }
+            }
+          });
+          steps = create.steps.map((step) => ({
+            order: step.order,
+            agent: step.agent?.trim() || null,
+            model: step.model?.trim() || null,
+          }));
+          const missing = steps.find((step) => step.agent === null);
+          if (missing) {
+            throw {
+              code: "orc_step_agent_missing",
+              message: `第 ${String(missing.order)} 步未选择 Agent：请在创建任务时为每个节点选择 Agent`,
+              retryable: false,
+            };
+          }
+        }
+        // 任务名称（必填、≤8 字）：显式提交时校验；缺省按目标前 8 字推导（与后端一致）。
+        const rawName = create.name?.trim() ?? "";
+        let taskName = rawName;
+        if (create.name != null) {
+          if (!taskName) {
+            throw {
+              code: "orc_task_name_invalid",
+              message: "任务名称不能为空：请填 8 个字以内的短名",
+              retryable: false,
+            };
+          }
+          if ([...taskName].length > 8) {
+            throw {
+              code: "orc_task_name_invalid",
+              message: `任务名称最多 8 个字，当前 ${String([...taskName].length)} 个字：请精简后重试`,
+              retryable: false,
+            };
+          }
+        } else {
+          taskName = [...goal].slice(0, 8).join("");
+        }
         const workflow: OrcWorkflowDto = {
           id: template.id,
           name: template.name,
-          steps: template.steps.map((step) => ({
+          steps: steps.map((step, index) => ({
             order: step.order,
-            role: step.role,
+            role: template.steps[index].role,
             agentHint: step.agent,
             model: step.model,
+            variant: null,
             humanGate: false,
           })),
         };
@@ -611,6 +748,11 @@ export function createMockHostBridge(
           workflow,
           notifyMode: create.notifyMode ?? "final_only",
           goal,
+          name: taskName,
+          round: 1,
+          roundInput: null,
+          createdAt: new Date().toISOString(),
+          roundHistory: [{ round: 1, input: null, summary: null }],
           workingDir,
           blockedStep: null,
           blockReason: null,
@@ -642,6 +784,166 @@ export function createMockHostBridge(
         }
         task.started = true;
         task.state = "working";
+        result = cloneDto(task);
+        break;
+      }
+      case "update_orc_task": {
+        const update = payload as UpdateOrcTaskPayload;
+        const task = orcTasks.find((item) => item.id === update.taskId);
+        if (!task) {
+          orcTaskNotFound(update.taskId);
+        }
+        if (update.name != null) {
+          const name = update.name.trim();
+          if (!name) {
+            throw {
+              code: "orc_task_name_invalid",
+              message: "任务名称不能为空：请填 8 个字以内的短名",
+              retryable: false,
+            };
+          }
+          if ([...name].length > 8) {
+            throw {
+              code: "orc_task_name_invalid",
+              message: `任务名称最多 8 个字，当前 ${String([...name].length)} 个字：请精简后重试`,
+              retryable: false,
+            };
+          }
+          task.name = name;
+        }
+        if (update.goal != null) {
+          const goalText = update.goal.trim();
+          if (!goalText) {
+            throw {
+              code: "orc_goal_empty",
+              message: "任务描述不能为空",
+              retryable: false,
+            };
+          }
+          if (task.started) {
+            throw {
+              code: "orc_task_already_started",
+              message: "任务已开始，描述不可修改（可修改名称）",
+              retryable: false,
+            };
+          }
+          task.goal = goalText;
+        }
+        if (update.notifyMode != null) {
+          if (update.notifyMode !== "final_only" && update.notifyMode !== "verbose") {
+            throw {
+              code: "orc_notify_mode_invalid",
+              message: `无效的通知节奏：${update.notifyMode}（可选 final_only / verbose）`,
+              retryable: false,
+            };
+          }
+          task.notifyMode = update.notifyMode;
+        }
+        result = cloneDto(task);
+        break;
+      }
+      case "update_orc_task_step": {
+        const update = payload as UpdateOrcTaskStepPayload;
+        const task = orcTasks.find((item) => item.id === update.taskId);
+        if (!task) {
+          orcTaskNotFound(update.taskId);
+        }
+        // 终态只读（与后端一致；阻塞 Failed 可改后重新发起）。
+        if (
+          task.state === "completed" ||
+          task.state === "canceled" ||
+          task.state === "rejected"
+        ) {
+          throw {
+            code: "orc_task_step_locked",
+            message: "任务已结束：不能再修改节点模型",
+            retryable: false,
+          };
+        }
+        const step = task.workflow.steps.find(
+          (candidate) => candidate.order === update.order,
+        );
+        if (!step) {
+          throw {
+            code: "orc.step_not_found",
+            message: `工作流中不存在第 ${String(update.order)} 步`,
+            retryable: false,
+          };
+        }
+        // model：null = 不改；空串 = 清除；非空 = 校验格式与该 Agent 支持（v1 仅 OpenCode）。
+        let model = step.model;
+        if (update.model != null) {
+          const trimmed = update.model.trim();
+          if (trimmed === "") {
+            model = null;
+          } else {
+            if (!isProviderModel(trimmed)) {
+              orcModelInvalid(trimmed);
+            }
+            if ((step.agentHint ?? "").trim() !== "opencode") {
+              throw {
+                code: "orc_model_agent_unsupported",
+                message: "该 Agent 暂不支持指定模型",
+                retryable: false,
+              };
+            }
+            model = trimmed;
+          }
+        }
+        if (model === null) {
+          // 强度依附于模型：模型清除时一并清空。
+          step.model = null;
+          step.variant = null;
+        } else {
+          step.model = model;
+          if (update.variant != null) {
+            step.variant = update.variant.trim() || null;
+          }
+        }
+        result = cloneDto(task);
+        break;
+      }
+      case "delete_orc_task": {
+        const remove = payload as unknown as OrcTaskIdPayload;
+        const index = orcTasks.findIndex((item) => item.id === remove.taskId);
+        if (index >= 0) {
+          orcTasks.splice(index, 1);
+        }
+        result = accepted();
+        break;
+      }
+      case "continue_orc_task": {
+        const cont = payload as unknown as ContinueOrcTaskPayload;
+        const task = orcTasks.find((item) => item.id === cont.taskId);
+        if (!task) {
+          orcTaskNotFound(cont.taskId);
+        }
+        if (
+          task.state === "working" ||
+          task.state === "input_required" ||
+          task.state === "submitted"
+        ) {
+          throw {
+            code: "orc_task_running",
+            message: "任务还在进行中：等本轮结束后再点「继续迭代」",
+            retryable: false,
+          };
+        }
+        task.round += 1;
+        task.roundInput = cont.instruction?.trim() || null;
+        // 轮次时间线：追加新一轮记录（要求 = 本轮要求），并保留最近 20 轮（与后端同规则）。
+        task.roundHistory = [
+          ...(task.roundHistory ?? []).filter(
+            (record) => record.round < task.round,
+          ),
+          { round: task.round, input: task.roundInput, summary: null },
+        ].slice(-MOCK_ROUND_HISTORY_LIMIT);
+        task.state = "working";
+        task.currentStep = 1;
+        task.finalizing = false;
+        task.blockedStep = null;
+        task.blockReason = null;
+        task.started = true;
         result = cloneDto(task);
         break;
       }
@@ -678,6 +980,7 @@ export function createMockHostBridge(
           }
           const agent = step.agent?.trim() ?? "";
           const model = step.model?.trim() ?? "";
+          assertBuiltinTemplateAgentSupported(templateId, step.order, agent);
           if (model) {
             if (!isProviderModel(model)) {
               orcModelInvalid(model);
@@ -698,6 +1001,9 @@ export function createMockHostBridge(
       }
       case "list_opencode_projects":
         result = cloneDto(opencodeProjects);
+        break;
+      case "list_opencode_models":
+        result = cloneDto(opencodeModels);
         break;
       case "advance_orc_task": {
         const advance = payload as unknown as AdvanceOrcTaskPayload;

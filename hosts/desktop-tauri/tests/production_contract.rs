@@ -1414,8 +1414,10 @@ async fn list_channel_accounts_reports_stale_and_missing_credentials() {
         .as_ref()
         .expect("stale 账号必须带安全明细");
     assert_eq!(stale_detail.code, "clawbot_session_stale");
+    // 登录失效（ret=-14）必须提示重新扫码；「推送会话失效」的可操作提示由渠道层测试覆盖
+    // （clawbot contract：clawbot_push_session_missing → 发任意一条消息即可恢复）。
     assert!(
-        stale_detail.message.contains("重新扫码") && stale_detail.message.contains("发送消息恢复"),
+        stale_detail.message.contains("重新扫码"),
         "提示不可操作：{}",
         stale_detail.message
     );
@@ -1477,6 +1479,8 @@ async fn orchestration_commands_enabled_by_default_on_host() {
 
     let created = service
         .create_orc_task(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "目标".into(),
             template_id: "preset-requirement-to-report".into(),
             working_dir: _root.path().to_string_lossy().into_owned(),
@@ -1511,6 +1515,8 @@ async fn orchestration_commands_disabled_explicitly_on_host() {
 
     let error = service
         .create_orc_task(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "目标".into(),
             template_id: "preset-requirement-to-report".into(),
             working_dir: _root.path().to_string_lossy().into_owned(),
@@ -1543,6 +1549,8 @@ async fn orchestration_commands_full_chain_via_host_service() {
 
     let created = service
         .create_orc_task(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: "preset-requirement-to-report".into(),
             working_dir: _root.path().to_string_lossy().into_owned(),

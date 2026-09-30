@@ -5,8 +5,8 @@
 use std::sync::{Arc, RwLock};
 
 use agentnotify_desktop::bridge::dto::{
-    AdvanceOrcTaskPayload, CreateOrcTaskPayload, OrcMessageKindDto, OrcTaskIdPayload,
-    OrcTaskStateDto, OrcTemplateStepConfigDto, SaveOrcTemplateConfigPayload,
+    AdvanceOrcTaskPayload, ContinueOrcTaskPayload, CreateOrcTaskPayload, OrcMessageKindDto,
+    OrcTaskIdPayload, OrcTaskStateDto, OrcTemplateStepConfigDto, SaveOrcTemplateConfigPayload,
 };
 use agentnotify_desktop::bridge::error::CommandError;
 use agentnotify_desktop::production::agent_driver::{AgentDriver, DispatchOptions};
@@ -129,6 +129,8 @@ fn working_dir(root: &tempfile::TempDir) -> String {
 async fn create_task(handler: &OrcCommandHandler, dir: &str) -> String {
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
             working_dir: dir.into(),
@@ -308,6 +310,8 @@ async fn dispatch_options_carry_model_and_unattended_setting() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "透传选项".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
             working_dir: working_dir(&_root),
@@ -378,10 +382,13 @@ async fn dispatch_failure_blocks_task_with_clear_reason() {
     assert_eq!(task.blocked_step, Some(2));
     let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
     assert!(
-        reason.contains("OpenCode 插件未连接"),
-        "必须写清插件未连接：{reason}"
+        reason.contains("插件未连接") && reason.contains("请启动 OpenCode"),
+        "必须带上可执行的处理办法：{reason}"
     );
-    assert!(reason.contains("Step 2"), "必须写清哪一步失败：{reason}");
+    assert!(
+        !reason.contains(&task_id) && !reason.contains("Step"),
+        "面向用户的原因不得包含任务 ID / 内部步骤英文：{reason}"
+    );
 }
 
 /// start 时锁定节点配置（§3）：start 后清空/修改 node_config，后续派活仍用快照的 agent/model，
@@ -395,13 +402,15 @@ async fn start_snapshots_config_and_ignores_later_changes() {
         &handler,
         &[
             (1, Some("opencode"), Some("anthropic/claude-sonnet-4-5")),
-            (2, Some("codex"), None),
+            (2, Some("opencode"), Some("opencode-go/space-bunny-free")),
         ],
     )
     .await;
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "快照任务".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
             working_dir: working_dir(&_root),
@@ -456,10 +465,14 @@ async fn start_snapshots_config_and_ignores_later_changes() {
         "第 1 步必须用 start 时快照的模型"
     );
     assert_eq!(
-        calls[1].agent_id, "codex",
+        calls[1].agent_id, "opencode",
         "第 2 步必须用快照 Agent，而不是被清空的实时配置"
     );
-    assert_eq!(calls[1].options.model, None, "快照未配置模型 = 默认模型");
+    assert_eq!(
+        calls[1].options.model.as_deref(),
+        Some("opencode-go/space-bunny-free"),
+        "第 2 步必须用快照模型，而不是被清空的实时配置"
+    );
 
     let tasks = handler.list().await.expect("列出任务必须成功");
     let task = tasks.iter().find(|task| task.id == created.id).unwrap();
@@ -470,8 +483,8 @@ async fn start_snapshots_config_and_ignores_later_changes() {
     );
     assert_eq!(task.current_step, 2);
     assert_eq!(
-        task.workflow.steps[1].agent_hint.as_deref(),
-        Some("codex"),
+        task.workflow.steps[1].model.as_deref(),
+        Some("opencode-go/space-bunny-free"),
         "DTO 节点展示必须用快照"
     );
 }
@@ -484,12 +497,14 @@ async fn config_change_before_start_applies_to_snapshot() {
     let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
     save_quickfix_config(
         &handler,
-        &[(1, Some("codex"), None), (2, Some("codex"), None)],
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
     )
     .await;
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "start 前改配置".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
             working_dir: working_dir(&_root),
@@ -531,12 +546,14 @@ async fn task_without_snapshot_uses_live_node_config() {
     let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
     save_quickfix_config(
         &handler,
-        &[(1, Some("opencode"), None), (2, Some("codex"), None)],
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
     )
     .await;
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "旧任务实时合并".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
             working_dir: working_dir(&_root),
@@ -588,12 +605,14 @@ async fn task_without_snapshot_and_cleared_config_blocks_on_dispatch() {
     let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
     save_quickfix_config(
         &handler,
-        &[(1, Some("opencode"), None), (2, Some("codex"), None)],
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
     )
     .await;
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "无快照缺配置".into(),
             template_id: TEMPLATE_QUICKFIX.into(),
             working_dir: working_dir(&_root),
@@ -637,6 +656,8 @@ async fn no_driver_keeps_original_advance_behavior() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "不派活的目标".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -734,6 +755,8 @@ async fn envelope_rendering_feeds_dispatch_text() {
 
     let task_id = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "信封衔接目标".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -790,6 +813,8 @@ async fn static_custom_workflow_is_resolved_from_binding() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "自定义工作流目标".into(),
             template_id: "custom-static".into(),
             working_dir: working_dir(&_root),
@@ -805,4 +830,231 @@ async fn static_custom_workflow_is_resolved_from_binding() {
         .await
         .expect("开始执行必须成功");
     assert_eq!(driver.calls()[0].agent_id, "codex");
+}
+
+/// 继续迭代（人工）：本轮结束后开始新一轮——轮次 +1、回到第 1 步并带上「本轮要求」派活；
+/// 运行中的任务拒绝继续。
+#[tokio::test]
+async fn continue_task_starts_next_round_with_instruction() {
+    let (_root, store) = open_sqlite("agentnotify-orc-continue-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+    save_quickfix_config(
+        &handler,
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
+    )
+    .await;
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            name: Some("迭代任务".into()),
+            steps: Some(vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+            ]),
+            goal: "鹈鹕骑车图".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建任务必须成功");
+    let task_id = created.id.clone();
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始必须成功");
+
+    // 运行中的任务拒绝继续迭代（等本轮结束）。
+    let running = handler
+        .continue_task(ContinueOrcTaskPayload {
+            task_id: task_id.clone(),
+            instruction: None,
+        })
+        .await
+        .expect_err("运行中必须拒绝继续迭代");
+    assert_eq!(running.code(), "orc_task_running");
+
+    // 走完第 1 轮：第 1 步汇报 → 第 2 步汇报 → 汇总（达标）。
+    handler
+        .report_from_agent(&task_id, 1, "第 1 步完成", false, None)
+        .await
+        .expect("第 1 步汇报必须成功");
+    handler
+        .report_from_agent(&task_id, 2, "第 2 步完成", false, None)
+        .await
+        .expect("第 2 步汇报必须成功");
+    handler
+        .report_from_agent(&task_id, 1, "汇总如下……\n【结论：达标】", false, None)
+        .await
+        .expect("汇总回合必须成功");
+    let done = handler
+        .list()
+        .await
+        .expect("列出任务必须成功")
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .expect("任务必须存在");
+    assert_eq!(done.state, OrcTaskStateDto::Completed);
+    assert_eq!(done.round, 1, "第 1 轮完成");
+    assert!(done.created_at.is_some(), "创建任务必须写入创建时间");
+    assert_eq!(done.round_history.len(), 1, "第 1 轮记录");
+    assert!(
+        done.round_history[0]
+            .summary
+            .as_deref()
+            .unwrap_or("")
+            .contains("达标"),
+        "第 1 轮结论摘要必须入时间线：{:?}",
+        done.round_history[0].summary
+    );
+
+    // 继续迭代：带本轮要求 → 第 2 轮、回到第 1 步、信封带新一轮前缀。
+    let calls_before = driver.calls().len();
+    let continued = handler
+        .continue_task(ContinueOrcTaskPayload {
+            task_id: task_id.clone(),
+            instruction: Some("翅膀握住车把，腿自然弯曲".into()),
+        })
+        .await
+        .expect("继续迭代必须成功");
+    assert_eq!(continued.round, 2);
+    assert_eq!(continued.state, OrcTaskStateDto::Working);
+    assert_eq!(continued.current_step, 1);
+    assert_eq!(
+        continued.round_input.as_deref(),
+        Some("翅膀握住车把，腿自然弯曲")
+    );
+    assert!(!continued.finalizing);
+    // 轮次时间线：第 1 轮（带结论）+ 第 2 轮（带本轮要求、尚无结论）。
+    assert_eq!(continued.round_history.len(), 2, "两轮记录");
+    assert_eq!(continued.round_history[0].round, 1);
+    assert_eq!(continued.round_history[1].round, 2);
+    assert_eq!(
+        continued.round_history[1].input.as_deref(),
+        Some("翅膀握住车把，腿自然弯曲")
+    );
+    assert!(continued.round_history[1].summary.is_none());
+
+    let calls = driver.calls();
+    assert_eq!(calls.len(), calls_before + 1, "新一轮必须派活第 1 步");
+    let last = calls.last().expect("必须有派活");
+    assert_eq!(last.session_id, format!("task-{task_id}-step-1"));
+    assert!(
+        last.envelope.contains("【第 2 轮迭代】"),
+        "{}",
+        last.envelope
+    );
+    assert!(last.envelope.contains("翅膀握住车把"), "{}", last.envelope);
+    assert!(
+        last.envelope.contains("第 2 轮 · Step 1/2"),
+        "{}",
+        last.envelope
+    );
+}
+
+/// 项目经理判定「继续迭代」→ 不完成，自动开始新一轮（带上它列出的问题）。
+#[tokio::test]
+async fn summary_verdict_continue_auto_starts_next_round() {
+    let (_root, store) = open_sqlite("agentnotify-orc-loop-");
+    let driver = Arc::new(FakeDriver::new());
+    let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
+    save_quickfix_config(
+        &handler,
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
+    )
+    .await;
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            name: Some("循环任务".into()),
+            steps: None,
+            goal: "鹈鹕骑车图".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&_root),
+            notify_mode: Some("verbose".into()),
+        })
+        .await
+        .expect("创建任务必须成功");
+    let task_id = created.id.clone();
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始必须成功");
+    handler
+        .report_from_agent(&task_id, 1, "第 1 步完成", false, None)
+        .await
+        .expect("第 1 步汇报必须成功");
+    handler
+        .report_from_agent(&task_id, 2, "第 2 步完成", false, None)
+        .await
+        .expect("第 2 步汇报必须成功");
+
+    // 汇总回合：项目经理判定继续迭代并列出下一轮问题 → 任务不完成，自动进入第 2 轮。
+    handler
+        .report_from_agent(
+            &task_id,
+            1,
+            "第 1 轮总结\n【结论：继续迭代】\n- 翅膀没握把\n- 腿太直",
+            false,
+            None,
+        )
+        .await
+        .expect("汇总回合必须成功");
+    let task = handler
+        .list()
+        .await
+        .expect("列出任务必须成功")
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .expect("任务必须存在");
+    assert_eq!(task.state, OrcTaskStateDto::Working, "判定继续 → 不完成");
+    assert_eq!(task.round, 2);
+    assert_eq!(task.current_step, 1);
+    assert!(
+        task.round_input
+            .as_deref()
+            .unwrap_or("")
+            .contains("翅膀没握把"),
+        "{:?}",
+        task.round_input
+    );
+    // 轮次时间线：第 1 轮结论（判定继续的汇总）+ 第 2 轮要求（问题清单）。
+    assert_eq!(task.round_history.len(), 2, "两轮记录");
+    assert!(
+        task.round_history[0]
+            .summary
+            .as_deref()
+            .unwrap_or("")
+            .contains("继续迭代"),
+        "第 1 轮结论必须入时间线：{:?}",
+        task.round_history[0].summary
+    );
+    assert_eq!(task.round_history[1].round, 2);
+    assert!(
+        task.round_history[1]
+            .input
+            .as_deref()
+            .unwrap_or("")
+            .contains("翅膀没握把")
+    );
+    let last = driver.calls().last().cloned().expect("必须有派活");
+    assert!(
+        last.envelope.contains("【第 2 轮迭代】"),
+        "{}",
+        last.envelope
+    );
+    assert!(last.envelope.contains("翅膀没握把"), "{}", last.envelope);
 }

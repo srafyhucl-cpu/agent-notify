@@ -183,6 +183,8 @@ fn report_handler_with_presenter(
 async fn create_task(handler: &OrcCommandHandler, dir: &str) -> String {
     handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
             working_dir: dir.into(),
@@ -231,6 +233,8 @@ async fn completed_session_advances_task_and_dispatches_next_step() {
 
     let created = handler
         .create(CreateOrcTaskPayload {
+            name: None,
+            steps: None,
             goal: "做一个贪吃蛇游戏".into(),
             template_id: PRESET_ID.into(),
             working_dir: working_dir(&_root),
@@ -369,7 +373,7 @@ async fn project_manager_flow_dispatches_summary_and_completes() {
     assert!(
         pushed[0]
             .1
-            .contains(&format!("【{task_id} · Step 3/3 · 已完成】")),
+            .contains("【做一个贪吃蛇游戏 · Step 3/3 · 已完成】"),
         "{}",
         pushed[0].1
     );
@@ -413,8 +417,8 @@ async fn summary_dispatch_failure_blocks_and_recover_redispatches() {
     assert!(task.finalizing, "阻塞后仍应处于汇总阶段（恢复要重派汇总）");
     let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
     assert!(
-        reason.contains("汇总汇报派活失败"),
-        "必须写清汇总派活失败：{reason}"
+        reason.contains("最终汇总"),
+        "必须写清是汇总阶段派活失败：{reason}"
     );
     assert!(reason.contains("插件未连接"), "{reason}");
 
@@ -422,7 +426,7 @@ async fn summary_dispatch_failure_blocks_and_recover_redispatches() {
     {
         let pushed = pushed.lock().unwrap();
         assert_eq!(pushed.len(), 1, "必须推失败提醒：{pushed:?}");
-        assert!(pushed[0].1.contains("汇总汇报派活失败"), "{}", pushed[0].1);
+        assert!(pushed[0].1.contains("最终汇总"), "{}", pushed[0].1);
     }
 
     // 恢复：故障排除后清阻塞并自动重派汇总信封（不再需要用户再点「发指令」）。
@@ -505,7 +509,7 @@ async fn middle_step_failure_blocks_without_advance() {
     assert_eq!(task.current_step, 1, "失败不得推进步骤");
     let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
     assert!(
-        reason.contains("Step 1 执行失败"),
+        reason.contains("第 1 步执行失败"),
         "必须写清哪一步失败：{reason}"
     );
     assert!(reason.contains("所选模型不可用"), "{reason}");
@@ -519,7 +523,7 @@ async fn middle_step_failure_blocks_without_advance() {
     );
     let pushed = pushed.lock().unwrap();
     assert_eq!(pushed.len(), 1, "必须推失败提醒：{pushed:?}");
-    assert!(pushed[0].1.contains("Step 1 失败"), "{}", pushed[0].1);
+    assert!(pushed[0].1.contains("第 1 步失败"), "{}", pushed[0].1);
     assert!(pushed[0].1.contains("所选模型不可用"), "{}", pushed[0].1);
 }
 
@@ -563,7 +567,7 @@ async fn summary_round_failure_blocks_with_clear_reason() {
     assert_eq!(task.blocked_step, Some(1));
     let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
     assert!(
-        reason.contains("首节点汇总回合失败"),
+        reason.contains("项目经理汇总失败"),
         "必须写清汇总回合失败：{reason}"
     );
     assert!(reason.contains("所选模型不可用"), "{reason}");
@@ -601,7 +605,7 @@ async fn legacy_failure_body_still_blocks() {
     assert_eq!(task.blocked_step, Some(1));
     assert_eq!(task.current_step, 1, "失败不得推进步骤");
     let reason = task.block_reason.as_deref().expect("必须有阻塞原因");
-    assert!(reason.contains("Step 1 执行失败"), "{reason}");
+    assert!(reason.contains("第 1 步执行失败"), "{reason}");
     assert!(reason.contains("旧插件未带标记"), "{reason}");
 }
 

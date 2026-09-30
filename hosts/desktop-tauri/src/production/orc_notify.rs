@@ -62,18 +62,19 @@ pub fn should_notify(mode: NotifyMode, outcome: &StepOutcome) -> bool {
     }
 }
 
-/// 集群消息渲染（§4.6 R6）：前缀「【集群 <task_id>】」+ 正文 + 后缀「【<task_id> · Step k/N · 状态】」。
+/// 集群消息渲染（§4.6 R6）：前缀「【集群 <任务名>】」+ 正文 + 后缀「【<任务名> · Step k/N · 状态】」。
 ///
+/// `<任务名>` = 任务展示名（用户可读）；任务 ID 只在宿主内部使用，不出现在面向用户的消息里。
 /// `step` = 消息落点步骤（转移后当前步骤），`state` = 状态中文（微信呈现侧映射）。
 pub fn render_cluster_message(
-    task_id: &str,
+    task_label: &str,
     step: u32,
     total_steps: u32,
     state: &str,
     body: &str,
 ) -> String {
     format!(
-        "【集群 {task_id}】\n{body}\n──────────────\n【{task_id} · Step {step}/{total_steps} · {state}】"
+        "【集群 {task_label}】\n{body}\n──────────────\n【{task_label} · Step {step}/{total_steps} · {state}】"
     )
 }
 
@@ -94,9 +95,9 @@ pub fn progress_body(kind: MessageKind, action: TransitionAction, step: u32) -> 
     }
 }
 
-/// 失败提醒正文（§4.6 R8）：写清哪一步失败、谁不可用/未送达、需人工处理，不自动重推。
+/// 失败提醒正文（§4.6 R8）：写清哪一步失败、谁不可用/未送达、处理办法，不自动重试。
 pub fn failure_body(step: u32, reason: &str) -> String {
-    format!("Step {step} 失败：{reason}。任务已阻塞，需人工处理（不会自动重推）。")
+    format!("第 {step} 步失败：{reason}。请处理后点「重新发起」（不会自动重试）。")
 }
 
 /// 最终项目经理汇报正文上限（字符数；超出截断并标注，§4）。
@@ -288,23 +289,23 @@ mod tests {
         assert!(!should_notify(NotifyMode::Verbose, &outcome(Stay)));
     }
 
-    /// 渲染：前缀 + 正文 + 后缀（任务 ID、步数 k/N、状态中文）。
+    /// 渲染：前缀 + 正文 + 后缀（任务名、步数 k/N、状态中文）。
     #[test]
     fn render_has_prefix_and_suffix() {
         let text = render_cluster_message(
-            "task-1",
+            "贪吃蛇",
             2,
             3,
             "干活中",
             "Step 1 汇报完成，任务推进到下一步",
         );
-        assert!(text.contains("【集群 task-1】"), "缺少前缀：{text}");
+        assert!(text.contains("【集群 贪吃蛇】"), "缺少前缀：{text}");
         assert!(
             text.contains("Step 1 汇报完成，任务推进到下一步"),
             "缺少正文：{text}"
         );
         assert!(
-            text.contains("【task-1 · Step 2/3 · 干活中】"),
+            text.contains("【贪吃蛇 · Step 2/3 · 干活中】"),
             "缺少后缀：{text}"
         );
     }
@@ -338,17 +339,17 @@ mod tests {
         );
     }
 
-    /// 失败提醒：写清哪一步失败、原因、需人工处理、不自动重推。
+    /// 失败提醒：写清哪一步失败、原因、处理办法、不自动重试。
     #[test]
     fn failure_body_states_step_reason_and_manual_handling() {
         let text = failure_body(2, "opencode 会话不可用（未登录），消息未送达");
-        assert!(text.contains("Step 2 失败"), "{text}");
+        assert!(text.contains("第 2 步失败"), "{text}");
         assert!(
             text.contains("opencode 会话不可用（未登录），消息未送达"),
             "{text}"
         );
-        assert!(text.contains("需人工处理"), "{text}");
-        assert!(text.contains("不会自动重推"), "{text}");
+        assert!(text.contains("重新发起"), "{text}");
+        assert!(text.contains("不会自动重试"), "{text}");
     }
 
     /// 全局默认节奏解析：verbose 生效；缺失/未知取值回退 final_only（不猜测）。

@@ -135,6 +135,18 @@ describe("ChannelsPage", () => {
         },
       },
     });
+    // 主动推送会话失效（登录仍有效）：标签必须是「推送已断」而不是「需重新登录」。
+    const pushBroken = accountFixture("account-push-broken", {
+      health: {
+        available: true,
+        stale: true,
+        detail: {
+          code: "clawbot_push_session_missing",
+          message:
+            "ClawBot 主动推送会话已失效：请在微信里给 ClawBot 发任意一条消息即可恢复",
+        },
+      },
+    });
     const invalid = accountFixture("account-invalid", {
       health: {
         available: false,
@@ -147,7 +159,7 @@ describe("ChannelsPage", () => {
     });
     const disabled = accountFixture("account-disabled", { enabled: false });
     const bridge = createMockHostBridge({
-      channels: [channelFixture([stale, invalid, disabled])],
+      channels: [channelFixture([stale, pushBroken, invalid, disabled])],
     });
 
     renderChannels(bridge);
@@ -171,6 +183,14 @@ describe("ChannelsPage", () => {
     expect(within(invalidRow).getByText("登录异常")).toBeVisible();
     expect(
       within(invalidRow).getByText("ClawBot 登录状态已失效，请重新扫码"),
+    ).toBeVisible();
+
+    const pushBrokenRow = rowFor("账号 account-push-broken");
+    expect(within(pushBrokenRow).getByText("推送已断")).toBeVisible();
+    expect(
+      within(pushBrokenRow).getByText(
+        "ClawBot 主动推送会话已失效：请在微信里给 ClawBot 发任意一条消息即可恢复",
+      ),
     ).toBeVisible();
 
     const disabledRow = rowFor("账号 account-disabled");

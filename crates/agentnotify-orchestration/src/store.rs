@@ -32,6 +32,8 @@ pub trait OrcTaskRepository: Send + Sync {
     async fn save_task(&self, task: &Task) -> Result<(), OrcRepositoryError>;
     async fn get_task(&self, task_id: &str) -> Result<Option<Task>, OrcRepositoryError>;
     async fn list_tasks(&self) -> Result<Vec<Task>, OrcRepositoryError>;
+    /// 删除任务（幂等：任务不存在视为删除成功）。
+    async fn delete_task(&self, task_id: &str) -> Result<(), OrcRepositoryError>;
 }
 
 /// 内存任务仓储（默认 / 单测用）：a2a-rs `TaskStore` 的 trait 适配。
@@ -53,6 +55,11 @@ impl OrcTaskRepository for InMemoryOrcTaskRepository {
 
     async fn list_tasks(&self) -> Result<Vec<Task>, OrcRepositoryError> {
         Ok(self.inner.list().await)
+    }
+
+    async fn delete_task(&self, task_id: &str) -> Result<(), OrcRepositoryError> {
+        self.inner.remove(task_id).await;
+        Ok(())
     }
 }
 
@@ -134,6 +141,12 @@ impl OrcStore {
     pub async fn list_tasks(&self) -> Result<Vec<OrcTask>, OrcError> {
         let tasks = self.tasks.list_tasks().await?;
         tasks.into_iter().map(OrcTask::from_a2a).collect()
+    }
+
+    /// 删除任务（幂等：不存在也返回成功；调用方决定"不存在"的呈现语义）。
+    pub async fn delete_task(&self, task_id: &str) -> Result<(), OrcError> {
+        self.tasks.delete_task(task_id).await?;
+        Ok(())
     }
 
     /// 消息驱动推进（设计稿的 advance_step 语义）：状态机计算转移 → 落库 A2A Task 状态。

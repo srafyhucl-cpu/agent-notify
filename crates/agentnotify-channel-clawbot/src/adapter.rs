@@ -74,6 +74,17 @@ impl ClawBotChannel {
         ClawBotCredentials::from_secret(&secret)
     }
 
+    /// 主动推送会话是否就绪：context token 存在且绑定当前登录用户。
+    async fn push_session_ready(&self, account_id: &ChannelAccountId, bound_user_id: &str) -> bool {
+        let secret = match self.secrets.get(account_id, SecretKind::ContextToken).await {
+            Ok(secret) => secret,
+            Err(_) => return false,
+        };
+        ClawBotContext::from_secret(&secret)
+            .map(|context| context.user_id() == bound_user_id)
+            .unwrap_or(false)
+    }
+
     pub async fn save_context(
         &self,
         account_id: &ChannelAccountId,
@@ -164,19 +175,32 @@ impl ChannelAdapter for ClawBotChannel {
                 return ChannelHealth::unavailable(safe_error(error.code(), error.message()));
             }
         };
-        match self.load_credentials(account.id()).await {
-            Ok(_) => {
-                if account.state().stale_at.is_some() {
-                    ChannelHealth::stale(safe_error(
-                        "clawbot_session_stale",
-                        "ClawBot 会话已失效，请重新扫码或发送消息恢复",
-                    ))
-                } else {
-                    ChannelHealth::healthy()
-                }
+        let credentials = match self.load_credentials(account.id()).await {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                return ChannelHealth::unavailable(safe_error(error.code(), error.message()));
             }
-            Err(error) => ChannelHealth::unavailable(safe_error(error.code(), error.message())),
+        };
+        if account.state().stale_at.is_some() {
+            // 登录失效（平台 ret=-14）：必须重新扫码。
+            return ChannelHealth::stale(safe_error(
+                "clawbot_session_stale",
+                "ClawBot 登录已失效，请重新扫码",
+            ));
         }
+        // 已登录但主动推送会话上下文缺失（平台回收 context_token，发送返回 ret=-2 prepare failed）：
+        // 只有「曾经就绪过」才算推送已断；从未就绪只是刚登录、等首条消息（属正常等待，不报警）。
+        if account.state().session_established_at.is_some()
+            && !self
+                .push_session_ready(account.id(), credentials.user_id())
+                .await
+        {
+            return ChannelHealth::stale(safe_error(
+                "clawbot_push_session_missing",
+                "ClawBot 主动推送会话已失效：请在微信里给 ClawBot 发任意一条消息即可恢复",
+            ));
+        }
+        ChannelHealth::healthy()
     }
 
     async fn logout(&self, account: ChannelAccount) -> Result<(), ChannelError> {

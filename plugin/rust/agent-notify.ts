@@ -40,6 +40,15 @@ const INGRESS_CHILD_TIMEOUT_MS = 25 * MILLISECONDS_PER_SECOND
 const INGRESS_CALLBACK_TIMEOUT_MS = 30 * MILLISECONDS_PER_SECOND
 const DEFAULT_PROMPT_TIMEOUT_MS = 30 * MILLISECONDS_PER_SECOND
 const SESSION_FETCH_TIMEOUT_MS = 10 * MILLISECONDS_PER_SECOND
+/** 终态首次读取失败/为空时的重试等待：长会话的上下文快照偶发滞后。 */
+const TERMINAL_RETRY_DELAY_MS = 1200
+/** 终态重试读取的超时（比首次宽松，覆盖大会话快照）。 */
+const TERMINAL_RETRY_TIMEOUT_MS = 20 * MILLISECONDS_PER_SECOND
+/**
+ * 回合结束但没有任何文字汇报：按失败上报，让宿主阻塞并给出可读建议（不静默跳过导致任务卡住）。
+ */
+const NO_REPORT_FAILURE =
+  "本回合已结束，但没有产出汇报（模型可能提前中断）：请点「重新发起」让它继续，或打开会话检查产出。"
 const ERROR_MAX_CHARS = 300
 const PRIVATE_FILE_MODE = 0o600
 const EVENT_SESSION_IDLE = "session.idle"
@@ -79,6 +88,8 @@ type PromptBinding =
 interface ModelSpec {
   providerID: string
   id: string
+  /** 思考强度（模型 variant）；缺省用模型默认强度。 */
+  variant?: string
 }
 
 interface SessionApi {
@@ -147,10 +158,14 @@ interface ReplyJob {
   open?: boolean
   /** 派活模型（`provider/model`）；缺省用宿主默认模型。 */
   model?: string
+  /** 派活思考强度（模型 variant，如 low/high/xhigh）；缺省用模型默认强度。 */
+  variant?: string
   /** 派活工作目录（绝对路径）；缺省用宿主当前项目目录。 */
   location?: string
   /** 是否无人值守（权限 ask 自动放行）；缺省 true，显式 false 时保留人工确认。 */
   unattended?: boolean
+  /** 会话标题（集群任务名等展示用）；缺省用「【集群】合成 id」。 */
+  title?: string
 }
 
 let fsMod: FsModule | null = null
@@ -620,13 +635,19 @@ function jobModelSpec(job: ReplyJob): ModelSpec | undefined {
   if (typeof job.model !== "string" || !job.model.trim()) {
     return undefined
   }
-  return parseModelSpec(job.model)
+  const spec = parseModelSpec(job.model)
+  const variant =
+    typeof job.variant === "string" && job.variant.trim()
+      ? job.variant.trim()
+      : undefined
+  return variant ? { ...spec, variant } : spec
 }
 
 /** 新建真实会话的选项；缺省时跟随宿主当前项目与默认模型。 */
 interface CreateSessionOptions {
   location?: string
   model?: ModelSpec
+  title?: string
 }
 
 async function createRealSession(
@@ -638,11 +659,15 @@ async function createRealSession(
   if (typeof create !== "function") {
     throw new Error("当前 OpenCode 版本不支持创建会话，请升级 OpenCode 后重试")
   }
+  const title =
+    typeof options.title === "string" && options.title.trim()
+      ? options.title.trim()
+      : `【集群】${syntheticID}`
   const input: {
     title: string
     location?: { directory: string }
     model?: ModelSpec
-  } = { title: `【集群】${syntheticID}` }
+  } = { title }
   const location =
     typeof options.location === "string" ? options.location.trim() : ""
   if (location) {
@@ -727,6 +752,7 @@ async function resolvePromptSessionID(
   const real = await createRealSession(ctx, job.sessionID, {
     location: job.location,
     model: jobModelSpec(job),
+    title: job.title,
   })
   map.set(job.sessionID, {
     id: real,
@@ -1203,13 +1229,34 @@ function assistantText(item: JsonRecord): string {
   return ""
 }
 
-async function lastAssistantMessage(
+/** 本回合（最后一条 user 之后）的 assistant 消息扫描结果。 */
+interface TurnAssistantScan {
+  /** 本回合最新一条 assistant 消息（可能没有正文） */
+  message?: AssistantMessage
+  /** 本回合是否出现过 assistant 消息（区分「没响应」与「响应了但没正文」） */
+  sawAssistant: boolean
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds)
+  })
+}
+
+/**
+ * 扫本回合的 assistant 消息（用于完成事件正文）：
+ * - 只认最后一条 user 之后的消息，避免把上一轮正文当成本次汇报（长会话尤其关键）；
+ * - 优先取本回合最新一条「带正文或错误」的消息；只有工具调用的空消息继续往前找；
+ * - 读不到上下文返回 undefined（调用方重试/降级）。
+ */
+async function scanTurnAssistantMessages(
   session: SessionApi,
   sessionID: string,
-): Promise<AssistantMessage | undefined> {
+  timeoutMs = SESSION_FETCH_TIMEOUT_MS,
+): Promise<TurnAssistantScan | undefined> {
   const response = await withTimeout(
     session.context({ sessionID }),
-    SESSION_FETCH_TIMEOUT_MS,
+    timeoutMs,
     "读取会话摘要超时",
   )
   const data = Array.isArray(response)
@@ -1220,6 +1267,8 @@ async function lastAssistantMessage(
   if (!Array.isArray(data)) {
     return undefined
   }
+  let newest: AssistantMessage | undefined
+  let sawAssistant = false
   for (let index = data.length - 1; index >= 0; index -= 1) {
     const item = data[index]
     if (!isRecord(item)) {
@@ -1232,12 +1281,16 @@ async function lastAssistantMessage(
         : typeof item.role === "string"
           ? item.role
           : item.type
+    if (role === "user") {
+      break
+    }
     if (role !== "assistant") {
       continue
     }
+    sawAssistant = true
     const time = isRecord(info.time) ? info.time : undefined
     const completed = time?.completed
-    return {
+    const message: AssistantMessage = {
       id:
         stringField(info, "id") ||
         stringField(info, "messageID") ||
@@ -1250,8 +1303,14 @@ async function lastAssistantMessage(
           : "",
       error: sessionErrorMessage(info.error),
     }
+    if (!newest) {
+      newest = message
+    }
+    if (message.text.trim() || message.error) {
+      return { message, sawAssistant }
+    }
   }
-  return undefined
+  return { message: newest, sawAssistant }
 }
 
 function failureBody(error: string): string {
@@ -1273,10 +1332,21 @@ async function dispatchTerminalEvent(
     return
   }
   try {
-    const [title, message] = await Promise.all([
-      sessionTitle(ctx.session, sessionID).catch(() => "会话"),
-      lastAssistantMessage(ctx.session, sessionID).catch(() => undefined),
-    ])
+    const titlePromise = sessionTitle(ctx.session, sessionID).catch(() => "会话")
+    let scan = await scanTurnAssistantMessages(ctx.session, sessionID).catch(
+      () => undefined,
+    )
+    if (!scan || (!scan.message?.text.trim() && !scan.message?.error)) {
+      // 首次读取失败或没取到正文：长会话上下文快照可能滞后，稍等重试一次。
+      await delay(TERMINAL_RETRY_DELAY_MS)
+      scan = await scanTurnAssistantMessages(
+        ctx.session,
+        sessionID,
+        TERMINAL_RETRY_TIMEOUT_MS,
+      ).catch(() => undefined)
+    }
+    const title = await titlePromise
+    const message = scan?.message
 
     if (kind === "completed") {
       const failedAt = failedAtBySession.get(sessionID)
@@ -1289,14 +1359,20 @@ async function dispatchTerminalEvent(
       }
     }
 
-    const failure =
+    let failure =
       kind === "failed"
         ? sessionErrorMessage(eventError(event)) || message?.error || ""
         : message?.error || ""
-    const body = failure ? failureBody(failure) : message?.text.trim() || ""
+    let body = failure ? failureBody(failure) : message?.text.trim() || ""
     if (!body) {
-      dbg(`skip terminal without body sid=${sessionID}`)
-      return
+      if (failure === "" && scan?.sawAssistant) {
+        // 模型回合结束但没有任何文字：按失败上报（宿主阻塞 + 可读建议），不再静默跳过。
+        failure = NO_REPORT_FAILURE
+        body = failureBody(failure)
+      } else {
+        dbg(`skip terminal without body sid=${sessionID}`)
+        return
+      }
     }
 
     const identity = terminalIdentity(sessionID, event, message, failure)

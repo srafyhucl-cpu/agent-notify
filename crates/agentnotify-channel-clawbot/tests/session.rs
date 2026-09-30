@@ -564,3 +564,63 @@ async fn wait_for_cursor(accounts: &TestAccounts, account_id: &ChannelAccountId,
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
+
+/// 会话恢复（重新拿到上下文）后清除「已提醒」记录：下次断开可以再弹提醒。
+#[tokio::test]
+async fn established_context_rearms_push_broken_alert() {
+    let message = inbound_message("message-1", "context-1", "继续");
+    let transport = Arc::new(ScriptedTransport::new(vec![Ok(ClawBotUpdates {
+        messages: vec![message],
+        cursor: "cursor-1".into(),
+    })]));
+    let fixture = Fixture::new(transport.clone(), true).await;
+    // 预置：曾就绪过 + 已针对本次断开提醒过（气泡提醒的落库状态）。
+    {
+        let account = fixture
+            .accounts
+            .get(&fixture.account_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut state = account_state(&account);
+        state.session_established_at = Some(Timestamp::now_utc());
+        state.session_alert_at = Some(Timestamp::now_utc());
+        let mut updated = account;
+        updated.config = serde_json::to_value(state).unwrap();
+        fixture.accounts.upsert(updated).await.unwrap();
+    }
+
+    let (emit, mut receiver) = mpsc::channel(1);
+    emit.send(dummy_inbound(&fixture.account_id)).await.unwrap();
+    let task = fixture
+        .channel
+        .start(fixture.account.clone(), emit)
+        .await
+        .unwrap();
+    // 先放行入站消息（通道容量 1，不抽干会卡住轮询），再等游标/上下文落库与会话就绪。
+    wait_until("首次 getupdates", || transport.request_count() >= 1).await;
+    let _ = receiver.recv().await.expect("预置入站消息应存在");
+    let inbound = receiver.recv().await.expect("归一化消息应进入核心");
+    assert_eq!(inbound.text, "继续");
+    wait_for_cursor(&fixture.accounts, &fixture.account_id, "cursor-1").await;
+    wait_until("会话就绪后发送 notifystart", || {
+        transport.start_count() == 1
+    })
+    .await;
+
+    let account = fixture
+        .accounts
+        .get(&fixture.account_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let state = account_state(&account);
+    assert!(state.stale_at.is_none(), "会话恢复必须清除 stale");
+    assert!(state.session_established_at.is_some());
+    assert!(
+        state.session_alert_at.is_none(),
+        "会话恢复必须重新武装「推送已断」提醒"
+    );
+
+    let _ = task.shutdown().await;
+}

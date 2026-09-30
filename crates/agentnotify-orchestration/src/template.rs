@@ -34,14 +34,14 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::envelope::{
-    DEFAULT_ENVELOPE_TEMPLATE, DEFAULT_SUMMARY_ENVELOPE_TEMPLATE, PH_AGENT_HINT, PH_GOAL,
-    PH_NEXT_ROLE, PH_REPORTS, PH_ROLE, PH_STEP_INDEX, PH_STEP_TOTAL, PH_WORKFLOW_NAME,
+    DEFAULT_SUMMARY_ENVELOPE_TEMPLATE, PH_AGENT_HINT, PH_GOAL, PH_NEXT_ROLE, PH_REPORTS, PH_ROLE,
+    PH_ROUND, PH_STEP_INDEX, PH_STEP_TOTAL, PH_WORKFLOW_NAME, default_envelope_template,
     render_summary_with_template, render_with_template,
 };
 use crate::workflow::{Workflow, WorkflowStep};
 
 /// 全部已知占位符（命名常量聚合，供未知占位符校验，避免魔法字符串散落）。
-pub const KNOWN_PLACEHOLDERS: [&str; 8] = [
+pub const KNOWN_PLACEHOLDERS: [&str; 9] = [
     PH_GOAL,
     PH_WORKFLOW_NAME,
     PH_ROLE,
@@ -49,6 +49,7 @@ pub const KNOWN_PLACEHOLDERS: [&str; 8] = [
     PH_STEP_INDEX,
     PH_STEP_TOTAL,
     PH_NEXT_ROLE,
+    PH_ROUND,
     PH_REPORTS,
 ];
 
@@ -340,6 +341,7 @@ impl TemplateResolver {
         step_harness_template: Option<&str>,
         workflow_id: &str,
         step_order: u32,
+        role: &str,
     ) -> ResolvedTemplate {
         let location = format!("第 {step_order} 步");
         match step_harness_template {
@@ -355,7 +357,7 @@ impl TemplateResolver {
                     warning: unknown_placeholder_warning(template, workflow_id, &location),
                 },
                 None => ResolvedTemplate {
-                    template: DEFAULT_ENVELOPE_TEMPLATE.to_string(),
+                    template: default_envelope_template(role).to_string(),
                     source: TemplateSource::BuiltinDefault,
                     warning: None,
                 },
@@ -363,7 +365,7 @@ impl TemplateResolver {
         }
     }
 
-    /// 渲染任务信封：模板解析（用户模板优先、默认兜底）+ 占位符替换。
+    /// 渲染任务信封：模板解析（用户模板优先、按角色的内置默认兜底）+ 占位符替换。
     ///
     /// 与 [`crate::envelope::render_envelope`] 共用替换实现，模板选择按本解析器优先级；
     /// 返回告警供编排层记日志/诊断（不静默）。
@@ -373,9 +375,15 @@ impl TemplateResolver {
         step: &WorkflowStep,
         goal: &str,
         next_role: Option<&str>,
+        round: u32,
     ) -> RenderedEnvelope {
-        let resolved = self.resolve(step.harness_template.as_deref(), &workflow.id, step.order);
-        let text = render_with_template(workflow, step, goal, next_role, &resolved.template);
+        let resolved = self.resolve(
+            step.harness_template.as_deref(),
+            &workflow.id,
+            step.order,
+            &step.role,
+        );
+        let text = render_with_template(workflow, step, goal, next_role, round, &resolved.template);
         RenderedEnvelope {
             text,
             warnings: resolved.warning.into_iter().collect(),
@@ -405,9 +413,10 @@ impl TemplateResolver {
         workflow: &Workflow,
         goal: &str,
         reports: &str,
+        round: u32,
     ) -> RenderedEnvelope {
         let resolved = self.resolve_summary(&workflow.id);
-        let text = render_summary_with_template(workflow, goal, reports, &resolved.template);
+        let text = render_summary_with_template(workflow, goal, reports, round, &resolved.template);
         RenderedEnvelope {
             text,
             warnings: resolved.warning.into_iter().collect(),

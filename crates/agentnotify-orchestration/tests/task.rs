@@ -271,12 +271,14 @@ fn steps_snapshot_roundtrip_and_legacy_compat() {
             role: "orchestrator".to_string(),
             agent: "opencode".to_string(),
             model: Some("anthropic/claude-sonnet-4-5".to_string()),
+            variant: None,
         },
         StepConfigSnapshot {
             order: 2,
             role: "planner".to_string(),
             agent: "codex".to_string(),
             model: None,
+            variant: None,
         },
     ];
     task.set_steps_snapshot(&snapshot).unwrap();
@@ -303,4 +305,98 @@ fn steps_snapshot_roundtrip_and_legacy_compat() {
     meta.remove("stepsSnapshot");
     let restored = OrcTask::from_a2a(legacy).unwrap();
     assert_eq!(restored.steps_snapshot().unwrap(), None);
+}
+
+/// 轮次时间线：新建含第 1 轮占位；begin_round 追加新一轮记录并保留本轮要求；
+/// 结论摘要写入对应轮次并截断；旧 meta（无该字段）解析为空。
+#[test]
+fn round_history_tracks_rounds_and_summary() {
+    use agentnotify_orchestration::ORC_ROUND_SUMMARY_LIMIT;
+
+    let wf = Workflow::preset(false).unwrap();
+    let mut task = OrcTask::new(&wf, "目标", NotifyMode::FinalOnly).unwrap();
+    let history = task.round_history().unwrap();
+    assert_eq!(history.len(), 1, "新建任务含第 1 轮占位");
+    assert_eq!(history[0].round, 1);
+    assert_eq!(history[0].input, None);
+    assert_eq!(history[0].summary, None);
+
+    // 第 1 轮结束：结论摘要写入第 1 轮。
+    task.record_round_summary("第 1 轮结论：达标").unwrap();
+    let history = task.round_history().unwrap();
+    assert_eq!(history[0].summary.as_deref(), Some("第 1 轮结论：达标"));
+
+    // 继续迭代：追加第 2 轮记录（含本轮要求），round_input 同步。
+    task.begin_round(Some("  翅膀握住车把  ")).unwrap();
+    let history = task.round_history().unwrap();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[1].round, 2);
+    assert_eq!(
+        history[1].input.as_deref(),
+        Some("翅膀握住车把"),
+        "本轮要求去空白"
+    );
+    assert_eq!(history[1].summary, None, "新一轮未结束没有结论");
+    assert_eq!(task.round().unwrap(), 2);
+    assert_eq!(task.round_input().unwrap().as_deref(), Some("翅膀握住车把"));
+
+    // 结论超限截断带标注。
+    let long = "字".repeat(ORC_ROUND_SUMMARY_LIMIT + 100);
+    task.record_round_summary(&long).unwrap();
+    let summary = task.round_history().unwrap()[1].summary.clone().unwrap();
+    assert!(summary.ends_with("…（已截断）"), "超限必须标注截断");
+    assert!(summary.chars().count() <= ORC_ROUND_SUMMARY_LIMIT + 8);
+
+    // 旧任务 meta（无 roundHistory/createdAt 字段）仍可解析：空时间线 + 无创建时间。
+    let mut legacy = task.a2a_task.clone();
+    let meta = legacy
+        .metadata
+        .as_mut()
+        .and_then(|value| value.get_mut("orc"))
+        .and_then(serde_json::Value::as_object_mut)
+        .unwrap();
+    meta.remove("roundHistory");
+    meta.remove("createdAt");
+    let restored = OrcTask::from_a2a(legacy).unwrap();
+    assert!(restored.round_history().unwrap().is_empty());
+    assert_eq!(restored.created_at().unwrap(), None);
+}
+
+/// 轮次时间线保留上限：超出丢最旧（保留最近 ORC_ROUND_HISTORY_LIMIT 轮）。
+#[test]
+fn round_history_is_bounded() {
+    use agentnotify_orchestration::ORC_ROUND_HISTORY_LIMIT;
+
+    let wf = Workflow::preset(false).unwrap();
+    let mut task = OrcTask::new(&wf, "目标", NotifyMode::FinalOnly).unwrap();
+    for _ in 0..ORC_ROUND_HISTORY_LIMIT + 5 {
+        task.begin_round(Some("继续")).unwrap();
+    }
+    let history = task.round_history().unwrap();
+    assert_eq!(history.len(), ORC_ROUND_HISTORY_LIMIT);
+    let current = task.round().unwrap();
+    assert_eq!(
+        history.last().unwrap().round,
+        current,
+        "保留的最后一条 = 当前轮"
+    );
+    assert_eq!(
+        history[0].round,
+        current - ORC_ROUND_HISTORY_LIMIT as u32 + 1
+    );
+}
+
+/// 创建时间：默认 None；set 往返；空串清除。
+#[test]
+fn created_at_roundtrip() {
+    let wf = Workflow::preset(false).unwrap();
+    let mut task = OrcTask::new(&wf, "目标", NotifyMode::FinalOnly).unwrap();
+    assert_eq!(task.created_at().unwrap(), None);
+    task.set_created_at("2026-09-29T16:25:02+00:00").unwrap();
+    assert_eq!(
+        task.created_at().unwrap().as_deref(),
+        Some("2026-09-29T16:25:02+00:00")
+    );
+    task.set_created_at("  ").unwrap();
+    assert_eq!(task.created_at().unwrap(), None);
 }

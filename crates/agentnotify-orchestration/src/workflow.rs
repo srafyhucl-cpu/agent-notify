@@ -54,6 +54,8 @@ pub struct WorkflowStep {
     /// 该步使用的模型（形如 `provider/model`；空 = 用该 Agent 的默认模型）。
     /// P3 起由用户按节点配置（settings `orchestration.node_config`），内置模板不预置。
     pub model: Option<String>,
+    /// 该步思考强度（模型 variant，如 high/xhigh；空 = 模型默认强度）。
+    pub variant: Option<String>,
     /// 该步的任务信封模板（空 = 用内置默认模板兜底，§4.3）
     pub harness_template: Option<String>,
     /// 是否需人确认才可推进下一步（human_gate）
@@ -75,6 +77,7 @@ impl WorkflowStep {
             role: role.into(),
             agent_hint,
             model: None,
+            variant: None,
             harness_template,
             human_gate,
         }
