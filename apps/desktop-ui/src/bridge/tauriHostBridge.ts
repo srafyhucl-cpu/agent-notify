@@ -129,6 +129,10 @@ async function dispatchCommand(
       return commands.updateOrcTask(
         payload as CommandPayloadMap["update_orc_task"],
       );
+    case "update_orc_task_step":
+      return commands.updateOrcTaskStep(
+        payload as CommandPayloadMap["update_orc_task_step"],
+      );
     case "delete_orc_task":
       return commands.deleteOrcTask(
         payload as CommandPayloadMap["delete_orc_task"],

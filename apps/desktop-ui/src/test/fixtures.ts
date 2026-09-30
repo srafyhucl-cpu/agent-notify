@@ -265,6 +265,7 @@ export function orcTaskFixture(
           role: "orchestrator",
           agentHint: "codex",
           model: null,
+          variant: null,
           humanGate: false,
         },
         {
@@ -272,6 +273,7 @@ export function orcTaskFixture(
           role: "planner",
           agentHint: "opencode",
           model: "anthropic/claude-sonnet-4-5",
+          variant: null,
           humanGate: false,
         },
         {
@@ -279,6 +281,7 @@ export function orcTaskFixture(
           role: "executor",
           agentHint: "commandcode",
           model: null,
+          variant: null,
           humanGate: false,
         },
       ],
@@ -403,20 +406,26 @@ export function opencodeProjectsFixture(): OpencodeProjectDto[] {
   ];
 }
 
-/** 单条 OpenCode 可用模型样本（`provider/model` 与显示名）。 */
+/** 单条 OpenCode 可用模型样本（`provider/model`、显示名与思考强度候选）。 */
 export function opencodeModelFixture(
   providerId: string,
   modelId: string,
   name: string,
+  variants: string[] = [],
 ): OpencodeModelDto {
-  return { providerId, modelId, name };
+  return { providerId, modelId, name, variants };
 }
 
 /** OpenCode 可用模型样本（模型下拉数据源；跨 provider 同名可从显示名区分）。 */
 export function opencodeModelsFixture(): OpencodeModelDto[] {
   return [
-    opencodeModelFixture("opencode-go", "deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
-    opencodeModelFixture("opencode-go", "space-bunny-free", "Space Bunny Free"),
+    opencodeModelFixture(
+      "opencode-go",
+      "deepseek-v4.1-flash",
+      "DeepSeek V4.1 Flash",
+      ["low", "medium", "high", "xhigh", "max"],
+    ),
+    opencodeModelFixture("opencode-go", "space-bunny-free", "Space Bunny Free", ["none"]),
     opencodeModelFixture("opencode", "mimo-v2.6-flash", "MiMo-V2.6-Flash"),
   ];
 }

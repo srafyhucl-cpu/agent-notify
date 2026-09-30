@@ -16,6 +16,7 @@ import {
   useRecoverBlockedOrcTaskMutation,
   useStartOrcTaskMutation,
   useUpdateOrcTaskMutation,
+  useUpdateOrcTaskStepMutation,
 } from "../../data/mutations";
 import { useOpencodeProjects } from "../../data/useOpencodeProjects";
 import { useOrcTasks } from "../../data/useOrcTasks";
@@ -28,6 +29,7 @@ import {
   ContinueTaskDialog,
   type ContinueTaskInput,
 } from "./ContinueTaskDialog";
+import { EditStepDialog, type EditStepInput } from "./EditStepDialog";
 import { EditTaskDialog, type EditTaskInput } from "./EditTaskDialog";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList } from "./TaskList";
@@ -50,6 +52,7 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const recoverMutation = useRecoverBlockedOrcTaskMutation(bridge);
   const startMutation = useStartOrcTaskMutation(bridge);
   const updateMutation = useUpdateOrcTaskMutation(bridge);
+  const updateStepMutation = useUpdateOrcTaskStepMutation(bridge);
   const deleteMutation = useDeleteOrcTaskMutation(bridge);
   const continueMutation = useContinueOrcTaskMutation(bridge);
 
@@ -64,9 +67,22 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const [deleteError, setDeleteError] = useState<unknown>(null);
   const [continueTask, setContinueTask] = useState<OrcTaskDto | null>(null);
   const [continueError, setContinueError] = useState<unknown>(null);
+  const [editStep, setEditStep] = useState<{
+    task: OrcTaskDto;
+    order: number;
+  } | null>(null);
+  const [editStepError, setEditStepError] = useState<unknown>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
   const [pendingAction, setPendingAction] = useState<
-    "create" | "advance" | "recover" | "start" | "update" | "delete" | "continue" | null
+    | "create"
+    | "advance"
+    | "recover"
+    | "start"
+    | "update"
+    | "updateStep"
+    | "delete"
+    | "continue"
+    | null
   >(null);
 
   const tasks = tasksQuery.data ?? [];
@@ -166,6 +182,30 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
       return true;
     } catch (error) {
       setEditError(error);
+      return false;
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  /** 保存节点模型/强度（§12.4）：成功关闭弹窗（orcTasks 失效重取）；失败在弹窗内展示并保留输入。 */
+  const handleUpdateStep = async (input: EditStepInput): Promise<boolean> => {
+    if (!editStep) {
+      return false;
+    }
+    setEditStepError(null);
+    setPendingAction("updateStep");
+    try {
+      await updateStepMutation.mutateAsync({
+        taskId: editStep.task.id,
+        order: editStep.order,
+        model: input.model,
+        variant: input.variant,
+      });
+      setEditStep(null);
+      return true;
+    } catch (error) {
+      setEditStepError(error);
       return false;
     } finally {
       setPendingAction(null);
@@ -313,6 +353,10 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
                     setContinueError(null);
                     setContinueTask(task);
                   }}
+                  onEditStep={(order) => {
+                    setEditStepError(null);
+                    setEditStep({ task, order });
+                  }}
                 />
               )}
             />
@@ -343,6 +387,18 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
           error={editError}
           onSubmit={handleUpdate}
           onClose={() => setEditTask(null)}
+        />
+      ) : null}
+
+      {editStep ? (
+        <EditStepDialog
+          bridge={bridge}
+          task={editStep.task}
+          order={editStep.order}
+          pending={pendingAction === "updateStep"}
+          error={editStepError}
+          onSubmit={handleUpdateStep}
+          onClose={() => setEditStep(null)}
         />
       ) : null}
 

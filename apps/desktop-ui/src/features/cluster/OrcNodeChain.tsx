@@ -5,7 +5,7 @@ import {
   ORC_PROJECT_MANAGER_LABEL,
   ORC_ROLE_LABELS,
   orcStepAgentLabel,
-  orcStepModelLabel,
+  orcStepModelIntensityLabel,
   type OrcNodeState,
 } from "./labels";
 
@@ -15,6 +15,8 @@ export interface OrcNodeChainStep {
   role: string;
   agent: string | null;
   model: string | null;
+  /** 思考强度（模型 variant，§12.4）；缺省/空 = 未指定（模型默认强度）。 */
+  variant?: string | null;
   humanGate?: boolean;
 }
 
@@ -64,7 +66,12 @@ export function OrcNodeChain({
         const state: OrcNodeState = nodeStates?.[step.order] ?? "idle";
         const stateLabel = ORC_NODE_STATE_LABELS[state];
         return (
-          <li className="orc-node" data-state={state} key={step.order}>
+          <li
+            className="orc-node"
+            data-state={state}
+            data-order={step.order}
+            key={step.order}
+          >
             {step.order > 1 ? (
               <span className="orc-node-flow" aria-hidden="true" />
             ) : null}
@@ -95,7 +102,7 @@ export function OrcNodeChain({
                   </div>
                   <div className="orc-node-meta-item">
                     <dt>模型</dt>
-                    <dd>{orcStepModelLabel(step.model)}</dd>
+                    <dd>{orcStepModelIntensityLabel(step.model, step.variant)}</dd>
                   </div>
                 </dl>
               ) : null}

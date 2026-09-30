@@ -16,7 +16,7 @@ use super::dto::{
     OpencodeProjectDto, OrcTaskDto, OrcTaskIdPayload, OrcTemplateDto, RuntimeSnapshotDto,
     RuntimeSummaryDto, SaveOrcTemplateConfigPayload, SendTestNotificationPayload,
     SetRuntimePausedPayload, SettingsDto, SubmitChannelLoginCodePayload, TestNotificationResultDto,
-    UpdateAgentConfigPayload, UpdateOrcTaskPayload, UpdateStatusDto,
+    UpdateAgentConfigPayload, UpdateOrcTaskPayload, UpdateOrcTaskStepPayload, UpdateStatusDto,
 };
 use super::error::CommandError;
 
@@ -170,6 +170,12 @@ pub trait HostCommandService:
     async fn update_orc_task(
         &self,
         payload: UpdateOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError>;
+
+    /// 修改某一步的模型/思考强度（任务结束前可改；改写任务步骤快照）。
+    async fn update_orc_task_step(
+        &self,
+        payload: UpdateOrcTaskStepPayload,
     ) -> Result<OrcTaskDto, CommandError>;
 
     /// 删除任务（幂等；界面确认后调用）。
@@ -564,6 +570,13 @@ impl HostCommandService for UnavailableHostCommandService {
         Err(CommandError::unavailable_message(&self.message))
     }
 
+    async fn update_orc_task_step(
+        &self,
+        _payload: UpdateOrcTaskStepPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        Err(CommandError::unavailable_message(&self.message))
+    }
+
     async fn delete_orc_task(
         &self,
         _payload: OrcTaskIdPayload,
@@ -892,6 +905,16 @@ pub async fn update_orc_task(
 ) -> Result<OrcTaskDto, CommandError> {
     let service = state.service.current().await;
     service.update_orc_task(payload).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_orc_task_step(
+    state: State<'_, BridgeState>,
+    payload: UpdateOrcTaskStepPayload,
+) -> Result<OrcTaskDto, CommandError> {
+    let service = state.service.current().await;
+    service.update_orc_task_step(payload).await
 }
 
 #[tauri::command]

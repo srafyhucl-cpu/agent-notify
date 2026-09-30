@@ -1,3 +1,5 @@
+import { Pencil } from "lucide-react";
+
 import type { OrcMessageKindDto, OrcTaskDto } from "../../bridge/types";
 import { StatusBadge } from "../../components/patterns";
 import {
@@ -6,6 +8,7 @@ import {
   formatOrcCreatedAt,
   orcNodeStatesOfTask,
   orcStepActions,
+  orcStepEditable,
   orcTaskStateLabel,
   orcTaskStateTone,
   shortBlockReason,
@@ -22,6 +25,8 @@ export interface TaskDetailProps {
   onRecover: () => void;
   /** 继续迭代（本轮结束后开始新一轮）：打开继续迭代弹窗。 */
   onContinue: () => void;
+  /** 修改某一步的模型/思考强度（§12.4）：打开节点编辑弹窗。 */
+  onEditStep: (order: number) => void;
 }
 
 /**
@@ -35,9 +40,11 @@ export function TaskDetail({
   onAdvance,
   onRecover,
   onContinue,
+  onEditStep,
 }: TaskDetailProps) {
   const blocked = task.blockedStep !== null;
   const terminal = ORC_TERMINAL_STATES.has(task.state);
+  const stepEditable = orcStepEditable(task);
   const pendingStart = !task.started && !terminal;
   const stepLabel = blocked
     ? `阻塞在第 ${task.blockedStep ?? task.currentStep} 步`
@@ -122,12 +129,30 @@ export function TaskDetail({
             role: step.role,
             agent: step.agentHint,
             model: step.model,
+            variant: step.variant,
             humanGate: step.humanGate,
           }))}
           nodeStates={nodeStates}
-          renderDetails={(step) =>
-            step.order === task.currentStep ? renderStepActions() : null
-          }
+          renderDetails={(step) => (
+            <>
+              {step.order === task.currentStep ? renderStepActions() : null}
+              {stepEditable ? (
+                <div className="orc-node-edit">
+                  <button
+                    className="orc-node-edit-button"
+                    type="button"
+                    title={`修改第 ${step.order} 步的模型与思考强度`}
+                    aria-label={`修改第 ${step.order} 步模型与思考强度`}
+                    disabled={busy}
+                    onClick={() => onEditStep(step.order)}
+                  >
+                    <Pencil aria-hidden="true" size={12} />
+                    修改
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
         />
         {terminal ? (
           <div className="cluster-actions">

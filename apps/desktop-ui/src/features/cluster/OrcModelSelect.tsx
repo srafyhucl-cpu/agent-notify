@@ -28,6 +28,8 @@ export interface OrcModelSelectProps {
   error: string | null;
   /** 控件类名（设置页用 settings-control；弹窗用节点字段自有样式）。 */
   controlClassName?: string;
+  /** 空选项文案（默认按 OpenCode 语义；节点编辑弹窗用「不指定（Agent 默认）」）。 */
+  emptyOptionLabel?: string;
 }
 
 /**
@@ -45,6 +47,7 @@ export function OrcModelSelect({
   models,
   error,
   controlClassName,
+  emptyOptionLabel = "未指定（由 OpenCode 用其当前默认模型）",
 }: OrcModelSelectProps) {
   const [manualVisible, setManualVisible] = useState(false);
   const controlClass = controlClassName ? ` ${controlClassName}` : "";
@@ -98,7 +101,7 @@ export function OrcModelSelect({
           onChange(next);
         }}
       >
-        <option value="">未指定（由 OpenCode 用其当前默认模型）</option>
+        <option value="">{emptyOptionLabel}</option>
         {models === null ? (
           <option value="" disabled>
             正在读取模型列表…

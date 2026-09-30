@@ -32,6 +32,7 @@ import type {
   SaveOrcTemplateConfigPayload,
   SettingsDto,
   UpdateOrcTaskPayload,
+  UpdateOrcTaskStepPayload,
   UpdateStatusDto,
   ContinueOrcTaskPayload,
 } from "./types";
@@ -298,12 +299,27 @@ function defaultOpencodeProjects(): OpencodeProjectDto[] {
   ];
 }
 
-/** 测试默认 OpenCode 可用模型（模型下拉数据源）。 */
+/** 测试默认 OpenCode 可用模型（模型下拉数据源；variants = 思考强度候选）。 */
 function defaultOpencodeModels(): OpencodeModelDto[] {
   return [
-    { providerId: "opencode-go", modelId: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" },
-    { providerId: "opencode-go", modelId: "space-bunny-free", name: "Space Bunny Free" },
-    { providerId: "opencode", modelId: "mimo-v2.6-flash", name: "MiMo-V2.6-Flash" },
+    {
+      providerId: "opencode-go",
+      modelId: "deepseek-v4.1-flash",
+      name: "DeepSeek V4.1 Flash",
+      variants: ["low", "medium", "high", "xhigh", "max"],
+    },
+    {
+      providerId: "opencode-go",
+      modelId: "space-bunny-free",
+      name: "Space Bunny Free",
+      variants: ["none"],
+    },
+    {
+      providerId: "opencode",
+      modelId: "mimo-v2.6-flash",
+      name: "MiMo-V2.6-Flash",
+      variants: [],
+    },
   ];
 }
 
@@ -689,6 +705,7 @@ export function createMockHostBridge(
             role: template.steps[index].role,
             agentHint: step.agent,
             model: step.model,
+            variant: null,
             humanGate: false,
           })),
         };
@@ -791,6 +808,67 @@ export function createMockHostBridge(
             };
           }
           task.notifyMode = update.notifyMode;
+        }
+        result = cloneDto(task);
+        break;
+      }
+      case "update_orc_task_step": {
+        const update = payload as UpdateOrcTaskStepPayload;
+        const task = orcTasks.find((item) => item.id === update.taskId);
+        if (!task) {
+          orcTaskNotFound(update.taskId);
+        }
+        // 终态只读（与后端一致；阻塞 Failed 可改后重新发起）。
+        if (
+          task.state === "completed" ||
+          task.state === "canceled" ||
+          task.state === "rejected"
+        ) {
+          throw {
+            code: "orc_task_step_locked",
+            message: "任务已结束：不能再修改节点模型",
+            retryable: false,
+          };
+        }
+        const step = task.workflow.steps.find(
+          (candidate) => candidate.order === update.order,
+        );
+        if (!step) {
+          throw {
+            code: "orc.step_not_found",
+            message: `工作流中不存在第 ${String(update.order)} 步`,
+            retryable: false,
+          };
+        }
+        // model：null = 不改；空串 = 清除；非空 = 校验格式与该 Agent 支持（v1 仅 OpenCode）。
+        let model = step.model;
+        if (update.model != null) {
+          const trimmed = update.model.trim();
+          if (trimmed === "") {
+            model = null;
+          } else {
+            if (!isProviderModel(trimmed)) {
+              orcModelInvalid(trimmed);
+            }
+            if ((step.agentHint ?? "").trim() !== "opencode") {
+              throw {
+                code: "orc_model_agent_unsupported",
+                message: "该 Agent 暂不支持指定模型",
+                retryable: false,
+              };
+            }
+            model = trimmed;
+          }
+        }
+        if (model === null) {
+          // 强度依附于模型：模型清除时一并清空。
+          step.model = null;
+          step.variant = null;
+        } else {
+          step.model = model;
+          if (update.variant != null) {
+            step.variant = update.variant.trim() || null;
+          }
         }
         result = cloneDto(task);
         break;

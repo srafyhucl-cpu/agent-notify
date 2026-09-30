@@ -2,12 +2,17 @@
 :root {
   /* 新建任务弹窗宽度：容得下逐节点配置与三列字段 */
   --cluster-create-dialog-width: 880px;
+  /* 节点编辑弹窗宽度（模型 + 思考强度两列） */
+  --cluster-edit-step-dialog-width: 480px;
 
   /* 节点链动效（§7）：只做注意力引导，时长/幅度克制 */
   --orc-node-pulse-duration: 2500ms;
   --orc-node-settle-duration: 400ms;
   --orc-node-fail-duration: 1500ms;
   --orc-node-flow-duration: 1600ms;
+  /* §12.6：流转光束 2px→3px（更明显）；左侧身份色条同宽度保持观感一致 */
+  --orc-node-flow-width: 3px;
+  --orc-node-accent-width: 3px;
 }
 
 .cluster-page-content {
@@ -42,6 +47,20 @@
   /* 控件字号与全站一致：标签 12px（--font-size-1）、控件与占位符 13px（--font-body）。 */
   font-size: var(--font-body);
   line-height: 1.5;
+}
+
+/* 节点编辑弹窗（§12.4）：沿用创建弹窗语言，宽度收窄到两列表单。 */
+.cluster-create-dialog--compact {
+  width: min(var(--cluster-edit-step-dialog-width), 100%);
+}
+
+.cluster-edit-step-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .cluster-dialog-actions {
@@ -820,6 +839,51 @@
   overflow-wrap: anywhere;
 }
 
+/* 节点卡「修改」小按钮（§12.4）：打开模型/思考强度编辑弹窗；默认低调、悬浮点亮。 */
+.orc-node-edit {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-top: var(--space-1);
+}
+
+.orc-node-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 20px;
+  padding: 1px var(--space-2);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font: inherit;
+  font-size: var(--font-small);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.orc-node-edit-button:hover:not(:disabled) {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.orc-node-edit-button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.orc-node-edit-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* 推进指令区 */
 .cluster-actions {
   min-width: 0;
@@ -867,27 +931,63 @@
 .orc-node {
   display: grid;
   min-width: 0;
+  /* §12.6 每步主题色（身份标识）：第 5 步起用青绿；1–4 步由 data-order 覆盖。
+     状态语义（当前/完成/失败）仍走主色/成功/失败，主题色只做身份识别。 */
+  --orc-node-theme: var(--orc-step-5);
+  --orc-node-theme-soft: var(--orc-step-5-soft);
+  --orc-node-theme-glow: var(--orc-step-5-glow);
+}
+
+.orc-node[data-order="1"] {
+  --orc-node-theme: var(--orc-step-1);
+  --orc-node-theme-soft: var(--orc-step-1-soft);
+  --orc-node-theme-glow: var(--orc-step-1-glow);
+}
+
+.orc-node[data-order="2"] {
+  --orc-node-theme: var(--orc-step-2);
+  --orc-node-theme-soft: var(--orc-step-2-soft);
+  --orc-node-theme-glow: var(--orc-step-2-glow);
+}
+
+.orc-node[data-order="3"] {
+  --orc-node-theme: var(--orc-step-3);
+  --orc-node-theme-soft: var(--orc-step-3-soft);
+  --orc-node-theme-glow: var(--orc-step-3-glow);
+}
+
+.orc-node[data-order="4"] {
+  --orc-node-theme: var(--orc-step-4);
+  --orc-node-theme-soft: var(--orc-step-4-soft);
+  --orc-node-theme-glow: var(--orc-step-4-glow);
 }
 
 /* 连接线：推进方向 = 从前一节点流向当前节点（自上而下）；流光仅作注意力引导。 */
 .orc-node-flow {
   position: relative;
   display: block;
-  width: 2px;
+  width: var(--orc-node-flow-width);
   height: var(--space-3);
   margin-left: var(--space-3);
   overflow: hidden;
-  background: var(--color-border);
+  background: linear-gradient(180deg, var(--orc-node-theme-soft), var(--hairline) 75%);
   border-radius: var(--radius-pill);
 }
 
+/* 流转光束（§12.6 强化）：加宽 + 提亮渐变 + 柔和同源辉光；仅当前节点接收推进方向。 */
 .orc-node[data-state="current"] .orc-node-flow::after,
 .orc-node[data-state="finalizing"] .orc-node-flow::after {
   content: "";
   position: absolute;
   inset: 0 0 auto;
   height: 70%;
-  background: linear-gradient(180deg, transparent, var(--color-primary));
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--orc-node-theme) 55%,
+    var(--orc-node-theme)
+  );
+  box-shadow: 0 0 8px var(--orc-node-theme-glow);
   animation: orc-node-flow var(--orc-node-flow-duration) linear infinite;
 }
 
@@ -902,6 +1002,19 @@
   border-radius: var(--radius-control);
 }
 
+/* 左侧身份色条（§12.6）：该步主题色，上下留出圆角安全距。 */
+.orc-node-card::before {
+  content: "";
+  position: absolute;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  left: 0;
+  width: var(--orc-node-accent-width);
+  background: var(--orc-node-theme);
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+}
+
 .orc-node-head {
   display: flex;
   flex-wrap: wrap;
@@ -913,7 +1026,11 @@
 
 .orc-node-order {
   flex: none;
-  color: var(--color-text-muted);
+  padding: 1px var(--space-2);
+  color: var(--orc-node-theme);
+  background: var(--orc-node-theme-soft);
+  border-radius: var(--radius-pill);
+  font-weight: 650;
 }
 
 .orc-node-role {

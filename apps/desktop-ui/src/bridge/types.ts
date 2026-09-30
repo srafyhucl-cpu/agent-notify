@@ -35,6 +35,7 @@ export const commands = {
 	recoverBlockedOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("recover_blocked_orc_task", { payload }),
 	startOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<OrcTaskDto>("start_orc_task", { payload }),
 	updateOrcTask: (payload: UpdateOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("update_orc_task", { payload }),
+	updateOrcTaskStep: (payload: UpdateOrcTaskStepPayload) => __TAURI_INVOKE<OrcTaskDto>("update_orc_task_step", { payload }),
 	deleteOrcTask: (payload: OrcTaskIdPayload) => __TAURI_INVOKE<MutationAcceptedDto>("delete_orc_task", { payload }),
 	continueOrcTask: (payload: ContinueOrcTaskPayload) => __TAURI_INVOKE<OrcTaskDto>("continue_orc_task", { payload }),
 	getCurrentOrcWorkflow: (payload: EmptyPayload) => __TAURI_INVOKE<CurrentOrcWorkflowDto>("get_current_orc_workflow", { payload }),
@@ -92,7 +93,7 @@ export type BeginChannelLoginResultDto = {
 	session: LoginSessionDto,
 };
 
-export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow" | "list_orc_templates" | "save_orc_template_config" | "list_opencode_projects" | "list_opencode_models" | "update_orc_task" | "delete_orc_task" | "continue_orc_task";
+export type BusinessCommand = "get_snapshot" | "list_agents" | "update_agent_config" | "list_channel_accounts" | "begin_channel_login" | "submit_channel_login_code" | "logout_channel_account" | "enable_channel_account" | "disable_channel_account" | "send_test_notification" | "list_notifications" | "get_notification_detail" | "retry_delivery" | "get_diagnostics" | "retry_legacy_migration" | "get_settings" | "update_settings" | "set_runtime_paused" | "quit_app" | "get_update_status" | "install_update" | "create_orc_task" | "list_orc_tasks" | "advance_orc_task" | "mark_blocked_orc_task" | "recover_blocked_orc_task" | "start_orc_task" | "get_current_orc_workflow" | "list_orc_templates" | "save_orc_template_config" | "list_opencode_projects" | "list_opencode_models" | "update_orc_task" | "delete_orc_task" | "continue_orc_task" | "update_orc_task_step";
 
 export type ChannelAccountDto = {
 	id: string,
@@ -385,6 +386,8 @@ export type OpencodeModelDto = {
 	modelId: string,
 	/**  显示名（OpenCode 界面里的模型名，如 `DeepSeek V4.1 Flash`）。 */
 	name: string,
+	/**  思考强度候选（模型 variant，如 low/medium/high/xhigh/max；按服务返回顺序，可能为空）。 */
+	variants?: string[],
 };
 
 /**  OpenCode 已知项目（工作目录下拉数据源，§3.1）：只读本地库的 project 表。 */
@@ -488,6 +491,8 @@ export type OrcWorkflowStepDto = {
 	agentHint: string | null,
 	/**  该步使用的模型（`provider/model`；None = 未指定，由该 Agent 自己决定）。 */
 	model: string | null,
+	/**  该步思考强度（模型 variant；None = 模型默认强度）。旧任务缺省兼容。 */
+	variant?: string | null,
 	/**  是否需人确认才进入下一步。 */
 	humanGate: boolean,
 };
@@ -595,6 +600,17 @@ export type UpdateOrcTaskPayload = {
 	name: string | null,
 	goal: string | null,
 	notifyMode: string | null,
+};
+
+/**  修改任务某一步的模型/思考强度（任务结束前可改；不改 Agent 与工作流结构）。 */
+export type UpdateOrcTaskStepPayload = {
+	taskId: string,
+	/**  目标步骤序号（必须存在于该任务的工作流里） */
+	order: number,
+	/**  新模型（`provider/model`）；None = 不改。空串 = 清除（回到该 Agent 默认模型）。 */
+	model: string | null,
+	/**  新思考强度（模型 variant）；None = 不改。空串 = 清除（回到模型默认强度）。 */
+	variant: string | null,
 };
 
 export type UpdateStateDto = "UpToDate" | "Available" | "ReadyToInstall" | "Unsupported" | "Failed";

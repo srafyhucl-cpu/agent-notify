@@ -39,6 +39,21 @@ export const ORC_TERMINAL_STATES: ReadonlySet<OrcTaskStateDto> = new Set([
   "failed",
 ]);
 
+/**
+ * 节点模型/强度只读的终态（§12.4）：仅已完成/已取消/已拒绝不可改；
+ * 阻塞（failed）可改后重新发起（与后端 `update_task_step` 校验一致）。
+ */
+export const ORC_STEP_EDIT_LOCKED_STATES: ReadonlySet<OrcTaskStateDto> = new Set([
+  "completed",
+  "canceled",
+  "rejected",
+]);
+
+/** 该任务的节点模型/强度当前是否可改（任务结束前可改，§12.4）。 */
+export function orcStepEditable(task: Pick<OrcTaskDto, "state">): boolean {
+  return !ORC_STEP_EDIT_LOCKED_STATES.has(task.state);
+}
+
 /** 通知节奏（§4.6）：列表/详情展示用文案。 */
 export const ORC_NOTIFY_MODE_LABELS: Record<string, string> = {
   final_only: "只推最终汇报",
@@ -75,6 +90,42 @@ export function orcStepAgentLabel(agent: string | null | undefined): string {
 export function orcStepModelLabel(model: string | null | undefined): string {
   const value = model?.trim();
   return value ? value : "未指定";
+}
+
+/**
+ * 思考强度（模型 variant）→ 中文短标签（§12.4）：只覆盖已知取值；
+ * 未知取值原样展示（服务端可能新增强度，不猜测含义）。
+ */
+export const ORC_VARIANT_LABELS: Record<string, string> = {
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "极高",
+  max: "最大",
+  none: "关闭",
+  default: "默认",
+};
+
+/** 思考强度展示文案：空 = 未指定（返回 null，不占位）；已知取值中文、未知原样。 */
+export function orcVariantLabel(variant: string | null | undefined): string | null {
+  const value = variant?.trim();
+  if (!value) {
+    return null;
+  }
+  return ORC_VARIANT_LABELS[value] ?? value;
+}
+
+/**
+ * 节点模型 + 思考强度展示（§12.4 详情节点卡）：如「模型 xxx · 强度 高」；
+ * 模型为空沿用「未指定」；未指定强度时不追加。
+ */
+export function orcStepModelIntensityLabel(
+  model: string | null | undefined,
+  variant?: string | null,
+): string {
+  const base = orcStepModelLabel(model);
+  const intensity = orcVariantLabel(variant);
+  return intensity ? `${base} · 强度 ${intensity}` : base;
 }
 
 /** 是否处于「已创建但还没开始」的阶段（待开始；终态任务不算）。 */

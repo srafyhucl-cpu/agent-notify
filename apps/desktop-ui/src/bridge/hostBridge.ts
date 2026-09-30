@@ -40,6 +40,7 @@ import type {
   TestNotificationResultDto,
   UpdateAgentConfigPayload,
   UpdateOrcTaskPayload,
+  UpdateOrcTaskStepPayload,
   UpdateStatusDto,
   ContinueOrcTaskPayload,
 } from "./types";
@@ -76,6 +77,7 @@ export interface CommandPayloadMap {
   recover_blocked_orc_task: OrcTaskIdPayload;
   start_orc_task: OrcTaskIdPayload;
   update_orc_task: UpdateOrcTaskPayload;
+  update_orc_task_step: UpdateOrcTaskStepPayload;
   delete_orc_task: OrcTaskIdPayload;
   continue_orc_task: ContinueOrcTaskPayload;
   get_current_orc_workflow: EmptyPayload;
@@ -114,6 +116,7 @@ export interface CommandResultMap {
   recover_blocked_orc_task: OrcTaskDto;
   start_orc_task: OrcTaskDto;
   update_orc_task: OrcTaskDto;
+  update_orc_task_step: OrcTaskDto;
   delete_orc_task: MutationAcceptedDto;
   continue_orc_task: OrcTaskDto;
   get_current_orc_workflow: CurrentOrcWorkflowDto;

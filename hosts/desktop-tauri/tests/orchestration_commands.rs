@@ -10,7 +10,7 @@ use std::sync::Arc;
 use agentnotify_desktop::bridge::dto::{
     AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload, OrcMessageKindDto,
     OrcTaskIdPayload, OrcTaskStateDto, OrcTemplateDto, OrcTemplateStepConfigDto,
-    SaveOrcTemplateConfigPayload,
+    SaveOrcTemplateConfigPayload, UpdateOrcTaskStepPayload,
 };
 use agentnotify_desktop::production::orc_handler::{OrcCommandHandler, load_harness_templates};
 use agentnotify_desktop::production::settings::ProductionSettingsStore;
@@ -936,4 +936,257 @@ async fn orc_handler_injects_harness_templates() {
             .is_none(),
         "默认构造必须只含内置默认模板"
     );
+}
+
+/// §12.4：任务结束前可改任一步的模型/思考强度（只改步骤快照，Agent/结构不动）。
+#[tokio::test]
+async fn update_task_step_edits_snapshot_model_and_variant() {
+    let (_root, store) = open_sqlite("agentnotify-orc-update-step-");
+    let handler = dynamic_handler(&store, _root.path());
+    let dir = working_dir(&_root);
+
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            name: None,
+            steps: Some(vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 3,
+                    agent: Some("codex".into()),
+                    model: None,
+                },
+            ]),
+            goal: "改模型与强度".into(),
+            template_id: TEMPLATE_STANDARD.into(),
+            working_dir: dir,
+            notify_mode: None,
+        })
+        .await
+        .expect("创建必须成功");
+    let task_id = created.id.clone();
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始必须成功");
+
+    // 运行中改第 2 步：model + variant 生效（返回 DTO 立即可见，且 trim）。
+    let updated = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 2,
+            model: Some("opencode-go/space-bunny-free".into()),
+            variant: Some(" high ".into()),
+        })
+        .await
+        .expect("运行中修改必须成功");
+    assert_eq!(
+        updated.workflow.steps[1].model.as_deref(),
+        Some("opencode-go/space-bunny-free"),
+        "返回 DTO 必须体现新模型"
+    );
+    assert_eq!(
+        updated.workflow.steps[1].variant.as_deref(),
+        Some("high"),
+        "强度必须 trim 后写入"
+    );
+    assert_eq!(updated.workflow.steps[0].model, None, "其他步骤不受影响");
+    assert_eq!(updated.current_step, 1, "修改节点配置不改变任务进度");
+
+    // 列表（重新按快照解析）同样展示新值。
+    let listed = handler.list().await.expect("列出任务必须成功");
+    let task = listed
+        .iter()
+        .find(|task| task.id == task_id)
+        .expect("任务必须存在");
+    assert_eq!(task.workflow.steps[1].variant.as_deref(), Some("high"));
+
+    // model=None = 不改模型，只改强度。
+    let only_variant = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 2,
+            model: None,
+            variant: Some("xhigh".into()),
+        })
+        .await
+        .expect("只改强度必须成功");
+    assert_eq!(
+        only_variant.workflow.steps[1].model.as_deref(),
+        Some("opencode-go/space-bunny-free"),
+        "未提交模型时保持原模型"
+    );
+    assert_eq!(
+        only_variant.workflow.steps[1].variant.as_deref(),
+        Some("xhigh")
+    );
+
+    // 空 model = 清除模型，强度一并清空。
+    let cleared = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 2,
+            model: Some("  ".into()),
+            variant: Some("max".into()),
+        })
+        .await
+        .expect("清除模型必须成功");
+    assert_eq!(cleared.workflow.steps[1].model, None);
+    assert_eq!(
+        cleared.workflow.steps[1].variant, None,
+        "模型清除时强度一并清空"
+    );
+
+    // 非法模型格式 → 明确报错 + 示例写法。
+    let err = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 2,
+            model: Some("no-slash".into()),
+            variant: None,
+        })
+        .await
+        .expect_err("非法模型必须报错");
+    assert_eq!(err.code, "orc_model_invalid");
+    assert!(
+        err.message.contains("provider/model"),
+        "错误必须给出格式示例：{}",
+        err.message
+    );
+
+    // 非 OpenCode 步（第 3 步 codex）不支持指定模型。
+    let err = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 3,
+            model: Some("opencode-go/space-bunny-free".into()),
+            variant: None,
+        })
+        .await
+        .expect_err("非 OpenCode 指定模型必须报错");
+    assert_eq!(err.code, "orc_model_agent_unsupported");
+    assert_eq!(err.message, "该 Agent 暂不支持指定模型");
+
+    // 步骤不存在 → 明确报错。
+    let err = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id,
+            order: 9,
+            model: None,
+            variant: None,
+        })
+        .await
+        .expect_err("不存在的步骤必须报错");
+    assert_eq!(err.code, "orc.step_not_found");
+}
+
+/// §12.4：终态只读（Completed/Canceled/Rejected）；无步骤快照的旧任务明确拒绝并指路。
+#[tokio::test]
+async fn update_task_step_rejects_terminal_and_snapshotless_tasks() {
+    // 1) 旧任务（未锁定步骤快照）→ 明确指路「设置 → 编排」或重新创建。
+    {
+        let (_root, store) = open_sqlite("agentnotify-orc-update-step-legacy-");
+        let handler = enabled_handler(&store);
+        let created = handler
+            .create(create_payload("旧任务", PRESET_ID, &working_dir(&_root)))
+            .await
+            .expect("创建必须成功");
+        let err = handler
+            .update_task_step(UpdateOrcTaskStepPayload {
+                task_id: created.id,
+                order: 1,
+                model: Some("opencode-go/space-bunny-free".into()),
+                variant: None,
+            })
+            .await
+            .expect_err("无步骤快照必须拒绝");
+        assert_eq!(err.code, "orc_task_step_locked");
+        assert!(
+            err.message.contains("没有步骤快照"),
+            "错误必须写清原因：{}",
+            err.message
+        );
+        assert!(
+            err.message.contains("重新创建任务"),
+            "错误必须给出出路：{}",
+            err.message
+        );
+    }
+
+    // 2) 完成任务（走完两轮 + 汇总）→ 终态只读。
+    {
+        let (_root, store) = open_sqlite("agentnotify-orc-update-step-done-");
+        let handler = dynamic_handler(&store, _root.path());
+        let created = handler
+            .create(CreateOrcTaskPayload {
+                name: None,
+                steps: Some(vec![
+                    OrcTemplateStepConfigDto {
+                        order: 1,
+                        agent: Some("opencode".into()),
+                        model: None,
+                    },
+                    OrcTemplateStepConfigDto {
+                        order: 2,
+                        agent: Some("opencode".into()),
+                        model: None,
+                    },
+                ]),
+                goal: "完成后只读".into(),
+                template_id: TEMPLATE_QUICKFIX.into(),
+                working_dir: working_dir(&_root),
+                notify_mode: None,
+            })
+            .await
+            .expect("创建必须成功");
+        let task_id = created.id.clone();
+        handler
+            .start(OrcTaskIdPayload {
+                task_id: task_id.clone(),
+            })
+            .await
+            .expect("开始必须成功");
+        handler
+            .report_from_agent(&task_id, 1, "第 1 步完成", false)
+            .await
+            .expect("第 1 步汇报必须成功");
+        handler
+            .report_from_agent(&task_id, 2, "第 2 步完成", false)
+            .await
+            .expect("第 2 步汇报必须成功");
+        handler
+            .report_from_agent(&task_id, 1, "汇总完成", false)
+            .await
+            .expect("汇总回合必须成功");
+        let done = handler
+            .list()
+            .await
+            .expect("列出任务必须成功")
+            .into_iter()
+            .find(|task| task.id == task_id)
+            .expect("任务必须存在");
+        assert_eq!(done.state, OrcTaskStateDto::Completed);
+
+        let err = handler
+            .update_task_step(UpdateOrcTaskStepPayload {
+                task_id,
+                order: 1,
+                model: None,
+                variant: Some("high".into()),
+            })
+            .await
+            .expect_err("完成任务必须只读");
+        assert_eq!(err.code, "orc_task_step_locked");
+        assert_eq!(err.message, "任务已结束：不能再修改节点模型");
+    }
 }

@@ -201,6 +201,7 @@ fn normalize_models(raw: Vec<RawModel>) -> Vec<OpencodeModelDto> {
                 provider_id: model.provider_id.trim().to_string(),
                 model_id: model.id.trim().to_string(),
                 name,
+                variants: model.variants,
             }
         })
         .filter(|model| !model.provider_id.is_empty() && !model.model_id.is_empty())
@@ -215,6 +216,40 @@ fn normalize_models(raw: Vec<RawModel>) -> Vec<OpencodeModelDto> {
         left.provider_id == right.provider_id && left.model_id == right.model_id
     });
     models
+}
+
+/// 解析 `/api/model` 的 variants 字段（容错）：缺省/null、单个字符串、单个对象或数组均可；
+/// 数组元素允许是字符串或 `{ id, settings }` 对象。只保留非空 id（按序去重，忽略空格）。
+fn deserialize_variants<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    let mut variants: Vec<String> = Vec::new();
+    let mut push = |item: &serde_json::Value| {
+        let Some(serde_json::Value::String(raw)) = variant_id_value(item) else {
+            return;
+        };
+        let id = raw.trim().to_string();
+        if !id.is_empty() && !variants.contains(&id) {
+            variants.push(id);
+        }
+    };
+    match value {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::Array(items)) => items.iter().for_each(&mut push),
+        Some(other) => push(&other),
+    }
+    Ok(variants)
+}
+
+/// 单个 variant 的 id：字符串直接用；`{ id, ... }` 对象取 id；其它形态忽略（不猜测兜底）。
+fn variant_id_value(value: &serde_json::Value) -> Option<&serde_json::Value> {
+    match value {
+        serde_json::Value::String(_) => Some(value),
+        serde_json::Value::Object(map) => map.get("id"),
+        _ => None,
+    }
 }
 
 fn models_unavailable(detail: impl Into<String>) -> CommandError {
@@ -246,6 +281,9 @@ struct RawModel {
     enabled: Option<bool>,
     #[serde(default)]
     status: Option<String>,
+    /// 思考强度候选（`/api/model` 的 `variants: [{ id, settings }]`，形态容错解析）。
+    #[serde(default, deserialize_with = "deserialize_variants")]
+    variants: Vec<String>,
 }
 
 #[cfg(test)]
@@ -285,7 +323,7 @@ mod tests {
         assert_eq!(port_from_latest_log(&root.path().join("missing")), None);
     }
 
-    /// 模型归一化：过滤停用/废弃、名称兜底 id、按名称排序、去重。
+    /// 模型归一化：过滤停用/废弃、名称兜底 id、按名称排序、去重、variants 透传。
     #[test]
     fn normalize_models_filters_and_sorts() {
         let models = normalize_models(vec![
@@ -295,6 +333,7 @@ mod tests {
                 name: Some("  Beta  ".into()),
                 enabled: Some(true),
                 status: None,
+                variants: vec!["low".into(), "high".into()],
             },
             RawModel {
                 id: "disabled".into(),
@@ -302,6 +341,7 @@ mod tests {
                 name: None,
                 enabled: Some(false),
                 status: None,
+                variants: vec![],
             },
             RawModel {
                 id: "old".into(),
@@ -309,6 +349,7 @@ mod tests {
                 name: Some("Old".into()),
                 enabled: Some(true),
                 status: Some("deprecated".into()),
+                variants: vec![],
             },
             RawModel {
                 id: "alpha".into(),
@@ -316,6 +357,7 @@ mod tests {
                 name: None,
                 enabled: None,
                 status: None,
+                variants: vec![],
             },
             RawModel {
                 id: "beta".into(),
@@ -323,6 +365,7 @@ mod tests {
                 name: Some("Beta".into()),
                 enabled: Some(true),
                 status: None,
+                variants: vec![],
             },
         ]);
         let keys: Vec<String> = models
@@ -336,6 +379,42 @@ mod tests {
         );
         assert_eq!(models[0].name, "alpha", "名称缺失时用 id 兜底");
         assert_eq!(models[1].name, "Beta");
+        assert_eq!(
+            models[1].variants,
+            vec!["low", "high"],
+            "variants 必须透传到 DTO"
+        );
+    }
+
+    /// variants 形态容错：缺省/null/字符串/对象/数组都可解析；按序去重、忽略空 id。
+    #[test]
+    fn raw_model_variants_tolerate_shapes() {
+        let parse = |value: &str| -> Vec<String> {
+            let raw: RawModel = serde_json::from_str(value).expect("模型 JSON 必须可解析");
+            raw.variants
+        };
+        assert!(parse(r#"{"id":"m","providerID":"p"}"#).is_empty(), "缺省");
+        assert!(
+            parse(r#"{"id":"m","providerID":"p","variants":null}"#).is_empty(),
+            "null"
+        );
+        assert_eq!(
+            parse(r#"{"id":"m","providerID":"p","variants":"high"}"#),
+            vec!["high"],
+            "单个字符串"
+        );
+        assert_eq!(
+            parse(r#"{"id":"m","providerID":"p","variants":{"id":"low","settings":{}}}"#),
+            vec!["low"],
+            "单个对象"
+        );
+        assert_eq!(
+            parse(
+                r#"{"id":"m","providerID":"p","variants":[{"id":"low","settings":{}},"high","high",{"id":"  "},{"nope":1},{"id":"xhigh"},"low"]}"#
+            ),
+            vec!["low", "high", "xhigh"],
+            "数组元素容错 + 按序去重 + 忽略空 id"
+        );
     }
 
     /// 服务信息：缺失/无密码 → 明确错误（界面退回手动输入）。

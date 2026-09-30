@@ -217,11 +217,10 @@
 - `list_opencode_models` DTO 增 `variants: string[]`（供 UI 下拉）；
 - UI：节点卡显示「模型 · 思考强度」；未结束时提供「修改」小按钮 → 弹窗（模型下拉 + 思考强度下拉 + 保存）。
 
-> **进度（2026-09-30）**：variant 透传链已完成并编译通过——`DispatchOptions`/`WorkflowStep`/
-> `StepConfigSnapshot`/`OrcWorkflowStepDto` 带 `variant`，OpenCode 派活 job 增 `variant` 字段，
-> 插件 `jobModelSpec` 生成 `{providerID, id, variant}`（session.create / switchModel 同链路），
-> 插件测试与全量编译绿。**待做**：`update_orc_task_step` 命令（payload 已定义）+ 模型 variants DTO +
-> 详情节点编辑弹窗 + 每步主题色/光束强化（12.6）。
+> **进度（2026-09-30）**：12.4 与 12.6 **已实现并过门禁**——variant 透传链（SDK/派活 job/插件
+> session.create 与 switchModel）、`update_orc_task_step` 命令（改任务步骤快照；终态只读、阻塞可改、
+> 格式与 Agent 支持校验）、模型接口返回 variants、详情节点卡「模型 · 强度」+「修改」弹窗、
+> 每步主题色（tokens，暗/亮两套）与流转光束加宽提亮。
 
 ### 12.5 创建时间
 

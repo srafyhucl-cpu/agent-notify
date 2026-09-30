@@ -41,6 +41,7 @@ pub enum BusinessCommand {
     UpdateOrcTask,
     DeleteOrcTask,
     ContinueOrcTask,
+    UpdateOrcTaskStep,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
@@ -299,6 +300,9 @@ pub struct OpencodeModelDto {
     pub model_id: String,
     /// 显示名（OpenCode 界面里的模型名，如 `DeepSeek V4.1 Flash`）。
     pub name: String,
+    /// 思考强度候选（模型 variant，如 low/medium/high/xhigh/max；按服务返回顺序，可能为空）。
+    #[serde(default)]
+    pub variants: Vec<String>,
 }
 
 /// 当前编排工作流（供创建任务前预览节点）。

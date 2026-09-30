@@ -220,6 +220,16 @@ export function useUpdateOrcTaskMutation(bridge: HostBridge) {
   });
 }
 
+export function useUpdateOrcTaskStepMutation(bridge: HostBridge) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CommandPayloadMap["update_orc_task_step"]) =>
+      bridge.invoke("update_orc_task_step", payload),
+    onSuccess: () => invalidate(queryClient, [queryKeys.orcTasks()]),
+  });
+}
+
 export function useDeleteOrcTaskMutation(bridge: HostBridge) {
   const queryClient = useQueryClient();
 

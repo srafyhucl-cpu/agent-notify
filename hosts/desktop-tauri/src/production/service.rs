@@ -337,6 +337,13 @@ impl HostCommandService for ProductionHostCommandService {
         self.orchestration.update(payload).await
     }
 
+    async fn update_orc_task_step(
+        &self,
+        payload: UpdateOrcTaskStepPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        self.orchestration.update_task_step(payload).await
+    }
+
     async fn delete_orc_task(
         &self,
         payload: OrcTaskIdPayload,

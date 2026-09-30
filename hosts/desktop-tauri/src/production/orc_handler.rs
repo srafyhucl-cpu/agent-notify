@@ -25,7 +25,8 @@ use agentnotify_storage_sqlite::SqliteStore;
 
 use super::agent_driver::{AgentDriver, DispatchOptions};
 use super::orc_node_config::{
-    NodeConfig, ORC_STEP_AGENT_MISSING, apply_steps_snapshot, missing_agent_step,
+    MODEL_AGENT_OPENCODE, NodeConfig, ORC_MODEL_AGENT_UNSUPPORTED, ORC_MODEL_INVALID,
+    ORC_STEP_AGENT_MISSING, apply_steps_snapshot, is_provider_model, missing_agent_step,
     steps_snapshot_of, task_steps_snapshot, template_dtos, validate_template_steps,
 };
 use super::orc_notify::{
@@ -89,6 +90,8 @@ const ORC_TASK_NAME_MAX_CHARS: usize = 8;
 const ORC_MAX_ROUNDS: u32 = 5;
 /// 任务处于「项目经理汇总阶段」：不接受人工推进（等待首节点汇总）。
 const ORC_TASK_FINALIZING: &str = "orc_task_finalizing";
+/// 任务步骤不可修改（终态只读 / 无步骤快照的旧任务，§12.4）。
+pub const ORC_TASK_STEP_LOCKED: &str = "orc_task_step_locked";
 /// 编排设置存储不可用（静态装配/初始化未完成）时保存节点配置的错误码。
 const ORC_SETTINGS_UNAVAILABLE: &str = "orchestration_settings_unavailable";
 /// `OrcError::task_not_found` 的稳定错误码（回注路径按它静默忽略缺失任务）。
@@ -408,6 +411,98 @@ impl OrcCommandHandler {
         }
         store.save(task.clone()).await.map_err(orc_error)?;
         orc_task_to_dto(&task, store.workflow())
+    }
+
+    /// 修改任务某一步的模型/思考强度（§12.4，任务结束前可改）：
+    /// 只改**任务步骤快照**，不改 Agent 与工作流结构——
+    /// - 终态（Completed/Canceled/Rejected）只读；阻塞（Failed）/等待确认（InputRequired）可改后重新发起；
+    /// - 旧任务没有步骤快照（或快照缺该步）→ 明确报错，指向「设置 → 编排」或重新创建；
+    /// - `model=None` 不改；空串 = 清除（回到该 Agent 默认模型）；非空必须是 `provider/model`
+    ///   且该步 Agent 支持指定模型（v1 仅 OpenCode）；
+    /// - 强度随模型走：模型为空时强度一并清空；`variant=None` 不改、空串 = 清除、非空 trim 后写入（取值由 UI 提供真实列表）。
+    pub async fn update_task_step(
+        &self,
+        payload: UpdateOrcTaskStepPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let (store, mut task) = self.task_store(&payload.task_id).await?;
+        if matches!(
+            task.state(),
+            TaskState::Completed | TaskState::Canceled | TaskState::Rejected
+        ) {
+            return Err(CommandError::new(
+                ORC_TASK_STEP_LOCKED,
+                "任务已结束：不能再修改节点模型",
+            ));
+        }
+        let Some(step) = store.workflow().step(payload.order) else {
+            return Err(orc_error(OrcError::step_not_found(payload.order)));
+        };
+        let agent = step.agent_hint.clone();
+        let Some(mut snapshot) = task.steps_snapshot().map_err(orc_error)? else {
+            return Err(CommandError::new(
+                ORC_TASK_STEP_LOCKED,
+                "该任务没有步骤快照（旧任务）：请到设置 → 编排里改模板，或重新创建任务",
+            ));
+        };
+        let Some(entry) = snapshot
+            .iter_mut()
+            .find(|entry| entry.order == payload.order)
+        else {
+            return Err(CommandError::new(
+                ORC_TASK_STEP_LOCKED,
+                format!(
+                    "该任务缺少第 {} 步的快照（旧任务）：请到设置 → 编排里改模板，或重新创建任务",
+                    payload.order
+                ),
+            ));
+        };
+        // model：None = 不改；空串 = 清除；非空 = 校验格式与 Agent 支持后写入。
+        let model = match payload.model.as_deref() {
+            None => entry.model.clone(),
+            Some(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    if !is_provider_model(trimmed) {
+                        return Err(CommandError::new(
+                            ORC_MODEL_INVALID,
+                            "模型格式应为 provider/model（例如 opencode-go/deepseek-v4.1-flash）",
+                        ));
+                    }
+                    if agent.as_deref() != Some(MODEL_AGENT_OPENCODE) {
+                        return Err(CommandError::new(
+                            ORC_MODEL_AGENT_UNSUPPORTED,
+                            "该 Agent 暂不支持指定模型",
+                        ));
+                    }
+                    Some(trimmed.to_string())
+                }
+            }
+        };
+        // variant：模型为空时一并清空（强度依附于模型）；否则 None = 不改、空串 = 清除、非空 trim 写入。
+        let variant = if model.is_none() {
+            None
+        } else {
+            match payload.variant.as_deref() {
+                None => entry.variant.clone(),
+                Some(raw) => {
+                    let trimmed = raw.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed.to_string())
+                    }
+                }
+            }
+        };
+        entry.model = model;
+        entry.variant = variant;
+        task.set_steps_snapshot(&snapshot).map_err(orc_error)?;
+        store.save(task.clone()).await.map_err(orc_error)?;
+        // 返回的 DTO 必须体现本次改动：把新快照重新应用到生效工作流上再脱敏。
+        let effective = apply_steps_snapshot(store.workflow(), &snapshot);
+        orc_task_to_dto(&task, &effective)
     }
 
     /// 删除任务（集群页「删除」，幂等）：删除任务记录，不做猜测式兜底。
