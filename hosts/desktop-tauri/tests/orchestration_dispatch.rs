@@ -887,15 +887,15 @@ async fn continue_task_starts_next_round_with_instruction() {
 
     // 走完第 1 轮：第 1 步汇报 → 第 2 步汇报 → 汇总（达标）。
     handler
-        .report_from_agent(&task_id, 1, "第 1 步完成", false)
+        .report_from_agent(&task_id, 1, "第 1 步完成", false, None)
         .await
         .expect("第 1 步汇报必须成功");
     handler
-        .report_from_agent(&task_id, 2, "第 2 步完成", false)
+        .report_from_agent(&task_id, 2, "第 2 步完成", false, None)
         .await
         .expect("第 2 步汇报必须成功");
     handler
-        .report_from_agent(&task_id, 1, "汇总如下……\n【结论：达标】", false)
+        .report_from_agent(&task_id, 1, "汇总如下……\n【结论：达标】", false, None)
         .await
         .expect("汇总回合必须成功");
     let done = handler
@@ -994,11 +994,11 @@ async fn summary_verdict_continue_auto_starts_next_round() {
         .await
         .expect("开始必须成功");
     handler
-        .report_from_agent(&task_id, 1, "第 1 步完成", false)
+        .report_from_agent(&task_id, 1, "第 1 步完成", false, None)
         .await
         .expect("第 1 步汇报必须成功");
     handler
-        .report_from_agent(&task_id, 2, "第 2 步完成", false)
+        .report_from_agent(&task_id, 2, "第 2 步完成", false, None)
         .await
         .expect("第 2 步汇报必须成功");
 
@@ -1009,6 +1009,7 @@ async fn summary_verdict_continue_auto_starts_next_round() {
             1,
             "第 1 轮总结\n【结论：继续迭代】\n- 翅膀没握把\n- 腿太直",
             false,
+            None,
         )
         .await
         .expect("汇总回合必须成功");

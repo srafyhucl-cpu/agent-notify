@@ -76,7 +76,7 @@ impl AgentEventObserver for OrcReportObserver {
             .unwrap_or(false);
         match self
             .handler
-            .report_from_agent(task_id, step, body, failed)
+            .report_from_agent(task_id, step, body, failed, None)
             .await
         {
             Ok(true) => tracing::info!(task_id, step, "Agent 汇报已回注，任务自动推进"),

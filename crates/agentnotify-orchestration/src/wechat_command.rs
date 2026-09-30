@@ -54,6 +54,9 @@ impl WechatAction {
 ///
 /// 正文允许为空（返回 `Some` 且 `body` 为空），由路由层给用户明确报错；
 /// 地址为空（如 `【集群 】确认`）视为格式不符。
+///
+/// 寻址以**第一个 `】`** 收尾：任务名禁止包含 `】`/`【`（创建/编辑侧校验），
+/// 否则地址会被截断（B3）。
 pub fn parse_cluster_command(text: &str) -> Option<ClusterCommand> {
     let text = text.trim();
     let rest = text.strip_prefix(WECHAT_CLUSTER_PREFIX)?;
@@ -148,6 +151,24 @@ mod tests {
         assert_eq!(parse_cluster_command("【集群  】"), None);
         assert_eq!(parse_cluster_command("普通消息"), None);
         assert_eq!(parse_cluster_command(""), None);
+    }
+
+    /// B3：正常任务名解析不受影响；地址段内含/后接 `】` 时只在第一个 `】` 收尾，
+    /// 不会误定位到后面的文字（这正是创建/编辑禁止 `】`/`【` 的原因）。
+    #[test]
+    fn address_separator_does_not_misroute() {
+        // 正常任务名：解析不受影响。
+        let command = parse_cluster_command("【集群 发版自检-闭环】确认").expect("正常名必须解析");
+        assert_eq!(command.address, "发版自检-闭环");
+        assert_eq!(command.body, "确认");
+
+        // 名称里混入分隔符（创建侧已拒绝）：地址在第一个 `】` 截断，不会跳到后续候选名。
+        let command = parse_cluster_command("【集群 发版自检】-闭环】确认").expect("仍能解析");
+        assert_eq!(command.address, "发版自检", "地址在第一个 】 截断");
+        assert_eq!(command.body, "-闭环】确认");
+
+        // 空地址后接 `】`：仍是无效指令，不会落到后面的「甲」。
+        assert_eq!(parse_cluster_command("【集群 】甲】确认"), None);
     }
 
     /// 动作映射表：确认 / 完成 / 恢复 / 重发 / 指令 / 下一步 + 英文（忽略大小写、按词匹配）。
