@@ -16,6 +16,7 @@ pub mod runtime;
 pub mod service;
 pub mod settings;
 pub mod targets;
+pub mod wechat_alert;
 
 use std::sync::Arc;
 
@@ -274,6 +275,11 @@ async fn bootstrap_internal(
             .spawn(),
             Err(reason) => tracing::warn!("编排看门狗未启动（OpenCode 服务信息不可用）：{reason}"),
         }
+    }
+    // 「微信推送已断」首次提醒（2026-09-17 设计）：低频巡检 ClawBot 健康，
+    // 首次进入「已登录但推送会话失效」时弹一次系统通知（跨重启不重复弹）。
+    if let Some(app) = app.clone() {
+        wechat_alert::spawn(app, store.clone(), channel_registry.clone());
     }
     let coordinator = Arc::new(
         ProductionRuntimeCoordinator::with_ingress_pipe(
