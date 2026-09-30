@@ -29,7 +29,6 @@ import {
   ContinueTaskDialog,
   type ContinueTaskInput,
 } from "./ContinueTaskDialog";
-import { EditStepDialog, type EditStepInput } from "./EditStepDialog";
 import { EditTaskDialog, type EditTaskInput } from "./EditTaskDialog";
 import { TaskDetail } from "./TaskDetail";
 import { TaskList } from "./TaskList";
@@ -67,11 +66,6 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
   const [deleteError, setDeleteError] = useState<unknown>(null);
   const [continueTask, setContinueTask] = useState<OrcTaskDto | null>(null);
   const [continueError, setContinueError] = useState<unknown>(null);
-  const [editStep, setEditStep] = useState<{
-    task: OrcTaskDto;
-    order: number;
-  } | null>(null);
-  const [editStepError, setEditStepError] = useState<unknown>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
   const [pendingAction, setPendingAction] = useState<
     | "create"
@@ -188,25 +182,28 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
     }
   };
 
-  /** 保存节点模型/强度（§12.4）：成功关闭弹窗（orcTasks 失效重取）；失败在弹窗内展示并保留输入。 */
-  const handleUpdateStep = async (input: EditStepInput): Promise<boolean> => {
-    if (!editStep) {
-      return false;
-    }
-    setEditStepError(null);
+  /**
+   * 节点卡行内保存模型/强度（§12.4）：任务未结束时直接改，选择即保存；
+   * 失败在页面顶部如实提示，节点卡回落为任务快照值（不静默假保存）。
+   */
+  const handleSaveStepModel = async (
+    taskId: string,
+    order: number,
+    model: string | null,
+    variant: string | null,
+  ) => {
+    setActionError(null);
     setPendingAction("updateStep");
     try {
       await updateStepMutation.mutateAsync({
-        taskId: editStep.task.id,
-        order: editStep.order,
-        model: input.model,
-        variant: input.variant,
+        taskId,
+        order,
+        // 空串 = 清除：模型回到 Agent 默认，强度回到模型默认。
+        model: model ?? "",
+        variant: variant ?? "",
       });
-      setEditStep(null);
-      return true;
     } catch (error) {
-      setEditStepError(error);
-      return false;
+      setActionError(error);
     } finally {
       setPendingAction(null);
     }
@@ -345,6 +342,7 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
               renderDetail={(task) => (
                 <TaskDetail
                   task={task}
+                  bridge={bridge}
                   busy={rowBusy}
                   onStart={() => void handleStart(task.id)}
                   onAdvance={(kind) => void handleAdvance(task.id, kind)}
@@ -353,10 +351,9 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
                     setContinueError(null);
                     setContinueTask(task);
                   }}
-                  onEditStep={(order) => {
-                    setEditStepError(null);
-                    setEditStep({ task, order });
-                  }}
+                  onSaveStepModel={(order, model, variant) =>
+                    void handleSaveStepModel(task.id, order, model, variant)
+                  }
                 />
               )}
             />
@@ -387,18 +384,6 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
           error={editError}
           onSubmit={handleUpdate}
           onClose={() => setEditTask(null)}
-        />
-      ) : null}
-
-      {editStep ? (
-        <EditStepDialog
-          bridge={bridge}
-          task={editStep.task}
-          order={editStep.order}
-          pending={pendingAction === "updateStep"}
-          error={editStepError}
-          onSubmit={handleUpdateStep}
-          onClose={() => setEditStep(null)}
         />
       ) : null}
 

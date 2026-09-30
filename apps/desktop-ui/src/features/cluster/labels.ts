@@ -93,26 +93,12 @@ export function orcStepModelLabel(model: string | null | undefined): string {
 }
 
 /**
- * 思考强度（模型 variant）→ 中文短标签（§12.4）：只覆盖已知取值；
- * 未知取值原样展示（服务端可能新增强度，不猜测含义）。
+ * 思考强度（模型 variant）展示：**原样展示 id（不翻译）**，与服务端/模型侧取值保持一致；
+ * 未知取值同样原样（服务端可能新增强度，不猜测含义）。
  */
-export const ORC_VARIANT_LABELS: Record<string, string> = {
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "极高",
-  max: "最大",
-  none: "关闭",
-  default: "默认",
-};
-
-/** 思考强度展示文案：空 = 未指定（返回 null，不占位）；已知取值中文、未知原样。 */
 export function orcVariantLabel(variant: string | null | undefined): string | null {
   const value = variant?.trim();
-  if (!value) {
-    return null;
-  }
-  return ORC_VARIANT_LABELS[value] ?? value;
+  return value ? value : null;
 }
 
 /**

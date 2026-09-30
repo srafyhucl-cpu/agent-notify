@@ -2,8 +2,10 @@
 :root {
   /* 新建任务弹窗宽度：容得下逐节点配置与三列字段 */
   --cluster-create-dialog-width: 880px;
-  /* 节点编辑弹窗宽度（模型 + 思考强度两列） */
-  --cluster-edit-step-dialog-width: 480px;
+
+  /* §12.4 节点卡行内编辑：紧凑控件高度与下拉最大宽度（4px 网格；窄窗时收缩省略） */
+  --orc-node-inline-height: 24px;
+  --orc-node-select-max-width: 220px;
 
   /* 节点链动效（§7）：只做注意力引导，时长/幅度克制 */
   --orc-node-pulse-duration: 2500ms;
@@ -47,20 +49,6 @@
   /* 控件字号与全站一致：标签 12px（--font-size-1）、控件与占位符 13px（--font-body）。 */
   font-size: var(--font-body);
   line-height: 1.5;
-}
-
-/* 节点编辑弹窗（§12.4）：沿用创建弹窗语言，宽度收窄到两列表单。 */
-.cluster-create-dialog--compact {
-  width: min(var(--cluster-edit-step-dialog-width), 100%);
-}
-
-.cluster-edit-step-hint {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-caption);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
 }
 
 .cluster-dialog-actions {
@@ -820,70 +808,6 @@
   overflow-wrap: anywhere;
 }
 
-/* 当前节点卡内的推进操作（跟随节点状态显示/隐藏；见 orcStepActions） */
-.orc-node-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  min-width: 0;
-  margin-top: var(--space-1);
-  padding-top: var(--space-2);
-  border-top: 1px dashed var(--hairline);
-}
-
-.orc-node-actions-note {
-  margin: var(--space-1) 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-caption);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-/* 节点卡「修改」小按钮（§12.4）：打开模型/思考强度编辑弹窗；默认低调、悬浮点亮。 */
-.orc-node-edit {
-  display: flex;
-  justify-content: flex-end;
-  min-width: 0;
-  margin-top: var(--space-1);
-}
-
-.orc-node-edit-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-height: 20px;
-  padding: 1px var(--space-2);
-  color: var(--color-text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  font: inherit;
-  font-size: var(--font-small);
-  font-weight: 600;
-  line-height: 1.4;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out);
-}
-
-.orc-node-edit-button:hover:not(:disabled) {
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
-  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
-}
-
-.orc-node-edit-button:active:not(:disabled) {
-  transform: translateY(0.5px);
-}
-
-.orc-node-edit-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 /* 推进指令区 */
 .cluster-actions {
   min-width: 0;
@@ -1060,32 +984,100 @@
   font-size: var(--font-small);
 }
 
+/* 第二行（§12.4 行内编辑）：Agent / 模型 / 强度 + 当前节点操作；
+   单行不换行、固定行高——节点卡永远两行且层层等高。 */
+.orc-node-meta-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--orc-node-inline-height);
+}
+
 .orc-node-meta {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-1) var(--space-3);
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
   margin: 0;
 }
 
 .orc-node-meta-item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-1);
   min-width: 0;
+}
+
+/* 分隔点：只在相邻两项之间出现（右侧操作区不算一项） */
+.orc-node-meta-item + .orc-node-meta-item::before {
+  content: "·";
+  margin-right: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
 }
 
 .orc-node-meta-item dt {
   flex: none;
   color: var(--color-text-muted);
   font-size: var(--font-small);
+  white-space: nowrap;
 }
 
 .orc-node-meta-item dd {
   min-width: 0;
   margin: 0;
   font-size: var(--font-caption);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+
+/* 只读文本（Agent/模型值）：窄窗省略号截断；控件不裁剪，聚焦环保持完整 */
+.orc-node-meta-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 行内模型/强度下拉：紧凑变体（沿用全站 select 的 token / 边框 / 聚焦环） */
+.orc-node-inline-select {
+  max-width: min(100%, var(--orc-node-select-max-width));
+  min-height: var(--orc-node-inline-height);
+  height: var(--orc-node-inline-height);
+  padding: 0 var(--space-5) 0 var(--space-2);
+  font-size: var(--font-caption);
+  text-overflow: ellipsis;
+}
+
+/* 行内操作（仅当前节点）：右对齐，紧凑高度与下拉一致，保证卡片等高 */
+.orc-node-meta-actions {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  min-width: 0;
+}
+
+.orc-node-meta-actions .button {
+  flex: none;
+  min-height: var(--orc-node-inline-height);
+  padding: 0 var(--space-2);
+  font-size: var(--font-caption);
+}
+
+/* 汇总中说明：占第二行、不新开一行；窄窗省略号（悬浮可看全文） */
+.orc-node-meta-note {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .orc-node-details {

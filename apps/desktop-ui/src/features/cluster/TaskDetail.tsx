@@ -1,8 +1,11 @@
-import { Pencil } from "lucide-react";
-
+import type { HostBridge } from "../../bridge";
 import type { OrcMessageKindDto, OrcTaskDto } from "../../bridge/types";
+import { InlineError } from "../../components/InlineError";
 import { StatusBadge } from "../../components/patterns";
+import { toUserError } from "../../data/errors";
+import { useOpencodeModels } from "../../data/useOpencodeModels";
 import {
+  ORC_MODEL_CAPABLE_AGENT,
   ORC_NOTIFY_MODE_LABELS,
   ORC_TERMINAL_STATES,
   formatOrcCreatedAt,
@@ -13,34 +16,41 @@ import {
   orcTaskStateTone,
   shortBlockReason,
 } from "./labels";
-import { OrcNodeChain } from "./OrcNodeChain";
+import { OrcNodeChain, type OrcNodeChainStep } from "./OrcNodeChain";
 import { RoundTimeline } from "./RoundTimeline";
 
 export interface TaskDetailProps {
   task: OrcTaskDto;
-  /** 任一操作进行中：统一禁用操作按钮，防止重复提交。 */
+  bridge: HostBridge;
+  /** 任一操作进行中：统一禁用操作按钮与行内下拉，防止重复提交。 */
   busy: boolean;
   onStart: () => void;
   onAdvance: (kind: OrcMessageKindDto) => void;
   onRecover: () => void;
   /** 继续迭代（本轮结束后开始新一轮）：打开继续迭代弹窗。 */
   onContinue: () => void;
-  /** 修改某一步的模型/思考强度（§12.4）：打开节点编辑弹窗。 */
-  onEditStep: (order: number) => void;
+  /** 修改某一步的模型/思考强度（§12.4）：任务未结束时在节点卡第二行内联编辑。 */
+  onSaveStepModel: (
+    order: number,
+    model: string | null,
+    variant: string | null,
+  ) => void;
 }
 
 /**
  * 任务详情（展开行内容）：任务描述 / 工作流（重点，推进操作跟随当前节点）/ 任务信息；
+ * 节点卡固定两行（摘要 + 操作），模型/强度在任务未结束时直接内联编辑（§12.4）；
  * 任务名称只在列表行展示（详情里不重复标题）；失败原因在「任务阻塞」块里给出。
  */
 export function TaskDetail({
   task,
+  bridge,
   busy,
   onStart,
   onAdvance,
   onRecover,
   onContinue,
-  onEditStep,
+  onSaveStepModel,
 }: TaskDetailProps) {
   const blocked = task.blockedStep !== null;
   const terminal = ORC_TERMINAL_STATES.has(task.state);
@@ -54,42 +64,60 @@ export function TaskDetail({
   const nodeStates = orcNodeStatesOfTask(task);
   const createdAt = formatOrcCreatedAt(task.createdAt, "full");
   const stepActions = orcStepActions(task);
+  // §12.4 行内编辑数据源：任务未结束且存在 OpenCode 节点时才需要模型列表。
+  const modelsQuery = useOpencodeModels(bridge);
+  const modelsError = modelsQuery.error
+    ? toUserError(modelsQuery.error).message
+    : null;
+  const hasModelCapableStep = task.workflow.steps.some(
+    (step) => (step.agentHint ?? "").trim() === ORC_MODEL_CAPABLE_AGENT,
+  );
+  const modelEditing =
+    stepEditable && hasModelCapableStep
+      ? {
+          models: modelsQuery.data ?? null,
+          saving: busy,
+          onSave: onSaveStepModel,
+        }
+      : undefined;
 
   /**
-   * 当前节点卡内的推进操作（跟随节点状态显示/隐藏）：
-   * 待开始 → 开始执行；汇总中 → 只给说明；其余见 [`orcStepActions`]。
+   * 节点卡第二行右侧的推进操作（只出现在当前节点，其它节点留空占位）：
+   * 待开始 → 开始执行；汇总中 → 汇总说明；其余见 [`orcStepActions`]；
+   * 阻塞 / 终态沿用原有语义：不提供推进操作。
    */
-  const renderStepActions = () => {
-    if (blocked || terminal) {
+  const renderStepMetaActions = (step: OrcNodeChainStep) => {
+    if (step.order !== task.currentStep || blocked || terminal) {
       return null;
     }
     if (task.finalizing) {
       return (
-        <p className="orc-node-actions-note">
+        <p
+          className="orc-node-meta-note"
+          title="项目经理正在汇总，等待最终汇报；汇总完成后任务自动结束。"
+        >
           项目经理正在汇总，等待最终汇报；汇总完成后任务自动结束。
         </p>
       );
     }
     if (pendingStart) {
       return (
-        <div className="orc-node-actions">
-          <button
-            className="button"
-            type="button"
-            title="开始执行：派活第 1 步（节点配置在创建时已锁定）"
-            disabled={busy}
-            onClick={onStart}
-          >
-            {busy ? "启动中…" : "开始执行"}
-          </button>
-        </div>
+        <button
+          className="button"
+          type="button"
+          title="开始执行：派活第 1 步（节点配置在创建时已锁定）"
+          disabled={busy}
+          onClick={onStart}
+        >
+          {busy ? "启动中…" : "开始执行"}
+        </button>
       );
     }
     if (stepActions.length === 0) {
       return null;
     }
     return (
-      <div className="orc-node-actions">
+      <>
         {stepActions.map((action) => (
           <button
             key={action.kind}
@@ -102,7 +130,7 @@ export function TaskDetail({
             {busy && action.primary ? "发送中…" : action.label}
           </button>
         ))}
-      </div>
+      </>
     );
   };
 
@@ -133,27 +161,24 @@ export function TaskDetail({
             humanGate: step.humanGate,
           }))}
           nodeStates={nodeStates}
-          renderDetails={(step) => (
-            <>
-              {step.order === task.currentStep ? renderStepActions() : null}
-              {stepEditable ? (
-                <div className="orc-node-edit">
-                  <button
-                    className="orc-node-edit-button"
-                    type="button"
-                    title={`修改第 ${step.order} 步的模型与思考强度`}
-                    aria-label={`修改第 ${step.order} 步模型与思考强度`}
-                    disabled={busy}
-                    onClick={() => onEditStep(step.order)}
-                  >
-                    <Pencil aria-hidden="true" size={12} />
-                    修改
-                  </button>
-                </div>
-              ) : null}
-            </>
-          )}
+          modelEditing={modelEditing}
+          renderMetaActions={renderStepMetaActions}
         />
+        {modelEditing && modelsError ? (
+          <InlineError
+            title="无法读取 OpenCode 模型列表"
+            message={modelsError}
+            action={
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => void modelsQuery.refetch()}
+              >
+                重新读取
+              </button>
+            }
+          />
+        ) : null}
         {terminal ? (
           <div className="cluster-actions">
             <p className="cluster-actions-note">

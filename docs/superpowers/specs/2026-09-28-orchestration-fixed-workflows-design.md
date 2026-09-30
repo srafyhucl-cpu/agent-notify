@@ -215,7 +215,8 @@
   允许条件：任务未结束（Completed/Canceled/Rejected 只读；阻塞 Failed 可改后重新发起）；
   `StepConfigSnapshot` 增 `variant`；`DispatchOptions` 与派活 job 增 `variant` 透传；插件 `session.create/switchModel` 带 variant；
 - `list_opencode_models` DTO 增 `variants: string[]`（供 UI 下拉）；
-- UI：节点卡显示「模型 · 思考强度」；未结束时提供「修改」小按钮 → 弹窗（模型下拉 + 思考强度下拉 + 保存）。
+- UI：节点卡显示「模型 · 思考强度」；未结束时**行内下拉直接编辑**（模型 + 强度，选择即保存；强度原样英文 id 不翻译），
+  不再有「修改」弹窗；节点卡固定两行等高，操作按钮（发指令/汇报）同行右对齐。
 
 > **进度（2026-09-30）**：12.4 与 12.6 **已实现并过门禁**——variant 透传链（SDK/派活 job/插件
 > session.create 与 switchModel）、`update_orc_task_step` 命令（改任务步骤快照；终态只读、阻塞可改、

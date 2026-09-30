@@ -1331,7 +1331,7 @@ describe("ClusterPage 编辑与删除", () => {
 });
 
 describe("ClusterPage 节点模型与思考强度编辑（§12.4）", () => {
-  /** 运行中的任务：第 2 步 opencode + 可选模型，用于节点编辑用例。 */
+  /** 运行中的任务：第 2 步 opencode + 可选模型，用于节点行内编辑用例。 */
   function stepEditTask(): OrcTaskDto {
     const task = orcTaskFixture("task-step-edit", {
       goal: "给节点换模型与强度",
@@ -1357,42 +1357,25 @@ describe("ClusterPage 节点模型与思考强度编辑（§12.4）", () => {
     };
   }
 
-  it("运行中从节点卡「修改」：选模型与强度保存后节点卡显示新值", async () => {
+  it("未结束任务：模型/强度在节点卡第二行内联下拉，选择即保存，强度原样显示英文 id", async () => {
     const user = userEvent.setup();
     const bridge = fixturedBridge([stepEditTask()]);
     renderWithQuery(bridge);
 
     const detail = await expandTask(user, "换模型");
-    expect(
-      within(detail).getByText("opencode-go/deepseek-v4.1-flash"),
-    ).toBeVisible();
-    // 任务未结束时每个节点卡都有「修改」入口。
-    expect(
-      within(detail).getAllByRole("button", {
-        name: /修改第 \d 步模型与思考强度/,
-      }),
-    ).toHaveLength(3);
-
-    await user.click(
-      within(detail).getByRole("button", { name: "修改第 2 步模型与思考强度" }),
-    );
-    const dialog = await screen.findByRole("dialog", { name: "修改第 2 步" });
-    await within(dialog).findAllByRole("option", { name: /DeepSeek V4.1 Flash/ });
-    const modelSelect = within(dialog).getByLabelText("第 2 步 模型");
-    expect(modelSelect).toHaveValue("opencode-go/deepseek-v4.1-flash");
-
-    // 下拉 = OpenCode 模型列表 +「不指定（Agent 默认）」；强度 = 所选模型的 variants +「默认」。
+    const modelSelect = await within(detail).findByLabelText("第 2 步 模型");
+    // 下拉 = 模型列表（显示名）+「不指定（Agent 默认）」；当前值即使不在列表也不丢。
     expect(
       within(modelSelect).getByRole("option", { name: "不指定（Agent 默认）" }),
     ).toBeInTheDocument();
-    await user.selectOptions(modelSelect, "opencode-go/space-bunny-free");
-    const variantSelect = within(dialog).getByLabelText("第 2 步 思考强度");
+    expect(modelSelect).toHaveValue("opencode-go/deepseek-v4.1-flash");
+    await within(modelSelect).findByRole("option", { name: "Space Bunny Free" });
+    // v1 仅 OpenCode 节点提供下拉（第 1 步 codex 保持只读）。
     expect(
-      within(variantSelect).getByRole("option", { name: "关闭" }),
-    ).toBeInTheDocument();
-    await user.selectOptions(variantSelect, "none");
-    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+      within(detail).queryByLabelText("第 1 步 模型"),
+    ).not.toBeInTheDocument();
 
+    await user.selectOptions(modelSelect, "opencode-go/space-bunny-free");
     await waitFor(() => {
       expect(bridge.calls("update_orc_task_step")).toHaveLength(1);
     });
@@ -1400,35 +1383,56 @@ describe("ClusterPage 节点模型与思考强度编辑（§12.4）", () => {
       taskId: "task-step-edit",
       order: 2,
       model: "opencode-go/space-bunny-free",
+      variant: "",
+    });
+
+    // 换模型后强度候选 = 新模型的 variants（原样英文 id，不翻译）。
+    const variantSelect = within(detail).getByLabelText("第 2 步 思考强度");
+    await within(variantSelect).findByRole("option", { name: "none" });
+    await waitFor(() => expect(variantSelect).toBeEnabled());
+    await user.selectOptions(variantSelect, "none");
+
+    await waitFor(() => {
+      expect(bridge.calls("update_orc_task_step")).toHaveLength(2);
+    });
+    expect(bridge.calls("update_orc_task_step")[1]?.payload).toEqual({
+      taskId: "task-step-edit",
+      order: 2,
+      model: "opencode-go/space-bunny-free",
       variant: "none",
     });
-    expect(
-      screen.queryByRole("dialog", { name: "修改第 2 步" }),
-    ).not.toBeInTheDocument();
-    // 列表失效重取后，节点卡显示新模型 + 强度中文映射。
-    expect(
-      await screen.findByText("opencode-go/space-bunny-free · 强度 关闭"),
-    ).toBeVisible();
+    await waitFor(() => {
+      expect(within(detail).getByLabelText("第 2 步 思考强度")).toHaveValue(
+        "none",
+      );
+    });
+    // 不翻译：界面直接用英文 id，不存在旧的中文强度映射。
+    expect(within(detail).queryByText("关闭")).not.toBeInTheDocument();
   });
 
-  it("已完成任务只读：节点卡不显示「修改」按钮", async () => {
+  it("已完成任务只读：无内联下拉、无操作按钮，模型与强度仍展示", async () => {
     const user = userEvent.setup();
     const bridge = fixturedBridge([completedTask]);
     renderWithQuery(bridge);
 
-    await expandTask(user, "已完成");
+    const detail = await expandTask(user, "已完成");
     expect(
-      screen.queryByRole("button", {
-        name: /修改第 \d 步模型与思考强度/,
-      }),
+      within(detail).queryByLabelText(/第 \d 步 模型/),
     ).not.toBeInTheDocument();
-    // 模型与强度展示仍在（只读）。
     expect(
-      screen.getByText("anthropic/claude-sonnet-4-5"),
-    ).toBeVisible();
+      within(detail).queryByLabelText(/第 \d 步 思考强度/),
+    ).not.toBeInTheDocument();
+    expect(
+      within(detail).queryByRole("button", { name: "发指令" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(detail).queryByRole("button", { name: "确认完成" }),
+    ).not.toBeInTheDocument();
+    // 模型与强度只读展示仍在（未设置强度时不显示强度段）。
+    expect(within(detail).getByText("anthropic/claude-sonnet-4-5")).toBeVisible();
   });
 
-  it("保存失败：弹窗内展示后端中文错误并保留已选模型", async () => {
+  it("保存失败：页面顶部展示后端中文错误，节点卡回落为任务快照值", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
       orcTasks: [stepEditTask()],
@@ -1444,22 +1448,18 @@ describe("ClusterPage 节点模型与思考强度编辑（§12.4）", () => {
     renderWithQuery(bridge);
 
     const detail = await expandTask(user, "换模型");
-    await user.click(
-      within(detail).getByRole("button", { name: "修改第 2 步模型与思考强度" }),
-    );
-    const dialog = await screen.findByRole("dialog", { name: "修改第 2 步" });
-    await within(dialog).findAllByRole("option", { name: /Space Bunny Free/ });
-    await user.selectOptions(
-      within(dialog).getByLabelText("第 2 步 模型"),
-      "opencode-go/space-bunny-free",
-    );
-    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    const modelSelect = await within(detail).findByLabelText("第 2 步 模型");
+    await within(modelSelect).findByRole("option", { name: "Space Bunny Free" });
+    await user.selectOptions(modelSelect, "opencode-go/space-bunny-free");
 
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+    expect(await screen.findByRole("alert")).toHaveTextContent(
       "模型格式应为 provider/model",
     );
-    expect(within(dialog).getByLabelText("第 2 步 模型")).toHaveValue(
-      "opencode-go/space-bunny-free",
-    );
+    // 失败不静默假保存：下拉回落为任务快照里的旧模型。
+    await waitFor(() => {
+      expect(within(detail).getByLabelText("第 2 步 模型")).toHaveValue(
+        "opencode-go/deepseek-v4.1-flash",
+      );
+    });
   });
 });
