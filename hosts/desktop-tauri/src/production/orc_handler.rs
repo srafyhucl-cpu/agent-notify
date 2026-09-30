@@ -123,6 +123,8 @@ const ORC_MODEL_MAX_CHARS: usize = 200;
 const ORC_VARIANT_MAX_CHARS: usize = 64;
 /// 自动迭代轮次上限：项目经理判定「继续迭代」时最多自动跑到该轮次，之后按完成处理交给用户决定。
 const ORC_MAX_ROUNDS: u32 = 5;
+/// 「继续迭代」微信提示里本轮要求的展示上限（字）：超长截断加省略号，避免刷屏。
+const ROUND_INPUT_HINT_MAX_CHARS: usize = 80;
 /// 任务处于「项目经理汇总阶段」：不接受人工推进（等待首节点汇总）。
 const ORC_TASK_FINALIZING: &str = "orc_task_finalizing";
 /// 任务步骤不可修改（终态只读 / 无步骤快照的旧任务，§12.4）。
@@ -1170,8 +1172,8 @@ impl OrcCommandHandler {
         let detail = if detail.is_empty() {
             "按上一轮结论继续".to_string()
         } else {
-            let mut text: String = detail.chars().take(80).collect();
-            if detail.chars().count() > 80 {
+            let mut text: String = detail.chars().take(ROUND_INPUT_HINT_MAX_CHARS).collect();
+            if detail.chars().count() > ROUND_INPUT_HINT_MAX_CHARS {
                 text.push('…');
             }
             text
