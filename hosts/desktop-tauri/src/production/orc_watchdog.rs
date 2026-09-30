@@ -510,21 +510,20 @@ impl OrcWatchdog {
             else {
                 continue;
             };
+            // 结算时刻随回注一并传入，由 handler 在同一把任务锁内写入（B1：避免二次读改写覆盖并发写）。
             match self
                 .handler
-                .report_from_agent(&task_id_of(&task), step, &body, failed)
+                .report_from_agent(
+                    &task_id_of(&task),
+                    step,
+                    &body,
+                    failed,
+                    Some(completed_at_ms),
+                )
                 .await
             {
                 Ok(true) => {
                     recovered += 1;
-                    let mut settled = match self.repository.get_task(&task_id_of(&task)).await {
-                        Ok(Some(a2a)) => OrcTask::from_a2a(a2a).ok(),
-                        _ => None,
-                    };
-                    if let Some(task) = settled.as_mut() {
-                        let _ = task.mark_settled_turn(completed_at_ms);
-                        let _ = self.repository.save_task(&task.a2a_task).await;
-                    }
                     tracing::info!(
                         task_id = task_id_of(&task),
                         step,

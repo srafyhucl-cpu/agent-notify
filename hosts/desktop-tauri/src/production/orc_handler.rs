@@ -11,9 +11,11 @@
 //! - 最后一步完成不直接 Completed：进入「项目经理汇总阶段」，派汇总信封回首节点，
 //!   首节点汇总产出到达后完成任务并推最终汇报。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
+
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 use agentnotify_domain::{AgentId, AgentSessionId, Timestamp};
 use agentnotify_orchestration::{
@@ -40,6 +42,26 @@ use super::settings::{
 use crate::bridge::dto::*;
 use crate::bridge::error::CommandError;
 
+/// 模型目录数据源（可注入，B2）：模型下拉与节点思考强度白名单共用同一份真实数据。
+///
+/// 生产注入 [`DesktopModelCatalog`]（读本机 OpenCode）；测试注入假目录，既不依赖
+/// 真实 OpenCode 进程，也不放宽生产校验（生产仍走同一实现）。
+#[async_trait::async_trait]
+pub trait OrcModelCatalog: Send + Sync {
+    /// 读取可用模型；OpenCode 未运行等失败必须返回面向用户的明确错误（不静默放行）。
+    async fn list_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError>;
+}
+
+/// 默认模型目录：读取本机 OpenCode 桌面端服务（生产装配使用）。
+pub struct DesktopModelCatalog;
+
+#[async_trait::async_trait]
+impl OrcModelCatalog for DesktopModelCatalog {
+    async fn list_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        super::opencode_models::list_models().await
+    }
+}
+
 /// 编排命令处理器（P1-1，B 方案接线）。
 ///
 /// 两种装配模式：
@@ -61,6 +83,11 @@ pub struct OrcCommandHandler {
     /// 派活驱动器（P2）：缺省不派活（行为与 P1-3/1-4 一致）；注入后 create/advance
     /// 把当前 Step 的任务信封真正交给配置的 Agent。
     driver: Option<Arc<dyn AgentDriver>>,
+    /// 模型目录（B2）：variant 白名单校验与模型下拉共用；未注入回退本机 OpenCode。
+    model_catalog: Option<Arc<dyn OrcModelCatalog>>,
+    /// 任务级写锁（B1）：同一任务的「读改写」串行，避免并发写整任务覆盖丢更新。
+    /// map 用 std 锁只做短查找（不跨 await）；值是 tokio 锁（允许跨 await 持有）。
+    task_locks: StdMutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
 /// 编排开关设置键（settings 表）。**默认开启**（缺失 = true，P1-1 体验修正：
@@ -82,10 +109,18 @@ const ORC_TEMPLATE_UNKNOWN: &str = "orc_template_unknown";
 const ORC_WORKFLOW_UNKNOWN: &str = "orc_workflow_unknown";
 /// 工作目录为空或不是已存在目录。
 const ORC_WORKING_DIR_INVALID: &str = "orc_working_dir_invalid";
-/// 任务名称非法（空 / 超过 8 字）。
+/// 任务名称非法（空 / 超过 8 字 / 含分隔符）。
 const ORC_TASK_NAME_INVALID: &str = "orc_task_name_invalid";
 /// 任务名称长度上限（字）：短名只用于列表与会话标题展示。
 const ORC_TASK_NAME_MAX_CHARS: usize = 8;
+/// 任务名禁用字符：`】`/`【` 会破坏微信指令 `【集群 <名>】` 的寻址（B3），创建/编辑一律拒绝。
+const ORC_TASK_NAME_FORBIDDEN_CHARS: [char; 2] = ['【', '】'];
+/// 思考强度不在该模型可选列表内（或模型未知）：`update_task_step` 白名单校验错误码（B2）。
+const ORC_STEP_VARIANT_INVALID: &str = "orc_step_variant_invalid";
+/// 模型标识长度上限（`provider/model` 全串）：防御异常超长输入塞爆步骤快照与日志（B2）。
+const ORC_MODEL_MAX_CHARS: usize = 200;
+/// 思考强度标识长度上限（OpenCode variant 短标识，如 high/xhigh）（B2）。
+const ORC_VARIANT_MAX_CHARS: usize = 64;
 /// 自动迭代轮次上限：项目经理判定「继续迭代」时最多自动跑到该轮次，之后按完成处理交给用户决定。
 const ORC_MAX_ROUNDS: u32 = 5;
 /// 任务处于「项目经理汇总阶段」：不接受人工推进（等待首节点汇总）。
@@ -120,6 +155,8 @@ impl OrcCommandHandler {
             templates,
             presenter: None,
             driver: None,
+            model_catalog: None,
+            task_locks: StdMutex::new(HashMap::new()),
         }
     }
 
@@ -137,6 +174,8 @@ impl OrcCommandHandler {
             templates,
             presenter: Some(presenter),
             driver: None,
+            model_catalog: None,
+            task_locks: StdMutex::new(HashMap::new()),
         }
     }
 
@@ -157,6 +196,8 @@ impl OrcCommandHandler {
             templates,
             presenter,
             driver,
+            model_catalog: None,
+            task_locks: StdMutex::new(HashMap::new()),
         }
     }
 
@@ -179,6 +220,57 @@ impl OrcCommandHandler {
             templates,
             presenter,
             driver,
+            model_catalog: None,
+            task_locks: StdMutex::new(HashMap::new()),
+        }
+    }
+
+    /// 注入模型目录（测试/生产装配）：variant 白名单校验用（B2）。
+    pub fn with_model_catalog(mut self, catalog: Arc<dyn OrcModelCatalog>) -> Self {
+        self.model_catalog = Some(catalog);
+        self
+    }
+
+    /// 取任务级写锁（B1）：先短锁查/建该任务的锁，再返回 owned guard（可跨 await 持有）。
+    ///
+    /// 所有对外可变的任务命令必须先取此锁；内部 helper（`auto_blocked` / `dispatch_*` /
+    /// `present_*`）及其调用的无锁内核不得重复取锁（会自锁死）。
+    async fn task_lock(&self, task_id: &str) -> OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self
+                .task_locks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            locks.entry(task_id.to_owned()).or_default().clone()
+        };
+        lock.lock_owned().await
+    }
+
+    /// 任务级写锁内核：已持锁时读改写任务（B1，`mark_settled_turn` 并入回注临界区）。
+    async fn mark_settled_turn_locked(&self, task_id: &str, completed_at_ms: i64) {
+        let (store, mut task) = match self.task_store(task_id).await {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                tracing::warn!(
+                    task_id,
+                    code = error.code(),
+                    "回注后记录结算时刻失败：{}",
+                    error.message()
+                );
+                return;
+            }
+        };
+        if let Err(error) = task.mark_settled_turn(completed_at_ms) {
+            tracing::warn!(
+                task_id,
+                code = error.code.as_str(),
+                "记录回合结算时刻失败：{}",
+                error.message
+            );
+            return;
+        }
+        if let Err(error) = store.save(task).await {
+            tracing::warn!(task_id, "保存回合结算时刻失败：{error}");
         }
     }
 
@@ -387,6 +479,7 @@ impl OrcCommandHandler {
     /// 更新任务（集群页「编辑」）：名称随时可改；描述仅未开始任务可改；通知节奏随时可改。
     /// 未提供（None）的字段保持不变；全部校验通过才落库（失败不产生部分更新）。
     pub async fn update(&self, payload: UpdateOrcTaskPayload) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, mut task) = self.task_store(&payload.task_id).await?;
         if let Some(raw) = payload.name.as_deref() {
             let name = validate_task_name(raw)?;
@@ -419,11 +512,13 @@ impl OrcCommandHandler {
     /// - 旧任务没有步骤快照（或快照缺该步）→ 明确报错，指向「设置 → 编排」或重新创建；
     /// - `model=None` 不改；空串 = 清除（回到该 Agent 默认模型）；非空必须是 `provider/model`
     ///   且该步 Agent 支持指定模型（v1 仅 OpenCode）；
-    /// - 强度随模型走：模型为空时强度一并清空；`variant=None` 不改、空串 = 清除、非空 trim 后写入（取值由 UI 提供真实列表）。
+    /// - 强度随模型走：模型为空时强度一并清空；`variant=None` 不改、空串 = 清除，
+    ///   非空 trim 后必须在模型 `variants` 白名单内（B2，目录不可用/模型未知/不在列表明确报错）。
     pub async fn update_task_step(
         &self,
         payload: UpdateOrcTaskStepPayload,
     ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, mut task) = self.task_store(&payload.task_id).await?;
         if matches!(
             task.state(),
@@ -470,6 +565,14 @@ impl OrcCommandHandler {
                             "模型格式应为 provider/model（例如 opencode-go/deepseek-v4.1-flash）",
                         ));
                     }
+                    if trimmed.chars().count() > ORC_MODEL_MAX_CHARS {
+                        return Err(CommandError::new(
+                            ORC_MODEL_INVALID,
+                            format!(
+                                "模型标识过长（最多 {ORC_MODEL_MAX_CHARS} 个字符）：请从下拉列表重新选择"
+                            ),
+                        ));
+                    }
                     if agent.as_deref() != Some(MODEL_AGENT_OPENCODE) {
                         return Err(CommandError::new(
                             ORC_MODEL_AGENT_UNSUPPORTED,
@@ -480,19 +583,28 @@ impl OrcCommandHandler {
                 }
             }
         };
-        // variant：模型为空时一并清空（强度依附于模型）；否则 None = 不改、空串 = 清除、非空 trim 写入。
-        let variant = if model.is_none() {
-            None
-        } else {
-            match payload.variant.as_deref() {
-                None => entry.variant.clone(),
-                Some(raw) => {
-                    let trimmed = raw.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(trimmed.to_string())
+        // variant：模型为空时一并清空（强度依附于模型）；否则 None = 不改（保持旧值）、
+        // 空串 = 清除、非空 trim 后必须在该模型 `variants` 白名单内（B2：目录不可用/模型未知/
+        // 不在列表都明确报错，不静默放行；未提交强度时不校验，兼容旧任务）。
+        let variant = match (model.as_deref(), payload.variant.as_deref()) {
+            (None, _) => None,
+            (Some(_), None) => entry.variant.clone(),
+            (Some(model_id), Some(raw)) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    if trimmed.chars().count() > ORC_VARIANT_MAX_CHARS {
+                        return Err(CommandError::new(
+                            ORC_STEP_VARIANT_INVALID,
+                            format!(
+                                "思考强度标识过长（最多 {ORC_VARIANT_MAX_CHARS} 个字符）：请从下拉列表重新选择"
+                            ),
+                        ));
                     }
+                    let models = self.list_models().await?;
+                    validate_variant(&models, model_id, trimmed)?;
+                    Some(trimmed.to_string())
                 }
             }
         };
@@ -511,6 +623,7 @@ impl OrcCommandHandler {
         &self,
         payload: OrcTaskIdPayload,
     ) -> Result<MutationAcceptedDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let repository = self.repository().await?;
         repository
             .delete_task(payload.task_id.trim())
@@ -528,6 +641,7 @@ impl OrcCommandHandler {
     ///
     /// 预检失败 → 明确报错且任务保持「待开始」（不写快照）；已开始的任务再调 → 明确错误。
     pub async fn start(&self, payload: OrcTaskIdPayload) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, mut task) = self.task_store(&payload.task_id).await?;
         if task.is_started().map_err(orc_error)? {
             return Err(CommandError::new(
@@ -570,6 +684,7 @@ impl OrcCommandHandler {
         &self,
         payload: ContinueOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, mut task) = self.task_store(&payload.task_id).await?;
         match task.state() {
             TaskState::Completed
@@ -685,7 +800,15 @@ impl OrcCommandHandler {
 
     /// OpenCode 可用模型（模型下拉数据源）：只读本地服务 API；失败明确报错退回手动输入。
     pub async fn list_opencode_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
-        super::opencode_models::list_models().await
+        self.list_models().await
+    }
+
+    /// 模型目录读取：注入实现优先，未注入回退本机 OpenCode（行为与旧版一致，B2）。
+    async fn list_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        match &self.model_catalog {
+            Some(catalog) => catalog.list_models().await,
+            None => super::opencode_models::list_models().await,
+        }
     }
 
     /// 旧 `get_current_orc_workflow` 的装配解析（动态模式沿用 `orchestration.workflow` 设置）。
@@ -729,6 +852,15 @@ impl OrcCommandHandler {
     }
 
     pub async fn advance(
+        &self,
+        payload: AdvanceOrcTaskPayload,
+    ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
+        self.advance_locked(payload).await
+    }
+
+    /// 无锁内核：`report_from_agent` 持有同一把任务锁时直接调用（避免自锁死）。
+    async fn advance_locked(
         &self,
         payload: AdvanceOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError> {
@@ -800,7 +932,33 @@ impl OrcCommandHandler {
     ///
     /// 返回 `Ok(false)` = 过期/无关事件（任务不存在、步不一致、任务非干活中），静默忽略；
     /// 错误 = 回注自身失败（由调用方记日志，不影响事件消费）。
+    ///
+    /// `settled_turn_ms`：看门狗回注时传入本回合完成时刻；命中（`Ok(true)`）时**在同一把
+    /// 任务锁内**记录结算时刻，消除「回注后另起一次读改写整任务覆盖」的丢更新窗口（B1）。
+    /// 插件回注路径传 `None`，行为与旧版一致。
     pub async fn report_from_agent(
+        &self,
+        task_id: &str,
+        step: u32,
+        body: &str,
+        failed: bool,
+        settled_turn_ms: Option<i64>,
+    ) -> Result<bool, CommandError> {
+        let _guard = self.task_lock(task_id).await;
+        let applied = self
+            .report_from_agent_locked(task_id, step, body, failed)
+            .await?;
+        if applied {
+            if let Some(completed_at_ms) = settled_turn_ms {
+                self.mark_settled_turn_locked(task_id, completed_at_ms)
+                    .await;
+            }
+        }
+        Ok(applied)
+    }
+
+    /// 无锁内核：调用方必须已持有该任务的任务锁（`advance_locked` 同理由此直调）。
+    async fn report_from_agent_locked(
         &self,
         task_id: &str,
         step: u32,
@@ -885,7 +1043,7 @@ impl OrcCommandHandler {
             .record_step_report(task_id, step, body)
             .await
             .map_err(orc_error)?;
-        self.advance(AdvanceOrcTaskPayload {
+        self.advance_locked(AdvanceOrcTaskPayload {
             task_id: task_id.to_owned(),
             kind: OrcMessageKindDto::Report,
         })
@@ -1036,6 +1194,7 @@ impl OrcCommandHandler {
         &self,
         payload: MarkBlockedOrcTaskPayload,
     ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, _task) = self.task_store(&payload.task_id).await?;
         let reason = payload.reason.trim();
         if reason.is_empty() {
@@ -1388,6 +1547,7 @@ impl OrcCommandHandler {
         &self,
         payload: OrcTaskIdPayload,
     ) -> Result<OrcTaskDto, CommandError> {
+        let _guard = self.task_lock(&payload.task_id).await;
         let (store, _task) = self.task_store(&payload.task_id).await?;
         let task = store
             .recover_blocked(&payload.task_id)
@@ -1591,13 +1751,23 @@ fn derive_task_name(goal: &str) -> String {
     goal.trim().chars().take(ORC_TASK_NAME_MAX_CHARS).collect()
 }
 
-/// 任务名称校验（必填、≤8 字）：空/超长都明确报错，不截断猜测。
+/// 任务名称校验（必填、≤8 字、禁分隔符）：空/超长/含 `】`、`【` 都明确报错，不截断猜测。
 fn validate_task_name(raw: &str) -> Result<String, CommandError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(CommandError::new(
             ORC_TASK_NAME_INVALID,
             "任务名称不能为空：请填 8 个字以内的短名",
+        ));
+    }
+    // B3：`】`/`【` 会破坏微信指令 `【集群 <名>】` 的寻址，创建/编辑一律拒绝（不猜测清洗）。
+    if let Some(found) = trimmed
+        .chars()
+        .find(|c| ORC_TASK_NAME_FORBIDDEN_CHARS.contains(c))
+    {
+        return Err(CommandError::new(
+            ORC_TASK_NAME_INVALID,
+            format!("任务名称不能包含「{found}」：它会干扰微信指令寻址，请改用其他字符"),
         ));
     }
     let count = trimmed.chars().count();
@@ -1608,6 +1778,39 @@ fn validate_task_name(raw: &str) -> Result<String, CommandError> {
         ));
     }
     Ok(trimmed.to_string())
+}
+
+/// 思考强度白名单校验（B2）：模型必须存在，且 variant 在该模型的 `variants` 中；
+/// 模型未知 / 不在列表 → 稳定错误码 `orc_step_variant_invalid` + 面向用户的中文提示。
+fn validate_variant(
+    models: &[OpencodeModelDto],
+    model: &str,
+    variant: &str,
+) -> Result<(), CommandError> {
+    let Some(found) = models
+        .iter()
+        .find(|entry| format!("{}/{}", entry.provider_id, entry.model_id) == model)
+    else {
+        return Err(CommandError::new(
+            ORC_STEP_VARIANT_INVALID,
+            format!("未找到模型 {model}：请确认 OpenCode 已打开并重新读取模型列表"),
+        ));
+    };
+    if !found.variants.iter().any(|item| item == variant) {
+        let options = if found.variants.is_empty() {
+            "该模型没有可选思考强度".to_string()
+        } else {
+            format!("可选：{}", found.variants.join(" / "))
+        };
+        return Err(CommandError::new(
+            ORC_STEP_VARIANT_INVALID,
+            format!(
+                "思考强度 {variant} 不适用于模型 {}（{options}）：请从下拉列表重新选择",
+                found.name
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// 工作流视图：节点列表（角色/建议 Agent/模型/人工确认门）供 UI 预览「每步做什么、派给谁」。

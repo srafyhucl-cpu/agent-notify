@@ -8,11 +8,14 @@
 use std::sync::Arc;
 
 use agentnotify_desktop::bridge::dto::{
-    AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload, OrcMessageKindDto,
-    OrcTaskIdPayload, OrcTaskStateDto, OrcTemplateDto, OrcTemplateStepConfigDto,
-    SaveOrcTemplateConfigPayload, UpdateOrcTaskStepPayload,
+    AdvanceOrcTaskPayload, CreateOrcTaskPayload, MarkBlockedOrcTaskPayload, OpencodeModelDto,
+    OrcMessageKindDto, OrcTaskIdPayload, OrcTaskStateDto, OrcTemplateDto, OrcTemplateStepConfigDto,
+    SaveOrcTemplateConfigPayload, UpdateOrcTaskPayload, UpdateOrcTaskStepPayload,
 };
-use agentnotify_desktop::production::orc_handler::{OrcCommandHandler, load_harness_templates};
+use agentnotify_desktop::bridge::error::CommandError;
+use agentnotify_desktop::production::orc_handler::{
+    OrcCommandHandler, OrcModelCatalog, load_harness_templates,
+};
 use agentnotify_desktop::production::settings::ProductionSettingsStore;
 use agentnotify_orchestration::{OrcStore, TemplateResolver, Workflow};
 use agentnotify_storage_sqlite::SqliteStore;
@@ -55,6 +58,41 @@ fn dynamic_handler(store: &Arc<SqliteStore>, config_dir: &std::path::Path) -> Or
 /// 测试用工作目录：必须是已存在的目录（创建/开始都会校验）。
 fn working_dir(root: &tempfile::TempDir) -> String {
     root.path().to_string_lossy().into_owned()
+}
+
+/// 假模型目录（B2）：不依赖真实 OpenCode，仅用于让测试提供可控白名单。
+struct FakeModelCatalog {
+    models: Vec<OpencodeModelDto>,
+}
+
+#[async_trait::async_trait]
+impl OrcModelCatalog for FakeModelCatalog {
+    async fn list_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        Ok(self.models.clone())
+    }
+}
+
+/// 构造模型 DTO（provider/model + 思考强度候选）。
+fn model(provider: &str, id: &str, variants: &[&str]) -> OpencodeModelDto {
+    OpencodeModelDto {
+        provider_id: provider.into(),
+        model_id: id.into(),
+        name: format!("{provider}/{id}"),
+        variants: variants.iter().map(|value| (*value).to_string()).collect(),
+    }
+}
+
+/// 模型目录不可用的假实现（模拟 OpenCode 未运行）：读取直接报错。
+struct UnavailableModelCatalog;
+
+#[async_trait::async_trait]
+impl OrcModelCatalog for UnavailableModelCatalog {
+    async fn list_models(&self) -> Result<Vec<OpencodeModelDto>, CommandError> {
+        Err(CommandError::new(
+            "opencode_models_unavailable",
+            "读取 OpenCode 模型列表失败：请确认 OpenCode 桌面端已打开",
+        ))
+    }
 }
 
 fn create_payload(goal: &str, template_id: &str, dir: &str) -> CreateOrcTaskPayload {
@@ -660,7 +698,7 @@ async fn orc_commands_validate_inputs_and_expose_business_errors() {
     assert_eq!(finalizing.state, OrcTaskStateDto::Working);
 
     handler
-        .report_from_agent(&created.id, 1, "项目经理最终汇报", false)
+        .report_from_agent(&created.id, 1, "项目经理最终汇报", false, None)
         .await
         .expect("首节点汇总回注必须成功");
     let err = handler
@@ -1046,7 +1084,15 @@ async fn orc_handler_injects_harness_templates() {
 #[tokio::test]
 async fn update_task_step_edits_snapshot_model_and_variant() {
     let (_root, store) = open_sqlite("agentnotify-orc-update-step-");
-    let handler = dynamic_handler(&store, _root.path());
+    // 注入假目录（B2）：variant 白名单校验走注入实现，不依赖本机 OpenCode。
+    let handler =
+        dynamic_handler(&store, _root.path()).with_model_catalog(Arc::new(FakeModelCatalog {
+            models: vec![model(
+                "opencode-go",
+                "space-bunny-free",
+                &["high", "xhigh", "max"],
+            )],
+        }));
     let dir = working_dir(&_root);
 
     let created = handler
@@ -1194,6 +1240,243 @@ async fn update_task_step_edits_snapshot_model_and_variant() {
     assert_eq!(err.code, "orc.step_not_found");
 }
 
+/// 创建并开始一个两步（均 opencode）任务：B2 用例的公共前置。
+async fn started_quickfix_task(
+    prefix: &str,
+    catalog: Arc<dyn OrcModelCatalog>,
+) -> (tempfile::TempDir, String, OrcCommandHandler) {
+    let (root, store) = open_sqlite(prefix);
+    let handler = dynamic_handler(&store, root.path()).with_model_catalog(catalog);
+    let created = handler
+        .create(CreateOrcTaskPayload {
+            name: None,
+            steps: Some(vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+            ]),
+            goal: "改模型与强度".into(),
+            template_id: TEMPLATE_QUICKFIX.into(),
+            working_dir: working_dir(&root),
+            notify_mode: None,
+        })
+        .await
+        .expect("创建必须成功");
+    let task_id = created.id.clone();
+    handler
+        .start(OrcTaskIdPayload {
+            task_id: task_id.clone(),
+        })
+        .await
+        .expect("开始必须成功");
+    (root, task_id, handler)
+}
+
+/// B2：variant 必须落在该模型的 `variants` 白名单内；非法 variant / 未知模型 → 明确报错。
+#[tokio::test]
+async fn update_task_step_rejects_variant_outside_whitelist() {
+    let (_root, task_id, handler) = started_quickfix_task(
+        "agentnotify-orc-variant-invalid-",
+        Arc::new(FakeModelCatalog {
+            models: vec![model(
+                "opencode-go",
+                "space-bunny-free",
+                &["high", "xhigh", "max"],
+            )],
+        }),
+    )
+    .await;
+
+    // 不在白名单 → orc_step_variant_invalid（提示可操作）。
+    let err = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 1,
+            model: Some("opencode-go/space-bunny-free".into()),
+            variant: Some("ultra".into()),
+        })
+        .await
+        .expect_err("非法强度必须被拒");
+    assert_eq!(err.code, "orc_step_variant_invalid");
+    assert!(
+        err.message.contains("重新选择"),
+        "错误必须给出处理办法：{}",
+        err.message
+    );
+
+    // 未知模型（带非空强度）→ 同样拒绝，不静默放行。
+    let err = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 1,
+            model: Some("opencode-go/not-a-model".into()),
+            variant: Some("high".into()),
+        })
+        .await
+        .expect_err("未知模型必须被拒");
+    assert_eq!(err.code, "orc_step_variant_invalid");
+
+    // 合法强度 → 通过（trim 后写入）。
+    let ok = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id,
+            order: 1,
+            model: Some("opencode-go/space-bunny-free".into()),
+            variant: Some(" high ".into()),
+        })
+        .await
+        .expect("合法强度必须通过");
+    assert_eq!(ok.workflow.steps[0].variant.as_deref(), Some("high"));
+}
+
+/// B2：model/variant 超长一律明确拒绝（不做截断猜测）。
+#[tokio::test]
+async fn update_task_step_rejects_overlong_model_and_variant() {
+    let (_root, task_id, handler) = started_quickfix_task(
+        "agentnotify-orc-too-long-",
+        Arc::new(FakeModelCatalog {
+            models: vec![model("opencode-go", "space-bunny-free", &["high"])],
+        }),
+    )
+    .await;
+
+    // 超长模型（>200 字符）→ orc_model_invalid。
+    let long_model = format!("opencode-go/{}", "x".repeat(300));
+    let err = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 1,
+            model: Some(long_model),
+            variant: None,
+        })
+        .await
+        .expect_err("超长模型必须被拒");
+    assert_eq!(err.code, "orc_model_invalid");
+
+    // 超长强度（>64 字符，模型合法）→ orc_step_variant_invalid。
+    let err = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id,
+            order: 1,
+            model: Some("opencode-go/space-bunny-free".into()),
+            variant: Some("v".repeat(80)),
+        })
+        .await
+        .expect_err("超长强度必须被拒");
+    assert_eq!(err.code, "orc_step_variant_invalid");
+}
+
+/// B2：目录不可用（OpenCode 未运行）→ 明确报错，不静默放行。
+#[tokio::test]
+async fn update_task_step_rejects_variant_when_catalog_unavailable() {
+    let (_root, task_id, handler) = started_quickfix_task(
+        "agentnotify-orc-catalog-offline-",
+        Arc::new(UnavailableModelCatalog),
+    )
+    .await;
+    let err = handler
+        .update_task_step(UpdateOrcTaskStepPayload {
+            task_id,
+            order: 1,
+            model: Some("opencode-go/space-bunny-free".into()),
+            variant: Some("high".into()),
+        })
+        .await
+        .expect_err("目录不可用必须明确报错");
+    assert_eq!(err.code, "opencode_models_unavailable");
+}
+
+/// B3：任务名禁止 `】`/`【` 分隔符（会截断微信指令寻址），创建与编辑都明确报错。
+#[tokio::test]
+async fn task_name_rejects_wechat_separators() {
+    let (_root, store) = open_sqlite("agentnotify-orc-name-sep-");
+    let handler = enabled_handler(&store);
+
+    for bad in ["含】分隔", "含【分隔"] {
+        let err = handler
+            .create(CreateOrcTaskPayload {
+                name: Some(bad.into()),
+                ..create_payload("目标", PRESET_ID, &working_dir(&_root))
+            })
+            .await
+            .expect_err("含分隔符的名称必须被拒");
+        assert_eq!(err.code, "orc_task_name_invalid");
+        assert!(
+            err.message.contains("寻址"),
+            "错误必须说明原因：{}",
+            err.message
+        );
+    }
+
+    // 编辑任务名同样受约束（不只是创建侧）。
+    let created = handler
+        .create(create_payload("正常名", PRESET_ID, &working_dir(&_root)))
+        .await
+        .expect("创建必须成功");
+    let err = handler
+        .update(UpdateOrcTaskPayload {
+            task_id: created.id,
+            name: Some("改名】".into()),
+            goal: None,
+            notify_mode: None,
+        })
+        .await
+        .expect_err("编辑含分隔符必须被拒");
+    assert_eq!(err.code, "orc_task_name_invalid");
+}
+
+/// B1：并发写同一任务的不同字段都必须落库（per-task 写锁防「整任务覆盖丢更新」）。
+///
+/// 无锁时两次「读改写整任务」会交错，后写者用旧快照覆盖先写者；本用例用 `tokio::join!`
+/// 同时发起「改名」与「改模型」，断言两者都生效。
+#[tokio::test]
+async fn concurrent_task_writes_do_not_lose_updates() {
+    let (_root, task_id, handler) = started_quickfix_task(
+        "agentnotify-orc-concurrent-",
+        Arc::new(FakeModelCatalog {
+            models: vec![model("opencode-go", "space-bunny-free", &["high"])],
+        }),
+    )
+    .await;
+
+    let (rename, change_step) = tokio::join!(
+        handler.update(UpdateOrcTaskPayload {
+            task_id: task_id.clone(),
+            name: Some("并发改名".into()),
+            goal: None,
+            notify_mode: None,
+        }),
+        handler.update_task_step(UpdateOrcTaskStepPayload {
+            task_id: task_id.clone(),
+            order: 1,
+            model: Some("opencode-go/space-bunny-free".into()),
+            variant: Some("high".into()),
+        }),
+    );
+    rename.expect("并发改名必须成功");
+    change_step.expect("并发改模型必须成功");
+
+    let listed = handler.list().await.expect("列出任务必须成功");
+    let task = listed
+        .iter()
+        .find(|task| task.id == task_id)
+        .expect("任务必须存在");
+    assert_eq!(task.name, "并发改名", "并发改名不能丢");
+    assert_eq!(
+        task.workflow.steps[0].model.as_deref(),
+        Some("opencode-go/space-bunny-free"),
+        "并发改模型不能丢"
+    );
+    assert_eq!(task.workflow.steps[0].variant.as_deref(), Some("high"));
+}
+
 /// §12.4：终态只读（Completed/Canceled/Rejected）；无步骤快照的旧任务明确拒绝并指路。
 #[tokio::test]
 async fn update_task_step_rejects_terminal_and_snapshotless_tasks() {
@@ -1261,15 +1544,15 @@ async fn update_task_step_rejects_terminal_and_snapshotless_tasks() {
             .await
             .expect("开始必须成功");
         handler
-            .report_from_agent(&task_id, 1, "第 1 步完成", false)
+            .report_from_agent(&task_id, 1, "第 1 步完成", false, None)
             .await
             .expect("第 1 步汇报必须成功");
         handler
-            .report_from_agent(&task_id, 2, "第 2 步完成", false)
+            .report_from_agent(&task_id, 2, "第 2 步完成", false, None)
             .await
             .expect("第 2 步汇报必须成功");
         handler
-            .report_from_agent(&task_id, 1, "汇总完成", false)
+            .report_from_agent(&task_id, 1, "汇总完成", false, None)
             .await
             .expect("汇总回合必须成功");
         let done = handler

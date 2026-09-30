@@ -21,7 +21,7 @@ use super::mapping::{
     map_migration_snapshot, map_notification_record, sanitize_account_config,
     update_state_for_error,
 };
-use super::orc_handler::{OrcCommandHandler, load_harness_templates};
+use super::orc_handler::{DesktopModelCatalog, OrcCommandHandler, load_harness_templates};
 use super::orc_notify::ProductionOrcPresenter;
 use super::runtime::ProductionRuntimeCoordinator;
 use super::settings::ProductionSettingsStore;
@@ -79,7 +79,8 @@ impl ProductionHostCommandService {
             } else {
                 None
             },
-        );
+        )
+        .with_model_catalog(Arc::new(DesktopModelCatalog));
         Self {
             app,
             runtime,
