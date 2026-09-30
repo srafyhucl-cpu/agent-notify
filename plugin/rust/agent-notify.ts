@@ -88,6 +88,8 @@ type PromptBinding =
 interface ModelSpec {
   providerID: string
   id: string
+  /** 思考强度（模型 variant）；缺省用模型默认强度。 */
+  variant?: string
 }
 
 interface SessionApi {
@@ -156,6 +158,8 @@ interface ReplyJob {
   open?: boolean
   /** 派活模型（`provider/model`）；缺省用宿主默认模型。 */
   model?: string
+  /** 派活思考强度（模型 variant，如 low/high/xhigh）；缺省用模型默认强度。 */
+  variant?: string
   /** 派活工作目录（绝对路径）；缺省用宿主当前项目目录。 */
   location?: string
   /** 是否无人值守（权限 ask 自动放行）；缺省 true，显式 false 时保留人工确认。 */
@@ -631,7 +635,12 @@ function jobModelSpec(job: ReplyJob): ModelSpec | undefined {
   if (typeof job.model !== "string" || !job.model.trim()) {
     return undefined
   }
-  return parseModelSpec(job.model)
+  const spec = parseModelSpec(job.model)
+  const variant =
+    typeof job.variant === "string" && job.variant.trim()
+      ? job.variant.trim()
+      : undefined
+  return variant ? { ...spec, variant } : spec
 }
 
 /** 新建真实会话的选项；缺省时跟随宿主当前项目与默认模型。 */

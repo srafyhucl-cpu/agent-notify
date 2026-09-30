@@ -536,6 +536,7 @@ test("open=true passes location and model to session.create and stores unattende
     open: true,
     sessionID: "task-dispatch-opt-step-1",
     model: "anthropic/claude-sonnet-4-5",
+    variant: "high",
     location: "D:\\工作区\\项目",
     unattended: false,
   })
@@ -546,7 +547,11 @@ test("open=true passes location and model to session.create and stores unattende
     {
       title: "【集群】task-dispatch-opt-step-1",
       location: { directory: "D:\\工作区\\项目" },
-      model: { providerID: "anthropic", id: "claude-sonnet-4-5" },
+      model: {
+        providerID: "anthropic",
+        id: "claude-sonnet-4-5",
+        variant: "high",
+      },
     },
   ])
   const map = JSON.parse(
@@ -604,6 +609,7 @@ test("open=false switches the model only when the job requests one", async () =>
     open: false,
     sessionID: "task-switch-model-step-1",
     model: "anthropic/claude-sonnet-4-5",
+    variant: "xhigh",
   })
   writeJob("job-switch-default", "继续处理", {
     open: false,
@@ -616,7 +622,11 @@ test("open=false switches the model only when the job requests one", async () =>
   assert.deepEqual(switchCalls, [
     {
       sessionID: "ses_resume_model",
-      model: { providerID: "anthropic", id: "claude-sonnet-4-5" },
+      model: {
+        providerID: "anthropic",
+        id: "claude-sonnet-4-5",
+        variant: "xhigh",
+      },
     },
   ])
   assert.equal(promptCalls.length, 2)

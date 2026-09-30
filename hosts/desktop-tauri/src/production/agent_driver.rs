@@ -457,6 +457,7 @@ mod tests {
         let options = DispatchOptions {
             working_dir: Some("D:/Project/demo".into()),
             model: Some("anthropic/claude-sonnet-4-5".into()),
+            variant: None,
             unattended: false,
             title: None,
         };

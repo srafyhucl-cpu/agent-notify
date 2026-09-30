@@ -271,12 +271,14 @@ fn steps_snapshot_roundtrip_and_legacy_compat() {
             role: "orchestrator".to_string(),
             agent: "opencode".to_string(),
             model: Some("anthropic/claude-sonnet-4-5".to_string()),
+            variant: None,
         },
         StepConfigSnapshot {
             order: 2,
             role: "planner".to_string(),
             agent: "codex".to_string(),
             model: None,
+            variant: None,
         },
     ];
     task.set_steps_snapshot(&snapshot).unwrap();

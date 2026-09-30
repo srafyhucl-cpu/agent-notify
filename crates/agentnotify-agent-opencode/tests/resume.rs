@@ -238,6 +238,7 @@ async fn dispatch_options_are_written_with_plugin_field_names() {
     let options = DispatchOptions {
         working_dir: Some("D:/Project/demo".to_string()),
         model: Some("anthropic/claude-sonnet-4-5".to_string()),
+        variant: None,
         unattended: false,
         title: None,
     };

@@ -253,6 +253,7 @@ pub fn steps_snapshot_of(workflow: &Workflow) -> Vec<StepConfigSnapshot> {
             role: step.role.clone(),
             agent: trimmed_nonempty(step.agent_hint.as_deref()).unwrap_or_default(),
             model: trimmed_nonempty(step.model.as_deref()),
+            variant: trimmed_nonempty(step.variant.as_deref()),
         })
         .collect()
 }
@@ -273,6 +274,7 @@ pub fn apply_steps_snapshot(workflow: &Workflow, snapshot: &[StepConfigSnapshot]
             }
             merged.agent_hint = trimmed_nonempty(Some(entry.agent.as_str()));
             merged.model = trimmed_nonempty(entry.model.as_deref());
+            merged.variant = trimmed_nonempty(entry.variant.as_deref());
             merged
         })
         .collect();
@@ -727,6 +729,7 @@ mod tests {
                 role: "executor".into(),
                 agent: "codex".into(),
                 model: None,
+                variant: None,
             }],
         );
         assert_eq!(

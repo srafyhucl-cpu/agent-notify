@@ -39,6 +39,8 @@ pub struct OpenCodeReplyJob {
     pub open: bool,
     /// 派活模型（`provider/model`）；None = 用宿主默认模型（仅 OpenCode 支持）。
     pub model: Option<String>,
+    /// 派活思考强度（模型 variant，如 high/xhigh）；None = 模型默认强度。
+    pub variant: Option<String>,
     /// 派活工作目录（绝对路径）；None = 跟随宿主当前项目。
     pub location: Option<String>,
     /// 无人值守（权限 ask 自动放行）；缺省 true，显式 false 保留人工确认。
@@ -169,6 +171,7 @@ impl OpenCodeReplyInbox {
             text: text.to_owned(),
             open,
             model: options.model.clone(),
+            variant: options.variant.clone(),
             location: options.working_dir.clone(),
             unattended: options.unattended,
             title: options.title.clone(),
@@ -349,6 +352,9 @@ struct WireJob<'a> {
     /// 派活模型（`provider/model`）；缺省用宿主默认模型（插件契约字段名 `model`）。
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<&'a str>,
+    /// 派活思考强度（模型 variant）；缺省用模型默认强度（插件契约字段名 `variant`）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    variant: Option<&'a str>,
     /// 派活工作目录（绝对路径）；缺省跟随宿主当前项目（插件契约字段名 `location`）。
     #[serde(skip_serializing_if = "Option::is_none")]
     location: Option<&'a str>,
@@ -369,6 +375,7 @@ impl<'a> From<&'a OpenCodeReplyJob> for WireJob<'a> {
             text: &job.text,
             open: job.open,
             model: job.model.as_deref(),
+            variant: job.variant.as_deref(),
             location: job.location.as_deref(),
             unattended: job.unattended,
             title: job.title.as_deref(),

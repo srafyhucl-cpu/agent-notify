@@ -1109,6 +1109,7 @@ impl OrcCommandHandler {
         let options = DispatchOptions {
             working_dir,
             model: step.model.clone(),
+            variant: step.variant.clone(),
             unattended: self.unattended().await,
             title: Some(format!("【集群】{session_title} · 第 {current_step} 步")),
         };
@@ -1232,6 +1233,7 @@ impl OrcCommandHandler {
         let options = DispatchOptions {
             working_dir,
             model: first.model.clone(),
+            variant: first.variant.clone(),
             unattended: self.unattended().await,
             title: Some(format!("【集群】{session_title} · 汇总汇报")),
         };
@@ -1526,6 +1528,7 @@ fn orc_workflow_to_dto(workflow: &Workflow) -> OrcWorkflowDto {
                 role: step.role.clone(),
                 agent_hint: step.agent_hint.clone(),
                 model: step.model.clone(),
+                variant: step.variant.clone(),
                 human_gate: step.human_gate,
             })
             .collect(),

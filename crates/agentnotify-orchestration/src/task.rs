@@ -130,6 +130,9 @@ pub struct StepConfigSnapshot {
     /// 该步模型（`provider/model`；None = 该 Agent 默认模型）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// 该步思考强度（模型 variant；None = 模型默认强度）。旧任务/旧快照缺省兼容。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 
 /// 单步产出记录上限（字符数；超出截断并标注「…（已截断）」）。

@@ -221,8 +221,24 @@ pub struct OrcWorkflowStepDto {
     pub agent_hint: Option<String>,
     /// 该步使用的模型（`provider/model`；None = 未指定，由该 Agent 自己决定）。
     pub model: Option<String>,
+    /// 该步思考强度（模型 variant；None = 模型默认强度）。旧任务缺省兼容。
+    #[serde(default)]
+    pub variant: Option<String>,
     /// 是否需人确认才进入下一步。
     pub human_gate: bool,
+}
+
+/// 修改任务某一步的模型/思考强度（任务结束前可改；不改 Agent 与工作流结构）。
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOrcTaskStepPayload {
+    pub task_id: String,
+    /// 目标步骤序号（必须存在于该任务的工作流里）
+    pub order: u32,
+    /// 新模型（`provider/model`）；None = 不改。空串 = 清除（回到该 Agent 默认模型）。
+    pub model: Option<String>,
+    /// 新思考强度（模型 variant）；None = 不改。空串 = 清除（回到模型默认强度）。
+    pub variant: Option<String>,
 }
 
 /// 固定工作流模板视图（设置页节点配置与创建任务预览共用）：节点含合并后的 Agent/模型。
