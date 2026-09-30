@@ -1414,8 +1414,10 @@ async fn list_channel_accounts_reports_stale_and_missing_credentials() {
         .as_ref()
         .expect("stale 账号必须带安全明细");
     assert_eq!(stale_detail.code, "clawbot_session_stale");
+    // 登录失效（ret=-14）必须提示重新扫码；「推送会话失效」的可操作提示由渠道层测试覆盖
+    // （clawbot contract：clawbot_push_session_missing → 发任意一条消息即可恢复）。
     assert!(
-        stale_detail.message.contains("重新扫码") && stale_detail.message.contains("发送消息恢复"),
+        stale_detail.message.contains("重新扫码"),
         "提示不可操作：{}",
         stale_detail.message
     );
