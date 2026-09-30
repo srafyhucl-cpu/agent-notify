@@ -137,7 +137,7 @@ export function TaskDetail({
   return (
     <article className="cluster-task-detail" aria-label="任务详情">
       <section className="cluster-detail-pane" aria-label="任务描述">
-        <h4 className="cluster-detail-pane-title">任务描述</h4>
+        <h3 className="cluster-detail-pane-title">任务描述</h3>
         <p className="cluster-detail-goal">{task.goal}</p>
         <RoundTimeline
           goal={task.goal}
@@ -149,7 +149,7 @@ export function TaskDetail({
       </section>
 
       <section className="cluster-detail-pane" aria-label="工作流">
-        <h4 className="cluster-detail-pane-title">工作流</h4>
+        <h3 className="cluster-detail-pane-title">工作流</h3>
         <OrcNodeChain
           label="工作流节点"
           steps={task.workflow.steps.map((step) => ({
@@ -201,7 +201,7 @@ export function TaskDetail({
       </section>
 
       <section className="cluster-detail-pane" aria-label="任务信息">
-        <h4 className="cluster-detail-pane-title">任务信息</h4>
+        <h3 className="cluster-detail-pane-title">任务信息</h3>
         <dl className="cluster-task-facts cluster-task-facts--inline">
           <div className="cluster-task-fact">
             <dt>状态</dt>
