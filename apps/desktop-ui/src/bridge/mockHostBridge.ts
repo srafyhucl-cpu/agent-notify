@@ -354,6 +354,32 @@ function isProviderModel(value: string): boolean {
   );
 }
 
+/** 新流程三档内置模板 id（与后端 `TEMPLATE_IDS` 同构）：节点 Agent 只允许 OpenCode。 */
+const BUILTIN_TEMPLATE_IDS: readonly string[] = [
+  "template-quickfix",
+  "template-standard",
+  "template-full",
+];
+
+/** 内置模板节点只支持 OpenCode：与后端 `orc_step_agent_unsupported` 同码同文案（旧预置不受限）。 */
+function assertBuiltinTemplateAgentSupported(
+  templateId: string,
+  order: number,
+  agent: string,
+): void {
+  if (!BUILTIN_TEMPLATE_IDS.includes(templateId)) {
+    return;
+  }
+  if (agent === "" || agent === "opencode") {
+    return;
+  }
+  throw {
+    code: "orc_step_agent_unsupported",
+    message: `集群模式暂只支持 OpenCode：请把第 ${String(order)} 步的 Agent 改为 OpenCode`,
+    retryable: false,
+  };
+}
+
 /** 深拷贝 DTO 样本，避免 mock 内部写入污染调用方传入的 fixture。 */
 function cloneDto<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -649,6 +675,7 @@ export function createMockHostBridge(
             }
             const agent = step.agent?.trim() ?? "";
             const model = step.model?.trim() ?? "";
+            assertBuiltinTemplateAgentSupported(template.id, step.order, agent);
             if (model) {
               if (!isProviderModel(model)) {
                 orcModelInvalid(model);
@@ -950,6 +977,7 @@ export function createMockHostBridge(
           }
           const agent = step.agent?.trim() ?? "";
           const model = step.model?.trim() ?? "";
+          assertBuiltinTemplateAgentSupported(templateId, step.order, agent);
           if (model) {
             if (!isProviderModel(model)) {
               orcModelInvalid(model);

@@ -24,7 +24,10 @@ pub const ORC_MODEL_INVALID: &str = "orc_model_invalid";
 pub const ORC_MODEL_AGENT_UNSUPPORTED: &str = "orc_model_agent_unsupported";
 /// 某节点未选择 Agent（创建任务/开始执行的预检共用错误码）。
 pub const ORC_STEP_AGENT_MISSING: &str = "orc_step_agent_missing";
-/// v1 支持「指定模型」的 Agent id。
+/// 内置模板（新流程）节点填了非 OpenCode 的 Agent：
+/// 「按指定会话 ID 开新会话/续聊」目前只有 OpenCode 适配器实现，选其它 Agent 任务注定派活失败。
+pub const ORC_STEP_AGENT_UNSUPPORTED: &str = "orc_step_agent_unsupported";
+/// 当前唯一支持的 Agent id（v1 指定模型与集群节点会话能力都只有 OpenCode）。
 pub const MODEL_AGENT_OPENCODE: &str = "opencode";
 
 /// 单个节点的用户配置：两值均可空（空值 = 清除该节点覆盖）。
@@ -156,6 +159,8 @@ pub fn template_dtos(node_config: &NodeConfig) -> Vec<OrcTemplateDto> {
 /// 校验并构建某模板的节点配置（覆盖式全量提交，§3）：
 /// - 步骤数与 order 必须与模板一致（否则 `orc_template_steps_invalid`）；
 /// - agent 与 model 去空白后均为空 = 该节点无覆盖（清除）；
+/// - 内置三档模板（新流程）节点 Agent 只接受 opencode：其它 Agent 的会话能力未实现 → `orc_step_agent_unsupported`
+///   （旧预置工作流不受此限，保持兼容）；
 /// - model 非空必须是 `provider/model` 格式（否则 `orc_model_invalid`）；
 /// - model 非空时 agent 必须是 opencode（v1 仅 OpenCode 支持指定模型）→ `orc_model_agent_unsupported`。
 pub fn validate_template_steps(
@@ -192,6 +197,19 @@ pub fn validate_template_steps(
         let model = trimmed_nonempty(step.model.as_deref());
         if agent.is_none() && model.is_none() {
             continue;
+        }
+        let unsupported_agent = is_builtin_template(&workflow.id)
+            && agent
+                .as_deref()
+                .is_some_and(|agent| agent != MODEL_AGENT_OPENCODE);
+        if unsupported_agent {
+            return Err(CommandError::new(
+                ORC_STEP_AGENT_UNSUPPORTED,
+                format!(
+                    "集群模式暂只支持 OpenCode：请把第 {} 步的 Agent 改为 OpenCode",
+                    step.order
+                ),
+            ));
         }
         if let Some(model) = &model {
             if !is_provider_model(model) {
@@ -291,6 +309,12 @@ pub fn is_provider_model(value: &str) -> bool {
     value
         .split_once('/')
         .is_some_and(|(provider, id)| !provider.trim().is_empty() && !id.trim().is_empty())
+}
+
+/// 是否为「新流程」三档内置模板（`TEMPLATE_IDS`）。
+/// 旧预置工作流（`preset-*`）不在其中：节点 Agent 保持既有兼容行为，不受收紧规则影响。
+fn is_builtin_template(workflow_id: &str) -> bool {
+    TEMPLATE_IDS.contains(&workflow_id)
 }
 
 /// 去空白；空串按未设置（None）。
@@ -421,7 +445,8 @@ mod tests {
         assert!(error.contains("无法解析"), "{error}");
     }
 
-    /// 保存校验：步骤数/order 一致；模型格式；模型仅 OpenCode；空值 = 清除。
+    /// 保存校验：步骤数/order 一致；模型格式；模型仅 OpenCode；空值 = 清除；
+    /// 内置模板节点 Agent 只允许 OpenCode（旧预置工作流保持兼容）。
     #[test]
     fn validate_steps_enforces_rules() {
         let workflow = standard(); // 3 步
@@ -435,7 +460,7 @@ mod tests {
                 },
                 OrcTemplateStepConfigDto {
                     order: 2,
-                    agent: Some("codex".into()),
+                    agent: Some("opencode".into()),
                     model: None,
                 },
                 OrcTemplateStepConfigDto {
@@ -527,9 +552,12 @@ mod tests {
                 },
             ],
         )
-        .expect_err("非 OpenCode 指定模型必须报错");
-        assert_eq!(unsupported_agent.code(), ORC_MODEL_AGENT_UNSUPPORTED);
-        assert_eq!(unsupported_agent.message(), "该 Agent 暂不支持指定模型");
+        .expect_err("内置模板的非 OpenCode Agent 必须报错");
+        assert_eq!(unsupported_agent.code(), ORC_STEP_AGENT_UNSUPPORTED);
+        assert_eq!(
+            unsupported_agent.message(),
+            "集群模式暂只支持 OpenCode：请把第 1 步的 Agent 改为 OpenCode"
+        );
 
         let model_without_agent = validate_template_steps(
             &workflow,
@@ -553,6 +581,54 @@ mod tests {
         )
         .expect_err("模型非空时 Agent 也必须明确");
         assert_eq!(model_without_agent.code(), ORC_MODEL_AGENT_UNSUPPORTED);
+
+        // 三档内置模板统一收紧：任一节点填非 OpenCode 都明确报错并点名第几步。
+        for template_id in TEMPLATE_IDS {
+            let template = Workflow::builtin(template_id).expect("内置模板必须可解析");
+            let mut steps: Vec<OrcTemplateStepConfigDto> = template
+                .steps
+                .iter()
+                .map(|step| OrcTemplateStepConfigDto {
+                    order: step.order,
+                    agent: Some("opencode".into()),
+                    model: None,
+                })
+                .collect();
+            steps[0].agent = Some("commandcode".into());
+            let error = validate_template_steps(&template, &steps)
+                .expect_err("内置模板的非 OpenCode Agent 必须报错");
+            assert_eq!(error.code(), ORC_STEP_AGENT_UNSUPPORTED, "{template_id}");
+            assert_eq!(
+                error.message(),
+                "集群模式暂只支持 OpenCode：请把第 1 步的 Agent 改为 OpenCode",
+                "{template_id}"
+            );
+        }
+
+        // 旧预置工作流保持兼容：混合 Agent（codex/opencode/commandcode）照常通过。
+        let preset = Workflow::preset(false).expect("预置工作流必须有效");
+        let preset_entries = validate_template_steps(
+            &preset,
+            &[
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("codex".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 3,
+                    agent: Some("commandcode".into()),
+                    model: None,
+                },
+            ],
+        )
+        .expect("旧预置工作流的非 OpenCode 节点必须保持兼容");
+        assert_eq!(preset_entries.len(), 3);
     }
 
     /// 模型格式：第一个 `/` 前后非空即可；前后空白不算缺失。
@@ -615,7 +691,7 @@ mod tests {
         );
     }
 
-    /// 创建任务锁定：每个节点都必须已选 Agent；模型规则与设置页一致。
+    /// 创建任务锁定：每个节点都必须已选 Agent；内置模板节点只能选 OpenCode。
     #[test]
     fn task_steps_snapshot_requires_agent_every_step() {
         let workflow = standard(); // 3 步
@@ -629,8 +705,8 @@ mod tests {
             &workflow,
             &[
                 step(1, "opencode", Some("anthropic/claude-sonnet-4-5")),
-                step(2, "codex", None),
-                step(3, "commandcode", None),
+                step(2, "opencode", None),
+                step(3, "opencode", None),
             ],
         )
         .expect("全部节点已选 Agent 必须通过");
@@ -640,7 +716,7 @@ mod tests {
             snapshot[0].model.as_deref(),
             Some("anthropic/claude-sonnet-4-5")
         );
-        assert_eq!(snapshot[2].agent, "commandcode");
+        assert_eq!(snapshot[2].agent, "opencode");
 
         let missing = task_steps_snapshot(
             &workflow,
@@ -657,7 +733,7 @@ mod tests {
                 },
                 OrcTemplateStepConfigDto {
                     order: 3,
-                    agent: Some("commandcode".into()),
+                    agent: Some("opencode".into()),
                     model: None,
                 },
             ],
@@ -674,12 +750,31 @@ mod tests {
             &workflow,
             &[
                 step(1, "codex", Some("anthropic/claude-sonnet-4-5")),
-                step(2, "codex", None),
+                step(2, "opencode", None),
+                step(3, "opencode", None),
+            ],
+        )
+        .expect_err("内置模板非 OpenCode Agent 必须报错");
+        assert_eq!(unsupported.code(), ORC_STEP_AGENT_UNSUPPORTED);
+        assert_eq!(
+            unsupported.message(),
+            "集群模式暂只支持 OpenCode：请把第 1 步的 Agent 改为 OpenCode"
+        );
+
+        // 旧预置工作流不受影响：混合 Agent 快照照常锁定。
+        let preset = Workflow::preset(false).expect("预置工作流必须有效");
+        let preset_snapshot = task_steps_snapshot(
+            &preset,
+            &[
+                step(1, "codex", None),
+                step(2, "opencode", None),
                 step(3, "commandcode", None),
             ],
         )
-        .expect_err("非 OpenCode 指定模型必须报错");
-        assert_eq!(unsupported.code(), ORC_MODEL_AGENT_UNSUPPORTED);
+        .expect("旧预置工作流必须保持兼容");
+        assert_eq!(preset_snapshot.len(), 3);
+        assert_eq!(preset_snapshot[0].agent, "codex");
+        assert_eq!(preset_snapshot[2].agent, "commandcode");
     }
 
     /// 快照：从合并后工作流生成（agent 非空、model 可选），并可覆盖模板步骤。

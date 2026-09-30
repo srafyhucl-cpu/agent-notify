@@ -243,12 +243,12 @@ async fn create_with_task_steps_locks_snapshot() {
                 },
                 OrcTemplateStepConfigDto {
                     order: 2,
-                    agent: Some("codex".into()),
+                    agent: Some("opencode".into()),
                     model: None,
                 },
                 OrcTemplateStepConfigDto {
                     order: 3,
-                    agent: Some("commandcode".into()),
+                    agent: Some("opencode".into()),
                     model: None,
                 },
             ]),
@@ -260,6 +260,7 @@ async fn create_with_task_steps_locks_snapshot() {
         .await
         .expect("创建必须成功");
     assert!(!created.started, "新建任务必须是「待开始」");
+    assert_eq!(created.workflow.id, TEMPLATE_STANDARD);
     let agents: Vec<Option<String>> = created
         .workflow
         .steps
@@ -270,8 +271,8 @@ async fn create_with_task_steps_locks_snapshot() {
         agents,
         vec![
             Some("opencode".into()),
-            Some("codex".into()),
-            Some("commandcode".into())
+            Some("opencode".into()),
+            Some("opencode".into())
         ],
         "创建返回的节点必须是提交的任务级配置"
     );
@@ -280,8 +281,30 @@ async fn create_with_task_steps_locks_snapshot() {
         Some("anthropic/claude-sonnet-4-5")
     );
 
-    // 改设置页默认配置 → 已创建任务仍按自己的快照展示（不被覆盖）。
-    configure_all_steps(&handler, TEMPLATE_STANDARD, "other-agent").await;
+    // 改设置页默认配置（第 1 步换模型）→ 已创建任务仍按自己的快照展示（不被覆盖）。
+    handler
+        .save_orc_template_config(SaveOrcTemplateConfigPayload {
+            template_id: TEMPLATE_STANDARD.into(),
+            steps: vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: Some("opencode-go/space-bunny-free".into()),
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 3,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+            ],
+        })
+        .await
+        .expect("保存节点配置必须成功");
     let tasks = handler.list().await.expect("列出任务必须成功");
     let task = tasks
         .iter()
@@ -293,8 +316,13 @@ async fn create_with_task_steps_locks_snapshot() {
         "创建时锁定的节点配置不能被后续设置改动覆盖"
     );
     assert_eq!(
+        task.workflow.steps[0].model.as_deref(),
+        Some("anthropic/claude-sonnet-4-5"),
+        "创建时锁定的模型不能被后续设置改动覆盖"
+    );
+    assert_eq!(
         task.workflow.steps[2].agent_hint.as_deref(),
-        Some("commandcode")
+        Some("opencode")
     );
 
     // 快照齐全 → 开始执行预检通过。
@@ -330,7 +358,7 @@ async fn create_with_task_steps_requires_every_agent() {
                 },
                 OrcTemplateStepConfigDto {
                     order: 3,
-                    agent: Some("codex".into()),
+                    agent: Some("opencode".into()),
                     model: None,
                 },
             ]),
@@ -346,6 +374,51 @@ async fn create_with_task_steps_requires_every_agent() {
         error.message.contains("第 2 步"),
         "错误必须点名缺失步骤：{}",
         error.message
+    );
+    assert!(
+        handler.list().await.expect("列出任务必须成功").is_empty(),
+        "创建失败不得落库"
+    );
+}
+
+/// 新流程收紧：三档内置模板的节点只允许 OpenCode（其它 Agent 会话能力未实现，选后必失败）。
+#[tokio::test]
+async fn create_with_task_steps_rejects_non_opencode_agents() {
+    let (_root, store) = open_sqlite("agentnotify-orc-create-steps-agent-");
+    let handler = dynamic_handler(&store, _root.path());
+    let dir = working_dir(&_root);
+
+    let error = handler
+        .create(CreateOrcTaskPayload {
+            name: None,
+            steps: Some(vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: Some("codex".into()),
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 3,
+                    agent: Some("opencode".into()),
+                    model: None,
+                },
+            ]),
+            goal: "非 OpenCode 节点".into(),
+            template_id: TEMPLATE_STANDARD.into(),
+            working_dir: dir,
+            notify_mode: None,
+        })
+        .await
+        .expect_err("内置模板的非 OpenCode Agent 必须报错");
+    assert_eq!(error.code, "orc_step_agent_unsupported");
+    assert_eq!(
+        error.message,
+        "集群模式暂只支持 OpenCode：请把第 2 步的 Agent 改为 OpenCode"
     );
     assert!(
         handler.list().await.expect("列出任务必须成功").is_empty(),
@@ -674,7 +747,7 @@ async fn templates_and_node_config_round_trip() {
         Some("anthropic/claude-sonnet-4-5")
     );
 
-    // 校验：未知模板 / 步骤数不符 / order 不符 / 模型格式 / 非 OpenCode 指定模型。
+    // 校验：未知模板 / 步骤数不符 / order 不符 / 模型格式 / 内置模板非 OpenCode Agent / 模型与 Agent 支持。
     let err = handler
         .save_orc_template_config(SaveOrcTemplateConfigPayload {
             template_id: "template-nope".into(),
@@ -769,7 +842,37 @@ async fn templates_and_node_config_round_trip() {
             ],
         })
         .await
-        .expect_err("非 OpenCode 指定模型必须报错");
+        .expect_err("内置模板非 OpenCode Agent 必须报错");
+    assert_eq!(err.code, "orc_step_agent_unsupported");
+    assert_eq!(
+        err.message,
+        "集群模式暂只支持 OpenCode：请把第 1 步的 Agent 改为 OpenCode"
+    );
+
+    // 模型非空但 Agent 未明确：仍按「该 Agent 暂不支持指定模型」拒绝。
+    let err = handler
+        .save_orc_template_config(SaveOrcTemplateConfigPayload {
+            template_id: TEMPLATE_STANDARD.into(),
+            steps: vec![
+                OrcTemplateStepConfigDto {
+                    order: 1,
+                    agent: None,
+                    model: Some("anthropic/claude-sonnet-4-5".into()),
+                },
+                OrcTemplateStepConfigDto {
+                    order: 2,
+                    agent: None,
+                    model: None,
+                },
+                OrcTemplateStepConfigDto {
+                    order: 3,
+                    agent: None,
+                    model: None,
+                },
+            ],
+        })
+        .await
+        .expect_err("模型非空时 Agent 必须明确");
     assert_eq!(err.code, "orc_model_agent_unsupported");
     assert_eq!(err.message, "该 Agent 暂不支持指定模型");
 
@@ -939,6 +1042,7 @@ async fn orc_handler_injects_harness_templates() {
 }
 
 /// §12.4：任务结束前可改任一步的模型/思考强度（只改步骤快照，Agent/结构不动）。
+/// 用旧预置工作流（含 codex 步）覆盖「非 OpenCode 步不支持指定模型」的既有兼容行为。
 #[tokio::test]
 async fn update_task_step_edits_snapshot_model_and_variant() {
     let (_root, store) = open_sqlite("agentnotify-orc-update-step-");
@@ -966,7 +1070,7 @@ async fn update_task_step_edits_snapshot_model_and_variant() {
                 },
             ]),
             goal: "改模型与强度".into(),
-            template_id: TEMPLATE_STANDARD.into(),
+            template_id: PRESET_ID.into(),
             working_dir: dir,
             notify_mode: None,
         })

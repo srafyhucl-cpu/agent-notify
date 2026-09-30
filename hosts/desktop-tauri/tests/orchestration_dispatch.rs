@@ -402,7 +402,7 @@ async fn start_snapshots_config_and_ignores_later_changes() {
         &handler,
         &[
             (1, Some("opencode"), Some("anthropic/claude-sonnet-4-5")),
-            (2, Some("codex"), None),
+            (2, Some("opencode"), Some("opencode-go/space-bunny-free")),
         ],
     )
     .await;
@@ -465,10 +465,14 @@ async fn start_snapshots_config_and_ignores_later_changes() {
         "第 1 步必须用 start 时快照的模型"
     );
     assert_eq!(
-        calls[1].agent_id, "codex",
+        calls[1].agent_id, "opencode",
         "第 2 步必须用快照 Agent，而不是被清空的实时配置"
     );
-    assert_eq!(calls[1].options.model, None, "快照未配置模型 = 默认模型");
+    assert_eq!(
+        calls[1].options.model.as_deref(),
+        Some("opencode-go/space-bunny-free"),
+        "第 2 步必须用快照模型，而不是被清空的实时配置"
+    );
 
     let tasks = handler.list().await.expect("列出任务必须成功");
     let task = tasks.iter().find(|task| task.id == created.id).unwrap();
@@ -479,8 +483,8 @@ async fn start_snapshots_config_and_ignores_later_changes() {
     );
     assert_eq!(task.current_step, 2);
     assert_eq!(
-        task.workflow.steps[1].agent_hint.as_deref(),
-        Some("codex"),
+        task.workflow.steps[1].model.as_deref(),
+        Some("opencode-go/space-bunny-free"),
         "DTO 节点展示必须用快照"
     );
 }
@@ -493,7 +497,7 @@ async fn config_change_before_start_applies_to_snapshot() {
     let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
     save_quickfix_config(
         &handler,
-        &[(1, Some("codex"), None), (2, Some("codex"), None)],
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
     )
     .await;
 
@@ -542,7 +546,7 @@ async fn task_without_snapshot_uses_live_node_config() {
     let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
     save_quickfix_config(
         &handler,
-        &[(1, Some("opencode"), None), (2, Some("codex"), None)],
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
     )
     .await;
 
@@ -601,7 +605,7 @@ async fn task_without_snapshot_and_cleared_config_blocks_on_dispatch() {
     let handler = dynamic_dispatched_handler(&store, _root.path(), driver.clone());
     save_quickfix_config(
         &handler,
-        &[(1, Some("opencode"), None), (2, Some("codex"), None)],
+        &[(1, Some("opencode"), None), (2, Some("opencode"), None)],
     )
     .await;
 

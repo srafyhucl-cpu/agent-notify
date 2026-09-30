@@ -74,8 +74,19 @@ export const ORC_PROJECT_MANAGER_LABEL = "项目经理";
 /** 任务名称长度上限（字）：短名只用于集群列表与真实会话标题展示。 */
 export const TASK_NAME_MAX_CHARS = 8;
 
+/**
+ * 集群（编排）模式当前唯一支持的 Agent：
+ * 「按指定会话 ID 开新会话/续聊」目前只有 OpenCode 适配器实现，选其它 Agent 后任务注定派活失败。
+ * 创建弹窗与设置页的节点下拉只提供 OpenCode；后端 `validate_template_steps` 对三档内置模板同步兜底校验。
+ */
+export const ORC_SUPPORTED_AGENT = "opencode";
+
 /** v1 仅 OpenCode 支持指定模型（§3）；设置页与创建任务弹窗共用。 */
-export const ORC_MODEL_CAPABLE_AGENT = "opencode";
+export const ORC_MODEL_CAPABLE_AGENT = ORC_SUPPORTED_AGENT;
+
+/** 节点 Agent 仅支持 OpenCode 的界面说明（创建弹窗与设置页共用，与后端校验文案同一口径）。 */
+export const ORC_OPENCODE_ONLY_NOTE =
+  "集群模式暂只支持 OpenCode：其它 Agent 的会话能力开发中";
 
 /** 节点 Agent 显示（配置/预览）：未选择时明确提示「未配置」，不猜默认值。 */
 export function orcStepAgentLabel(agent: string | null | undefined): string {

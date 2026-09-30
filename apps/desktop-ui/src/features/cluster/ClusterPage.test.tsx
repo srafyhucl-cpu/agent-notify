@@ -13,10 +13,10 @@ import {
   opencodeProjectsFixture,
   orcTaskFixture,
   orcTemplatesFixture,
-  twoAgents,
   unconfiguredOrcTaskFixture,
 } from "../../test/fixtures";
 import { ClusterPage } from "./ClusterPage";
+import { ORC_OPENCODE_ONLY_NOTE } from "./labels";
 
 function renderWithQuery(bridge: MockHostBridge) {
   const queryClient = createQueryClient();
@@ -27,8 +27,14 @@ function renderWithQuery(bridge: MockHostBridge) {
   );
 }
 
+/** 集群页 Agent：OpenCode（节点下拉唯一可选）+ 非 OpenCode（任务详情展示断言用）。 */
+const clusterAgents = [
+  agentFixture("opencode", { displayName: "OpenCode" }),
+  agentFixture("alpha", { displayName: "Alpha Agent" }),
+];
+
 function fixturedBridge(tasks: OrcTaskDto[] = []) {
-  return createMockHostBridge({ agents: twoAgents, orcTasks: tasks });
+  return createMockHostBridge({ agents: clusterAgents, orcTasks: tasks });
 }
 
 const workingTask = orcTaskFixture("task-working", {
@@ -85,7 +91,7 @@ async function openCreateDialog(user: ReturnType<typeof userEvent.setup>) {
 
 /**
  * 弹窗创建公共前置：目标 + 模板 + 工作目录 + 每个节点选 Agent。
- * 模板节点默认不预填 Agent，必须逐个选择（未选齐不能提交）。
+ * 模板节点默认不预填 Agent，必须逐个选择（未选齐不能提交）；下拉只提供 OpenCode。
  */
 async function fillCreateDialog(
   user: ReturnType<typeof userEvent.setup>,
@@ -123,11 +129,11 @@ async function fillCreateDialog(
       options.directory ?? "D:/Project/agent-notify",
     );
   }
-  await within(dialog).findAllByRole("option", { name: /Alpha Agent/ });
+  await within(dialog).findAllByRole("option", { name: /OpenCode/ });
   for (let order = 1; order <= (options.orderCount ?? 3); order++) {
     await user.selectOptions(
       within(dialog).getByLabelText(`第 ${order} 步 Agent`),
-      options.agent ?? "alpha",
+      options.agent ?? "opencode",
     );
   }
   return dialog;
@@ -730,14 +736,14 @@ describe("ClusterPage 创建任务弹窗", () => {
       within(dialog).getByLabelText("工作目录"),
       "D:/Project/agent-notify",
     );
-    await within(dialog).findAllByRole("option", { name: /Alpha Agent/ });
+    await within(dialog).findAllByRole("option", { name: /OpenCode/ });
     await user.selectOptions(
       within(dialog).getByLabelText("第 1 步 Agent"),
-      "alpha",
+      "opencode",
     );
     await user.selectOptions(
       within(dialog).getByLabelText("第 2 步 Agent"),
-      "alpha",
+      "opencode",
     );
     expect(within(dialog).getByRole("button", { name: "仅创建" })).toBeDisabled();
 
@@ -765,9 +771,9 @@ describe("ClusterPage 创建任务弹窗", () => {
       templateId: "template-standard",
       workingDir: "D:/Project/agent-notify",
       steps: [
-        { order: 1, agent: "alpha", model: null },
-        { order: 2, agent: "alpha", model: null },
-        { order: 3, agent: "alpha", model: null },
+        { order: 1, agent: "opencode", model: null },
+        { order: 2, agent: "opencode", model: null },
+        { order: 3, agent: "opencode", model: null },
       ],
     });
     // 仅创建不派活；新任务展开为「待开始」
@@ -816,11 +822,11 @@ describe("ClusterPage 创建任务弹窗", () => {
     );
     const manual = await within(dialog).findByLabelText("工作目录（手动输入）");
     await user.type(manual, "D:/Project/manual-app");
-    await within(dialog).findAllByRole("option", { name: /Alpha Agent/ });
+    await within(dialog).findAllByRole("option", { name: /OpenCode/ });
     for (let order = 1; order <= 3; order++) {
       await user.selectOptions(
         within(dialog).getByLabelText(`第 ${order} 步 Agent`),
-        "alpha",
+        "opencode",
       );
     }
     await user.click(within(dialog).getByRole("button", { name: "仅创建" }));
@@ -855,7 +861,37 @@ describe("ClusterPage 创建任务弹窗", () => {
     });
   });
 
-  it("OpenCode 节点从下拉选模型（显示名 + provider/model），切到其他 Agent 时清空", async () => {
+  it("节点 Agent 下拉只有 OpenCode，并注明其它 Agent 的会话能力开发中", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      agents: [
+        agentFixture("opencode", { displayName: "OpenCode" }),
+        agentFixture("alpha", { displayName: "Alpha Agent" }),
+      ],
+    });
+    renderWithQuery(bridge);
+
+    const dialog = await openCreateDialog(user);
+    await user.selectOptions(
+      within(dialog).getByLabelText("工作流模板"),
+      "template-quickfix",
+    );
+    await within(dialog).findAllByRole("option", { name: /OpenCode/ });
+
+    const agentSelect = within(dialog).getByLabelText("第 1 步 Agent");
+    expect(
+      within(agentSelect)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["未选择", "OpenCode（opencode）"]);
+    // 已接入的其它 Agent 不再出现在下拉里
+    expect(
+      within(agentSelect).queryByRole("option", { name: /Alpha Agent/ }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).getByText(ORC_OPENCODE_ONLY_NOTE)).toBeVisible();
+  });
+
+  it("OpenCode 节点从下拉选模型（显示名 + provider/model）并随创建提交", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
       agents: [
@@ -894,12 +930,8 @@ describe("ClusterPage 创建任务弹窗", () => {
 
     await user.selectOptions(
       within(dialog).getByLabelText("第 2 步 Agent"),
-      "alpha",
+      "opencode",
     );
-    // 非 OpenCode 不支持指定模型：输入框禁用并清空已填内容
-    expect(within(dialog).getByLabelText("第 2 步 模型")).toBeDisabled();
-    expect(within(dialog).getByText("该 Agent 暂不支持指定模型")).toBeVisible();
-
     await user.click(within(dialog).getByRole("button", { name: "仅创建" }));
     await waitFor(() => {
       expect(bridge.calls("create_orc_task")).toHaveLength(1);
@@ -909,7 +941,7 @@ describe("ClusterPage 创建任务弹窗", () => {
       templateId: "template-quickfix",
       steps: [
         { order: 1, agent: "opencode", model: "opencode-go/space-bunny-free" },
-        { order: 2, agent: "alpha", model: null },
+        { order: 2, agent: "opencode", model: null },
       ],
     });
   });
@@ -1004,7 +1036,7 @@ describe("ClusterPage 创建任务弹窗", () => {
     });
   });
 
-  it("模板已有默认配置时预填节点，只需再填目标与目录", async () => {
+  it("旧配置的非 OpenCode 节点显示为未选择：改选 OpenCode 后才能创建", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
       agents: [
@@ -1030,9 +1062,22 @@ describe("ClusterPage 创建任务弹窗", () => {
     expect(within(dialog).getByLabelText("第 1 步 Agent")).toHaveValue(
       "opencode",
     );
+    // 模板里旧保存的 codex 不再出现在下拉：显示为未选择，未选齐不能提交
+    expect(within(dialog).getByLabelText("第 3 步 Agent")).toHaveValue("");
+    expect(
+      await within(dialog).findByText(
+        "第 3 步未选择 Agent：全部选好后才能创建。",
+      ),
+    ).toBeVisible();
+
     await user.selectOptions(
       within(dialog).getByLabelText("工作目录"),
       "D:/Project/agent-notify",
+    );
+    expect(submit).toBeDisabled();
+    await user.selectOptions(
+      within(dialog).getByLabelText("第 3 步 Agent"),
+      "opencode",
     );
     expect(submit).toBeEnabled();
 
@@ -1045,7 +1090,7 @@ describe("ClusterPage 创建任务弹窗", () => {
       steps: [
         { order: 1, agent: "opencode", model: null },
         { order: 2, agent: "opencode", model: "anthropic/claude-sonnet-4-5" },
-        { order: 3, agent: "codex", model: null },
+        { order: 3, agent: "opencode", model: null },
       ],
     });
   });
@@ -1129,7 +1174,7 @@ describe("ClusterPage 创建任务弹窗", () => {
   it("创建失败：弹窗内展示后端中文错误并保留已输入内容", async () => {
     const user = userEvent.setup();
     const bridge = createMockHostBridge({
-      agents: twoAgents,
+      agents: clusterAgents,
       errors: {
         create_orc_task: {
           code: "orc_working_dir_invalid",

@@ -15,7 +15,11 @@ import { toUserError } from "../../data/errors";
 import { useSaveOrcTemplateConfigMutation } from "../../data/mutations";
 import { useOpencodeModels } from "../../data/useOpencodeModels";
 import { useOrcTemplates } from "../../data/useOrcTemplates";
-import { ORC_MODEL_CAPABLE_AGENT } from "../cluster/labels";
+import {
+  ORC_MODEL_CAPABLE_AGENT,
+  ORC_OPENCODE_ONLY_NOTE,
+  ORC_SUPPORTED_AGENT,
+} from "../cluster/labels";
 import { OrcModelSelect } from "../cluster/OrcModelSelect";
 import { OrcNodeChain, type OrcNodeChainStep } from "../cluster/OrcNodeChain";
 
@@ -30,11 +34,15 @@ interface StepDraft {
 }
 
 function draftOf(template: OrcTemplateDto): StepDraft[] {
-  return template.steps.map((step) => ({
-    order: step.order,
-    agent: step.agent?.trim() ?? "",
-    model: step.model?.trim() ?? "",
-  }));
+  return template.steps.map((step) => {
+    const agent = step.agent?.trim() ?? "";
+    return {
+      order: step.order,
+      // 旧配置里的非 OpenCode Agent 已不受支持：按「未选择」处理，保存前必须改选 OpenCode。
+      agent: agent === ORC_SUPPORTED_AGENT ? agent : "",
+      model: step.model?.trim() ?? "",
+    };
+  });
 }
 
 function chainStepsOf(template: OrcTemplateDto): OrcNodeChainStep[] {
@@ -54,8 +62,8 @@ export interface OrcTemplateSettingsProps {
 
 /**
  * 设置页「工作流模板与节点配置」（§3）：三档模板选择 + 节点卡片编辑。
- * Agent 不预填（空选项显示「未选择」）；模型仅 OpenCode 可编辑，其他 Agent 置灰并注明
- * 「暂不支持指定模型」；保存走 save_orc_template_config，后端校验错误中文展示。
+ * Agent 不预填（空选项显示「未选择」），下拉只提供 OpenCode（集群模式当前唯一支持的 Agent）；
+ * 模型仅 OpenCode 可编辑；保存走 save_orc_template_config，后端校验错误中文展示。
  */
 export function OrcTemplateSettings({
   bridge,
@@ -73,6 +81,11 @@ export function OrcTemplateSettings({
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
   const templates = templatesQuery.data ?? null;
+  // 集群节点只允许 OpenCode（按指定会话 ID 开新会话/续聊只有 OpenCode 适配器实现）：
+  // 下拉只提供它，避免保存后新任务注定派活失败。
+  const selectableAgents = agents.filter(
+    (candidate) => candidate.id === ORC_SUPPORTED_AGENT,
+  );
 
   // 选中的模板：默认第一个；模板列表变化时回落到仍存在的项。
   useEffect(() => {
@@ -237,12 +250,14 @@ export function OrcTemplateSettings({
             </select>
           </label>
 
-          {agents.length === 0 ? (
+          {selectableAgents.length === 0 ? (
             <p className="orc-template-hint">
-              当前没有已接入 Agent：节点只能保持「未选择」，请先在「Agent
+              当前没有已接入的 OpenCode：节点只能保持「未选择」，请先在「Agent
               管理」页接入。
             </p>
           ) : null}
+
+          <p className="orc-template-hint">{ORC_OPENCODE_ONLY_NOTE}</p>
 
           {modelsError ? (
             <InlineError
@@ -292,7 +307,7 @@ export function OrcTemplateSettings({
                       }}
                     >
                       <option value="">未选择</option>
-                      {agents.map((candidate) => (
+                      {selectableAgents.map((candidate) => (
                         <option value={candidate.id} key={candidate.id}>
                           {candidate.displayName}（{candidate.id}）
                         </option>

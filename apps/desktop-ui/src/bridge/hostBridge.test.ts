@@ -154,6 +154,25 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
       code: "orc_working_dir_invalid",
       message: "工作目录不存在：not-a-directory",
     });
+
+    // 新流程收紧：内置模板节点只允许 OpenCode（错误码与文案与后端一致）。
+    await expect(
+      bridge.invoke("create_orc_task", {
+        goal: "非 OpenCode 节点",
+        name: "非 OpenCode",
+        templateId: "template-standard",
+        workingDir: "D:/Project/agent-notify",
+        notifyMode: null,
+        steps: [
+          { order: 1, agent: "codex", model: null },
+          { order: 2, agent: "opencode", model: null },
+          { order: 3, agent: "opencode", model: null },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "orc_step_agent_unsupported",
+      message: "集群模式暂只支持 OpenCode：请把第 1 步的 Agent 改为 OpenCode",
+    });
   });
 
   it("start 预检：节点缺 Agent 时明确报错且任务保持待开始", async () => {
@@ -268,7 +287,22 @@ describe("HostBridge 编排命令（P1 集群页）", () => {
       bridge.invoke("save_orc_template_config", {
         templateId: "template-standard",
         steps: [
-          { order: 1, agent: "codex", model: "anthropic/claude-sonnet-4-5" },
+          { order: 1, agent: "codex", model: null },
+          { order: 2, agent: null, model: null },
+          { order: 3, agent: null, model: null },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "orc_step_agent_unsupported",
+      message: "集群模式暂只支持 OpenCode：请把第 1 步的 Agent 改为 OpenCode",
+    });
+
+    // 模型非空但 Agent 未明确：仍按「该 Agent 暂不支持指定模型」拒绝。
+    await expect(
+      bridge.invoke("save_orc_template_config", {
+        templateId: "template-standard",
+        steps: [
+          { order: 1, agent: null, model: "anthropic/claude-sonnet-4-5" },
           { order: 2, agent: null, model: null },
           { order: 3, agent: null, model: null },
         ],

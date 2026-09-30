@@ -11,7 +11,13 @@ import { InlineError } from "../../components/InlineError";
 import { toUserError } from "../../data/errors";
 import { useAgents } from "../../data/useAgents";
 import { useOpencodeModels } from "../../data/useOpencodeModels";
-import { ORC_MODEL_CAPABLE_AGENT, ORC_NOTIFY_MODE_OPTIONS, TASK_NAME_MAX_CHARS } from "./labels";
+import {
+  ORC_MODEL_CAPABLE_AGENT,
+  ORC_NOTIFY_MODE_OPTIONS,
+  ORC_OPENCODE_ONLY_NOTE,
+  ORC_SUPPORTED_AGENT,
+  TASK_NAME_MAX_CHARS,
+} from "./labels";
 import { OrcModelSelect } from "./OrcModelSelect";
 import { OrcNodeChain, type OrcNodeChainStep } from "./OrcNodeChain";
 
@@ -90,7 +96,11 @@ export function CreateTaskDialog({
   onClose,
 }: CreateTaskDialogProps) {
   const agentsQuery = useAgents(bridge);
-  const agents = agentsQuery.data ?? [];
+  // 集群节点只允许 OpenCode（按指定会话 ID 开新会话/续聊只有 OpenCode 适配器实现）：
+  // 下拉只提供它，避免选到其它 Agent 后任务注定派活失败。
+  const selectableAgents = (agentsQuery.data ?? []).filter(
+    (candidate) => candidate.id === ORC_SUPPORTED_AGENT,
+  );
   const modelsQuery = useOpencodeModels(bridge);
   const modelsError = modelsQuery.error
     ? toUserError(modelsQuery.error).message
@@ -115,11 +125,15 @@ export function CreateTaskDialog({
       return;
     }
     setDrafts(
-      selectedTemplate.steps.map((step) => ({
-        order: step.order,
-        agent: step.agent?.trim() ?? "",
-        model: step.model?.trim() ?? "",
-      })),
+      selectedTemplate.steps.map((step) => {
+        const agent = step.agent?.trim() ?? "";
+        return {
+          order: step.order,
+          // 旧配置里的非 OpenCode Agent 已不受支持：按「未选择」处理，必须改选 OpenCode。
+          agent: agent === ORC_SUPPORTED_AGENT ? agent : "",
+          model: step.model?.trim() ?? "",
+        };
+      }),
     );
   }, [selectedTemplate]);
 
@@ -376,6 +390,7 @@ export function CreateTaskDialog({
               <p className="cluster-workflow-preview-title">
                 {selectedTemplate.name} · 工作流节点（第 1 步是项目经理，负责汇总汇报）
               </p>
+              <p className="cluster-create-dir-hint">{ORC_OPENCODE_ONLY_NOTE}</p>
               {modelsError ? (
                 <InlineError
                   title="无法读取 OpenCode 模型列表"
@@ -423,7 +438,7 @@ export function CreateTaskDialog({
                           }}
                         >
                           <option value="">未选择</option>
-                          {agents.map((candidate) => (
+                          {selectableAgents.map((candidate) => (
                             <option value={candidate.id} key={candidate.id}>
                               {candidate.displayName}（{candidate.id}）
                             </option>
@@ -457,9 +472,9 @@ export function CreateTaskDialog({
                 );
               }}
             />
-              {agents.length === 0 ? (
+              {selectableAgents.length === 0 ? (
                 <p className="cluster-create-dir-hint">
-                  当前没有已接入 Agent：请先在「Agent 管理」页接入后重试。
+                  当前没有已接入的 OpenCode：请先在「Agent 管理」页接入后重试。
                 </p>
               ) : null}
               {missingAgentOrders.length > 0 ? (

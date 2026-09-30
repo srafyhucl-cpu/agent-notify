@@ -364,7 +364,7 @@ export function orcTemplatesFixture(): OrcTemplateDto[] {
   ];
 }
 
-/** 已配置 Agent/模型的模板（创建预览展示用）。 */
+/** 已配置 Agent/模型的模板（创建预览展示用）；第 3 步是旧保存的非 OpenCode 配置，用于验证兼容处理。 */
 export function configuredTemplateFixture(): OrcTemplateDto {
   return {
     id: "template-standard",
