@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { OpencodeModelDto } from "../../bridge/types";
 import {
@@ -29,9 +29,18 @@ export interface OrcNodeModelEditing {
   models: OpencodeModelDto[] | null;
   /** 保存进行中：禁用行内下拉，避免并发写入。 */
   saving: boolean;
-  /** 保存某步模型/强度：空串 = 清除（回到 Agent 默认模型 / 模型默认强度）。 */
-  onSave: (order: number, model: string | null, variant: string | null) => void;
+  /** 保存某步模型/强度：空串 = 清除（回到 Agent 默认模型 / 模型默认强度）；可返回 Promise 供保存结束后回落。 */
+  onSave: (
+    order: number,
+    model: string | null,
+    variant: string | null,
+  ) => void | Promise<void>;
+  /** 用户打开模型/强度下拉时通知外层：列表懒加载由此触发（B4；缺省 = 不需要）。 */
+  onRequestModels?: () => void;
 }
+
+/** 内联模型/强度「选择即保存」的防抖窗口（B5）：连续切换只把最后一次落地。 */
+const INLINE_MODEL_SAVE_DEBOUNCE_MS = 250;
 
 export interface OrcNodeChainProps {
   /** 节点链的无障碍名（如「工作流节点」）。 */
@@ -52,7 +61,10 @@ export interface OrcNodeChainProps {
   className?: string;
 }
 
-/** 行内模型/强度编辑（§12.4）：选择即保存；保留草稿，保存期间下拉不回跳闪旧值。 */
+/**
+ * 行内模型/强度编辑（§12.4）：选择即保存；保留草稿，保存期间下拉不回跳闪旧值。
+ * 选择保存走 250ms 防抖（B5）：连续切换只发最后一次；保存中控件禁用（并发写入 + 下拉回跳）。
+ */
 function OrcNodeInlineModelFields({
   order,
   model,
@@ -68,6 +80,12 @@ function OrcNodeInlineModelFields({
   const savedVariant = variant?.trim() ?? "";
   const [draftModel, setDraftModel] = useState(savedModel);
   const [draftVariant, setDraftVariant] = useState(savedVariant);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<{ model: string; variant: string } | null>(
+    null,
+  );
+  // 最新任务快照：保存结束后按它回落（失败的改动不留在界面上假保存）。
+  const snapshotRef = useRef({ model: savedModel, variant: savedVariant });
 
   // 保存完成/失败后与任务快照对齐；保存中保留草稿。
   useEffect(() => {
@@ -76,6 +94,45 @@ function OrcNodeInlineModelFields({
       setDraftVariant(savedVariant);
     }
   }, [editing.saving, savedModel, savedVariant]);
+
+  // 快照变化后更新回落基准，避免闭包读到旧值。
+  useEffect(() => {
+    snapshotRef.current = { model: savedModel, variant: savedVariant };
+  }, [savedModel, savedVariant]);
+
+  // 步骤切换/组件卸载时清掉未发出的保存，避免泄漏 timer 或把值写到错误的步骤。
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current !== null) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, [order]);
+
+  /** 防抖保存：重排 timer，只把最后一次的选择发给后端；保存结束（成功/失败）后按快照回落。 */
+  const scheduleSave = (nextModel: string, nextVariant: string) => {
+    pendingSaveRef.current = { model: nextModel, variant: nextVariant };
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      const pending = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      if (!pending) {
+        return;
+      }
+      const result = editing.onSave(order, pending.model, pending.variant);
+      // 失败由外层报错；这里只负责把草稿回落为任务快照（不静默假保存）。
+      void Promise.resolve(result)
+        .catch(() => undefined)
+        .finally(() => {
+          setDraftModel(snapshotRef.current.model);
+          setDraftVariant(snapshotRef.current.variant);
+        });
+    }, INLINE_MODEL_SAVE_DEBOUNCE_MS);
+  };
 
   const models = editing.models ?? [];
   const modelKnown = models.some(
@@ -101,12 +158,13 @@ function OrcNodeInlineModelFields({
             title={draftModel || "不指定（Agent 默认）"}
             value={draftModel}
             disabled={editing.saving}
+            onFocus={() => editing.onRequestModels?.()}
             onChange={(event) => {
               const next = event.currentTarget.value;
               setDraftModel(next);
               // 换模型（含清空）时强度回到默认：旧强度不一定属于新模型。
               setDraftVariant("");
-              editing.onSave(order, next, "");
+              scheduleSave(next, "");
             }}
           >
             <option value="">不指定（Agent 默认）</option>
@@ -133,10 +191,11 @@ function OrcNodeInlineModelFields({
             title={draftVariant || "default"}
             value={draftVariant}
             disabled={editing.saving || draftModel === ""}
+            onFocus={() => editing.onRequestModels?.()}
             onChange={(event) => {
               const next = event.currentTarget.value;
               setDraftVariant(next);
-              editing.onSave(order, draftModel, next);
+              scheduleSave(draftModel, next);
             }}
           >
             <option value="">default</option>

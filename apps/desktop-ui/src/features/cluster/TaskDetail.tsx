@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type { HostBridge } from "../../bridge";
 import type { OrcMessageKindDto, OrcTaskDto } from "../../bridge/types";
 import { InlineError } from "../../components/InlineError";
@@ -29,12 +31,12 @@ export interface TaskDetailProps {
   onRecover: () => void;
   /** 继续迭代（本轮结束后开始新一轮）：打开继续迭代弹窗。 */
   onContinue: () => void;
-  /** 修改某一步的模型/思考强度（§12.4）：任务未结束时在节点卡第二行内联编辑。 */
+  /** 修改某一步的模型/思考强度（§12.4）：任务未结束时在节点卡第二行内联编辑；返回保存 Promise 供结束后回落。 */
   onSaveStepModel: (
     order: number,
     model: string | null,
     variant: string | null,
-  ) => void;
+  ) => Promise<void>;
 }
 
 /**
@@ -64,8 +66,10 @@ export function TaskDetail({
   const nodeStates = orcNodeStatesOfTask(task);
   const createdAt = formatOrcCreatedAt(task.createdAt, "full");
   const stepActions = orcStepActions(task);
-  // §12.4 行内编辑数据源：任务未结束且存在 OpenCode 节点时才需要模型列表。
-  const modelsQuery = useOpencodeModels(bridge);
+  // §12.4 行内编辑数据源：任务未结束且存在 OpenCode 节点时才可能需要模型列表；
+  // 懒加载（B4）：详情展开不请求，用户打开模型下拉才请求一次，OpenCode 未运行时不堆错误。
+  const [modelsRequested, setModelsRequested] = useState(false);
+  const modelsQuery = useOpencodeModels(bridge, { enabled: modelsRequested });
   const modelsError = modelsQuery.error
     ? toUserError(modelsQuery.error).message
     : null;
@@ -78,6 +82,7 @@ export function TaskDetail({
           models: modelsQuery.data ?? null,
           saving: busy,
           onSave: onSaveStepModel,
+          onRequestModels: () => setModelsRequested(true),
         }
       : undefined;
 

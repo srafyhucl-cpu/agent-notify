@@ -1414,6 +1414,8 @@ describe("ClusterPage 节点模型与思考强度编辑（§12.4）", () => {
       within(modelSelect).getByRole("option", { name: "不指定（Agent 默认）" }),
     ).toBeInTheDocument();
     expect(modelSelect).toHaveValue("opencode-go/deepseek-v4.1-flash");
+    // 懒加载（B4）：打开下拉才请求模型列表，选项随后填充。
+    await user.click(modelSelect);
     await within(modelSelect).findByRole("option", { name: "Space Bunny Free" });
     // v1 仅 OpenCode 节点提供下拉（第 1 步 codex 保持只读）。
     expect(
@@ -1455,6 +1457,66 @@ describe("ClusterPage 节点模型与思考强度编辑（§12.4）", () => {
     expect(within(detail).queryByText("关闭")).not.toBeInTheDocument();
   });
 
+  it("模型列表懒加载（B4）：详情展开不请求，打开模型下拉才请求一次", async () => {
+    const user = userEvent.setup();
+    const bridge = fixturedBridge([stepEditTask()]);
+    renderWithQuery(bridge);
+
+    const detail = await expandTask(user, "换模型");
+    const modelSelect = within(detail).getByLabelText("第 2 步 模型");
+    // 未用到模型列表：详情展开后不发请求，也不在详情里堆错误。
+    expect(bridge.calls("list_opencode_models")).toHaveLength(0);
+    expect(within(detail).queryByRole("alert")).not.toBeInTheDocument();
+
+    // 打开下拉 = 真正需要模型列表：请求一次并正常填充选项。
+    await user.click(modelSelect);
+    await within(modelSelect).findByRole("option", { name: "Space Bunny Free" });
+    expect(bridge.calls("list_opencode_models")).toHaveLength(1);
+    expect(within(detail).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("模型读取失败（B4）：未打开下拉不报错，打开后在下拉处提示并可重新读取", async () => {
+    const user = userEvent.setup();
+    const bridge = createMockHostBridge({
+      agents: clusterAgents,
+      orcTasks: [stepEditTask()],
+      errors: {
+        list_opencode_models: {
+          code: "opencode_models_unavailable",
+          message:
+            "读取 OpenCode 模型列表失败：连接 OpenCode 服务失败（请确认 OpenCode 桌面端已打开）",
+          retryable: true,
+        },
+      },
+    });
+    renderWithQuery(bridge);
+
+    const detail = await expandTask(user, "换模型");
+    // 未用到模型列表：详情里不堆错误。
+    expect(bridge.calls("list_opencode_models")).toHaveLength(0);
+    expect(
+      within(detail).queryByText("无法读取 OpenCode 模型列表"),
+    ).not.toBeInTheDocument();
+
+    const modelSelect = within(detail).getByLabelText("第 2 步 模型");
+    await user.click(modelSelect);
+    // 失败只在下拉处就地提示（用到时才出现）。
+    const alert = await within(detail).findByRole("alert");
+    expect(alert).toHaveTextContent("无法读取 OpenCode 模型列表");
+    expect(alert).toHaveTextContent(/请确认 OpenCode 桌面端已打开/);
+    // 拿不到列表也保留当前已保存值，且可清空为「不指定」。
+    const reselected = within(detail).getByLabelText("第 2 步 模型");
+    expect(reselected).toHaveValue("opencode-go/deepseek-v4.1-flash");
+    expect(
+      within(reselected).getByRole("option", { name: "不指定（Agent 默认）" }),
+    ).toBeInTheDocument();
+
+    await user.click(within(alert).getByRole("button", { name: "重新读取" }));
+    await waitFor(() => {
+      expect(bridge.calls("list_opencode_models")).toHaveLength(2);
+    });
+  });
+
   it("已完成任务只读：无内联下拉、无操作按钮，模型与强度仍展示", async () => {
     const user = userEvent.setup();
     const bridge = fixturedBridge([completedTask]);
@@ -1494,6 +1556,8 @@ describe("ClusterPage 节点模型与思考强度编辑（§12.4）", () => {
 
     const detail = await expandTask(user, "换模型");
     const modelSelect = await within(detail).findByLabelText("第 2 步 模型");
+    // 懒加载（B4）：打开下拉才请求模型列表。
+    await user.click(modelSelect);
     await within(modelSelect).findByRole("option", { name: "Space Bunny Free" });
     await user.selectOptions(modelSelect, "opencode-go/space-bunny-free");
 

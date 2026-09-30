@@ -352,7 +352,7 @@ export function ClusterPage({ bridge }: ClusterPageProps) {
                     setContinueTask(task);
                   }}
                   onSaveStepModel={(order, model, variant) =>
-                    void handleSaveStepModel(task.id, order, model, variant)
+                    handleSaveStepModel(task.id, order, model, variant)
                   }
                 />
               )}
