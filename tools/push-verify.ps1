@@ -236,6 +236,10 @@ function Invoke-CommandCodeMod {
 // 由 tools\push-verify.ps1 生成：加载已安装的 Command Code mod，模拟一次 run_end 提交。
 const mod = await import('$modUri');
 const t = mod.__test;
+if (!t) {
+  console.error('已安装的 Command Code mod 缺少 __test 导出：可能被旧版覆盖，请重跑 tools\\hooks\\install-commandcode-v2.ps1');
+  process.exit(2);
+}
 await t.loadFs();
 const state = t.createInstanceState();
 state.sessionId = '$($script:TitlePrefix)-commandcode';
