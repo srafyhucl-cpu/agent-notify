@@ -148,7 +148,7 @@ impl ReplyRejection {
     pub fn notice(&self) -> Option<String> {
         let text = match self {
             Self::NoExactRoute => {
-                "无法续聊：无可用会话记录，这条通知可能已超过有效期或未建立引用关联。".to_owned()
+                "无法续聊：这条消息没有可关联的会话（可能已过期，或不是可回复的通知）。请引用较新的任务通知再试，或在 AgentNotify 里直接继续该任务。".to_owned()
             }
             Self::AmbiguousRoute => {
                 "无法续聊：引用消息匹配到多个会话，已停止转发以避免误发。".to_owned()

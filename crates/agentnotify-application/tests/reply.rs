@@ -438,7 +438,7 @@ async fn missing_route_sends_visible_notice_without_new_route() {
     assert_eq!(messages[0].conversation_id, "user-1");
     assert_eq!(messages[0].reply_to.as_ref().unwrap().as_str(), "reply-1");
     assert!(
-        messages[0].text.contains("无可用会话记录"),
+        messages[0].text.contains("没有可关联的会话"),
         "{}",
         messages[0].text
     );
