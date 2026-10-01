@@ -8,7 +8,7 @@
 - **根因（高置信）**：08:33:24 `.codex/config.toml` 的 `notify` 链被 `codex-computer-use.exe` 重包裹为「CUA 外层 → `--previous-notify` → `agentnotify-codex-hook`」；而经过验证的形态是「**Hook 直连外层**，CUA 作为 `--previous-notify` 载荷由 Hook 透传」（见 `tools\hooks\install-codex-v2.ps1` 与 `03-upgrade-test-report.md`）。外层 CUA 的转发不可靠：08:45/08:52/08:54 只转了 3 条即停。
 - **修复（发布后）**：重跑 `tools\hooks\install-codex-v2.ps1` 恢复 Hook 直连；增强「检测到 CUA 外层包裹即纠正/提示」；`docs\TROUBLESHOOTING.md` 补一条。
 - **验收**：重启 Codex 跑一轮，`notifications` 表新增 codex 行。
-- **修复进度（2026-10-01）**：**已修复（PR #83 `fix/codex-notify-promote`）** —— `tools\hooks\install-codex-v2.ps1` 识别「AgentNotify 被外层包装器塞进 `--previous-notify`」形态并提升为 Hook 直连（丢弃外层包装器），其它形态保持原逻辑+警告；新增 `uninstall-v2-cleanup.tests.ps1` 场景 6 回归；`docs\TROUBLESHOOTING.md` 补第 3 条。**本机 `.codex\config.toml` 的 notify 已恢复 Hook 直连（备份 `.bak-notify-wrapper`），待用户重启 Codex 生效验证。**
+- **修复进度（2026-10-01）**：**已修复（PR #83 `fix/codex-notify-promote`）** —— `tools\hooks\install-codex-v2.ps1` 识别「AgentNotify 被外层包装器塞进 `--previous-notify`」形态并提升为 Hook 直连（丢弃外层包装器），其它形态保持原逻辑+警告；新增 `uninstall-v2-cleanup.tests.ps1` 场景 6 回归；`docs\TROUBLESHOOTING.md` 补第 3 条。**本机 `.codex\config.toml` 的 notify 已恢复 Hook 直连（备份 `.bak-notify-wrapper`）。✅ 本机已验证通过（2026-10-01 11:21 真实回合：标题「只回复：OK」/正文「OK」，投递 `Sent`，用户确认收到）**——Codex→Hook→应用→微信全链路恢复。
 
 ## B2 失败推送文案去重（低风险文案）
 - 前缀「第 N 步失败：」与 `blockReason` 开头「第 N 步执行失败：」语义重复；`blockReason` 句尾「。」与模板后缀相连出现「。。」。统一为一处原因即可（详见 `06-m2-realmachine.md` §推送与 `07` §5-4）。
