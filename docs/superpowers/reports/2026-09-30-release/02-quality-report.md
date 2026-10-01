@@ -549,7 +549,7 @@ warning: 9 allowed warnings found      # paste / proc-macro-error / unic-* / gli
 
 修复后本机门禁：`cargo fmt --all --check` 0 diff、`cargo clippy --workspace --all-targets -- -D warnings` 0 警告、`tsc --noEmit` 0 错误、`vitest run` 140/140 全过（2026-09-30）。
 
-### 处置二：本分支新增结构性超阈值 —— 显式豁免（**待用户确认**）
+### 处置二：本分支新增结构性超阈值 —— 显式豁免（**用户已确认，2026-10-01**）
 §4.6 要求「本分支新增超标（文件>800 / 函数>80 / 单 impl 公有方法>20）或裸魔法数字 → 先修再进 §5」。其中**裸魔法数字已在处置一清零**；结构性阈值按下列理由**显式豁免**并在发布后按批次治理，理由与证据如下：
 
 - **判据**：这些是「体量构成」类发现（含测试/mock/CSS），并非功能缺陷。其中 4 处 >80 函数中 2 处（`update_task_step`/`report_from_agent_locked`）是 M1 必修 B1/B2 落地时自然增长；`run_once` 来自本分支看门狗特性。
@@ -563,5 +563,5 @@ warning: 9 allowed warnings found      # paste / proc-macro-error / unic-* / gli
 ### 结论（合成后）
 - **存量不阻塞发版**：整库 TODO/FIXME 为零、密钥扫描零真实命中、`govulncheck`/`npm audit` 无漏洞、旧数据兼容有测试覆盖、无新增 `unsafe`；`cargo audit` 的 `quick-xml` 两 high 为存量（`main` 同版本），登记不阻塞。
 - **新增逻辑裸魔法数字已清零**（处置一）。
-- **新增结构性超阈值已按 §4.6 显式豁免、待用户确认**（处置二）；除此之外新增未见功能缺陷或安全违规。
+- **新增结构性超阈值已按 §4.6 显式豁免（用户已确认 2026-10-01）**（处置二）；除此之外新增未见功能缺陷或安全违规。
 - **未完成/跳过**：覆盖率基线（`cargo llvm-cov`、`@vitest/coverage-v8` 工具均不可用，按计划记录跳过）；`tsc/vitest/playwright` 由 §3.3 基准门禁（本机已全绿）负责。
