@@ -305,10 +305,13 @@ Command Code 的 mod 只能把回复投递到**正在运行的 run**里，所以
 
    原本的 `codex-computer-use.exe` 或第三方 notify 会被保留在链上（`--previous-notify`），
    安装/接入脚本不会直接删掉它们。
-3. 查看 `%TEMP%\agent-notify\codex-notify-debug.log`：Hook 失败只写这个文件（含上游透传失败原因与
+3. 若 `notify` 链里 Hook 不在最外层（例如 Codex 电脑操控插件更新后把 `codex-computer-use.exe`
+   包在最外层、Hook 被塞进它的 `--previous-notify`），主动通知会中断且没有明显报错；重跑接入脚本
+   （见「双击安装器后 Agent 仍未接入」第 2 节的命令）会把 Hook 提升回直连，重启 Codex 后生效。
+4. 查看 `%TEMP%\agent-notify\codex-notify-debug.log`：Hook 失败只写这个文件（含上游透传失败原因与
    ingress 退出码），Codex 本身照常收到 `{}` 继续语义。
-4. `notify` 是多行 TOML 数组时接入脚本会拒绝改写并报错，先把 notify 合并为单行后重试。
-5. 如果 Codex 原本使用自定义 notify 程序，安装器不会覆盖；需要手动把自定义程序与 AgentNotify 串接。
+5. `notify` 是多行 TOML 数组时接入脚本会拒绝改写并报错，先把 notify 合并为单行后重试。
+6. 如果 Codex 原本使用自定义 notify 程序，安装器不会覆盖；需要手动把自定义程序与 AgentNotify 串接。
 
 ## Antigravity 任务结束不推送
 
