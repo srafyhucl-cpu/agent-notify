@@ -23,6 +23,7 @@
 
 ## 3. 下载/安装/校验 全链路（说明）
 - **未能真机端到端**：需「低版本 → 更新到 2.1.0」，但本机库含迁移 3（见 §4），官方 2.0.10 无法打开该库，无法作为更新源起点；且 2.1.0 已是通道最新（`下载并安装` 禁用）。
+- **补充（2026-10-01）：真机端到端已完成**——以官方 2.0.9 为起点（含前向迁移限制的规避方案）实跑「检查更新 → 下载并安装 → 自动重启为 2.1.0」全链路成功，见 `10-upgrade-e2e-209-to-210.md`。
 - **已由测试覆盖**：`hosts/desktop-tauri/tests/update_download.rs`、`update_install.rs`、`update_verify.rs`、`update_manifest.rs`、`update_release.rs`（gate 全绿）覆盖下载、校验和、签名/清单正负例、非 PE、版本不符、安装与回滚安装；`production_contract.rs` 覆盖 `get_update_status`/`install_update` 的 UpToDate 语义。
 - **Beta/Stable 通道**：Stable 内置指纹校验（未签名/未知签名者拒绝）；Beta 仅两控制文件同时缺失时兼容旧开发包——由 `update_verify`/销售通道用例覆盖。
 
