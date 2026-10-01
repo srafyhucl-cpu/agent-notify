@@ -193,7 +193,7 @@ SQLite 中的历史记录，只有删除 `%LOCALAPPDATA%\AgentNotify` 才会清�
 1. 只能引用 AgentNotify 自己推送的通知，并且必须是当前绑定微信用户的私聊消息；群聊、其他发送者或
    普通文本会被忽略并记入诊断，不会报错打扰对方。
 2. 目标只按引用消息携带的原始平台消息 ID 在本机路由里精确匹配；没有对应路由、ID 冲突或路由过期都会
-   回微信可读原因（例如「无法续聊：无可用会话记录，这条通知可能已超过有效期或未建立引用关联。」），
+   回微信可读原因（例如「无法续聊：这条消息没有可关联的会话（可能已过期，或不是可回复的通知）。请引用较新的任务通知再试，或在 AgentNotify 里直接继续该任务。」），
    不会按标题、正文或「最近会话」猜测目标。
 3. 只有通知携带稳定会话 ID 时才会建立路由：Codex 用 `thread-id`（兼容 `thread_id`），OpenCode 用
    `sessionID`，Antigravity 用 `conversationId`，Devin 用 `session_id`，Command Code 用 `sessionId`。
