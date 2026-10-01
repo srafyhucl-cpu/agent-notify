@@ -252,6 +252,25 @@ try {
   Assert-True ($devinDry -eq '{}') "devin hook 必须静默返回空 JSON：$devinDry"
   Write-Output '[ok] antigravity/devin stop hooks'
 
+  # 真实接入文件哨兵：沙箱用例只许写沙箱；真实用户路径被写、被删都要立刻失败。
+  $realAccessPaths = @(
+    (Join-Path $env:USERPROFILE '.commandcode\mods\agent-notify.ts'),
+    (Join-Path $env:USERPROFILE '.config\opencode\plugins\agent-notify.ts'),
+    (Join-Path $env:USERPROFILE '.devin\extensions\agent-notify\package.json'),
+    (Join-Path $env:USERPROFILE '.devin\extensions\agent-notify-reply-v2\package.json'),
+    (Join-Path $env:USERPROFILE '.codex\config.toml'),
+    (Join-Path $env:USERPROFILE '.gemini\config\hooks.json'),
+    (Join-Path $env:APPDATA 'devin\config.json'),
+    (Join-Path $env:USERPROFILE 'bin\agent-notify.exe'),
+    (Join-Path $env:USERPROFILE 'bin\agent-notify-install.json')
+  )
+  $realAccessBefore = @{}
+  foreach ($realAccessPath in $realAccessPaths) {
+    if (Test-Path -LiteralPath $realAccessPath -PathType Leaf) {
+      $realAccessBefore[$realAccessPath] = (Get-FileHash -LiteralPath $realAccessPath -Algorithm SHA256).Hash
+    }
+  }
+
   # 7. 沙箱安装/卸载：只应落盘 exe + 插件 + 安装记录
   $repoBin = Join-Path $RepoRoot 'bin'
   New-Item -ItemType Directory -Force -Path $repoBin | Out-Null
@@ -430,6 +449,7 @@ Write-Output '[ok] install upgrade fixtures'
     -PluginDir $configureOnlyPlugins `
     -DevinExtensionDir $configureOnlyDevinExtension `
     -CodexConfig $legacyCodexConfig `
+    -CommandCodeModDir (Join-Path $smokeRoot 'configure-only-commandcode-mods') `
     -SkipAntigravityConfig `
     -SkipDevinConfig `
     -SkipShortcuts `
@@ -554,6 +574,22 @@ model = "gpt-5"
   Assert-True ($stripped -match '(?m)^model = "gpt-5"\s*$') "无备份卸载破坏了其它配置：$stripped"
   Write-Output '[ok] uninstall strips codex chain without backup'
   Write-Output '[ok] uninstall sandbox clean'
+
+  # 哨兵复核：真实接入文件必须与快照逐字节一致；消失或凭空出现都算失败。
+  foreach ($realAccessPath in $realAccessPaths) {
+    $existsNow = Test-Path -LiteralPath $realAccessPath -PathType Leaf
+    if ($realAccessBefore.ContainsKey($realAccessPath)) {
+      Assert-True $existsNow "冒烟用例改动了真实接入文件（文件消失）：$realAccessPath"
+      if ($existsNow) {
+        $hashNow = (Get-FileHash -LiteralPath $realAccessPath -Algorithm SHA256).Hash
+        Assert-True ($hashNow -eq $realAccessBefore[$realAccessPath]) "冒烟用例改动了真实接入文件：$realAccessPath"
+      }
+    } else {
+      Assert-True (-not $existsNow) "冒烟用例创建了真实接入文件：$realAccessPath"
+    }
+  }
+  Write-Output '[ok] real access files untouched'
+
   $smokePassed = $true
 } finally {
   $env:AGENT_NOTIFY_CONFIG_DIR = $null
