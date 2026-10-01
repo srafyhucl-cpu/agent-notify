@@ -482,7 +482,7 @@ Write-Output '[ok] install upgrade fixtures'
 
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
     -InstallDir $sandboxInstall -PluginDir $sandboxPlugins -AntigravityHooks $antigravityHooks -DevinConfig $devinConfig `
-    -DevinExtensionDir $sandboxDevinExtension -DevinExtensionV2Dir (Join-Path $smokeRoot 'devin-extension-v2') -CodexConfig $sandboxCodexConfig `
+    -DevinExtensionDir $sandboxDevinExtension -DevinExtensionV2Dir (Join-Path $smokeRoot 'devin-extension-v2') -CodexConfig $sandboxCodexConfig -CommandCodeModDir $sandboxCommandCodeMods `
     -SkipShortcuts -SkipProcessStop | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "沙箱卸载 exit=$LASTEXITCODE"
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'agent-notify.exe'))) '沙箱卸载残留 exe'
@@ -491,6 +491,7 @@ Write-Output '[ok] install upgrade fixtures'
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'plugin\agent-notify.ts'))) '沙箱卸载残留安装目录内的插件副本'
   Assert-True (-not (Test-Path (Join-Path $sandboxInstall 'tools\hook-config.ps1'))) '沙箱卸载残留 hook-config.ps1'
   Assert-True (-not (Test-Path (Join-Path $sandboxPlugins 'agent-notify.ts'))) '沙箱卸载残留插件'
+  Assert-True (-not (Test-Path (Join-Path $sandboxCommandCodeMods 'agent-notify.ts'))) '沙箱卸载残留 Command Code mod'
   Assert-True (-not (Test-Path (Join-Path $sandboxDevinExtension 'package.json'))) '沙箱卸载残留 Devin 扩展 package.json'
   Assert-True (-not (Test-Path (Join-Path $sandboxDevinExtension 'extension.js'))) '沙箱卸载残留 Devin 扩展入口'
   Assert-True (-not (Test-Path (Join-Path $sandboxDevinExtension 'acp-bridge.js'))) '沙箱卸载残留 Devin ACP 通道模块'
@@ -529,7 +530,7 @@ model = "gpt-5"
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
     -InstallDir (Join-Path $smokeRoot 'restore-bin') -PluginDir (Join-Path $smokeRoot 'restore-plugins') `
     -DevinExtensionDir (Join-Path $smokeRoot 'restore-devin-extension-v1') -DevinExtensionV2Dir (Join-Path $smokeRoot 'restore-devin-extension-v2') `
-    -CodexConfig $codexRestore -SkipShortcuts -SkipAntigravityConfig -SkipDevinConfig -SkipDevinExtension -SkipProcessStop | Out-Null
+    -CodexConfig $codexRestore -CommandCodeModDir (Join-Path $smokeRoot 'restore-commandcode-mods') -SkipShortcuts -SkipAntigravityConfig -SkipDevinConfig -SkipDevinExtension -SkipProcessStop | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "备份还原用例卸载 exit=$LASTEXITCODE"
   $restored = [IO.File]::ReadAllText($codexRestore)
   Assert-True ($restored -match '(?m)^model = "gpt-5"\s*$') "卸载备份还原覆盖了用户安装后的其它修改：$restored"
@@ -544,7 +545,7 @@ model = "gpt-5"
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'uninstall.ps1') `
     -InstallDir (Join-Path $smokeRoot 'strip-bin') -PluginDir (Join-Path $smokeRoot 'strip-plugins') `
     -DevinExtensionDir (Join-Path $smokeRoot 'strip-devin-extension-v1') -DevinExtensionV2Dir (Join-Path $smokeRoot 'strip-devin-extension-v2') `
-    -CodexConfig $codexStrip -SkipShortcuts -SkipAntigravityConfig -SkipDevinConfig -SkipDevinExtension -SkipProcessStop | Out-Null
+    -CodexConfig $codexStrip -CommandCodeModDir (Join-Path $smokeRoot 'strip-commandcode-mods') -SkipShortcuts -SkipAntigravityConfig -SkipDevinConfig -SkipDevinExtension -SkipProcessStop | Out-Null
   Assert-True ($LASTEXITCODE -eq 0) "无备份卸载 exit=$LASTEXITCODE"
   $stripped = [IO.File]::ReadAllText($codexStrip)
   Assert-True ($stripped -match [regex]::Escape('notify = [ "C:/tools/codex-computer-use.exe", "turn-ended" ]')) "无备份时未正确摘除 Agent-notify：$stripped"
