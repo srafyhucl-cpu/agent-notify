@@ -11,8 +11,10 @@
 
   保护规则：
   - 只修改 notify 行；修改前备份到 config.toml.bak-notify-wrapper。
-  - 链上已有 AgentNotify（旧 agent-notify.exe 或新 Hook）时只替换链内路径，
+  - 链上已有 AgentNotify（旧 agent-notify.exe 或新 Hook）且在最外层时只替换链内路径，
     保留 codex-computer-use.exe 包装与用户自定义的 --previous-notify 载荷。
+  - AgentNotify 被外层包装器塞进 --previous-notify 载荷（如电脑操控插件更新后）时，
+    把外层包装器替换为 Hook，提升回直连。
   - notify 指向 codex-computer-use.exe 时改写为 Hook 直连，并保留原有 --previous-notify 载荷。
   - notify 是多行 TOML 数组时拒绝改写并报错，保证 config.toml 不被损坏。
   - notify 是其他自定义程序时保持原样。
@@ -202,6 +204,32 @@ function New-DirectNotifyLine {
   return 'notify = [ ' + ($items -join ', ') + ' ]'
 }
 
+# AgentNotify 被外层包装器塞进 --previous-notify 载荷时（例如 Codex 电脑操控插件更新后
+# 把自身包在最外层）：若该载荷整体就是 AgentNotify 的三元调用（[hook, "codex", "turn-ended"]），
+# 返回「丢外层包装器、换成 Hook 直连」的新行；其他形态返回 $null，由调用方兜底不猜测。
+function Get-PromotedNotifyLine {
+  param(
+    [string]$NotifyLine,
+    [string]$NewPath
+  )
+  $items = [regex]::Matches($NotifyLine, '"(?:\\.|[^"])*"')
+  for ($index = 0; $index -lt ($items.Count - 1); $index++) {
+    if ((Unescape-TomlString $items[$index].Value) -ieq '--previous-notify') {
+      $payload = Unescape-TomlString ($items[$index + 1].Value)
+      try {
+        $inner = ConvertFrom-Json -InputObject $payload
+      } catch {
+        return $null
+      }
+      if ($inner -isnot [System.Array] -or $inner.Count -ne 3) { return $null }
+      if (-not ([string]$inner[0] -match ($AgentNotifyPattern + '\s*$'))) { return $null }
+      if ([string]$inner[1] -ine 'codex' -or [string]$inner[2] -ine 'turn-ended') { return $null }
+      return (New-DirectNotifyLine -NewPath $NewPath -PreviousNotifyToken '')
+    }
+  }
+  return $null
+}
+
 function Write-ConfigAtomically {
   param(
     [string]$Path,
@@ -227,18 +255,33 @@ $notifyBlock = if ($notifyMatch.Success) { Get-NotifyBlock -Text $content.Substr
 
 if ($notifyBlock -match $AgentNotifyPattern) {
   Assert-NotifyLineIsSingleLine -NotifyLine $notifyLine -NotifyBlock $notifyBlock -ConfigPath $configPathFull
-  $updatedLine = Update-AgentNotifyPathInNotifyLine -NotifyLine $notifyLine -NewPath $hookSlash
-  if ($updatedLine -ne $notifyLine) {
+  $firstItem = [regex]::Match($notifyLine, '"(?:\\.|[^"])*"')
+  $isDirect = $firstItem.Success -and ((Unescape-TomlString $firstItem.Value) -match ($AgentNotifyPattern + '\s*$'))
+  $promotedLine = if ($isDirect) { $null } else { Get-PromotedNotifyLine -NotifyLine $notifyLine -NewPath $hookSlash }
+  if ($promotedLine) {
     Copy-Item -LiteralPath $configPathFull -Destination "$configPathFull.bak-notify-wrapper" -Force
     $lineMatch = [regex]::Match($content, '(?m)^notify\s*=.*$')
-    $updated = $content.Substring(0, $lineMatch.Index) + $updatedLine + $content.Substring($lineMatch.Index + $lineMatch.Length)
+    $updated = $content.Substring(0, $lineMatch.Index) + $promotedLine + $content.Substring($lineMatch.Index + $lineMatch.Length)
     Write-ConfigAtomically -Path $configPathFull -Content $updated
-    Write-Output "[hook] Codex notify 链上的 AgentNotify 已替换为 Hook（备份：$configPathFull.bak-notify-wrapper）"
-    Write-Output "[hook] $updatedLine"
-  } elseif ($notifyLine -match [regex]::Escape($hookSlash)) {
-    Write-Output "[hook] Codex notify 已指向本 Hook，无需改动。"
+    Write-Output "[hook] Codex notify 链上的 AgentNotify 被外层包装器包裹，已提升为 Hook 直连（备份：$configPathFull.bak-notify-wrapper）"
+    Write-Output "[hook] $promotedLine"
   } else {
-    throw "Codex notify 行含有 AgentNotify 但无法自动替换，请手动改为：$hookSlash（当前：$notifyLine）"
+    if (-not $isDirect) {
+      Write-Warning "Codex notify 链上的 AgentNotify 不在最外层，主动通知可能不可靠；建议手动改为 Hook 直连：$hookSlash"
+    }
+    $updatedLine = Update-AgentNotifyPathInNotifyLine -NotifyLine $notifyLine -NewPath $hookSlash
+    if ($updatedLine -ne $notifyLine) {
+      Copy-Item -LiteralPath $configPathFull -Destination "$configPathFull.bak-notify-wrapper" -Force
+      $lineMatch = [regex]::Match($content, '(?m)^notify\s*=.*$')
+      $updated = $content.Substring(0, $lineMatch.Index) + $updatedLine + $content.Substring($lineMatch.Index + $lineMatch.Length)
+      Write-ConfigAtomically -Path $configPathFull -Content $updated
+      Write-Output "[hook] Codex notify 链上的 AgentNotify 已替换为 Hook（备份：$configPathFull.bak-notify-wrapper）"
+      Write-Output "[hook] $updatedLine"
+    } elseif ($notifyLine -match [regex]::Escape($hookSlash)) {
+      Write-Output "[hook] Codex notify 已指向本 Hook，无需改动。"
+    } else {
+      throw "Codex notify 行含有 AgentNotify 但无法自动替换，请手动改为：$hookSlash（当前：$notifyLine）"
+    }
   }
 } elseif ($notifyBlock -match $CuaPattern) {
   Assert-NotifyLineIsSingleLine -NotifyLine $notifyLine -NotifyBlock $notifyBlock -ConfigPath $configPathFull
