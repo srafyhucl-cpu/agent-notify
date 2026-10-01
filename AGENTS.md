@@ -38,5 +38,6 @@
 - `.github/workflows/*.yml` 必须保持纯 ASCII：Actions 会把 `run` 脚本写成无 BOM 临时文件，PS 5.1 按 ANSI 读取，中文会破坏引号导致步骤语法错误（`tools\lint.ps1` 已加校验）。官方 Actions 固定完整 commit SHA，checkout 关闭凭据持久化；Release 的 validate/build/publish 权限和 Secret 边界不能混合。
 - 版本一致性由 `tools\check-version.ps1` 校验（`VERSION`、Tauri 配置、`Cargo.toml` 的 workspace 版本、README 徽章、Devin 扩展、CHANGELOG 段落、安装包名规则）；`tools\lint.ps1`、CI 与 Release validate 都会调用它。
 - 正式包由 Rust 桌面端构建：构建机需要 `D:\Tools\cargo` + `D:\Tools\rustup`（约定见 `tools\rust\gate.ps1`），本地发布门禁还需要 Inno Setup 6 与签名工具（`AGENT_NOTIFY_ISCC`、`AGENT_NOTIFY_SIGNTOOL`）。
+- 各 Agent 推送验证是**本地发版门禁**：发版前（候选构建）与发布后（正式包）各跑一次 `tools\push-verify.ps1`（对全部已安装 Agent 各触发一条真实微信推送；未安装/已停用的自动跳过；发版前不通过不许打 tag），结果并入发布后验证报告。
 - CI 静态检查包含 `govulncheck`；项目最低 Go 版本以 `go.mod` 的 `go` 行为准（当前 1.26.8）。
 - 提交前确认工作区里没有别人未完成的改动（同一仓库可能有并行 agent 在工作），只提交本次相关文件。
