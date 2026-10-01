@@ -394,6 +394,27 @@ try {
   Assert-True ($codexLine.Contains('--previous-notify')) "升级后 Codex 丢失了用户原有的 --previous-notify 载荷：$codexLine"
   Assert-True ($codexLine.Contains('linkweixin-notify.exe')) "升级后 Codex 载荷里的第三方程序丢失：$codexLine"
   Write-Output '[ok] 升级保留用户原有的 --previous-notify 载荷'
+
+  # 6. Codex 电脑操控插件把自己包到 notify 最外层、把 AgentNotify 塞进 --previous-notify（2026-10-01 实测形态）：
+  #    接入必须把 Hook 提升回直连（丢外层包装器，恢复干净的三元调用）。
+  $scenario = New-ScenarioDir 'cua-wraps-agentnotify'
+  $paths = New-SandboxPaths -Scenario $scenario
+  $hooksDir = Join-Path $scenario 'new-hooks'
+  New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
+  foreach ($name in @('agentnotify-codex-hook.exe', 'agentnotify-ingress.exe')) {
+    [IO.File]::WriteAllText((Join-Path $hooksDir $name), 'stub', $utf8NoBom)
+  }
+  $hookSlash = (Join-Path $hooksDir 'agentnotify-codex-hook.exe').Replace('\', '/')
+  $wrappedLine = 'notify = [ "C:/tools/codex-computer-use.exe", "turn-ended", "--previous-notify", "[\"' + $hookSlash + '\",\"codex\",\"turn-ended\"]" ]'
+  [IO.File]::WriteAllText($paths.CodexConfig, $wrappedLine + "`r`n", $utf8NoBom)
+  $installOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'tools\hooks\install-codex-v2.ps1') `
+      -HookPath (Join-Path $hooksDir 'agentnotify-codex-hook.exe') `
+      -ConfigPath $paths.CodexConfig `
+      -Ingress (Join-Path $hooksDir 'agentnotify-ingress.exe') 2>&1) -join "`n"
+  Assert-True ($LASTEXITCODE -eq 0) "CUA 包裹场景接入失败：$installOutput"
+  $codexLine = Get-NotifyLine $paths.CodexConfig
+  Assert-True ($codexLine -eq ('notify = [ "' + $hookSlash + '", "codex", "turn-ended" ]')) "CUA 包裹场景未提升为 Hook 直连：$codexLine"
+  Write-Output '[ok] CUA 包裹 AgentNotify 时提升为 Hook 直连'
 } finally {
   $env:TEMP = $previousTemp
   $env:TMP = $previousTmp
