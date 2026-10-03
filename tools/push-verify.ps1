@@ -191,6 +191,29 @@ function Resolve-CodexCli {
   return $null
 }
 
+# 前置巡检 Codex 通知链：被电脑操控插件重新包裹或损坏时，先自动修复为 Hook 直连再验证推送。
+function Invoke-CodexChainCheck {
+  $checkScript = Join-Path $PSScriptRoot 'hooks\check-codex-chain.ps1'
+  if (-not (Test-Path -LiteralPath $checkScript -PathType Leaf)) {
+    return [pscustomobject]@{ Status = 'error'; Detail = "缺少巡检脚本：$checkScript" }
+  }
+  $trigger = Invoke-NativeCapture {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript `
+      -HookPath (Join-Path $script:AppInstallDir 'agentnotify-codex-hook.exe') `
+      -Ingress $script:IngressExe
+  }
+  $status = 'error'
+  $detail = "巡检脚本退出码 $($trigger.ExitCode)"
+  foreach ($lineText in ($trigger.Output -split "`r?`n")) {
+    if ($lineText -match '^\[codex-chain\]\s+status=(\S+)\s+detail=(.*)$') {
+      $status = $Matches[1]
+      $detail = $Matches[2]
+      break
+    }
+  }
+  return [pscustomobject]@{ Status = $status; Detail = $detail }
+}
+
 function Test-NodeSupportsTypeScript {
   $node = Get-Command node.exe -ErrorAction SilentlyContinue
   if (-not $node) { return $null }
@@ -305,6 +328,7 @@ $results = New-Object System.Collections.Generic.List[object]
 $skipped = New-Object System.Collections.Generic.List[object]
 $channelBroken = $false
 $opencodeCli = $null
+$codexChainCheck = $null
 
 function Write-TriggerLog {
   param([string]$AgentId, [pscustomobject]$Trigger)
@@ -331,6 +355,8 @@ if (-not $channelBroken) {
   if (-not $codexCli) {
     $skipped.Add([pscustomobject]@{ Agent = 'codex'; Reason = '未找到 codex.exe' })
   } else {
+    # 前置巡检：链被重新包裹时先修复，再验证推送（修复只改配置，运行中的 Codex 需重启生效）。
+    $codexChainCheck = Invoke-CodexChainCheck
     $baseline = Get-AgentMaxNotificationRowId 'codex'
     $trigger = Invoke-CodexRun -Cli $codexCli -WorkDir (Join-Path $workRoot 'codex')
     Write-TriggerLog -AgentId 'codex' -Trigger $trigger
@@ -434,6 +460,15 @@ if ($skipped.Count -gt 0) {
   foreach ($item in $skipped) {
     $lines.Add(('- {0}：{1}' -f $item.Agent, $item.Reason))
   }
+}
+if ($codexChainCheck) {
+  $lines.Add('')
+  $lines.Add('## Codex 链前置检查')
+  $chainDetail = $codexChainCheck.Detail
+  if ($codexChainCheck.Status -eq 'fixed') {
+    $chainDetail = "$chainDetail（运行中的 Codex 客户端需重启后生效）"
+  }
+  $lines.Add(('- 状态：{0}；{1}' -f $codexChainCheck.Status, $chainDetail))
 }
 $lines.Add('')
 $lines.Add('## 人工确认')

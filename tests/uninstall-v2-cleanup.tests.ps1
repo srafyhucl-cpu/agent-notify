@@ -415,6 +415,45 @@ try {
   $codexLine = Get-NotifyLine $paths.CodexConfig
   Assert-True ($codexLine -eq ('notify = [ "' + $hookSlash + '", "codex", "turn-ended" ]')) "CUA 包裹场景未提升为 Hook 直连：$codexLine"
   Write-Output '[ok] CUA 包裹 AgentNotify 时提升为 Hook 直连'
+
+  # 7. check-codex-chain.ps1 巡检：包裹链自动修复（fixed），直连链判定 ok，缺配置判定 error。
+  $scenario = New-ScenarioDir 'check-chain'
+  $paths = New-SandboxPaths -Scenario $scenario
+  $hooksDir = Join-Path $scenario 'new-hooks'
+  New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
+  foreach ($name in @('agentnotify-codex-hook.exe', 'agentnotify-ingress.exe')) {
+    [IO.File]::WriteAllText((Join-Path $hooksDir $name), 'stub', $utf8NoBom)
+  }
+  $hookSlash = (Join-Path $hooksDir 'agentnotify-codex-hook.exe').Replace('\', '/')
+  $wrappedLine = 'notify = [ "C:/tools/codex-computer-use.exe", "turn-ended", "--previous-notify", "[\"' + $hookSlash + '\",\"codex\",\"turn-ended\"]" ]'
+  [IO.File]::WriteAllText($paths.CodexConfig, $wrappedLine + "`r`n", $utf8NoBom)
+  $checkLog = Join-Path $scenario 'codex-chain-check.log'
+  $checkScript = Join-Path $RepoRoot 'tools\hooks\check-codex-chain.ps1'
+  $checkOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript `
+      -HookPath (Join-Path $hooksDir 'agentnotify-codex-hook.exe') `
+      -ConfigPath $paths.CodexConfig `
+      -Ingress (Join-Path $hooksDir 'agentnotify-ingress.exe') `
+      -LogPath $checkLog 2>&1) -join "`n"
+  Assert-True ($LASTEXITCODE -eq 0) "巡检脚本退出码异常：$checkOutput"
+  Assert-True ($checkOutput -match '\[codex-chain\] status=fixed') "巡检未判定为已修复：$checkOutput"
+  $codexLine = Get-NotifyLine $paths.CodexConfig
+  Assert-True ($codexLine -eq ('notify = [ "' + $hookSlash + '", "codex", "turn-ended" ]')) "巡检未把链提升为 Hook 直连：$codexLine"
+  Assert-True (Test-Path -LiteralPath $checkLog) '巡检未写日志'
+  $checkOutput2 = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript `
+      -HookPath (Join-Path $hooksDir 'agentnotify-codex-hook.exe') `
+      -ConfigPath $paths.CodexConfig `
+      -Ingress (Join-Path $hooksDir 'agentnotify-ingress.exe') `
+      -LogPath $checkLog 2>&1) -join "`n"
+  Assert-True ($LASTEXITCODE -eq 0) "二次巡检退出码异常：$checkOutput2"
+  Assert-True ($checkOutput2 -match '\[codex-chain\] status=ok') "直连链未判定为 ok：$checkOutput2"
+  $missingOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript `
+      -HookPath (Join-Path $hooksDir 'agentnotify-codex-hook.exe') `
+      -ConfigPath (Join-Path $scenario 'missing-config.toml') `
+      -Ingress (Join-Path $hooksDir 'agentnotify-ingress.exe') `
+      -LogPath $checkLog 2>&1) -join "`n"
+  Assert-True ($LASTEXITCODE -eq 1) "缺少配置时应返回 1：$missingOutput"
+  Assert-True ($missingOutput -match '\[codex-chain\] status=error') "缺少配置应判定为 error：$missingOutput"
+  Write-Output '[ok] codex 链巡检自动修复与状态判定'
 } finally {
   $env:TEMP = $previousTemp
   $env:TMP = $previousTmp
